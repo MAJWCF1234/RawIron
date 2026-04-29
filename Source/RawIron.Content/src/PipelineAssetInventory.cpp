@@ -4,6 +4,7 @@
 
 #include <sstream>
 #include <utility>
+#include <algorithm>
 
 namespace ri::content::pipeline {
 namespace {
@@ -115,6 +116,56 @@ std::optional<AssetExtractionInventory> LoadAssetExtractionInventory(const std::
 
 bool SaveAssetExtractionInventory(const std::filesystem::path& path, const AssetExtractionInventory& inventory) {
     return detail_scan::WriteTextFile(path, SerializeAssetExtractionInventory(inventory));
+}
+
+const ArchiveInventoryEntry* FindArchiveInventoryEntry(const AssetExtractionInventory& inventory,
+                                                       std::string_view identifier) noexcept {
+    const auto it = std::find_if(
+        inventory.archives.begin(),
+        inventory.archives.end(),
+        [identifier](const ArchiveInventoryEntry& entry) {
+            return entry.identifier == identifier;
+        });
+    return it == inventory.archives.end() ? nullptr : &(*it);
+}
+
+ArchiveExtractionCacheDecision EvaluateArchiveExtractionCache(const AssetExtractionInventory& inventory,
+                                                              std::string_view identifier,
+                                                              std::string_view currentSignature) noexcept {
+    ArchiveExtractionCacheDecision decision{};
+    const ArchiveInventoryEntry* cached = FindArchiveInventoryEntry(inventory, identifier);
+    if (cached == nullptr) {
+        decision.reason = "archive not found in extraction cache";
+        return decision;
+    }
+
+    decision.signatureChanged = cached->signature != currentSignature;
+    decision.missingOutputs =
+        !cached->extractedOutputCurrent || cached->extractionStatus != ExtractionStatus::Complete
+        || cached->extractedOutputs.empty();
+    decision.shouldExtract = decision.signatureChanged || decision.missingOutputs;
+    if (!decision.shouldExtract) {
+        decision.reason = "cache hit (signature and extracted outputs current)";
+    } else if (decision.signatureChanged) {
+        decision.reason = "archive signature changed";
+    } else {
+        decision.reason = "extracted outputs stale or missing";
+    }
+    return decision;
+}
+
+void UpsertArchiveInventoryEntry(AssetExtractionInventory& inventory, ArchiveInventoryEntry entry) {
+    auto existing = std::find_if(
+        inventory.archives.begin(),
+        inventory.archives.end(),
+        [&entry](const ArchiveInventoryEntry& candidate) {
+            return !entry.identifier.empty() && candidate.identifier == entry.identifier;
+        });
+    if (existing != inventory.archives.end()) {
+        *existing = std::move(entry);
+        return;
+    }
+    inventory.archives.push_back(std::move(entry));
 }
 
 } // namespace ri::content::pipeline

@@ -327,8 +327,47 @@ std::string FormatRenderGameStateSnapshot(const RenderGameStateSnapshot& snapsho
                    << FormatDouble(static_cast<double>(entry.position.z), 3) << ")\n";
         }
     }
+    if (!snapshot.detailFields.empty()) {
+        std::vector<std::pair<std::string, std::string>> ordered;
+        ordered.reserve(snapshot.detailFields.size());
+        for (const auto& [key, value] : snapshot.detailFields) {
+            ordered.emplace_back(key, value);
+        }
+        std::sort(ordered.begin(), ordered.end(), [](const auto& lhs, const auto& rhs) {
+            return lhs.first < rhs.first;
+        });
+        report << "details:\n";
+        for (const auto& [key, value] : ordered) {
+            report << "  - " << key << "=" << value << '\n';
+        }
+    }
 
     return report.str();
+}
+
+RenderGameStateSnapshot BuildRenderGameStateSnapshot(const RenderGameStateBuildInput& input) {
+    RenderGameStateSnapshot snapshot{};
+    snapshot.mode = input.mode.empty() ? "runtime" : input.mode;
+    snapshot.level = input.level;
+    snapshot.paused = input.paused;
+    snapshot.counts = input.counts;
+    snapshot.helperLibraries = input.helperLibraries;
+    snapshot.audioEnvironment = input.audioEnvironment;
+    snapshot.postProcessEnvironment = input.postProcessEnvironment;
+    snapshot.coordinateSystem = input.coordinateSystem;
+    snapshot.nearbyInteractives = input.nearbyInteractives;
+    snapshot.actors = input.actors;
+    snapshot.detailFields = input.detailFields;
+
+    snapshot.detailFields.emplace("eventBus.activeListeners",
+                                  std::to_string(snapshot.helperLibraries.eventBusListeners));
+    snapshot.detailFields.emplace("eventBus.emitted",
+                                  std::to_string(snapshot.helperLibraries.eventBusEmits));
+    snapshot.detailFields.emplace("schema.validations",
+                                  std::to_string(snapshot.helperLibraries.schemaValidations));
+    snapshot.detailFields.emplace("scene.collidables",
+                                  std::to_string(snapshot.counts.collidables));
+    return snapshot;
 }
 
 std::string FormatRuntimeDebugReport(const RuntimeDebugSnapshot& snapshot) {
@@ -502,6 +541,24 @@ std::string FormatRenderGameStateSnapshotJson(const RenderGameStateSnapshot& sna
     out << "\"coordinateSystem\":\""
         << JsonEscape(snapshot.coordinateSystem.empty() ? "rawiron native world coordinates" : snapshot.coordinateSystem)
         << "\"";
+    if (!snapshot.detailFields.empty()) {
+        std::vector<std::pair<std::string, std::string>> ordered;
+        ordered.reserve(snapshot.detailFields.size());
+        for (const auto& [key, value] : snapshot.detailFields) {
+            ordered.emplace_back(key, value);
+        }
+        std::sort(ordered.begin(), ordered.end(), [](const auto& lhs, const auto& rhs) {
+            return lhs.first < rhs.first;
+        });
+        out << ",\"details\":{";
+        for (std::size_t i = 0; i < ordered.size(); ++i) {
+            if (i > 0) {
+                out << ",";
+            }
+            out << "\"" << JsonEscape(ordered[i].first) << "\":\"" << JsonEscape(ordered[i].second) << "\"";
+        }
+        out << "}";
+    }
     out << "}";
     return out.str();
 }
@@ -545,6 +602,115 @@ bool ExportRuntimeDebugSnapshot(const RuntimeDebugSnapshot& snapshot,
         return false;
     }
     return true;
+}
+
+ProofBoardSnapshot BuildProofBoardSnapshot(const EngineCountSnapshot& counts,
+                                           const std::span<const std::string_view> requiredPieces) {
+    auto countByName = [&counts](std::string_view piece) -> std::size_t {
+        if (piece == "collidables") return counts.collidables;
+        if (piece == "structuralCollidables") return counts.structuralCollidables;
+        if (piece == "interactives") return counts.interactives;
+        if (piece == "physicsObjects") return counts.physicsObjects;
+        if (piece == "triggerVolumes") return counts.triggerVolumes;
+        if (piece == "logicEntities") return counts.logicEntities;
+        if (piece == "levelEvents") return counts.levelEvents;
+        return 0U;
+    };
+
+    ProofBoardSnapshot snapshot{};
+    snapshot.towerStanding = counts.collidables > 0 && counts.structuralCollidables > 0;
+    snapshot.pieces.reserve(requiredPieces.size());
+    for (const std::string_view piece : requiredPieces) {
+        const std::size_t count = countByName(piece);
+        snapshot.pieces.push_back(ProofBoardPieceStatus{
+            .pieceId = std::string(piece),
+            .present = count > 0,
+            .count = count,
+        });
+    }
+    return snapshot;
+}
+
+std::string FormatProofBoardSnapshot(const ProofBoardSnapshot& snapshot) {
+    std::ostringstream out;
+    out << "proof_board\n";
+    out << "tower_standing=" << (snapshot.towerStanding ? "true" : "false") << '\n';
+    out << "pieces\n";
+    for (const ProofBoardPieceStatus& piece : snapshot.pieces) {
+        out << "  - " << piece.pieceId
+            << " present=" << (piece.present ? "true" : "false")
+            << " count=" << piece.count << '\n';
+    }
+    return out.str();
+}
+
+RenderGameStateDiff BuildRenderGameStateDiff(const RenderGameStateSnapshot& before,
+                                             const RenderGameStateSnapshot& after) {
+    RenderGameStateDiff diff{};
+    auto appendIfChanged = [&](std::string field, std::string lhs, std::string rhs) {
+        if (lhs != rhs) {
+            diff.changes.push_back(RenderGameStateDiffEntry{
+                .field = std::move(field),
+                .before = std::move(lhs),
+                .after = std::move(rhs),
+            });
+        }
+    };
+
+    appendIfChanged("mode", before.mode, after.mode);
+    appendIfChanged("level", before.level, after.level);
+    appendIfChanged("paused", before.paused ? "true" : "false", after.paused ? "true" : "false");
+    appendIfChanged("counts.collidables",
+                    std::to_string(before.counts.collidables),
+                    std::to_string(after.counts.collidables));
+    appendIfChanged("counts.interactives",
+                    std::to_string(before.counts.interactives),
+                    std::to_string(after.counts.interactives));
+    appendIfChanged("eventBus.emits",
+                    std::to_string(before.helperLibraries.eventBusEmits),
+                    std::to_string(after.helperLibraries.eventBusEmits));
+    appendIfChanged("eventBus.listeners",
+                    std::to_string(before.helperLibraries.eventBusListeners),
+                    std::to_string(after.helperLibraries.eventBusListeners));
+
+    std::vector<std::pair<std::string, std::string>> keys;
+    keys.reserve(before.detailFields.size() + after.detailFields.size());
+    for (const auto& [key, value] : before.detailFields) {
+        (void)value;
+        keys.emplace_back(key, key);
+    }
+    for (const auto& [key, value] : after.detailFields) {
+        (void)value;
+        keys.emplace_back(key, key);
+    }
+    std::sort(keys.begin(), keys.end(), [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+    keys.erase(std::unique(keys.begin(), keys.end(), [](const auto& lhs, const auto& rhs) { return lhs.first == rhs.first; }),
+               keys.end());
+    for (const auto& [key, _] : keys) {
+        const std::string beforeValue = before.detailFields.contains(key) ? before.detailFields.at(key) : "<missing>";
+        const std::string afterValue = after.detailFields.contains(key) ? after.detailFields.at(key) : "<missing>";
+        appendIfChanged("details." + key, beforeValue, afterValue);
+    }
+    return diff;
+}
+
+std::string FormatRenderGameStateDiff(const RenderGameStateDiff& diff) {
+    std::ostringstream out;
+    out << "render_state_diff\n";
+    out << "changes=" << diff.changes.size() << '\n';
+    for (const RenderGameStateDiffEntry& entry : diff.changes) {
+        out << "  - " << entry.field << ": " << entry.before << " -> " << entry.after << '\n';
+    }
+    return out.str();
+}
+
+void AppendRenderGameStateTimelineEntry(std::vector<RenderGameStateTimelineEntry>& timeline,
+                                        RenderGameStateTimelineEntry entry,
+                                        const std::size_t maxEntries) {
+    timeline.push_back(std::move(entry));
+    if (timeline.size() > maxEntries) {
+        timeline.erase(timeline.begin(), timeline.begin() + static_cast<std::ptrdiff_t>(timeline.size() - maxEntries));
+    }
 }
 
 } // namespace ri::debug

@@ -114,16 +114,52 @@ std::size_t BspSpatialIndex::BuildNode(const std::vector<std::size_t>& entryIndi
         return nodeIndex;
     }
 
-    const ri::math::Vec3 size = Size(node.bounds);
-    const char axis = size.x >= size.z ? 'x' : 'z';
+    const auto axisValue = [](const ri::math::Vec3& value, char axis) {
+        return axis == 'x' ? value.x : (axis == 'y' ? value.y : value.z);
+    };
 
-    std::vector<float> centers;
-    centers.reserve(entryIndices.size());
-    for (std::size_t entryIndex : entryIndices) {
-        centers.push_back(axis == 'x' ? entries_[entryIndex].center.x : entries_[entryIndex].center.z);
+    char axis = 'x';
+    float split = 0.0f;
+    std::size_t bestImbalance = static_cast<std::size_t>(-1);
+    float bestSpan = -1.0f;
+    bool foundSplit = false;
+    for (const char candidateAxis : {'x', 'y', 'z'}) {
+        std::vector<float> centers;
+        centers.reserve(entryIndices.size());
+        for (std::size_t entryIndex : entryIndices) {
+            centers.push_back(axisValue(entries_[entryIndex].center, candidateAxis));
+        }
+        std::sort(centers.begin(), centers.end());
+        const float candidateSplit = centers[centers.size() / 2];
+
+        std::size_t leftCount = 0;
+        std::size_t rightCount = 0;
+        for (std::size_t entryIndex : entryIndices) {
+            const float center = axisValue(entries_[entryIndex].center, candidateAxis);
+            if (center <= candidateSplit) {
+                leftCount += 1;
+            } else {
+                rightCount += 1;
+            }
+        }
+        if (leftCount == 0 || rightCount == 0) {
+            continue;
+        }
+
+        const std::size_t imbalance = leftCount > rightCount ? (leftCount - rightCount) : (rightCount - leftCount);
+        const float span = axisValue(node.bounds.max, candidateAxis) - axisValue(node.bounds.min, candidateAxis);
+        if (!foundSplit || imbalance < bestImbalance || (imbalance == bestImbalance && span > bestSpan)) {
+            foundSplit = true;
+            bestImbalance = imbalance;
+            bestSpan = span;
+            axis = candidateAxis;
+            split = candidateSplit;
+        }
     }
-    std::sort(centers.begin(), centers.end());
-    const float split = centers[centers.size() / 2];
+    if (!foundSplit) {
+        nodes_[nodeIndex].entryIndices = entryIndices;
+        return nodeIndex;
+    }
 
     std::vector<std::size_t> leftEntries;
     std::vector<std::size_t> rightEntries;
@@ -131,7 +167,8 @@ std::size_t BspSpatialIndex::BuildNode(const std::vector<std::size_t>& entryIndi
     rightEntries.reserve(entryIndices.size());
 
     for (std::size_t entryIndex : entryIndices) {
-        const float center = axis == 'x' ? entries_[entryIndex].center.x : entries_[entryIndex].center.z;
+        const ri::math::Vec3& c = entries_[entryIndex].center;
+        const float center = axis == 'x' ? c.x : axis == 'y' ? c.y : c.z;
         if (center <= split) {
             leftEntries.push_back(entryIndex);
         } else {
@@ -207,11 +244,27 @@ void BspSpatialIndex::QueryRayNode(std::size_t nodeIndex,
         return;
     }
 
-    if (node.left != kInvalidNode) {
-        QueryRayNode(node.left, ray, far, segmentBounds, out, seen);
+    const auto axisValue = [](const ri::math::Vec3& value, char axis) {
+        return axis == 'x' ? value.x : (axis == 'y' ? value.y : value.z);
+    };
+
+    std::size_t firstChild = node.left;
+    std::size_t secondChild = node.right;
+    if (node.axis == 'x' || node.axis == 'y' || node.axis == 'z') {
+        const float originAxis = axisValue(ray.origin, node.axis);
+        const float dirAxis = axisValue(ray.direction, node.axis);
+        const bool originOnLeft = originAxis <= node.split;
+        if ((dirAxis > 0.0f && !originOnLeft) || (dirAxis < 0.0f && originOnLeft)) {
+            firstChild = node.right;
+            secondChild = node.left;
+        }
     }
-    if (node.right != kInvalidNode) {
-        QueryRayNode(node.right, ray, far, segmentBounds, out, seen);
+
+    if (firstChild != kInvalidNode) {
+        QueryRayNode(firstChild, ray, far, segmentBounds, out, seen);
+    }
+    if (secondChild != kInvalidNode) {
+        QueryRayNode(secondChild, ray, far, segmentBounds, out, seen);
     }
 }
 

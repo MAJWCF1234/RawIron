@@ -103,5 +103,9 @@ struct StructuralDependencyGraph {
 [[nodiscard]] StructuralPhase ClassifyStructuralPhase(std::string_view type);
 [[nodiscard]] std::vector<std::string> GetExplicitDependencies(const StructuralNode& node);
 [[nodiscard]] StructuralDependencyGraph BuildStructuralDependencyGraph(const std::vector<StructuralNode>& nodes);
+/// Level-compiler / tooling alias (same contract as `BuildStructuralDependencyGraph`).
+[[nodiscard]] StructuralDependencyGraph buildStructuralDependencyGraph(const std::vector<StructuralNode>& nodes);
+[[nodiscard]] std::string FormatStructuralDependencyGraphSummary(const StructuralDependencyGraph& graph,
+                                                                 std::size_t maxOrderedNodeLines = 12);
 
 } // namespace ri::structural

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <utility>
 
 namespace ri::audio {
@@ -198,6 +199,52 @@ std::shared_ptr<ManagedSound> AudioManager::PlayOneShot(std::string_view filePat
     return sound;
 }
 
+std::shared_ptr<ManagedSound> AudioManager::PlayOneShotSafe(const OneShotAudioEventRequest& request,
+                                                            const SafeAudioPlaybackContext& context) {
+    if (!context.deviceReady || !context.worldReady || request.path.empty()) {
+        oneShotDroppedBySafety_ += 1;
+        return nullptr;
+    }
+    if (muted_ || backend_ == nullptr) {
+        oneShotDroppedBySafety_ += 1;
+        return nullptr;
+    }
+
+    const std::string key = !request.eventId.empty()
+        ? request.eventId
+        : (request.channel + ":" + request.path);
+    OneShotDispatchState& state = oneShotDispatch_[key];
+    const double safeWindow = std::max(0.0, std::isfinite(request.antiSpamWindowMs) ? request.antiSpamWindowMs : 0.0);
+    const std::size_t cap = std::max<std::size_t>(1U, request.concurrencyCap);
+    if (safeWindow > 0.0 && state.lastEmitMs >= 0.0 && (currentTimeMs_ - state.lastEmitMs) < safeWindow) {
+        oneShotDroppedBySafety_ += 1;
+        return nullptr;
+    }
+    if (state.activeCount >= cap) {
+        oneShotDroppedBySafety_ += 1;
+        return nullptr;
+    }
+
+    std::shared_ptr<ManagedSound> sound = CreateManagedSoundInternal(
+        request.path,
+        request.volume,
+        false,
+        1.0,
+        true,
+        true,
+        false,
+        false,
+        true,
+        false);
+    if (sound == nullptr) {
+        oneShotDroppedBySafety_ += 1;
+        return nullptr;
+    }
+    state.activeCount += 1;
+    state.lastEmitMs = currentTimeMs_;
+    return sound;
+}
+
 std::shared_ptr<ManagedSound> AudioManager::PlayVoice(std::string_view filePath, double volume) {
     if (activeVoiceId_.has_value()) {
         const auto activeIt = managedSounds_.find(*activeVoiceId_);
@@ -244,6 +291,21 @@ void AudioManager::Tick(double deltaMs) {
     }
     if (std::isfinite(deltaMs) && deltaMs > 0.0) {
         currentTimeMs_ += deltaMs;
+        for (auto& [channel, runtime] : loopedBusChannels_) {
+            (void)channel;
+            if (runtime.sound == nullptr) {
+                continue;
+            }
+            const double delta = runtime.targetVolume - runtime.currentVolume;
+            if (std::fabs(delta) <= 1e-6) {
+                continue;
+            }
+            const double step = runtime.fadePerMs > 0.0
+                ? std::min(std::fabs(delta), runtime.fadePerMs * deltaMs)
+                : std::fabs(delta);
+            runtime.currentVolume += delta > 0.0 ? step : -step;
+            runtime.sound->SetVolume(runtime.currentVolume);
+        }
     }
 
     if (pendingEchoes_.empty()) {
@@ -281,11 +343,89 @@ AudioManagerMetrics AudioManager::GetMetrics() const {
     metrics.activeEnvironmentMix = environmentProfile_.has_value() ? environmentProfile_->reverbMix : 0.0;
     metrics.pendingEchoes = pendingEchoes_.size();
     metrics.droppedEchoes = droppedEchoes_;
+    metrics.loopBusChannels = loopedBusChannels_.size();
+    metrics.oneShotDroppedBySafety = oneShotDroppedBySafety_;
     return metrics;
 }
 
 std::size_t AudioManager::PendingEchoCount() const {
     return pendingEchoes_.size();
+}
+
+void AudioManager::SyncLoopedAudioBuses(std::string_view phase, std::vector<LoopedAudioBusIntent> intents) {
+    std::sort(intents.begin(), intents.end(), [](const LoopedAudioBusIntent& lhs, const LoopedAudioBusIntent& rhs) {
+        if (lhs.channel != rhs.channel) return lhs.channel < rhs.channel;
+        if (lhs.priority != rhs.priority) return lhs.priority > rhs.priority;
+        return lhs.loopPath < rhs.loopPath;
+    });
+
+    std::unordered_map<std::string, LoopedAudioBusIntent> selected;
+    for (const LoopedAudioBusIntent& intent : intents) {
+        if (intent.channel.empty()) {
+            continue;
+        }
+        if (!selected.contains(intent.channel)) {
+            selected.emplace(intent.channel, intent);
+        }
+    }
+
+    for (auto& [channel, runtime] : loopedBusChannels_) {
+        if (!selected.contains(channel) && runtime.sound != nullptr) {
+            runtime.targetVolume = 0.0;
+            runtime.fadePerMs = runtime.currentVolume / 200.0;
+            runtime.priority = std::numeric_limits<int>::min();
+        }
+    }
+
+    for (auto& [channel, intent] : selected) {
+        LoopedBusChannelRuntime& runtime = loopedBusChannels_[channel];
+        const bool replace = runtime.sound == nullptr
+            || intent.priority >= runtime.priority
+            || runtime.loopPath == intent.loopPath;
+        if (replace && runtime.loopPath != intent.loopPath) {
+            if (runtime.sound != nullptr) {
+                runtime.sound->Stop();
+                runtime.sound->Unload();
+            }
+            runtime.sound = CreateLoopingSound(intent.loopPath, 0.0);
+            if (runtime.sound != nullptr) {
+                runtime.sound->Play();
+            }
+            runtime.currentVolume = 0.0;
+        }
+        runtime.phase = intent.phase.empty() ? std::string(phase) : intent.phase;
+        runtime.loopPath = intent.loopPath;
+        runtime.priority = std::max(runtime.priority, intent.priority);
+        const double duck = loopedBusDuck_.contains(channel) ? loopedBusDuck_.at(channel) : 1.0;
+        runtime.targetVolume = ClampAudioVolume(intent.volume * duck);
+        const double fadeMs = std::max(1.0, std::isfinite(intent.fadeMs) ? intent.fadeMs : 150.0);
+        runtime.fadePerMs = std::fabs(runtime.targetVolume - runtime.currentVolume) / fadeMs;
+    }
+}
+
+void AudioManager::SetLoopedAudioBusDuck(std::string_view channel, double duckFactor) {
+    if (channel.empty()) {
+        return;
+    }
+    loopedBusDuck_[std::string(channel)] = ClampAudioVolume(duckFactor, 0.0);
+}
+
+std::vector<LoopedAudioBusChannelState> AudioManager::GetLoopedAudioBusStates() const {
+    std::vector<LoopedAudioBusChannelState> states;
+    states.reserve(loopedBusChannels_.size());
+    for (const auto& [channel, runtime] : loopedBusChannels_) {
+        states.push_back(LoopedAudioBusChannelState{
+            .channel = channel,
+            .phase = runtime.phase,
+            .loopPath = runtime.loopPath,
+            .playing = runtime.sound != nullptr && runtime.sound->IsPlaying(),
+            .priority = runtime.priority,
+            .currentVolume = runtime.currentVolume,
+            .targetVolume = runtime.targetVolume,
+        });
+    }
+    std::sort(states.begin(), states.end(), [](const auto& lhs, const auto& rhs) { return lhs.channel < rhs.channel; });
+    return states;
 }
 
 std::shared_ptr<ManagedSound> AudioManager::CreateManagedSoundInternal(std::string_view filePath,
@@ -396,10 +536,27 @@ void AudioManager::HandlePlaybackFinished(ManagedSound::SoundId soundId, bool tr
     }
 
     found->second->ReleaseOnPlaybackFinished();
+    const std::string path = found->second->GetPath();
     managedSounds_.erase(found);
+    for (auto& [key, state] : oneShotDispatch_) {
+        if (key.find(path) != std::string::npos && state.activeCount > 0U) {
+            state.activeCount -= 1U;
+        }
+    }
+    PruneOneShotDispatchState(currentTimeMs_);
 
     if (trackAsVoice && activeVoiceId_.has_value() && *activeVoiceId_ == soundId) {
         activeVoiceId_.reset();
+    }
+}
+
+void AudioManager::PruneOneShotDispatchState(const double nowMs) {
+    for (auto it = oneShotDispatch_.begin(); it != oneShotDispatch_.end();) {
+        if (it->second.activeCount == 0U && it->second.lastEmitMs >= 0.0 && (nowMs - it->second.lastEmitMs) > 10000.0) {
+            it = oneShotDispatch_.erase(it);
+        } else {
+            ++it;
+        }
     }
 }
 

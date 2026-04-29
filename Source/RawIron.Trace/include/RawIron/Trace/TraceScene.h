@@ -113,7 +113,9 @@ private:
 
     std::vector<TraceCollider> colliders_;
     std::vector<std::size_t> dynamicColliderIndices_;
+    /// Broad-phase AABB BSP for non-dynamic colliders; candidates are refined with narrow-phase box/ray/sweep.
     ri::spatial::BspSpatialIndex staticIndex_;
+    /// Same tree class, filtered to `structural` static colliders (gameplay/visibility queries).
     ri::spatial::BspSpatialIndex structuralIndex_;
     mutable TraceSceneMetrics metrics_{};
 };

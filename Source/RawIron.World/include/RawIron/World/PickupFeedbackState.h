@@ -27,6 +27,8 @@ struct PickupFeedbackPolicy {
     PickupFeedbackMode mode = PickupFeedbackMode::Verbose;
     bool allowObjectiveUpdates = true;
     bool allowHints = true;
+    double antiSpamWindowMs = 450.0;
+    std::size_t maxBurstsPerWindow = 2U;
     std::size_t historyLimit = 16U;
 };
 
@@ -36,6 +38,9 @@ struct PickupFeedbackRequest {
     std::string pickupMessage;
     std::string objectiveText;
     std::string hintText;
+    std::string itemClass;
+    std::string pickupAudioCue;
+    std::string uiAccentCue;
     double messageDurationMs = 3500.0;
     double hintDurationMs = 6000.0;
 };
@@ -45,6 +50,10 @@ struct PickupFeedbackHistoryEntry {
     std::string message;
     std::string objectiveText;
     std::string hintText;
+    std::string itemClass;
+    std::string audioCue;
+    std::string uiAccentCue;
+    bool suppressedByAntiSpam = false;
     std::uint64_t revision = 0;
 };
 
@@ -66,18 +75,31 @@ public:
     [[nodiscard]] const std::optional<TimedPresentationEntry>& ActiveHint() const;
     [[nodiscard]] std::optional<std::string> ConsumePendingObjective();
     [[nodiscard]] const std::vector<PickupFeedbackHistoryEntry>& History() const;
+    [[nodiscard]] bool ConsumePendingUiAccentPulse();
 
 private:
     void ActivateMessage(std::string message, double durationMs);
     void ActivateHint(std::string hintText, double durationMs);
-    void PushHistory(PickupFeedbackKind kind, std::string message, std::string objectiveText, std::string hintText);
+    void PushHistory(PickupFeedbackKind kind,
+                     std::string message,
+                     std::string objectiveText,
+                     std::string hintText,
+                     std::string itemClass,
+                     std::string audioCue,
+                     std::string uiAccentCue,
+                     bool suppressedByAntiSpam);
+    [[nodiscard]] bool ShouldSuppressForAntiSpam();
+    void RecordPickupTimestamp();
     [[nodiscard]] std::string NormalizeLabel(std::string label) const;
 
     PickupFeedbackPolicy policy_{};
     std::optional<TimedPresentationEntry> activeMessage_{};
     std::optional<TimedPresentationEntry> activeHint_{};
     std::optional<std::string> pendingObjective_{};
+    bool pendingUiAccentPulse_ = false;
     std::vector<PickupFeedbackHistoryEntry> history_{};
+    std::vector<double> pickupTimestampsMs_{};
+    double elapsedMs_ = 0.0;
     std::uint64_t nextRevision_ = 1U;
 };
 

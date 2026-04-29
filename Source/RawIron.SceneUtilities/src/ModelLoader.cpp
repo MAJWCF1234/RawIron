@@ -105,8 +105,10 @@ std::vector<ModelImportBackend> ResolveModelImportCandidates(const ImportedModel
         appendUnique(*resolvedBackend);
     }
 
-    for (const ModelImportBackend backend : options.fallbackBackends) {
-        appendUnique(backend);
+    if (!options.lockToPrimaryBackend) {
+        for (const ModelImportBackend backend : options.fallbackBackends) {
+            appendUnique(backend);
+        }
     }
     return candidates;
 }
@@ -251,6 +253,15 @@ bool AppendObjGeometryRecursive(const ufbx_node* node,
 
 } // namespace
 
+std::vector<ModelImportBackend> BuildExternalModelCandidateTypes(const ImportedModelOptions& options, std::string* error) {
+    std::string localError;
+    std::vector<ModelImportBackend> candidates = ResolveModelImportCandidates(options, localError);
+    if (error != nullptr) {
+        *error = localError;
+    }
+    return candidates;
+}
+
 std::optional<Mesh> LoadWavefrontObjMesh(const std::filesystem::path& path, std::string& error) {
     ufbx_load_opts loadOptions{};
     loadOptions.file_format = UFBX_FILE_FORMAT_OBJ;
@@ -307,7 +318,7 @@ std::optional<Mesh> LoadWavefrontObjMesh(const std::filesystem::path& path, std:
 
 int AddModelNode(Scene& scene, const ImportedModelOptions& options, std::string* error) {
     std::string resolveError;
-    const std::vector<ModelImportBackend> candidates = ResolveModelImportCandidates(options, resolveError);
+    const std::vector<ModelImportBackend> candidates = BuildExternalModelCandidateTypes(options, &resolveError);
     if (candidates.empty()) {
         if (error != nullptr) {
             *error = resolveError;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <sstream>
 #include <string_view>
 
 namespace ri::runtime {
@@ -63,6 +64,39 @@ std::unordered_map<std::string, double> BuildDefaultRuntimeTuningRecord() {
         defaults.emplace(std::string(rule.key), rule.limits.defaultValue);
     }
     return defaults;
+}
+
+std::unordered_map<std::string, double> BuildRuntimeTuningSnapshot(
+    const std::unordered_map<std::string, double>& overrides) noexcept {
+    std::unordered_map<std::string, double> snapshot = BuildDefaultRuntimeTuningRecord();
+    for (const auto& [key, value] : overrides) {
+        const RuntimeTuningLimits* limits = FindRuntimeTuningLimits(key);
+        if (limits == nullptr) {
+            continue;
+        }
+        if (!std::isfinite(value)) {
+            snapshot[key] = limits->defaultValue;
+        } else {
+            snapshot[key] = std::clamp(value, limits->min, limits->max);
+        }
+    }
+    return snapshot;
+}
+
+std::string FormatRuntimeTuningReport(const std::unordered_map<std::string, double>& values) {
+    std::ostringstream out;
+    out << "runtime_tuning\n";
+    for (std::string_view key : RuntimeTuningKeys()) {
+        const RuntimeTuningLimits* limits = FindRuntimeTuningLimits(key);
+        if (limits == nullptr) {
+            continue;
+        }
+        const auto it = values.find(std::string(key));
+        const double value = it == values.end() ? limits->defaultValue : it->second;
+        out << key << "=" << value << " (min=" << limits->min << ", max=" << limits->max
+            << ", default=" << limits->defaultValue << ")\n";
+    }
+    return out.str();
 }
 
 std::optional<double> SanitizeRuntimeTuningValue(std::string_view key, std::optional<double> raw) noexcept {

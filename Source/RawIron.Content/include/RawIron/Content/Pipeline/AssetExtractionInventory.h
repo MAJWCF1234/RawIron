@@ -41,6 +41,13 @@ struct AssetExtractionInventory {
     std::vector<ArchiveInventoryEntry> archives;
 };
 
+struct ArchiveExtractionCacheDecision {
+    bool shouldExtract = true;
+    bool signatureChanged = true;
+    bool missingOutputs = true;
+    std::string reason;
+};
+
 [[nodiscard]] std::string SerializeAssetExtractionInventory(const AssetExtractionInventory& inventory);
 
 [[nodiscard]] std::optional<AssetExtractionInventory> ParseAssetExtractionInventory(std::string_view jsonText);
@@ -49,5 +56,15 @@ struct AssetExtractionInventory {
 
 [[nodiscard]] bool SaveAssetExtractionInventory(const std::filesystem::path& path,
                                                   const AssetExtractionInventory& inventory);
+
+[[nodiscard]] const ArchiveInventoryEntry* FindArchiveInventoryEntry(const AssetExtractionInventory& inventory,
+                                                                     std::string_view identifier) noexcept;
+
+[[nodiscard]] ArchiveExtractionCacheDecision EvaluateArchiveExtractionCache(
+    const AssetExtractionInventory& inventory,
+    std::string_view identifier,
+    std::string_view currentSignature) noexcept;
+
+void UpsertArchiveInventoryEntry(AssetExtractionInventory& inventory, ArchiveInventoryEntry entry);
 
 } // namespace ri::content::pipeline

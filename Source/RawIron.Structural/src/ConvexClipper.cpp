@@ -252,6 +252,32 @@ ConvexSolidClipResult ClipConvexSolidByPlane(const ConvexSolid& solid, const Pla
     return result;
 }
 
+namespace {
+
+bool SameOrFlippedPlane(const Plane& lhs, const Plane& rhs, float epsilon) {
+    const float epsilonSquared = epsilon * epsilon;
+    const bool sameNormal = ri::math::DistanceSquared(lhs.normal, rhs.normal) <= epsilonSquared;
+    const bool flippedNormal = ri::math::DistanceSquared(lhs.normal, rhs.normal * -1.0f) <= epsilonSquared;
+    const bool sameConstant = std::fabs(lhs.constant - rhs.constant) <= epsilon;
+    const bool flippedConstant = std::fabs(lhs.constant + rhs.constant) <= epsilon;
+    return (sameNormal && sameConstant) || (flippedNormal && flippedConstant);
+}
+
+} // namespace
+
+std::vector<Plane> DedupeConvexPlanes(const std::vector<Plane>& planes, const float epsilon) {
+    std::vector<Plane> out;
+    out.reserve(planes.size());
+    for (const Plane& plane : planes) {
+        const bool duplicate =
+            std::any_of(out.begin(), out.end(), [&](const Plane& kept) { return SameOrFlippedPlane(kept, plane, epsilon); });
+        if (!duplicate) {
+            out.push_back(plane);
+        }
+    }
+    return out;
+}
+
 CompiledMesh BuildCompiledMeshFromConvexSolid(const ConvexSolid& solid) {
     CompiledMesh mesh{};
 

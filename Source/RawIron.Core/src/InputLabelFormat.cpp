@@ -102,6 +102,33 @@ std::string FormatNormalizedKeyboardLabel(std::string_view normalizedInput) {
     if (normalizedInput == "Escape") {
         return "Esc";
     }
+    if (normalizedInput == "ArrowUp") {
+        return "Up Arrow";
+    }
+    if (normalizedInput == "ArrowDown") {
+        return "Down Arrow";
+    }
+    if (normalizedInput == "ArrowLeft") {
+        return "Left Arrow";
+    }
+    if (normalizedInput == "ArrowRight") {
+        return "Right Arrow";
+    }
+    if (normalizedInput == "PageDown") {
+        return "Page Down";
+    }
+    if (normalizedInput == "PageUp") {
+        return "Page Up";
+    }
+    if (normalizedInput == "CapsLock") {
+        return "Caps Lock";
+    }
+    if (normalizedInput == "NumLock") {
+        return "Num Lock";
+    }
+    if (normalizedInput == "ScrollLock") {
+        return "Scroll Lock";
+    }
     if (normalizedInput == "ShiftLeft" || normalizedInput == "ShiftRight") {
         return "Shift";
     }
@@ -123,6 +150,9 @@ std::string FormatNormalizedKeyboardLabel(std::string_view normalizedInput) {
     if (normalizedInput.rfind("Digit", 0) == 0U && normalizedInput.size() == 6U) {
         return std::string(normalizedInput.substr(5U));
     }
+    if (normalizedInput.rfind("Numpad", 0) == 0U && normalizedInput.size() >= 7U) {
+        return "Num " + std::string(normalizedInput.substr(6U));
+    }
     if (normalizedInput.rfind("Key", 0) == 0U && normalizedInput.size() == 4U) {
         return std::string(normalizedInput.substr(3U));
     }
@@ -141,6 +171,10 @@ std::string FormatNormalizedKeyboardLabel(std::string_view normalizedInput) {
 std::string FormatInputLabelFromInputId(std::string_view inputId) {
     const std::string normalizedInput = NormalizeKeyboardInputId(inputId);
     return FormatNormalizedKeyboardLabel(normalizedInput);
+}
+
+std::string KeyCodeToLabel(std::string_view keyCode) {
+    return FormatInputLabelFromInputId(keyCode);
 }
 
 } // namespace ri::core

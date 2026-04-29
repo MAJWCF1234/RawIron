@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <unordered_set>
 
 namespace ri::world {
 namespace {
@@ -66,25 +67,29 @@ std::optional<ClipVolumeMode> ParseClipVolumeModeToken(std::string_view token) {
 
 std::optional<CollisionChannel> ParseCollisionChannelToken(std::string_view token) {
     const std::string normalized = NormalizeToken(token);
-    if (normalized == "player") {
+    if (normalized == "player" || normalized == "pawn" || normalized == "character") {
         return CollisionChannel::Player;
     }
-    if (normalized == "physics") {
+    if (normalized == "physics" || normalized == "world" || normalized == "solid") {
         return CollisionChannel::Physics;
     }
-    if (normalized == "camera") {
+    if (normalized == "camera" || normalized == "view") {
         return CollisionChannel::Camera;
     }
-    if (normalized == "bullet") {
+    if (normalized == "bullet" || normalized == "projectile" || normalized == "weapon") {
         return CollisionChannel::Bullet;
     }
-    if (normalized == "ai") {
+    if (normalized == "ai" || normalized == "npc" || normalized == "agent") {
         return CollisionChannel::AI;
     }
-    if (normalized == "vehicle") {
+    if (normalized == "vehicle" || normalized == "car") {
         return CollisionChannel::Vehicle;
     }
     return std::nullopt;
+}
+
+std::uint32_t CollisionChannelBit(const CollisionChannel channel) {
+    return 1U << static_cast<std::uint32_t>(channel);
 }
 
 std::optional<ConstraintAxis> ParseConstraintAxisToken(std::string_view token) {
@@ -220,21 +225,7 @@ std::vector<ClipVolumeMode> ParseClipVolumeModes(const std::vector<std::string>&
 }
 
 std::vector<CollisionChannel> ParseCollisionChannels(const std::vector<std::string>& rawChannels) {
-    std::vector<CollisionChannel> parsed;
-    parsed.reserve(rawChannels.size());
-
-    for (const std::string& rawChannel : rawChannels) {
-        const std::optional<CollisionChannel> channel = ParseCollisionChannelToken(rawChannel);
-        if (!channel.has_value() || Contains(parsed, *channel)) {
-            continue;
-        }
-        parsed.push_back(*channel);
-    }
-
-    if (parsed.empty()) {
-        parsed.push_back(CollisionChannel::Player);
-    }
-    return parsed;
+    return ResolveCollisionChannelAuthoring(rawChannels).channels;
 }
 
 std::vector<ConstraintAxis> ParseConstraintAxes(const std::vector<std::string>& rawAxes) {
@@ -280,13 +271,96 @@ std::vector<ConstraintAxis> ParseConstraintAxes(const std::vector<std::string>& 
     return parsed;
 }
 
+std::uint32_t BuildCollisionChannelMask(const std::vector<CollisionChannel>& channels) {
+    std::uint32_t mask = 0U;
+    for (const CollisionChannel channel : channels) {
+        mask |= CollisionChannelBit(channel);
+    }
+    return mask;
+}
+
+CollisionChannelResolveResult ResolveCollisionChannelAuthoring(const std::vector<std::string>& rawChannels,
+                                                               const CollisionChannel defaultChannel) {
+    CollisionChannelResolveResult result{};
+    result.channels.reserve(rawChannels.size());
+    for (const std::string& rawChannel : rawChannels) {
+        const std::optional<CollisionChannel> channel = ParseCollisionChannelToken(rawChannel);
+        if (!channel.has_value()) {
+            if (!rawChannel.empty()) {
+                result.unknownTokens.push_back(rawChannel);
+            }
+            continue;
+        }
+        if (!Contains(result.channels, *channel)) {
+            result.channels.push_back(*channel);
+        }
+    }
+    if (result.channels.empty()) {
+        result.channels.push_back(defaultChannel);
+        result.usedDefault = true;
+    }
+    result.mask = BuildCollisionChannelMask(result.channels);
+    return result;
+}
+
+std::vector<std::string> NormalizeTraceTags(const std::vector<std::string>& rawTags) {
+    std::vector<std::string> normalized;
+    normalized.reserve(rawTags.size());
+    std::unordered_set<std::string> seen;
+    for (const std::string& rawTag : rawTags) {
+        const std::string token = NormalizeToken(rawTag);
+        if (token.empty() || seen.contains(token)) {
+            continue;
+        }
+        seen.insert(token);
+        normalized.push_back(token);
+    }
+    std::sort(normalized.begin(), normalized.end());
+    return normalized;
+}
+
 bool TraceTagMatchesVolume(std::string_view traceTag, const FilteredCollisionVolume& volume) {
-    if (volume.channels.empty()) {
+    return TraceAndVolumeTagsMatch(traceTag, {}, volume);
+}
+
+bool TraceAndVolumeTagsMatch(std::string_view traceTag,
+                             const std::vector<std::string>& traceTags,
+                             const FilteredCollisionVolume& volume) {
+    const CollisionChannel channel = ParseCollisionChannelToken(traceTag).value_or(CollisionChannel::Player);
+    const std::uint32_t channelMask = volume.channelMask != 0U
+        ? volume.channelMask
+        : BuildCollisionChannelMask(volume.channels);
+    if ((channelMask & CollisionChannelBit(channel)) == 0U) {
         return false;
     }
 
-    const CollisionChannel tag = ParseCollisionChannelToken(traceTag).value_or(CollisionChannel::Player);
-    return Contains(volume.channels, tag);
+    const std::vector<std::string> normalizedTraceTags = NormalizeTraceTags(traceTags);
+    if (normalizedTraceTags.empty() && !volume.allowUntaggedTrace) {
+        return false;
+    }
+    for (const std::string& blocked : NormalizeTraceTags(volume.excludeTags)) {
+        if (std::find(normalizedTraceTags.begin(), normalizedTraceTags.end(), blocked) != normalizedTraceTags.end()) {
+            return false;
+        }
+    }
+    const std::vector<std::string> required = NormalizeTraceTags(volume.includeTags);
+    if (required.empty()) {
+        return true;
+    }
+    if (volume.requireAllIncludeTags) {
+        for (const std::string& need : required) {
+            if (std::find(normalizedTraceTags.begin(), normalizedTraceTags.end(), need) == normalizedTraceTags.end()) {
+                return false;
+            }
+        }
+        return true;
+    }
+    for (const std::string& need : required) {
+        if (std::find(normalizedTraceTags.begin(), normalizedTraceTags.end(), need) != normalizedTraceTags.end()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 RuntimeVolume CreateRuntimeVolume(const RuntimeVolumeSeed& data, const VolumeDefaults& defaults) {
@@ -316,8 +390,80 @@ FilteredCollisionVolume CreateFilteredCollisionVolume(const RuntimeVolumeSeed& d
                                                       const VolumeDefaults& defaults) {
     FilteredCollisionVolume volume{};
     static_cast<RuntimeVolume&>(volume) = CreateRuntimeVolume(data, defaults);
-    volume.channels = ParseCollisionChannels(rawChannels);
+    const CollisionChannelResolveResult resolved = ResolveCollisionChannelAuthoring(rawChannels);
+    volume.channels = resolved.channels;
+    volume.channelMask = resolved.mask;
     return volume;
+}
+
+InvisibleStructuralProxyVolume CreateInvisibleStructuralProxyVolume(const RuntimeVolumeSeed& data,
+                                                                    std::string_view sourceId,
+                                                                    float inflation,
+                                                                    bool collisionEnabled,
+                                                                    bool queryEnabled,
+                                                                    bool logicEnabled,
+                                                                    const VolumeDefaults& defaults) {
+    InvisibleStructuralProxyVolume proxy{};
+    static_cast<RuntimeVolume&>(proxy) = CreateRuntimeVolume(data, defaults);
+    proxy.type = "invisible_structural_proxy_volume";
+    proxy.debugVisible = false;
+    proxy.sourceId = sourceId.empty() ? proxy.id : std::string(sourceId);
+    proxy.inflation = ClampFiniteFloat(inflation, 0.0f, 0.0f, 1000.0f);
+    proxy.collisionEnabled = collisionEnabled;
+    proxy.queryEnabled = queryEnabled;
+    proxy.logicEnabled = logicEnabled;
+    if (proxy.inflation > 0.0f) {
+        proxy.size = proxy.size + ri::math::Vec3{proxy.inflation * 2.0f, proxy.inflation * 2.0f, proxy.inflation * 2.0f};
+        proxy.radius = std::max(0.001f, proxy.radius + proxy.inflation);
+        proxy.height = std::max(0.001f, proxy.height + proxy.inflation * 2.0f);
+    }
+    return proxy;
+}
+
+std::vector<ri::spatial::SpatialEntry> BuildInvisibleStructuralProxySpatialEntries(
+    const std::vector<InvisibleStructuralProxyVolume>& proxies) {
+    std::vector<ri::spatial::SpatialEntry> entries;
+    entries.reserve(proxies.size());
+    for (const InvisibleStructuralProxyVolume& proxy : proxies) {
+        if (!proxy.queryEnabled && !proxy.collisionEnabled) {
+            continue;
+        }
+        const RuntimeVolume& base = static_cast<const RuntimeVolume&>(proxy);
+        ri::spatial::Aabb bounds = ri::spatial::MakeEmptyAabb();
+        switch (base.shape) {
+        case VolumeShape::Box: {
+            const ri::math::Vec3 halfExtents{
+                std::max(0.001f, std::fabs(base.size.x) * 0.5f),
+                std::max(0.001f, std::fabs(base.size.y) * 0.5f),
+                std::max(0.001f, std::fabs(base.size.z) * 0.5f),
+            };
+            bounds = {.min = base.position - halfExtents, .max = base.position + halfExtents};
+            break;
+        }
+        case VolumeShape::Cylinder: {
+            const float radius = std::max(0.001f, std::fabs(std::isfinite(base.radius) ? base.radius : 0.5f));
+            const float halfHeight = std::max(
+                0.001f,
+                std::fabs(std::isfinite(base.height) ? base.height : base.size.y) * 0.5f);
+            const ri::math::Vec3 extents{radius, halfHeight, radius};
+            bounds = {.min = base.position - extents, .max = base.position + extents};
+            break;
+        }
+        case VolumeShape::Sphere:
+        default: {
+            const float radius = std::max(0.001f, std::fabs(std::isfinite(base.radius) ? base.radius : 0.5f));
+            const ri::math::Vec3 extents{radius, radius, radius};
+            bounds = {.min = base.position - extents, .max = base.position + extents};
+            break;
+        }
+        }
+        entries.push_back(ri::spatial::SpatialEntry{
+            .id = proxy.id,
+            .bounds = bounds,
+        });
+    }
+    std::sort(entries.begin(), entries.end(), [](const auto& lhs, const auto& rhs) { return lhs.id < rhs.id; });
+    return entries;
 }
 
 ClipRuntimeVolume CreateClipRuntimeVolume(const RuntimeVolumeSeed& data,

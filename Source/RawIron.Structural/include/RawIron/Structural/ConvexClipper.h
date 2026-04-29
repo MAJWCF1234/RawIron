@@ -68,5 +68,7 @@ struct ConvexSolidClipResult {
                                                            const Plane& splitPlane,
                                                            float epsilon = 1e-5f);
 [[nodiscard]] CompiledMesh BuildCompiledMeshFromConvexSolid(const ConvexSolid& solid);
+/// Stabilizes mesh-derived plane soups before CSG (duplicate / opposite-facing planes within epsilon).
+[[nodiscard]] std::vector<Plane> DedupeConvexPlanes(const std::vector<Plane>& planes, float epsilon = 1e-4f);
 
 } // namespace ri::structural

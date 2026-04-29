@@ -14,6 +14,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace ri::debug {
@@ -150,6 +151,21 @@ struct RenderGameStateSnapshot {
     std::string coordinateSystem;
     std::vector<NearbyInteractiveSnapshot> nearbyInteractives;
     std::vector<ActorSnapshotEntry> actors;
+    std::unordered_map<std::string, std::string> detailFields;
+};
+
+struct RenderGameStateBuildInput {
+    std::string mode = "runtime";
+    std::string level;
+    bool paused = false;
+    EngineCountSnapshot counts;
+    HelperLibraryMetricsSnapshot helperLibraries;
+    std::optional<RenderEnvironmentSnapshot> audioEnvironment;
+    std::optional<RenderEnvironmentSnapshot> postProcessEnvironment;
+    std::string coordinateSystem;
+    std::vector<NearbyInteractiveSnapshot> nearbyInteractives;
+    std::vector<ActorSnapshotEntry> actors;
+    std::unordered_map<std::string, std::string> detailFields;
 };
 
 struct RuntimeDebugSnapshot {
@@ -164,6 +180,32 @@ struct RuntimeDebugSnapshot {
     std::optional<ri::structural::StructuralGraphSummary> structuralGraph;
 };
 
+struct ProofBoardPieceStatus {
+    std::string pieceId;
+    bool present = false;
+    std::size_t count = 0;
+};
+
+struct ProofBoardSnapshot {
+    bool towerStanding = false;
+    std::vector<ProofBoardPieceStatus> pieces;
+};
+
+struct RenderGameStateDiffEntry {
+    std::string field;
+    std::string before;
+    std::string after;
+};
+
+struct RenderGameStateDiff {
+    std::vector<RenderGameStateDiffEntry> changes;
+};
+
+struct RenderGameStateTimelineEntry {
+    std::string timestamp;
+    RenderGameStateSnapshot snapshot;
+};
+
 [[nodiscard]] HelperLibraryMetricsSnapshot BuildHelperLibraryMetricsSnapshot(
     std::string_view runtimeSession,
     const ri::runtime::RuntimeEventBusMetrics& eventBusMetrics,
@@ -176,6 +218,7 @@ struct RuntimeDebugSnapshot {
                                                              const ri::spatial::BspSpatialIndex& collisionIndex,
                                                              const ri::spatial::BspSpatialIndex& structuralIndex);
 [[nodiscard]] std::string FormatRenderGameStateSnapshot(const RenderGameStateSnapshot& snapshot);
+[[nodiscard]] RenderGameStateSnapshot BuildRenderGameStateSnapshot(const RenderGameStateBuildInput& input);
 [[nodiscard]] std::string FormatRuntimeDebugReport(const RuntimeDebugSnapshot& snapshot);
 
 [[nodiscard]] std::vector<NearbyInteractiveSnapshot> SelectNearestInteractivesForSnapshot(
@@ -201,5 +244,14 @@ struct RuntimeDebugSnapshot {
 [[nodiscard]] bool ExportRuntimeDebugSnapshot(const RuntimeDebugSnapshot& snapshot,
                                               const std::filesystem::path& outputPath,
                                               std::string* error = nullptr);
+[[nodiscard]] ProofBoardSnapshot BuildProofBoardSnapshot(const EngineCountSnapshot& counts,
+                                                         std::span<const std::string_view> requiredPieces);
+[[nodiscard]] std::string FormatProofBoardSnapshot(const ProofBoardSnapshot& snapshot);
+[[nodiscard]] RenderGameStateDiff BuildRenderGameStateDiff(const RenderGameStateSnapshot& before,
+                                                           const RenderGameStateSnapshot& after);
+[[nodiscard]] std::string FormatRenderGameStateDiff(const RenderGameStateDiff& diff);
+void AppendRenderGameStateTimelineEntry(std::vector<RenderGameStateTimelineEntry>& timeline,
+                                        RenderGameStateTimelineEntry entry,
+                                        std::size_t maxEntries = 256);
 
 } // namespace ri::debug

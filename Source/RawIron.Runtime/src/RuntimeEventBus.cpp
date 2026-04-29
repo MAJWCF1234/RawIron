@@ -41,6 +41,7 @@ void RuntimeEventBus::Emit(std::string_view type, RuntimeEvent event) {
     const std::uint64_t sequence = nextEventSequence_++;
 
     const std::string key(type);
+    emittedByType_[key] += 1;
     if (event.type.empty()) {
         event.type = key;
     }
@@ -52,6 +53,17 @@ void RuntimeEventBus::Emit(std::string_view type, RuntimeEvent event) {
     }
 
     const auto found = listeners_.find(key);
+    const std::size_t listenerCount = found == listeners_.end() ? 0U : found->second.size();
+    routeTrace_.push_back(RuntimeSignalRouteTrace{
+        .sequence = sequence,
+        .type = key,
+        .sourceScope = event.fields.contains("source_scope") ? event.fields.at("source_scope") : std::string{},
+        .targetScope = event.fields.contains("target_scope") ? event.fields.at("target_scope") : std::string{},
+        .listenerCount = listenerCount,
+    });
+    if (routeTrace_.size() > maxRouteTraceCount_) {
+        routeTrace_.erase(routeTrace_.begin(), routeTrace_.begin() + (routeTrace_.size() - maxRouteTraceCount_));
+    }
     if (found == listeners_.end()) {
         return;
     }
@@ -62,6 +74,15 @@ void RuntimeEventBus::Emit(std::string_view type, RuntimeEvent event) {
             entry.handler(event);
         }
     }
+}
+
+void RuntimeEventBus::EmitScoped(std::string_view type,
+                                 std::string_view sourceScope,
+                                 std::string_view targetScope,
+                                 RuntimeEvent event) {
+    event.fields.insert_or_assign("source_scope", std::string(sourceScope));
+    event.fields.insert_or_assign("target_scope", std::string(targetScope));
+    Emit(type, std::move(event));
 }
 
 void RuntimeEventBus::Clear() {
@@ -77,7 +98,20 @@ RuntimeEventBusMetrics RuntimeEventBus::GetMetrics() const {
         (void)type;
         metrics.activeListeners += entries.size();
     }
+    metrics.emittedByType = emittedByType_;
     return metrics;
+}
+
+std::vector<RuntimeSignalRouteTrace> RuntimeEventBus::GetRecentSignalRoutes(const std::size_t maxCount) const {
+    if (maxCount == 0U || routeTrace_.empty()) {
+        return {};
+    }
+    const std::size_t take = std::min(maxCount, routeTrace_.size());
+    return std::vector<RuntimeSignalRouteTrace>(routeTrace_.end() - static_cast<std::ptrdiff_t>(take), routeTrace_.end());
+}
+
+RuntimeEventBus CreateRuntimeEventBus() {
+    return RuntimeEventBus{};
 }
 
 } // namespace ri::runtime

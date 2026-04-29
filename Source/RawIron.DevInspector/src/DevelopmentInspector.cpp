@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <cstdio>
 #include <exception>
 #include <sstream>
@@ -62,7 +63,76 @@ InspectorConfig NormalizeConfig(InspectorConfig config) {
     return config;
 }
 
+std::string QuoteArg(std::string_view value) {
+    std::string out = "\"";
+    out.reserve(value.size() + 4);
+    for (const char c : value) {
+        if (c == '"') {
+            out += "\\\"";
+        } else {
+            out += c;
+        }
+    }
+    out += "\"";
+    return out;
+}
+
 } // namespace
+
+std::optional<std::string> BuildInspectorBrowserLaunchCommand(const InspectorBrowserLaunchOptions& options) {
+    if (options.url.empty()) {
+        return std::nullopt;
+    }
+#if defined(_WIN32)
+    if (!options.browserPath.empty()) {
+        const std::string browser = QuoteArg(options.browserPath);
+        const std::string url = QuoteArg(options.url);
+        if (options.kioskMode) {
+            return browser + " --app=" + url + " --kiosk";
+        }
+        return browser + " " + url;
+    }
+    return std::string("start \"\" ") + QuoteArg(options.url);
+#elif defined(__APPLE__)
+    if (!options.browserPath.empty()) {
+        const std::string app = QuoteArg(options.browserPath);
+        const std::string url = QuoteArg(options.url);
+        return std::string("open -a ") + app + " " + url;
+    }
+    return std::string("open ") + QuoteArg(options.url);
+#else
+    if (!options.browserPath.empty()) {
+        return QuoteArg(options.browserPath) + " " + QuoteArg(options.url);
+    }
+    return std::string("xdg-open ") + QuoteArg(options.url);
+#endif
+}
+
+bool LaunchInspectorBrowser(const InspectorBrowserLaunchOptions& options,
+                            std::string* error,
+                            std::string* commandUsed) {
+    const std::optional<std::string> command = BuildInspectorBrowserLaunchCommand(options);
+    if (!command.has_value()) {
+        if (error != nullptr) {
+            *error = "browser launch URL is empty";
+        }
+        return false;
+    }
+    if (commandUsed != nullptr) {
+        *commandUsed = *command;
+    }
+    if (options.dryRun) {
+        return true;
+    }
+    const int code = std::system(command->c_str());
+    if (code != 0) {
+        if (error != nullptr) {
+            *error = "browser launch command failed with exit code " + std::to_string(code);
+        }
+        return false;
+    }
+    return true;
+}
 
 DevelopmentInspector::DevelopmentInspector(InspectorConfig config)
     : config_(NormalizeConfig(std::move(config)))

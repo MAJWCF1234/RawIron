@@ -17,6 +17,7 @@ add_library(RawIron.World
   src/TextOverlayEventBridge.cpp
   src/Instrumentation.cpp
   src/LogicEntityIoTelemetry.cpp
+  src/SpatialDebugDraw.cpp
   src/VolumeDescriptors.cpp
 )
 

@@ -21,10 +21,25 @@ enum class AccessFeedbackResult {
     Denied,
 };
 
+enum class AccessFeedbackContext {
+    Generic,
+    Terminal,
+    Door,
+    Objective,
+};
+
+enum class AccessDeniedSeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
+};
+
 struct AccessFeedbackPolicy {
     AccessFeedbackMode mode = AccessFeedbackMode::Verbose;
     bool allowObjectiveUpdates = true;
     bool allowHints = true;
+    double deniedCooldownMs = 350.0;
     std::size_t historyLimit = 16U;
 };
 
@@ -35,6 +50,12 @@ struct AccessFeedbackRequest {
     std::string unlockObjective;
     std::string unlockHint;
     std::string lockedHint;
+    std::string grantedAudioCue;
+    std::string deniedAudioCue;
+    std::string uiPulseCue;
+    std::string hapticCue;
+    AccessFeedbackContext context = AccessFeedbackContext::Generic;
+    AccessDeniedSeverity deniedSeverity = AccessDeniedSeverity::Medium;
     double grantedDurationMs = 2000.0;
     double deniedDurationMs = 4000.0;
 };
@@ -44,6 +65,12 @@ struct AccessFeedbackHistoryEntry {
     std::string message;
     std::string objectiveText;
     std::string hintText;
+    std::string audioCue;
+    std::string uiPulseCue;
+    std::string hapticCue;
+    AccessFeedbackContext context = AccessFeedbackContext::Generic;
+    AccessDeniedSeverity deniedSeverity = AccessDeniedSeverity::Medium;
+    bool suppressedByCooldown = false;
     std::uint64_t revision = 0;
 };
 
@@ -63,18 +90,32 @@ public:
     [[nodiscard]] const std::optional<TimedPresentationEntry>& ActiveHint() const;
     [[nodiscard]] std::optional<std::string> ConsumePendingObjective();
     [[nodiscard]] const std::vector<AccessFeedbackHistoryEntry>& History() const;
+    [[nodiscard]] bool ConsumePendingUiPulse();
+    [[nodiscard]] bool ConsumePendingHapticPulse();
 
 private:
     void ActivateMessage(std::string message, double durationMs, PresentationSeverity severity);
     void ActivateHint(std::string hintText, double durationMs);
-    void PushHistory(AccessFeedbackResult result, std::string message, std::string objectiveText, std::string hintText);
+    void PushHistory(AccessFeedbackResult result,
+                     std::string message,
+                     std::string objectiveText,
+                     std::string hintText,
+                     const AccessFeedbackRequest& request,
+                     bool suppressedByCooldown);
+    [[nodiscard]] std::string DefaultGrantedMessage(AccessFeedbackContext context) const;
+    [[nodiscard]] std::string DefaultDeniedMessage(AccessFeedbackContext context, std::string_view requiredItem) const;
+    [[nodiscard]] PresentationSeverity SeverityForDeniedTier(AccessDeniedSeverity severity) const;
     [[nodiscard]] std::string NormalizeRequiredItem(std::string label) const;
 
     AccessFeedbackPolicy policy_{};
     std::optional<TimedPresentationEntry> activeMessage_{};
     std::optional<TimedPresentationEntry> activeHint_{};
     std::optional<std::string> pendingObjective_{};
+    bool pendingUiPulse_ = false;
+    bool pendingHapticPulse_ = false;
     std::vector<AccessFeedbackHistoryEntry> history_{};
+    double elapsedMs_ = 0.0;
+    double lastDeniedEventMs_ = -1.0;
     std::uint64_t nextRevision_ = 1U;
 };
 

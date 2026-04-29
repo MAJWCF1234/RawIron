@@ -5,6 +5,7 @@
 #include "RawIron/Structural/StructuralGraph.h"
 
 #include <optional>
+#include <cstdint>
 #include <string_view>
 #include <vector>
 
@@ -51,12 +52,20 @@ struct StructuralGeometryCompileResult {
     std::vector<StructuralDeferredTargetOperation> deferredOperations;
     std::vector<CompiledGeometryNode> compiledNodes;
     std::vector<std::string> suppressedTargetIds;
+    std::size_t bevelModifiersApplied = 0;
+    std::size_t detailModifiersApplied = 0;
 };
 
 struct StructuralCompileOptions {
     bool enableHighCostBooleanPasses = true;
     bool enableNonManifoldReconcile = true;
     bool enableHighCostNonManifoldFallback = false;
+};
+
+struct StructuralCompileIncrementalResult {
+    std::uint64_t signature = 0;
+    bool reusedPrevious = false;
+    StructuralGeometryCompileResult result;
 };
 
 [[nodiscard]] std::optional<Bounds> ComputeSolidBounds(const ConvexSolid& solid);
@@ -104,6 +113,12 @@ struct StructuralCompileOptions {
 [[nodiscard]] std::vector<CompiledGeometryNode> BuildCompiledGeometryNodesFromSolids(const StructuralNode& baseNode,
                                                                                       const std::vector<ConvexSolid>& solids,
                                                                                       std::string_view idPrefix);
+/// Authoring-time CSG output: compiled triangle fragments for convex solids (structural build path).
+[[nodiscard]] inline std::vector<CompiledGeometryNode> EmitCompiledConvexFragments(const StructuralNode& baseNode,
+                                                                                   const std::vector<ConvexSolid>& solids,
+                                                                                   std::string_view idPrefix) {
+    return BuildCompiledGeometryNodesFromSolids(baseNode, solids, idPrefix);
+}
 [[nodiscard]] StructuralBooleanCompileResult CompileBooleanUnionNode(const StructuralNode& unionNode,
                                                                      const std::vector<StructuralBooleanTarget>& targets);
 [[nodiscard]] StructuralBooleanCompileResult CompileBooleanIntersectionNode(const StructuralNode& intersectionNode,
@@ -115,5 +130,12 @@ struct StructuralCompileOptions {
 [[nodiscard]] StructuralGeometryCompileResult CompileStructuralGeometryNodes(
     const std::vector<StructuralNode>& nodes,
     const StructuralCompileOptions& options = {});
+[[nodiscard]] std::uint64_t BuildStructuralCompileSignature(const std::vector<StructuralNode>& nodes,
+                                                            const StructuralCompileOptions& options = {});
+[[nodiscard]] StructuralCompileIncrementalResult CompileStructuralGeometryNodesIncremental(
+    const std::vector<StructuralNode>& nodes,
+    const StructuralCompileOptions& options,
+    std::uint64_t previousSignature,
+    const StructuralGeometryCompileResult* previousResult = nullptr);
 
 } // namespace ri::structural

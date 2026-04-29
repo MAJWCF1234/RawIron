@@ -83,6 +83,45 @@ struct AudioManagerMetrics {
     double activeEnvironmentMix = 0.0;
     std::size_t pendingEchoes = 0;
     std::size_t droppedEchoes = 0;
+    std::size_t loopBusChannels = 0;
+    std::size_t oneShotDroppedBySafety = 0;
+};
+
+struct LoopedAudioBusIntent {
+    std::string channel;
+    std::string phase;
+    std::string loopPath;
+    double volume = 0.5;
+    double fadeMs = 150.0;
+    int priority = 0;
+};
+
+struct LoopedAudioBusChannelState {
+    std::string channel;
+    std::string phase;
+    std::string loopPath;
+    bool playing = false;
+    int priority = 0;
+    double currentVolume = 0.0;
+    double targetVolume = 0.0;
+};
+
+struct SafeAudioPlaybackContext {
+    std::string source;
+    bool deviceReady = true;
+    bool worldReady = true;
+};
+
+struct OneShotAudioEventRequest {
+    std::string eventId;
+    std::string path;
+    std::string channel = "sfx";
+    int priority = 0;
+    std::size_t concurrencyCap = 4U;
+    double antiSpamWindowMs = 120.0;
+    double volume = 0.7;
+    double distanceMeters = 0.0;
+    double occlusion = 0.0;
 };
 
 class AudioPlaybackHandle {
@@ -188,8 +227,13 @@ public:
                                                                    double volume = 0.5);
     [[nodiscard]] std::shared_ptr<ManagedSound> PlayOneShot(std::string_view filePath,
                                                             double volume = 0.7);
+    [[nodiscard]] std::shared_ptr<ManagedSound> PlayOneShotSafe(const OneShotAudioEventRequest& request,
+                                                                const SafeAudioPlaybackContext& context = {});
     [[nodiscard]] std::shared_ptr<ManagedSound> PlayVoice(std::string_view filePath,
                                                           double volume = 1.0);
+    void SyncLoopedAudioBuses(std::string_view phase, std::vector<LoopedAudioBusIntent> intents);
+    void SetLoopedAudioBusDuck(std::string_view channel, double duckFactor);
+    [[nodiscard]] std::vector<LoopedAudioBusChannelState> GetLoopedAudioBusStates() const;
 
     void StopManagedSound(const std::shared_ptr<ManagedSound>& sound, bool unload = false);
     void Tick(double deltaMs);
@@ -223,6 +267,7 @@ private:
                       const std::optional<AudioEnvironmentProfile>& profile);
     void UnregisterSound(ManagedSound::SoundId soundId);
     void HandlePlaybackFinished(ManagedSound::SoundId soundId, bool trackAsVoice);
+    void PruneOneShotDispatchState(double nowMs);
 
     std::shared_ptr<AudioBackend> backend_;
     bool muted_ = false;
@@ -234,6 +279,23 @@ private:
     std::string environmentSignature_ = "none";
     std::unordered_map<ManagedSound::SoundId, std::shared_ptr<ManagedSound>> managedSounds_;
     std::vector<PendingEcho> pendingEchoes_;
+    struct LoopedBusChannelRuntime {
+        std::string phase;
+        std::string loopPath;
+        std::shared_ptr<ManagedSound> sound;
+        int priority = 0;
+        double currentVolume = 0.0;
+        double targetVolume = 0.0;
+        double fadePerMs = 0.0;
+    };
+    std::unordered_map<std::string, LoopedBusChannelRuntime> loopedBusChannels_;
+    std::unordered_map<std::string, double> loopedBusDuck_;
+    struct OneShotDispatchState {
+        std::size_t activeCount = 0;
+        double lastEmitMs = -1.0;
+    };
+    std::unordered_map<std::string, OneShotDispatchState> oneShotDispatch_;
+    std::size_t oneShotDroppedBySafety_ = 0;
     std::size_t loopsCreated_ = 0;
     std::size_t oneShotsPlayed_ = 0;
     std::size_t voicesPlayed_ = 0;

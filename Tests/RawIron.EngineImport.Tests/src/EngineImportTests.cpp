@@ -110,6 +110,10 @@ void TestAccessFeedbackState() {
         .unlockObjective = "Reach the lift control room.",
         .unlockHint = "Proceed through the service door.",
         .lockedHint = "",
+        .grantedAudioCue = "ui/access_granted_terminal",
+        .uiPulseCue = "ui_pulse_small",
+        .hapticCue = "haptic_soft",
+        .context = ri::world::AccessFeedbackContext::Terminal,
     });
     Expect(state.ActiveMessage().has_value() && state.ActiveMessage()->text == "ACCESS GRANTED",
            "Access feedback should preserve verbose granted messaging");
@@ -118,6 +122,8 @@ void TestAccessFeedbackState() {
     const std::optional<std::string> objective = state.ConsumePendingObjective();
     Expect(objective.has_value() && *objective == "Reach the lift control room.",
            "Access feedback should expose pending unlock objectives");
+    Expect(state.ConsumePendingUiPulse() && state.ConsumePendingHapticPulse(),
+           "Access feedback should expose mix-safe positive cue pulses for UI/haptic channels");
 
     state.RecordDenied({
         .requiredItemLabel = "Level 3 Keycard",
@@ -126,13 +132,24 @@ void TestAccessFeedbackState() {
         .unlockObjective = "",
         .unlockHint = "",
         .lockedHint = "Search the upper offices.",
+        .deniedAudioCue = "ui/access_denied_hard",
+        .context = ri::world::AccessFeedbackContext::Door,
+        .deniedSeverity = ri::world::AccessDeniedSeverity::High,
     });
     Expect(state.ActiveMessage().has_value()
-               && state.ActiveMessage()->text == "Access denied. Level 3 Keycard required."
+               && state.ActiveMessage()->text == "Door locked. Level 3 Keycard required."
                && state.ActiveMessage()->severity == ri::world::PresentationSeverity::Critical,
            "Access feedback should build a default denied message when verbose text is absent");
     Expect(state.ActiveHint().has_value() && state.ActiveHint()->text == "Search the upper offices.",
            "Access feedback should surface locked hints when enabled");
+    state.RecordDenied({
+        .requiredItemLabel = "Level 3 Keycard",
+        .lockedHint = "Search the upper offices.",
+        .context = ri::world::AccessFeedbackContext::Door,
+        .deniedSeverity = ri::world::AccessDeniedSeverity::High,
+    });
+    Expect(!state.History().empty() && state.History().back().suppressedByCooldown,
+           "Access feedback should apply denied-cue cooldown to prevent negative-state spam");
 
     state.SetPolicy({
         .mode = ri::world::AccessFeedbackMode::Disabled,
@@ -6706,6 +6723,9 @@ void TestPickupFeedbackState() {
         .pickupMessage = "Keycard secured.",
         .objectiveText = "Reach the annex gate.",
         .hintText = "Check the yellow reader.",
+        .itemClass = "keycard",
+        .pickupAudioCue = "pickup/keycard",
+        .uiAccentCue = "ui/pickup_keycard",
     });
 
     Expect(state.ActiveMessage().has_value() && state.ActiveMessage()->text == "Keycard secured.",
@@ -6717,6 +6737,8 @@ void TestPickupFeedbackState() {
            "Pickup feedback should expose pending objective updates when enabled");
     Expect(!state.ConsumePendingObjective().has_value(),
            "Pickup feedback should clear pending objective updates once consumed");
+    Expect(state.ConsumePendingUiAccentPulse(),
+           "Pickup feedback should expose a UI accent pulse for pickup confirmations");
 
     state.RecordAlreadyCarrying("Level 1 Keycard");
     Expect(state.ActiveMessage().has_value() && state.ActiveMessage()->text == "Already carrying Level 1 Keycard",
@@ -6729,6 +6751,32 @@ void TestPickupFeedbackState() {
     state.RecordUnavailable("Flashlight");
     Expect(state.History().size() == 3U && state.History().front().message == "Already carrying Level 1 Keycard",
            "Pickup feedback should keep a capped rolling history");
+    state.SetPolicy({
+        .mode = ri::world::PickupFeedbackMode::Verbose,
+        .allowObjectiveUpdates = true,
+        .allowHints = true,
+        .antiSpamWindowMs = 400.0,
+        .maxBurstsPerWindow = 1U,
+        .historyLimit = 4U,
+    });
+    state.RecordPickup({
+        .itemId = "ammo_a",
+        .itemLabel = "Rifle Ammo",
+        .pickupMessage = "Ammo secured.",
+        .itemClass = "ammo",
+        .pickupAudioCue = "pickup/ammo",
+        .uiAccentCue = "ui/pickup_ammo",
+    });
+    state.RecordPickup({
+        .itemId = "ammo_b",
+        .itemLabel = "Rifle Ammo",
+        .pickupMessage = "Ammo secured.",
+        .itemClass = "ammo",
+        .pickupAudioCue = "pickup/ammo",
+        .uiAccentCue = "ui/pickup_ammo",
+    });
+    Expect(state.History().back().suppressedByAntiSpam,
+           "Pickup feedback should anti-spam rapid pickup confirmation cues");
 
     state.Advance(7000.0);
     Expect(!state.ActiveMessage().has_value() && !state.ActiveHint().has_value(),
@@ -6738,6 +6786,8 @@ void TestPickupFeedbackState() {
         .mode = ri::world::PickupFeedbackMode::Disabled,
         .allowObjectiveUpdates = true,
         .allowHints = true,
+        .antiSpamWindowMs = 200.0,
+        .maxBurstsPerWindow = 1U,
         .historyLimit = 2U,
     });
     state.RecordPickup({
@@ -6839,6 +6889,23 @@ void TestPipelineArtifacts() {
     const auto loadedInventory = ri::content::pipeline::LoadAssetExtractionInventory(root / "asset_inventory.json");
     Expect(loadedInventory.has_value() && loadedInventory->archives.size() == inventory.archives.size(),
            "Inventory load helper should reload saved JSON");
+    const ri::content::pipeline::ArchiveExtractionCacheDecision cacheHit =
+        ri::content::pipeline::EvaluateArchiveExtractionCache(*loadedInventory, "pack_a", "sha256:abcd");
+    Expect(!cacheHit.shouldExtract && !cacheHit.signatureChanged && !cacheHit.missingOutputs,
+           "Extraction cache should skip re-extracting archives when signature and outputs are current");
+    const ri::content::pipeline::ArchiveExtractionCacheDecision cacheMiss =
+        ri::content::pipeline::EvaluateArchiveExtractionCache(*loadedInventory, "pack_a", "sha256:newsig");
+    Expect(cacheMiss.shouldExtract && cacheMiss.signatureChanged,
+           "Extraction cache should request extraction when archive signature changes");
+
+    ri::content::pipeline::ArchiveInventoryEntry updatedArchive = archive;
+    updatedArchive.signature = "sha256:updated";
+    updatedArchive.extractedOutputCurrent = false;
+    ri::content::pipeline::UpsertArchiveInventoryEntry(inventory, updatedArchive);
+    const ri::content::pipeline::ArchiveInventoryEntry* foundUpdated =
+        ri::content::pipeline::FindArchiveInventoryEntry(inventory, "pack_a");
+    Expect(foundUpdated != nullptr && foundUpdated->signature == "sha256:updated" && !foundUpdated->extractedOutputCurrent,
+           "Inventory upsert helper should replace existing entries by identifier");
 
     fs::remove_all(root, errorCode);
 }

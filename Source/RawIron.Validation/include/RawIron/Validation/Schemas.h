@@ -15,8 +15,14 @@ namespace ri::validation {
 struct SchemaValidationMetrics {
     std::size_t tuningParses = 0;
     std::size_t tuningParseFailures = 0;
+    std::size_t checkpointParses = 0;
+    std::size_t checkpointParseFailures = 0;
+    std::size_t checkpointValidations = 0;
+    std::size_t checkpointValidationFailures = 0;
     std::size_t levelValidations = 0;
     std::size_t levelValidationFailures = 0;
+    std::size_t levelPayloadSanitizations = 0;
+    std::size_t levelPayloadSanitizationRepairs = 0;
 };
 
 struct RuntimeTuning {
@@ -76,6 +82,8 @@ struct LevelPayload {
                                                                  std::string_view sourceName = "checkpoint");
 [[nodiscard]] std::optional<std::string> ValidateLevelPayload(const LevelPayload& levelData,
                                                               std::string_view levelFilename = "level");
+/// Load/CI: trim string fields, drop empty optionals, normalize connection labels (in-place).
+void SanitizeLevelPayload(LevelPayload& levelData);
 [[nodiscard]] SchemaValidationMetrics GetSchemaValidationMetrics();
 
 } // namespace ri::validation

@@ -2,24 +2,26 @@
 #include "RawIron/Structural/StructuralPrimitives.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cmath>
+#include <functional>
 #include <map>
 #include <set>
 
 namespace ri::structural {
 namespace {
 
-ConvexSolid CloneSolid(const ConvexSolid& solid) {
-    return solid;
+std::uint64_t HashCombine(const std::uint64_t seed, const std::uint64_t value) {
+    return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U));
 }
 
-bool SameOrFlippedPlane(const Plane& lhs, const Plane& rhs, float epsilon) {
-    const float epsilonSquared = epsilon * epsilon;
-    const bool sameNormal = ri::math::DistanceSquared(lhs.normal, rhs.normal) <= epsilonSquared;
-    const bool flippedNormal = ri::math::DistanceSquared(lhs.normal, rhs.normal * -1.0f) <= epsilonSquared;
-    const bool sameConstant = std::fabs(lhs.constant - rhs.constant) <= epsilon;
-    const bool flippedConstant = std::fabs(lhs.constant + rhs.constant) <= epsilon;
-    return (sameNormal && sameConstant) || (flippedNormal && flippedConstant);
+template <typename T>
+std::uint64_t HashValue(const T& value) {
+    return static_cast<std::uint64_t>(std::hash<T>{}(value));
+}
+
+ConvexSolid CloneSolid(const ConvexSolid& solid) {
+    return solid;
 }
 
 struct SolidFragment {
@@ -816,6 +818,7 @@ std::vector<Plane> ExtractConvexPlanesFromTriangles(const std::vector<Triangle>&
                                                     const ri::math::Mat4& transform,
                                                     float epsilon) {
     std::vector<Plane> planes;
+    planes.reserve(triangles.size());
     for (const Triangle& triangle : triangles) {
         const std::vector<ri::math::Vec3> vertices = {
             ri::math::TransformPoint(transform, triangle.a),
@@ -826,14 +829,9 @@ std::vector<Plane> ExtractConvexPlanesFromTriangles(const std::vector<Triangle>&
         if (!plane.has_value() || ri::math::LengthSquared(plane->normal) <= 1e-8f) {
             continue;
         }
-        const bool duplicate = std::any_of(planes.begin(), planes.end(), [&](const Plane& candidate) {
-            return SameOrFlippedPlane(candidate, *plane, epsilon);
-        });
-        if (!duplicate) {
-            planes.push_back(*plane);
-        }
+        planes.push_back(*plane);
     }
-    return planes;
+    return DedupeConvexPlanes(planes, epsilon);
 }
 
 std::vector<ConvexSolid> SubtractConvexPlanesFromSolid(const ConvexSolid& solid,
@@ -1190,7 +1188,13 @@ StructuralGeometryCompileResult CompileStructuralGeometryNodes(const std::vector
         }
 
         StructuralNode processed = ApplyBevelModifiersToNode(node, bevelModifiers);
+        if (processed.bevelRadius != node.bevelRadius || processed.bevelSegments != node.bevelSegments) {
+            result.bevelModifiersApplied += 1;
+        }
         processed = ApplyStructuralDetailModifiersToNode(processed, detailModifiers);
+        if (processed.detailOnly != node.detailOnly || processed.isStructural != node.isStructural) {
+            result.detailModifiersApplied += 1;
+        }
         if (options.enableNonManifoldReconcile) {
             processed = ApplyNonManifoldReconcilersToNode(
                 processed,
@@ -1300,6 +1304,49 @@ StructuralGeometryCompileResult CompileStructuralGeometryNodes(const std::vector
     }
 
     return result;
+}
+
+std::uint64_t BuildStructuralCompileSignature(const std::vector<StructuralNode>& nodes,
+                                              const StructuralCompileOptions& options) {
+    std::uint64_t signature = 0xcbf29ce484222325ULL;
+    signature = HashCombine(signature, HashValue(nodes.size()));
+    signature = HashCombine(signature, HashValue(options.enableHighCostBooleanPasses));
+    signature = HashCombine(signature, HashValue(options.enableNonManifoldReconcile));
+    signature = HashCombine(signature, HashValue(options.enableHighCostNonManifoldFallback));
+    for (const StructuralNode& node : nodes) {
+        signature = HashCombine(signature, HashValue(node.id));
+        signature = HashCombine(signature, HashValue(node.type));
+        signature = HashCombine(signature, HashValue(node.primitiveType));
+        signature = HashCombine(signature, HashValue(node.opType));
+        signature = HashCombine(signature, HashValue(node.targetIds.size()));
+        signature = HashCombine(signature, HashValue(node.childNodeList.size()));
+        signature = HashCombine(signature, HashValue(node.position.x));
+        signature = HashCombine(signature, HashValue(node.position.y));
+        signature = HashCombine(signature, HashValue(node.position.z));
+        signature = HashCombine(signature, HashValue(node.rotation.x));
+        signature = HashCombine(signature, HashValue(node.rotation.y));
+        signature = HashCombine(signature, HashValue(node.rotation.z));
+        signature = HashCombine(signature, HashValue(node.scale.x));
+        signature = HashCombine(signature, HashValue(node.scale.y));
+        signature = HashCombine(signature, HashValue(node.scale.z));
+    }
+    return signature;
+}
+
+StructuralCompileIncrementalResult CompileStructuralGeometryNodesIncremental(
+    const std::vector<StructuralNode>& nodes,
+    const StructuralCompileOptions& options,
+    const std::uint64_t previousSignature,
+    const StructuralGeometryCompileResult* previousResult) {
+    StructuralCompileIncrementalResult incremental{};
+    incremental.signature = BuildStructuralCompileSignature(nodes, options);
+    if (previousResult != nullptr && incremental.signature == previousSignature) {
+        incremental.reusedPrevious = true;
+        incremental.result = *previousResult;
+        return incremental;
+    }
+    incremental.result = CompileStructuralGeometryNodes(nodes, options);
+    return incremental;
 }
 
 } // namespace ri::structural

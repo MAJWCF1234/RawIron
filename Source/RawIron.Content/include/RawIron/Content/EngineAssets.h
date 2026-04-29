@@ -1,6 +1,9 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 
 namespace ri::content {
 
@@ -22,5 +25,35 @@ namespace ri::content {
 [[nodiscard]] std::filesystem::path PickEngineTexturesDirectory(
     const std::filesystem::path& workspaceRoot,
     const std::filesystem::path& applicationExecutablePath = {});
+
+using TextureAliasManifest = std::unordered_map<std::string, std::string>;
+using AssetVariantMap = std::unordered_map<std::string, std::unordered_map<std::string, std::string>>;
+[[nodiscard]] const TextureAliasManifest& GetTextureAliasManifest();
+/// Combined lookup: known aliases, then exact path keys produced by discovery (see `BuildHydratedTextureAliasManifest`).
+[[nodiscard]] std::string ResolveTextureAliasWithManifest(std::string_view authoredTextureName,
+                                                          const TextureAliasManifest& manifest);
+[[nodiscard]] std::string ResolveTextureAlias(std::string_view authoredTextureName);
+[[nodiscard]] TextureAliasManifest MergeTextureAliasManifestsOverlayWins(const TextureAliasManifest& base,
+                                                                         const TextureAliasManifest& overlay);
+/// Walk `texturesRoot` for `.png` files and map relative paths (and unique stems) to path-without-extension keys.
+[[nodiscard]] TextureAliasManifest DiscoverTextureAliasesUnderTexturesRoot(const std::filesystem::path& texturesRoot,
+                                                                           std::size_t maxEntries = 4096U);
+/// Built-in manifest overlaid with on-disk names under an `Assets/Textures`-style root (authoritative resolver glue).
+[[nodiscard]] TextureAliasManifest BuildHydratedTextureAliasManifest(const std::filesystem::path& texturesRoot,
+                                                                     std::size_t maxEntries = 4096U);
+
+struct AssetVariantResolveRequest {
+    std::string logicalAssetId;
+    std::string variant;
+    std::string platform;
+    std::string qualityTier;
+};
+
+/// Resolves `logicalAssetId` to a concrete variant id/path using explicit variant maps first, then texture aliases.
+[[nodiscard]] std::string ResolveAssetVariantId(const AssetVariantResolveRequest& request,
+                                                const AssetVariantMap& variantManifest,
+                                                const TextureAliasManifest& textureAliases);
+/// Returns false and fills `error` when variant keys or concrete ids are malformed.
+[[nodiscard]] bool ValidateAssetVariantManifest(const AssetVariantMap& variantManifest, std::string* error = nullptr);
 
 } // namespace ri::content

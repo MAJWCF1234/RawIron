@@ -1,5 +1,6 @@
 #include "RawIron/Validation/Schemas.h"
 
+#include <cctype>
 #include <cmath>
 #include <set>
 #include <sstream>
@@ -14,6 +15,29 @@ void SanitizeFiniteField(std::optional<double>& value, bool& hadFailure) {
         value.reset();
         hadFailure = true;
     }
+}
+
+void TrimInPlace(std::string& value) {
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
+        value.erase(value.begin());
+    }
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) {
+        value.pop_back();
+    }
+}
+
+bool TrimOptionalString(std::optional<std::string>& field) {
+    if (!field.has_value()) {
+        return false;
+    }
+    std::string& value = *field;
+    const std::string before = value;
+    TrimInPlace(value);
+    if (value.empty()) {
+        field.reset();
+        return true;
+    }
+    return value != before;
 }
 
 std::vector<std::string> NormalizeStringList(const std::vector<std::string>& values) {
@@ -113,12 +137,16 @@ RuntimeTuning ParseStoredRuntimeTuning(const RuntimeTuning& value) {
 }
 
 RuntimeCheckpointState ParseStoredCheckpointState(const RuntimeCheckpointState& value) {
+    gMetrics.checkpointParses += 1;
     RuntimeCheckpointState parsed = value;
+    bool hadFailure = false;
     if (parsed.level.has_value() && parsed.level->empty()) {
         parsed.level.reset();
+        hadFailure = true;
     }
     if (parsed.checkpointId.has_value() && parsed.checkpointId->empty()) {
         parsed.checkpointId.reset();
+        hadFailure = true;
     }
 
     parsed.flags = NormalizeStringList(parsed.flags);
@@ -128,19 +156,27 @@ RuntimeCheckpointState ParseStoredCheckpointState(const RuntimeCheckpointState& 
     for (const auto& [key, number] : parsed.values) {
         if (!key.empty() && std::isfinite(number)) {
             sanitizedValues[key] = number;
+        } else if (key.empty() || !std::isfinite(number)) {
+            hadFailure = true;
         }
     }
     parsed.values = std::move(sanitizedValues);
+    if (hadFailure) {
+        gMetrics.checkpointParseFailures += 1;
+    }
     return parsed;
 }
 
 std::optional<std::string> ValidateCheckpointState(const RuntimeCheckpointState& checkpoint, std::string_view sourceName) {
+    gMetrics.checkpointValidations += 1;
     const std::string prefix = sourceName.empty() ? std::string("checkpoint") : std::string(sourceName);
     if (!checkpoint.level.has_value() || checkpoint.level->empty()) {
+        gMetrics.checkpointValidationFailures += 1;
         return prefix + ": level must be a non-empty string.";
     }
     for (std::size_t index = 0; index < checkpoint.flags.size(); ++index) {
         if (checkpoint.flags[index].empty()) {
+            gMetrics.checkpointValidationFailures += 1;
             std::ostringstream message;
             message << prefix << ": flags[" << index << "] must not be empty.";
             return message.str();
@@ -148,6 +184,7 @@ std::optional<std::string> ValidateCheckpointState(const RuntimeCheckpointState&
     }
     for (std::size_t index = 0; index < checkpoint.eventIds.size(); ++index) {
         if (checkpoint.eventIds[index].empty()) {
+            gMetrics.checkpointValidationFailures += 1;
             std::ostringstream message;
             message << prefix << ": eventIds[" << index << "] must not be empty.";
             return message.str();
@@ -155,13 +192,91 @@ std::optional<std::string> ValidateCheckpointState(const RuntimeCheckpointState&
     }
     for (const auto& [key, number] : checkpoint.values) {
         if (key.empty()) {
+            gMetrics.checkpointValidationFailures += 1;
             return prefix + ": values must not contain empty keys.";
         }
         if (!std::isfinite(number)) {
+            gMetrics.checkpointValidationFailures += 1;
             return prefix + ": values." + key + " must be a finite number.";
         }
     }
     return std::nullopt;
+}
+
+void SanitizeLevelPayload(LevelPayload& levelData) {
+    gMetrics.levelPayloadSanitizations += 1;
+    std::size_t repairs = 0;
+    if (TrimOptionalString(levelData.levelName)) {
+        repairs += 1;
+    }
+    if (TrimOptionalString(levelData.objective)) {
+        repairs += 1;
+    }
+
+    LevelOutputMap sanitizedOutputs;
+    for (auto& [outputName, connections] : levelData.worldspawn.outputs) {
+        std::string normalizedOutput = outputName;
+        TrimInPlace(normalizedOutput);
+        if (normalizedOutput != outputName) {
+            repairs += 1;
+        }
+        if (normalizedOutput.empty()) {
+            repairs += 1;
+            continue;
+        }
+        for (LevelConnection& connection : connections) {
+            const std::string beforeTarget = connection.target;
+            TrimInPlace(connection.target);
+            if (connection.target != beforeTarget) {
+                repairs += 1;
+            }
+            if (connection.input.has_value()) {
+                if (TrimOptionalString(connection.input)) {
+                    repairs += 1;
+                }
+            }
+        }
+        std::vector<LevelConnection>& mergedConnections = sanitizedOutputs[normalizedOutput];
+        mergedConnections.insert(mergedConnections.end(), connections.begin(), connections.end());
+    }
+    if (sanitizedOutputs.size() != levelData.worldspawn.outputs.size()) {
+        repairs += 1;
+    }
+    levelData.worldspawn.outputs = std::move(sanitizedOutputs);
+
+    LevelActionMap sanitizedInputs;
+    for (auto& [inputName, actions] : levelData.worldspawn.inputs) {
+        std::string normalizedInput = inputName;
+        TrimInPlace(normalizedInput);
+        if (normalizedInput != inputName) {
+            repairs += 1;
+        }
+        if (normalizedInput.empty()) {
+            repairs += 1;
+            continue;
+        }
+        std::vector<ri::events::EventAction>& mergedActions = sanitizedInputs[normalizedInput];
+        mergedActions.insert(mergedActions.end(), actions.begin(), actions.end());
+    }
+    if (sanitizedInputs.size() != levelData.worldspawn.inputs.size()) {
+        repairs += 1;
+    }
+    levelData.worldspawn.inputs = std::move(sanitizedInputs);
+
+    for (ri::events::EventDefinition& event : levelData.events) {
+        const std::string idBefore = event.id;
+        TrimInPlace(event.id);
+        if (event.id != idBefore) {
+            repairs += 1;
+        }
+        const std::string hookBefore = event.hook;
+        TrimInPlace(event.hook);
+        if (event.hook != hookBefore) {
+            repairs += 1;
+        }
+    }
+
+    gMetrics.levelPayloadSanitizationRepairs += repairs;
 }
 
 std::optional<std::string> ValidateLevelPayload(const LevelPayload& levelData, std::string_view levelFilename) {

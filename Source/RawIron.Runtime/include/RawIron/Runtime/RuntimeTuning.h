@@ -22,6 +22,9 @@ struct RuntimeTuningLimits {
 [[nodiscard]] const RuntimeTuningLimits* FindRuntimeTuningLimits(std::string_view key) noexcept;
 [[nodiscard]] std::span<const std::string_view> RuntimeTuningKeys() noexcept;
 [[nodiscard]] std::unordered_map<std::string, double> BuildDefaultRuntimeTuningRecord();
+[[nodiscard]] std::unordered_map<std::string, double> BuildRuntimeTuningSnapshot(
+    const std::unordered_map<std::string, double>& overrides) noexcept;
+[[nodiscard]] std::string FormatRuntimeTuningReport(const std::unordered_map<std::string, double>& values);
 
 /// Unknown keys yield std::nullopt. Missing or non-finite input yields the authored default.
 [[nodiscard]] std::optional<double> SanitizeRuntimeTuningValue(std::string_view key,

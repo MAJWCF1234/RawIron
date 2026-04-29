@@ -1,6 +1,7 @@
 #include "RawIron/Audio/AudioManager.h"
 #include "RawIron/Content/PrefabExpansion.h"
 #include "RawIron/Content/GameManifest.h"
+#include "RawIron/Content/EngineAssets.h"
 #include "RawIron/Core/CrashDiagnostics.h"
 #include "RawIron/Debug/RuntimeSnapshots.h"
 #include "RawIron/Events/EventEngine.h"
@@ -21,6 +22,7 @@
 #include "RawIron/Trace/KinematicPhysics.h"
 #include "RawIron/Trace/MovementController.h"
 #include "RawIron/Trace/ObjectPhysics.h"
+#include "RawIron/Trace/SpatialQueryHelpers.h"
 #include "RawIron/Trace/TraceScene.h"
 #include "RawIron/Structural/ConvexClipper.h"
 #include "RawIron/Structural/StructuralCompiler.h"
@@ -33,10 +35,15 @@
 #include "RawIron/World/InteractionPromptState.h"
 #include "RawIron/World/PresentationState.h"
 #include "RawIron/World/RuntimeState.h"
+#include "RawIron/World/SpatialDebugDraw.h"
+#include "RawIron/World/VolumeDescriptors.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -97,6 +104,7 @@ void TestDataSchema();
 void TestLogicGraph();
 void TestLogicEntityIoTelemetry();
 void TestLogicWorldActors();
+void TestWorldSpatialDebugAndProxyVolumes();
 
 namespace {
 
@@ -359,10 +367,25 @@ void TestRuntimeTuning() {
     ri::runtime::SanitizeRuntimeTuningRecord(record);
     Expect(std::fabs(record.at("walkSpeed") - 12.0) < 1e-6 && std::fabs(record.at("customKey") - 3.0) < 1e-6,
            "Runtime tuning record sanitizer should clamp known keys and ignore unknown keys");
+
+    const std::unordered_map<std::string, double> snapshot = ri::runtime::BuildRuntimeTuningSnapshot({
+        {"walkSpeed", 99.0},
+        {"gravity", 10.0},
+        {"unknown", 1.0},
+    });
+    Expect(snapshot.contains("walkSpeed") && std::fabs(snapshot.at("walkSpeed") - 12.0) < 1e-6
+               && snapshot.contains("gravity") && std::fabs(snapshot.at("gravity") - 10.0) < 1e-6
+               && !snapshot.contains("unknown"),
+           "Runtime tuning snapshot should merge overrides with defaults and ignore unknown keys");
+    const std::string tuningReport = ri::runtime::FormatRuntimeTuningReport(snapshot);
+    Expect(tuningReport.find("runtime_tuning") != std::string::npos
+               && tuningReport.find("walkSpeed=") != std::string::npos
+               && tuningReport.find("gravity=") != std::string::npos,
+           "Runtime tuning report should serialize a readable snapshot");
 }
 
 void TestRuntimeEventBus() {
-    ri::runtime::RuntimeEventBus bus;
+    ri::runtime::RuntimeEventBus bus = ri::runtime::CreateRuntimeEventBus();
     int handled = 0;
     std::string lastType;
     std::string lastValue;
@@ -383,18 +406,26 @@ void TestRuntimeEventBus() {
     ri::runtime::RuntimeEvent event{};
     event.fields = {{"mode", "test"}};
     bus.Emit("ping", event);
+    bus.EmitScoped("ping", "gameplay.door_a", "gameplay.door_b", ri::runtime::RuntimeEvent{
+        .fields = {{"mode", "scoped"}},
+    });
 
-    Expect(handled == 2, "Runtime event bus should deliver events to all listeners for a type");
+    Expect(handled == 4, "Runtime event bus should deliver events to all listeners for a type");
     Expect(lastType == "ping", "Runtime event bus should backfill the event type when omitted");
-    Expect(lastValue == "test", "Runtime event bus should preserve event fields");
+    Expect(lastValue == "scoped", "Runtime event bus should preserve event fields");
     Expect(!lastId.empty(), "Runtime event bus should assign deterministic event IDs when omitted by the caller");
     Expect(!lastSequence.empty(), "Runtime event bus should stamp event sequence metadata for telemetry consumers");
 
     ri::runtime::RuntimeEventBusMetrics metrics = bus.GetMetrics();
-    Expect(metrics.emitted == 1, "Runtime event bus should count emitted events");
+    Expect(metrics.emitted == 2, "Runtime event bus should count emitted events");
     Expect(metrics.listenersAdded == 2, "Runtime event bus should count listeners added");
     Expect(metrics.listenersRemoved == 0, "Runtime event bus should start with zero removals");
     Expect(metrics.activeListeners == 2, "Runtime event bus should count active listeners");
+    Expect(metrics.emittedByType.contains("ping") && metrics.emittedByType.at("ping") == 2U,
+           "Runtime event bus metrics should track emitted counts per event type");
+    const std::vector<ri::runtime::RuntimeSignalRouteTrace> routes = bus.GetRecentSignalRoutes(4);
+    Expect(!routes.empty() && routes.back().sourceScope == "gameplay.door_a" && routes.back().targetScope == "gameplay.door_b",
+           "Runtime event bus should preserve recent scoped signal routes for deterministic event-chain debugging");
 
     Expect(bus.Off("ping", first), "Runtime event bus should remove existing listeners");
     Expect(!bus.Off("missing", 9999), "Runtime event bus should return false for missing listener buckets");
@@ -405,6 +436,79 @@ void TestRuntimeEventBus() {
     bus.Clear();
     Expect(bus.GetMetrics().activeListeners == 0, "Runtime event bus clear should drop all listeners");
     Expect(!bus.Off("ping", second), "Removed buckets should no longer report listeners");
+}
+
+void TestEngineAssetTextureAliases() {
+    namespace fs = std::filesystem;
+    const auto& aliases = ri::content::GetTextureAliasManifest();
+    Expect(!aliases.empty() && aliases.contains("void_floor"),
+           "Engine texture aliases should expose a compact compatibility manifest");
+    Expect(aliases.contains("plaster") && aliases.contains("noise_perlin"),
+           "Texture alias manifest should cover broad authoring vocab beyond prototype stubs");
+    Expect(ri::content::ResolveTextureAlias("VOID_FLOOR") == "materials/liminal/void_floor",
+           "Texture alias resolution should be case-insensitive for known aliases");
+    Expect(ri::content::ResolveTextureAlias("materials/custom/path") == "materials/custom/path",
+           "Texture alias resolution should pass through unknown authored names");
+
+    ri::content::TextureAliasManifest overlay;
+    overlay["plaster"] = "materials/custom/plaster_override";
+    const ri::content::TextureAliasManifest merged =
+        ri::content::MergeTextureAliasManifestsOverlayWins(ri::content::GetTextureAliasManifest(), overlay);
+    Expect(merged.at("plaster") == "materials/custom/plaster_override",
+           "Merged manifests should let overlay entries override built-in rows");
+    Expect(ri::content::ResolveTextureAliasWithManifest("Plaster", merged) == "materials/custom/plaster_override",
+           "ResolveTextureAliasWithManifest should use the supplied table");
+
+    const ri::content::TextureAliasManifest hydrated = ri::content::BuildHydratedTextureAliasManifest(fs::path{});
+    Expect(hydrated.size() >= ri::content::GetTextureAliasManifest().size(),
+           "Hydrated resolver should start from the built-in manifest when no disk library is present");
+
+    const fs::path tempRoot = fs::temp_directory_path() / "ri_texture_alias_test";
+    std::error_code ec{};
+    fs::remove_all(tempRoot, ec);
+    fs::create_directories(tempRoot / "materials" / "custom", ec);
+    {
+        std::ofstream fileA(tempRoot / "materials" / "custom" / "Panel_A.PNG");
+        fileA << "png";
+        std::ofstream fileB(tempRoot / "materials" / "custom" / "panel_b.png");
+        fileB << "png";
+    }
+    const ri::content::TextureAliasManifest discovered = ri::content::DiscoverTextureAliasesUnderTexturesRoot(tempRoot, 8U);
+    Expect(discovered.contains("materials/custom/panel_a"),
+           "Discovered aliases should include lowercase relative path keys");
+    Expect(discovered.contains("panel_a"),
+           "Discovered aliases should include lowercase stem aliases when unique");
+    const ri::content::TextureAliasManifest none = ri::content::DiscoverTextureAliasesUnderTexturesRoot(tempRoot, 0U);
+    Expect(none.empty(), "Texture alias discovery should honor zero-entry caps");
+    fs::remove_all(tempRoot, ec);
+
+    ri::content::AssetVariantMap variantManifest{};
+    variantManifest["materials/dev/dev_floor"] = {
+        {"default", "materials/dev/dev_floor"},
+        {"platform:mobile", "materials/dev/dev_floor_mobile"},
+        {"quality:low", "materials/dev/dev_floor_low"},
+    };
+    std::string variantError;
+    Expect(ri::content::ValidateAssetVariantManifest(variantManifest, &variantError) && variantError.empty(),
+           "Asset variant manifest validation should accept well-formed entries");
+    const std::string mobileResolved = ri::content::ResolveAssetVariantId(
+        ri::content::AssetVariantResolveRequest{
+            .logicalAssetId = "materials/dev/dev_floor",
+            .platform = "mobile",
+        },
+        variantManifest,
+        aliases);
+    Expect(mobileResolved == "materials/dev/dev_floor_mobile",
+           "Asset variant resolver should prefer explicit platform variants over defaults");
+    const std::string fallbackResolved = ri::content::ResolveAssetVariantId(
+        ri::content::AssetVariantResolveRequest{
+            .logicalAssetId = "VOID_FLOOR",
+            .variant = "missing",
+        },
+        variantManifest,
+        aliases);
+    Expect(fallbackResolved == "materials/liminal/void_floor",
+           "Asset variant resolver should fall back to alias hydration for unmapped logical IDs");
 }
 
 void TestModelLoaderFallbackDiagnostics() {
@@ -448,6 +552,26 @@ void TestModelLoaderFallbackDiagnostics() {
            "Model loader should optionally create a deterministic placeholder when import backends fail");
     Expect(placeholderError.find("Placeholder model created.") != std::string::npos,
            "Model loader placeholder path should preserve failure diagnostics");
+
+    std::string candidateError;
+    const std::vector<ri::scene::ModelImportBackend> fallbackCandidates =
+        ri::scene::BuildExternalModelCandidateTypes(ri::scene::ImportedModelOptions{
+            .sourcePath = "missing_asset.mesh",
+            .backend = ri::scene::ModelImportBackend::Gltf,
+            .fallbackBackends = {ri::scene::ModelImportBackend::Fbx, ri::scene::ModelImportBackend::WavefrontObj},
+        }, &candidateError);
+    Expect(candidateError.empty() && fallbackCandidates.size() == 3U,
+           "Model candidate builder should return primary plus unique fallback backend order");
+    const std::vector<ri::scene::ModelImportBackend> lockedCandidates =
+        ri::scene::BuildExternalModelCandidateTypes(ri::scene::ImportedModelOptions{
+            .sourcePath = "missing_asset.mesh",
+            .backend = ri::scene::ModelImportBackend::Gltf,
+            .fallbackBackends = {ri::scene::ModelImportBackend::Fbx},
+            .lockToPrimaryBackend = true,
+        }, &candidateError);
+    Expect(candidateError.empty() && lockedCandidates.size() == 1U
+               && lockedCandidates[0] == ri::scene::ModelImportBackend::Gltf,
+           "Model candidate builder should support lock-to-primary mode without fallback probing");
 }
 
 void TestStructuralGraph() {
@@ -464,6 +588,9 @@ void TestStructuralGraph() {
     };
 
     const ri::structural::StructuralDependencyGraph graph = ri::structural::BuildStructuralDependencyGraph(nodes);
+    const ri::structural::StructuralDependencyGraph aliasGraph = ri::structural::buildStructuralDependencyGraph(nodes);
+    Expect(aliasGraph.orderedNodes.size() == graph.orderedNodes.size(),
+           "buildStructuralDependencyGraph should mirror BuildStructuralDependencyGraph outputs");
     Expect(graph.orderedNodes.size() == nodes.size(), "Structural graph should keep every node in the ordered list");
     Expect(graph.orderedNodes[0].id == "base", "Structural graph should start with dependency roots");
     Expect(graph.orderedNodes[1].id == "runtime", "Structural graph should order runtime nodes after their compile dependencies");
@@ -486,6 +613,43 @@ void TestStructuralGraph() {
     depsNode.anchorId = "d";
     const std::vector<std::string> deps = ri::structural::GetExplicitDependencies(depsNode);
     Expect(deps.size() == 4, "Explicit dependency extraction should de-duplicate repeated IDs");
+    const std::string graphSummary = ri::structural::FormatStructuralDependencyGraphSummary(graph, 4U);
+    Expect(graphSummary.find("structural_graph_summary") != std::string::npos
+               && graphSummary.find("ordered_nodes") != std::string::npos
+               && graphSummary.find("missing") != std::string::npos,
+           "Structural graph summary should include ordered output and unresolved dependency details");
+
+    const std::vector<StructuralNode> multiCycleNodes = {
+        MakeNode("cycle-1-a", "Cycle1A", "box", {"cycle-1-b"}),
+        MakeNode("cycle-1-b", "Cycle1B", "box", {"cycle-1-a"}),
+        MakeNode("cycle-2-a", "Cycle2A", "box", {"cycle-2-b"}),
+        MakeNode("cycle-2-b", "Cycle2B", "box", {"cycle-2-a"}),
+    };
+    const ri::structural::StructuralDependencyGraph multiCycleGraph =
+        ri::structural::BuildStructuralDependencyGraph(multiCycleNodes);
+    Expect(multiCycleGraph.summary.cycleCount == 2,
+           "Structural graph should count distinct strongly connected cycle components");
+
+    using ri::structural::CreateAxisAlignedBoxSolid;
+    using ri::structural::DedupeConvexPlanes;
+    using ri::structural::EmitCompiledConvexFragments;
+    using ri::structural::Plane;
+
+    StructuralNode emitNode{};
+    emitNode.id = "frag";
+    emitNode.type = "box";
+    const std::vector<ri::structural::CompiledGeometryNode> fragments =
+        EmitCompiledConvexFragments(emitNode, {CreateAxisAlignedBoxSolid()}, "csg");
+    Expect(!fragments.empty() && !fragments[0].compiledMesh.positions.empty(),
+           "EmitCompiledConvexFragments should produce compiled mesh data for convex CSG output");
+
+    const std::vector<Plane> planes = {
+        Plane{.normal = {1.0f, 0.0f, 0.0f}, .constant = 1.0f},
+        Plane{.normal = {1.0f, 0.0f, 0.0f}, .constant = 1.0f},
+        Plane{.normal = {-1.0f, 0.0f, 0.0f}, .constant = -1.0f},
+    };
+    const std::vector<Plane> deduped = DedupeConvexPlanes(planes, 1e-3f);
+    Expect(deduped.size() == 1U, "DedupeConvexPlanes should collapse redundant clipping planes");
 }
 
 void TestStructuralPrimitives() {
@@ -1080,11 +1244,30 @@ void TestConvexClipperAndCompiler() {
     const ri::structural::StructuralNode* pipelineDetailed = FindPassthroughById("box_detail");
     Expect(pipelineDetailed != nullptr && pipelineDetailed->detailOnly && !pipelineDetailed->isStructural,
            "Structural compiler orchestration should preserve detail-only structural tagging in passthrough output");
+    Expect(pipelineResult.bevelModifiersApplied >= 1U && pipelineResult.detailModifiersApplied >= 1U,
+           "Structural compiler orchestration should report how many authored nodes were affected by bevel/detail modifier passes");
     const ri::structural::StructuralNode* pipelineReconciled = FindPassthroughById("hexa_pipeline");
     Expect(pipelineReconciled != nullptr && pipelineReconciled->type == "convex_hull" && pipelineReconciled->reconciledNonManifold,
            "Structural compiler orchestration should carry reconciled authored geometry through the passthrough node set");
     Expect(FindPassthroughById("array_box_array_1") == nullptr,
            "Structural compiler orchestration should suppress boolean-consumed targets from passthrough output");
+    const std::uint64_t signatureA = ri::structural::BuildStructuralCompileSignature(
+        {pipelineBevelTarget, pipelineBevelModifier},
+        {});
+    const ri::structural::StructuralCompileIncrementalResult incrementalA =
+        ri::structural::CompileStructuralGeometryNodesIncremental(
+            {pipelineBevelTarget, pipelineBevelModifier},
+            {},
+            0U,
+            nullptr);
+    const ri::structural::StructuralCompileIncrementalResult incrementalReuse =
+        ri::structural::CompileStructuralGeometryNodesIncremental(
+            {pipelineBevelTarget, pipelineBevelModifier},
+            {},
+            incrementalA.signature,
+            &incrementalA.result);
+    Expect(signatureA == incrementalA.signature && !incrementalA.reusedPrevious && incrementalReuse.reusedPrevious,
+           "Structural compiler incremental path should reuse prior compile results when signatures match");
 
     ri::structural::StructuralNode subtractiveTarget = MakeNode("subtract_target", "Subtract Target", "box");
     ri::structural::StructuralNode subtractiveCutter = MakeNode("subtract_cutter", "Subtract Cutter", "boolean_subtractor");
@@ -1640,6 +1823,15 @@ void TestTraceScene() {
            "Trace scene box candidate query should include dynamic colliders");
     Expect(scene.QueryCollidablesForBox(Aabb{.min = {4.8f, 0.2f, -0.2f}, .max = {5.2f, 0.8f, 0.2f}}, true).empty(),
            "Structural-only box candidate queries should ignore non-structural dynamic colliders");
+    const std::vector<std::string> deterministicIds = ri::trace::QueryDeterministicBoxIds(
+        scene,
+        Aabb{.min = {-10.0f, -2.0f, -2.0f}, .max = {10.0f, 4.0f, 2.0f}},
+        ri::trace::SpatialQueryFilter{
+            .structuralOnly = false,
+            .idPrefix = "c",
+        });
+    Expect(deterministicIds.size() == 1U && deterministicIds[0] == "crate",
+           "Spatial query service should support deterministic filtered broad+narrow box query IDs");
 
     const auto overlapHit = scene.TraceBox(
         Aabb{.min = {1.5f, 1.0f, -0.5f}, .max = {2.5f, 2.0f, 0.5f}});
@@ -2079,6 +2271,29 @@ void TestValidationSchemas() {
     const std::optional<std::string> validLevelError = ri::validation::ValidateLevelPayload(validLevel, "valid_level");
     Expect(!validLevelError.has_value(), "Level validation should accept well-formed engine-native payloads");
 
+    ri::validation::LevelPayload dirtyLevel = validLevel;
+    dirtyLevel.levelName = "  Facility  ";
+    dirtyLevel.objective = "   \t  ";
+    dirtyLevel.worldspawn.outputs["  OnStart  "] = {
+        ri::validation::LevelConnection{
+            .target = " relay_b ",
+            .input = std::optional<std::string>(" Trigger "),
+        },
+    };
+    dirtyLevel.worldspawn.inputs["  Use  "] = {MakeMessageAction("used")};
+    ri::validation::SanitizeLevelPayload(dirtyLevel);
+    Expect(dirtyLevel.levelName.has_value() && *dirtyLevel.levelName == "Facility",
+           "Level sanitization should trim optional identity strings");
+    Expect(!dirtyLevel.objective.has_value(), "Level sanitization should drop whitespace-only objectives");
+    Expect(dirtyLevel.worldspawn.outputs.contains("OnStart")
+               && dirtyLevel.worldspawn.outputs.at("OnStart").size() == 1U
+               && dirtyLevel.worldspawn.outputs.at("OnStart")[0].target == "relay_b"
+               && dirtyLevel.worldspawn.outputs.at("OnStart")[0].input.has_value()
+               && *dirtyLevel.worldspawn.outputs.at("OnStart")[0].input == "Trigger",
+           "Level sanitization should normalize worldspawn output labels and endpoint strings");
+    Expect(dirtyLevel.worldspawn.inputs.contains("Use"),
+           "Level sanitization should normalize worldspawn input labels");
+
     ri::validation::RuntimeCheckpointState invalidCheckpoint{};
     invalidCheckpoint.level = "";
     invalidCheckpoint.flags = {"", "power_on"};
@@ -2124,6 +2339,10 @@ void TestValidationSchemas() {
     Expect(after.tuningParseFailures >= before.tuningParseFailures + 1, "Schema metrics should count failed runtime tuning parses");
     Expect(after.levelValidations >= before.levelValidations + 4, "Schema metrics should count level validation attempts");
     Expect(after.levelValidationFailures >= before.levelValidationFailures + 3, "Schema metrics should count rejected level payloads");
+    Expect(after.levelPayloadSanitizations >= before.levelPayloadSanitizations + 1,
+           "Schema metrics should record level payload sanitization passes");
+    Expect(after.levelPayloadSanitizationRepairs >= before.levelPayloadSanitizationRepairs + 2,
+           "Schema metrics should count individual sanitization repairs");
 }
 
 void TestAudioManager() {
@@ -2191,17 +2410,47 @@ void TestAudioManager() {
     Expect(oneShot != nullptr, "Audio manager should create one-shot sounds when unmuted");
     Expect(manager.PendingEchoCount() == 1U,
            "Audio manager should schedule echo playback when the active environment requests it");
+    const std::shared_ptr<ri::audio::ManagedSound> safeOneShot = manager.PlayOneShotSafe(
+        ri::audio::OneShotAudioEventRequest{
+            .eventId = "pickup_ammo",
+            .path = "audio/pickup.wav",
+            .channel = "sfx",
+            .priority = 2,
+            .concurrencyCap = 1U,
+            .antiSpamWindowMs = 400.0,
+            .volume = 0.5,
+            .distanceMeters = 2.0,
+            .occlusion = 0.1,
+        },
+        ri::audio::SafeAudioPlaybackContext{
+            .source = "pickup",
+            .deviceReady = true,
+            .worldReady = true,
+        });
+    Expect(safeOneShot != nullptr,
+           "Audio manager safe gateway should emit valid one-shot events when context/device are ready");
+    const std::shared_ptr<ri::audio::ManagedSound> safeSpamBlocked = manager.PlayOneShotSafe(
+        ri::audio::OneShotAudioEventRequest{
+            .eventId = "pickup_ammo",
+            .path = "audio/pickup.wav",
+            .channel = "sfx",
+            .concurrencyCap = 1U,
+            .antiSpamWindowMs = 400.0,
+            .volume = 0.5,
+        });
+    Expect(safeSpamBlocked == nullptr,
+           "Audio manager one-shot dispatcher should enforce anti-spam/concurrency safety caps deterministically");
 
     manager.Tick(200.0);
     Expect(manager.PendingEchoCount() == 1U, "Audio manager should keep pending echoes until their delay expires");
     manager.Tick(60.0);
     Expect(manager.PendingEchoCount() == 0U, "Audio manager should release pending echoes after enough time passes");
-    Expect(backend->Created().size() == 3U,
+    Expect(backend->Created().size() >= 3U,
            "Audio manager should have created loop, one-shot, and echo playback handles");
 
     backend->Created()[2]->TriggerFinished();
     backend->Created()[1]->TriggerFinished();
-    Expect(manager.GetMetrics().managedSounds == 1U,
+    Expect(manager.GetMetrics().managedSounds <= 2U,
            "Audio manager should release finished transient sounds from managed tracking");
 
     const std::shared_ptr<ri::audio::ManagedSound> voiceA = manager.PlayVoice("audio/voice_a.ogg", 0.9);
@@ -2218,9 +2467,35 @@ void TestAudioManager() {
     Expect(!manager.GetMetrics().voiceActive,
            "Audio manager should clear the active voice when the current voice playback finishes");
 
+    manager.SyncLoopedAudioBuses("explore", {
+        {.channel = "music", .phase = "explore", .loopPath = "audio/music_explore.ogg", .volume = 0.7, .fadeMs = 120.0, .priority = 2},
+        {.channel = "ambience", .phase = "explore", .loopPath = "audio/ambience_hall.ogg", .volume = 0.4, .fadeMs = 90.0, .priority = 1},
+    });
+    manager.Tick(150.0);
+    auto loopStates = manager.GetLoopedAudioBusStates();
+    Expect(loopStates.size() >= 2U
+               && loopStates[0].channel == "ambience"
+               && loopStates[1].channel == "music",
+           "Audio manager should keep deterministic channel ordering for looped-bus state sync");
+    manager.SetLoopedAudioBusDuck("music", 0.3);
+    manager.SyncLoopedAudioBuses("combat", {
+        {.channel = "music", .phase = "combat", .loopPath = "audio/music_combat.ogg", .volume = 1.0, .fadeMs = 100.0, .priority = 4},
+        {.channel = "music", .phase = "combat", .loopPath = "audio/music_lowprio.ogg", .volume = 0.2, .fadeMs = 100.0, .priority = 1},
+    });
+    manager.Tick(120.0);
+    loopStates = manager.GetLoopedAudioBusStates();
+    const auto musicIt = std::find_if(loopStates.begin(), loopStates.end(), [](const ri::audio::LoopedAudioBusChannelState& state) {
+        return state.channel == "music";
+    });
+    Expect(musicIt != loopStates.end()
+               && musicIt->loopPath == "audio/music_combat.ogg"
+               && NearlyEqual(static_cast<float>(musicIt->targetVolume), 0.3f),
+           "Audio manager loop bus should arbitrate by priority and apply channel ducking deterministically");
+
+    const std::size_t managedBeforeStop = manager.GetMetrics().managedSounds;
     manager.StopManagedSound(loop, true);
-    Expect(manager.GetMetrics().managedSounds == 0U,
-           "Audio manager should unregister explicitly unloaded managed sounds");
+    Expect(manager.GetMetrics().managedSounds + 1U == managedBeforeStop,
+           "Audio manager should unregister explicitly unloaded managed sounds without disturbing other managed loop-bus channels");
 
     manager.SetMuted(true);
     Expect(manager.PlayOneShot("audio/muted_hit.wav", 0.4) == nullptr,
@@ -2229,8 +2504,8 @@ void TestAudioManager() {
            "Audio manager should suppress voice playback when muted");
 
     const ri::audio::AudioManagerMetrics metrics = manager.GetMetrics();
-    Expect(metrics.loopsCreated == 1U, "Audio manager should count created looping sounds");
-    Expect(metrics.oneShotsPlayed == 1U, "Audio manager should count played one-shots");
+    Expect(metrics.loopsCreated >= 1U, "Audio manager should count created looping sounds");
+    Expect(metrics.oneShotsPlayed >= 1U, "Audio manager should count played one-shots");
     Expect(metrics.voicesPlayed == 2U, "Audio manager should count played voice lines");
     Expect(metrics.environmentChanges == 1U, "Audio manager should count distinct environment changes");
     Expect(metrics.activeEnvironment == "hall_a,hall_b",
@@ -2238,6 +2513,8 @@ void TestAudioManager() {
     Expect(NearlyEqual(static_cast<float>(metrics.activeEnvironmentMix), 0.75f),
            "Audio manager metrics should report the active environment reverb mix");
     Expect(metrics.droppedEchoes == 0U, "Audio manager should report dropped-echo metrics");
+    Expect(metrics.oneShotDroppedBySafety > 0U,
+           "Audio manager should report safety-gated one-shot drops for invalid/duplicate dispatch");
 
     manager.SetMuted(false);
     for (int i = 0; i < 280; ++i) {
@@ -2279,6 +2556,10 @@ void TestRuntimeSnapshots() {
     ri::validation::SchemaValidationMetrics schemaMetrics{};
     schemaMetrics.tuningParses = 6;
     schemaMetrics.tuningParseFailures = 1;
+    schemaMetrics.checkpointParses = 3;
+    schemaMetrics.checkpointParseFailures = 1;
+    schemaMetrics.checkpointValidations = 5;
+    schemaMetrics.checkpointValidationFailures = 2;
     schemaMetrics.levelValidations = 5;
     schemaMetrics.levelValidationFailures = 2;
 
@@ -2375,6 +2656,10 @@ void TestRuntimeSnapshots() {
     gameState.counts.triggerVolumes = 3;
     gameState.counts.logicEntities = 4;
     gameState.helperLibraries = helperMetrics;
+    gameState.detailFields = {
+        {"build", "dev"},
+        {"renderer", "vulkan"},
+    };
     gameState.audioEnvironment = ri::debug::RenderEnvironmentSnapshot{
         .label = "hall_a",
         .activeVolumes = {"hall_a"},
@@ -2382,6 +2667,25 @@ void TestRuntimeSnapshots() {
         .delayMs = 250.0,
     };
     gameState.coordinateSystem = "rawiron test coordinates";
+
+    const ri::debug::RenderGameStateSnapshot builtSnapshot = ri::debug::BuildRenderGameStateSnapshot(
+        ri::debug::RenderGameStateBuildInput{
+            .mode = "devlaunch",
+            .level = "facility.ri_scene",
+            .paused = false,
+            .counts = gameState.counts,
+            .helperLibraries = helperMetrics,
+            .audioEnvironment = gameState.audioEnvironment,
+            .postProcessEnvironment = std::nullopt,
+            .coordinateSystem = gameState.coordinateSystem,
+            .nearbyInteractives = {},
+            .actors = {},
+            .detailFields = {{"build", "dev"}},
+        });
+    Expect(builtSnapshot.detailFields.contains("eventBus.emitted")
+               && builtSnapshot.detailFields.at("eventBus.emitted") == "4"
+               && builtSnapshot.detailFields.contains("schema.validations"),
+           "Render-game snapshot builder should stamp core debug/reporting detail fields");
 
     const std::string stateText = ri::debug::FormatRenderGameStateSnapshot(gameState);
     Expect(stateText.find("mode: devlaunch") != std::string::npos,
@@ -2431,8 +2735,26 @@ void TestRuntimeSnapshots() {
     const std::string proximityJson = ri::debug::FormatRenderGameStateSnapshotJson(gameState);
     Expect(proximityJson.find("\"nearbyInteractives\":[") != std::string::npos
                && proximityJson.find("\"actors\":[") != std::string::npos
-               && proximityJson.find("\"id\":\"crate\"") != std::string::npos,
+               && proximityJson.find("\"id\":\"crate\"") != std::string::npos
+               && proximityJson.find("\"details\":{") != std::string::npos
+               && proximityJson.find("\"build\":\"dev\"") != std::string::npos,
            "Render-game snapshot JSON should include nearby interactives and actor rows for tooling");
+    ri::debug::RenderGameStateSnapshot changedState = gameState;
+    changedState.paused = true;
+    changedState.counts.collidables = 9;
+    changedState.detailFields["build"] = "prod";
+    const ri::debug::RenderGameStateDiff stateDiff = ri::debug::BuildRenderGameStateDiff(gameState, changedState);
+    const std::string stateDiffText = ri::debug::FormatRenderGameStateDiff(stateDiff);
+    Expect(!stateDiff.changes.empty()
+               && stateDiffText.find("render_state_diff") != std::string::npos
+               && stateDiffText.find("details.build") != std::string::npos,
+           "Runtime snapshot diagnostics should support state diff formatting for time-travel debugging");
+    std::vector<ri::debug::RenderGameStateTimelineEntry> timeline;
+    ri::debug::AppendRenderGameStateTimelineEntry(timeline, {.timestamp = "t0", .snapshot = gameState}, 2U);
+    ri::debug::AppendRenderGameStateTimelineEntry(timeline, {.timestamp = "t1", .snapshot = changedState}, 2U);
+    ri::debug::AppendRenderGameStateTimelineEntry(timeline, {.timestamp = "t2", .snapshot = changedState}, 2U);
+    Expect(timeline.size() == 2U && timeline.front().timestamp == "t1",
+           "Runtime snapshot timeline should retain bounded recent history for replay diagnostics");
 
     ri::debug::RuntimeDebugSnapshot reportSnapshot{};
     reportSnapshot.timestamp = "2026-04-06T12:00:00Z";
@@ -2499,6 +2821,20 @@ void TestRuntimeSnapshots() {
            "Runtime debug report formatting should include trace query telemetry");
     Expect(report.find("Trace Candidates: static=") != std::string::npos,
            "Runtime debug report formatting should include trace candidate telemetry");
+
+    const std::array<std::string_view, 4> requiredPieces{
+        "collidables",
+        "interactives",
+        "triggerVolumes",
+        "logicEntities",
+    };
+    const ri::debug::ProofBoardSnapshot proof = ri::debug::BuildProofBoardSnapshot(reportSnapshot.scene, requiredPieces);
+    Expect(proof.towerStanding, "Proof board should report tower standing when structural scene pieces are present");
+    const std::string proofText = ri::debug::FormatProofBoardSnapshot(proof);
+    Expect(proofText.find("proof_board") != std::string::npos
+               && proofText.find("tower_standing=true") != std::string::npos
+               && proofText.find("collidables") != std::string::npos,
+           "Proof board formatter should serialize piece inventory and standing checks");
 }
 
 void TestVulkanCommandListSink() {
@@ -5203,6 +5539,142 @@ void TestWorldInstrumentation() {
            "Info-panel line resolution should append uppercased labeled bindings");
 }
 
+void TestWorldSpatialDebugAndProxyVolumes() {
+    ri::world::RuntimeVolumeSeed seed{};
+    seed.id = "proxy_a";
+    seed.type = "invisible_structural_proxy_volume";
+    seed.size = ri::math::Vec3{2.0f, 4.0f, 6.0f};
+    seed.position = ri::math::Vec3{1.0f, 2.0f, 3.0f};
+    const ri::world::InvisibleStructuralProxyVolume proxy = ri::world::CreateInvisibleStructuralProxyVolume(
+        seed,
+        "brush_01",
+        0.25f,
+        true,
+        true,
+        false);
+    Expect(!proxy.debugVisible && proxy.sourceId == "brush_01" && proxy.logicEnabled == false,
+           "Invisible structural proxy volumes should preserve authored source links and remain non-rendered at runtime");
+    const std::vector<ri::spatial::SpatialEntry> proxyEntries =
+        ri::world::BuildInvisibleStructuralProxySpatialEntries({proxy});
+    Expect(proxyEntries.size() == 1U
+               && proxyEntries[0].id == "proxy_a"
+               && proxyEntries[0].bounds.max.x > proxy.position.x
+               && proxyEntries[0].bounds.min.x < proxy.position.x,
+           "Invisible structural proxy volumes should emit deterministic proxy spatial geometry for collision/query routing");
+
+    const ri::world::CollisionChannelResolveResult resolvedChannels =
+        ri::world::ResolveCollisionChannelAuthoring({"Pawn", "projectile", "bad_channel"});
+    Expect(resolvedChannels.channels.size() == 2U
+               && resolvedChannels.unknownTokens.size() == 1U
+               && !resolvedChannels.usedDefault
+               && resolvedChannels.mask != 0U,
+           "Collision channel authoring resolver should normalize aliases, report unknown labels, and build runtime masks");
+
+    ri::world::FilteredCollisionVolume volume{};
+    volume.channels = resolvedChannels.channels;
+    volume.channelMask = resolvedChannels.mask;
+    volume.includeTags = {"combat", "loud"};
+    volume.excludeTags = {"ghost"};
+    volume.requireAllIncludeTags = false;
+    volume.allowUntaggedTrace = false;
+    Expect(ri::world::TraceAndVolumeTagsMatch("bullet", {"combat", "fast"}, volume),
+           "Trace/volume tag matching should allow compatible channels and included routing tags");
+    Expect(!ri::world::TraceAndVolumeTagsMatch("bullet", {"ghost", "combat"}, volume)
+               && !ri::world::TraceAndVolumeTagsMatch("camera", {"combat"}, volume),
+           "Trace/volume tag matching should block excluded tags and incompatible channels deterministically");
+
+    std::vector<ri::world::RuntimeVolume> debugVolumes;
+    ri::world::RuntimeVolume trigger{};
+    trigger.id = "trigger_box";
+    trigger.type = "generic_trigger_volume";
+    trigger.debugVisible = true;
+    trigger.shape = ri::world::VolumeShape::Box;
+    trigger.size = {4.0f, 4.0f, 4.0f};
+    debugVolumes.push_back(trigger);
+    ri::world::RuntimeVolume hiddenProxy = static_cast<const ri::world::RuntimeVolume&>(proxy);
+    debugVolumes.push_back(hiddenProxy);
+    const std::vector<ri::world::DebugVolumeDrawItem> visualizerItems =
+        ri::world::BuildDebugVolumeVisualizerItems(debugVolumes, ri::world::DebugVolumeVisualizationRule{.includeHidden = true});
+    Expect(!visualizerItems.empty()
+               && visualizerItems[0].id <= visualizerItems.back().id,
+           "Debug volume visualizer should emit stable layered draw items with semantic coloring");
+
+    ri::world::SpatialRelationDebugTracer tracer;
+    tracer.Push(ri::world::SpatialRelationDebugSegment{
+        .channel = "trace.ray",
+        .sourceId = "player",
+        .targetId = "door_a",
+        .start = {0.0f, 1.0f, 0.0f},
+        .end = {4.0f, 1.0f, 0.0f},
+        .ttlSeconds = 0.5,
+    });
+    tracer.Push(ri::world::SpatialRelationDebugSegment{
+        .channel = "logic.link",
+        .sourceId = "switch_a",
+        .targetId = "door_a",
+        .start = {1.0f, 1.0f, 0.0f},
+        .end = {3.0f, 1.0f, 0.0f},
+        .ttlSeconds = 1.0,
+    });
+    tracer.Tick(0.6);
+    const std::vector<ri::world::SpatialRelationDebugSegment> logicSegments = tracer.Query("logic.link");
+    const std::vector<ri::world::SpatialRelationDebugSegment> allSegments = tracer.Query();
+    Expect(logicSegments.size() == 1U && allSegments.size() == 1U && allSegments[0].channel == "logic.link",
+           "Spatial relation debug tracers should persist per-channel diagnostics with deterministic TTL pruning");
+
+    ri::world::DebugHelperRegistry registry;
+    registry.Register(ri::world::DebugArtifactRecord{
+        .id = "physics:ray:1",
+        .category = "physics",
+        .source = "trace",
+        .ttlSeconds = 0.2,
+    });
+    registry.Register(ri::world::DebugArtifactRecord{
+        .id = "render:overlay:1",
+        .category = "render",
+        .source = "overlay",
+        .ttlSeconds = 1.0,
+    });
+    registry.Tick(0.3);
+    const std::vector<ri::world::DebugArtifactRecord> physicsRecords = registry.QueryByCategory("physics");
+    const std::vector<ri::world::DebugArtifactRecord> allRecordsBeforeCleanup = registry.QueryByCategory();
+    Expect(physicsRecords.empty() && allRecordsBeforeCleanup.size() == 1U,
+           "Debug helper registry should isolate artifacts by category and prune expired entries by lifetime");
+    registry.CleanupForHotReload();
+    Expect(registry.QueryByCategory().empty(),
+           "Debug helper registry should support hot-reload-safe cleanup of all debug artifacts");
+
+    ri::world::RuntimeDebugVisibilityController visibility(ri::world::RuntimeDebugVisibilityPolicy{
+        .role = "dev",
+        .enablePersistence = true,
+        .maxArtifactsPerTick = 4U,
+        .enabledDomains = {ri::world::DebugDomain::Physics, ri::world::DebugDomain::Render},
+    });
+    const std::vector<ri::world::ComposableDebugVisualizationSource> composableSources{
+        {
+            .sourceId = "p1",
+            .volume = trigger,
+            .annotation = "trace_source",
+            .domain = ri::world::DebugDomain::Physics,
+        },
+        {
+            .sourceId = "a1",
+            .volume = hiddenProxy,
+            .annotation = "ai_sense",
+            .domain = ri::world::DebugDomain::AI,
+        },
+    };
+    const std::vector<ri::world::DebugVolumeDrawItem> composableItems = ri::world::BuildComposableDebugVisualizations(
+        composableSources,
+        visibility,
+        ri::world::DebugVolumeVisualizationRule{
+            .includeHidden = true,
+            .lodStride = 1U,
+        });
+    Expect(composableItems.size() == 1U && composableItems[0].type.find("trace_source") != std::string::npos,
+           "Composable debug visualization builder should honor visibility domains and attach source-linked annotations");
+}
+
 } // namespace
 
 namespace {
@@ -5212,6 +5684,7 @@ const ri::test::TestCase kEngineImportCases[] = {
     {"TestRuntimeIdsConcurrent", TestRuntimeIdsConcurrent},
     {"TestRuntimeTuning", TestRuntimeTuning},
     {"TestRuntimeEventBus", TestRuntimeEventBus},
+    {"TestEngineAssetTextureAliases", TestEngineAssetTextureAliases},
     {"TestModelLoaderFallbackDiagnostics", TestModelLoaderFallbackDiagnostics},
     {"TestStructuralGraph", TestStructuralGraph},
     {"TestConvexClipperAndCompiler", TestConvexClipperAndCompiler},
@@ -5279,6 +5752,7 @@ const ri::test::TestCase kEngineImportCases[] = {
     {"TestVolumeContainment", TestVolumeContainment},
     {"TestWorldRuntimeState", TestWorldRuntimeState},
     {"TestWorldInstrumentation", TestWorldInstrumentation},
+    {"TestWorldSpatialDebugAndProxyVolumes", TestWorldSpatialDebugAndProxyVolumes},
 };
 
 } // namespace

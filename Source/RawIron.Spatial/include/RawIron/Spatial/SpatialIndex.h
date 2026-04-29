@@ -27,6 +27,9 @@ struct SpatialIndexMetrics {
     std::size_t rayCandidatesScanned = 0;
 };
 
+/// Axis-aligned BSP broad-phase for static collider bounds. The native trace scene (`ri::trace::TraceScene`)
+/// keeps two trees (all static vs structural-only) for movement and collision; split planes use the
+/// longest world axis (X, Y, or Z) with median center partitioning.
 class BspSpatialIndex {
 public:
     BspSpatialIndex() = default;

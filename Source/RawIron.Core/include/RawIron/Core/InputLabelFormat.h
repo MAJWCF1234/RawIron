@@ -16,5 +16,7 @@ namespace ri::core {
 /// Normalize then format — preferred entry for tooling and UI. Mirrors the contract of
 /// `ActionBindings::FormatInputLabel`.
 [[nodiscard]] std::string FormatInputLabelFromInputId(std::string_view inputId);
+/// Compatibility helper for keycode-oriented callsites (same behavior as `FormatInputLabelFromInputId`).
+[[nodiscard]] std::string KeyCodeToLabel(std::string_view keyCode);
 
 } // namespace ri::core

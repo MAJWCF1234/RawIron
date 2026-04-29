@@ -9,6 +9,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -24,6 +25,19 @@ enum class InspectorChannel : std::uint8_t {
     Log = 4,
     Command = 5,
 };
+
+struct InspectorBrowserLaunchOptions {
+    std::string url;
+    std::string browserPath;
+    bool kioskMode = true;
+    bool dryRun = false;
+};
+
+[[nodiscard]] std::optional<std::string> BuildInspectorBrowserLaunchCommand(
+    const InspectorBrowserLaunchOptions& options);
+[[nodiscard]] bool LaunchInspectorBrowser(const InspectorBrowserLaunchOptions& options,
+                                          std::string* error = nullptr,
+                                          std::string* commandUsed = nullptr);
 
 /// Optional live debugging / introspection side-channel.
 ///

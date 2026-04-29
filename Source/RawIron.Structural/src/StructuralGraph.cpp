@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <sstream>
 #include <set>
 #include <string>
 #include <string_view>
@@ -263,6 +264,10 @@ std::vector<std::string> GetExplicitDependencies(const StructuralNode& node) {
     return std::vector<std::string>(deps.begin(), deps.end());
 }
 
+StructuralDependencyGraph buildStructuralDependencyGraph(const std::vector<StructuralNode>& nodes) {
+    return BuildStructuralDependencyGraph(nodes);
+}
+
 StructuralDependencyGraph BuildStructuralDependencyGraph(const std::vector<StructuralNode>& nodes) {
     struct Entry {
         StructuralNode node;
@@ -366,8 +371,76 @@ StructuralDependencyGraph BuildStructuralDependencyGraph(const std::vector<Struc
             return lhs->index < rhs->index;
         });
         ordered.insert(ordered.end(), cyclicEntries.begin(), cyclicEntries.end());
-        summary.cycleCount = 1;
     }
+
+    std::unordered_map<Entry*, std::size_t> indexByEntry;
+    indexByEntry.reserve(entries.size());
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        indexByEntry[&entries[i]] = i;
+    }
+    std::vector<int> tarjanIndex(entries.size(), -1);
+    std::vector<int> tarjanLowlink(entries.size(), -1);
+    std::vector<bool> onStack(entries.size(), false);
+    std::vector<Entry*> tarjanStack;
+    tarjanStack.reserve(entries.size());
+    int nextTarjanIndex = 0;
+    std::size_t cycleComponentCount = 0;
+
+    std::function<void(Entry*)> strongConnect = [&](Entry* nodeEntry) {
+        const std::size_t nodePos = indexByEntry.at(nodeEntry);
+        tarjanIndex[nodePos] = nextTarjanIndex;
+        tarjanLowlink[nodePos] = nextTarjanIndex;
+        nextTarjanIndex += 1;
+        tarjanStack.push_back(nodeEntry);
+        onStack[nodePos] = true;
+
+        for (const std::string& targetId : nodeEntry->outgoing) {
+            const auto found = byId.find(targetId);
+            if (found == byId.end()) {
+                continue;
+            }
+            Entry* targetEntry = found->second;
+            const std::size_t targetPos = indexByEntry.at(targetEntry);
+            if (tarjanIndex[targetPos] == -1) {
+                strongConnect(targetEntry);
+                tarjanLowlink[nodePos] = std::min(tarjanLowlink[nodePos], tarjanLowlink[targetPos]);
+            } else if (onStack[targetPos]) {
+                tarjanLowlink[nodePos] = std::min(tarjanLowlink[nodePos], tarjanIndex[targetPos]);
+            }
+        }
+
+        if (tarjanLowlink[nodePos] != tarjanIndex[nodePos]) {
+            return;
+        }
+
+        std::size_t componentSize = 0;
+        bool hasSelfLoop = false;
+        while (!tarjanStack.empty()) {
+            Entry* top = tarjanStack.back();
+            tarjanStack.pop_back();
+            const std::size_t topPos = indexByEntry.at(top);
+            onStack[topPos] = false;
+            componentSize += 1;
+            if (top == nodeEntry && top->outgoing.contains(top->id)) {
+                hasSelfLoop = true;
+            }
+            if (top == nodeEntry) {
+                break;
+            }
+        }
+
+        if (componentSize > 1 || hasSelfLoop) {
+            cycleComponentCount += 1;
+        }
+    };
+
+    for (Entry& entry : entries) {
+        const std::size_t pos = indexByEntry.at(&entry);
+        if (tarjanIndex[pos] == -1) {
+            strongConnect(&entry);
+        }
+    }
+    summary.cycleCount = cycleComponentCount;
 
     StructuralDependencyGraph graph{};
     graph.orderedNodes.reserve(ordered.size());
@@ -396,6 +469,38 @@ StructuralDependencyGraph BuildStructuralDependencyGraph(const std::vector<Struc
     summary.phaseBuckets = graph.summary.phaseBuckets;
     graph.summary = summary;
     return graph;
+}
+
+std::string FormatStructuralDependencyGraphSummary(const StructuralDependencyGraph& graph,
+                                                   const std::size_t maxOrderedNodeLines) {
+    std::ostringstream out;
+    out << "structural_graph_summary\n";
+    out << "nodes=" << graph.summary.nodeCount
+        << " edges=" << graph.summary.edgeCount
+        << " cycles=" << graph.summary.cycleCount
+        << " unresolved=" << graph.summary.unresolvedDependencyCount << '\n';
+    out << "phase_buckets compile=" << graph.summary.phaseBuckets.compile
+        << " runtime=" << graph.summary.phaseBuckets.runtime
+        << " post_build=" << graph.summary.phaseBuckets.postBuild
+        << " frame=" << graph.summary.phaseBuckets.frame << '\n';
+    out << "ordered_nodes\n";
+    const std::size_t lineCount = std::min(maxOrderedNodeLines, graph.orderedNodes.size());
+    for (std::size_t i = 0; i < lineCount; ++i) {
+        const StructuralNode& node = graph.orderedNodes[i];
+        out << "  [" << i << "] id=" << (node.id.empty() ? "<none>" : node.id)
+            << " type=" << (node.type.empty() ? "<none>" : node.type)
+            << " phase=" << ToString(node.phase) << '\n';
+    }
+    if (graph.orderedNodes.size() > lineCount) {
+        out << "  ... +" << (graph.orderedNodes.size() - lineCount) << " more\n";
+    }
+    if (!graph.summary.unresolvedDependencies.empty()) {
+        out << "unresolved_dependencies\n";
+        for (const StructuralDependencyIssue& issue : graph.summary.unresolvedDependencies) {
+            out << "  node=" << issue.nodeId << " missing=" << issue.dependencyId << '\n';
+        }
+    }
+    return out.str();
 }
 
 } // namespace ri::structural

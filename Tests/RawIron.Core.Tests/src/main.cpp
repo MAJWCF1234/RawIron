@@ -1,4 +1,5 @@
 #include "RawIron/Core/ActionBindings.h"
+#include "RawIron/Core/InputLabelFormat.h"
 #include "RawIron/Core/ContentPresentation.h"
 #include "RawIron/Core/CommandLine.h"
 #include "RawIron/Core/Detail/JsonScan.h"
@@ -439,8 +440,12 @@ void TestActionBindings() {
            "Action bindings should normalize modifier labels");
     Expect(ri::core::ActionBindings::FormatInputLabel("mouse1") == "Mouse 1",
            "Action bindings should format mouse labels");
-    Expect(ri::core::ActionBindings::FormatInputLabel("PageDown") == "Pagedown",
-           "Action bindings should still produce a readable fallback label");
+    Expect(ri::core::ActionBindings::FormatInputLabel("PageDown") == "Page Down",
+           "Action bindings should format paging keys with readable spacing");
+    Expect(ri::core::ActionBindings::FormatInputLabel("ArrowLeft") == "Left Arrow",
+           "Action bindings should format arrow keys with directional labels");
+    Expect(ri::core::KeyCodeToLabel("PageUp") == "Page Up",
+           "Input label helpers should expose keycode-to-label compatibility wrappers");
 }
 
 void TestFixedStepAccumulator() {
@@ -3345,6 +3350,28 @@ void TestDevelopmentInspector() {
     capped.PostDiagnostic(ri::dev::InspectorChannel::Telemetry, "c");
     Expect(capped.DiagnosticsDroppedCount() >= 1U,
            "DevelopmentInspector should drop oldest diagnostics when the buffer is full");
+
+    const auto command = ri::dev::BuildInspectorBrowserLaunchCommand(
+        ri::dev::InspectorBrowserLaunchOptions{
+            .url = "http://127.0.0.1:4173/index.html",
+            .browserPath = "C:/Program Files/Google/Chrome/Application/chrome.exe",
+            .kioskMode = true,
+            .dryRun = true,
+        });
+    Expect(command.has_value() && Contains(*command, "127.0.0.1") && Contains(*command, "kiosk"),
+           "Inspector browser launcher should produce a deterministic kiosk launch command");
+    std::string dryRunCommand;
+    Expect(ri::dev::LaunchInspectorBrowser(
+               ri::dev::InspectorBrowserLaunchOptions{
+                   .url = "http://127.0.0.1:4173/index.html",
+                   .browserPath = "chrome",
+                   .kioskMode = false,
+                   .dryRun = true,
+               },
+               nullptr,
+               &dryRunCommand)
+               && !dryRunCommand.empty(),
+           "Inspector browser launcher should support dry-run command capture");
 }
 #endif
 

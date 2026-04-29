@@ -38,12 +38,18 @@ struct ImportedModelOptions {
     ModelImportBackend backend = ModelImportBackend::Auto;
     /// Optional backend attempts after the primary backend fails. Duplicate entries are ignored.
     std::vector<ModelImportBackend> fallbackBackends{};
+    /// When true, disables fallback probing and only attempts the resolved/explicit primary backend.
+    bool lockToPrimaryBackend = false;
     /// Creates a deterministic placeholder primitive when all import attempts fail.
     bool createPlaceholderOnFailure = false;
     int sceneIndex = -1;
     bool importCameras = false;
     bool importLights = false;
 };
+
+/// Returns normalized backend attempt order for model imports (extension/backend resolution + optional fallbacks).
+[[nodiscard]] std::vector<ModelImportBackend> BuildExternalModelCandidateTypes(const ImportedModelOptions& options,
+                                                                                std::string* error = nullptr);
 
 /// Loads a supported model file under a single entry point, dispatching by extension unless `backend` is explicit.
 int AddModelNode(Scene& scene, const ImportedModelOptions& options, std::string* error = nullptr);

@@ -1,8 +1,10 @@
 #pragma once
 
+#include "RawIron/Spatial/SpatialIndex.h"
 #include "RawIron/World/RuntimeState.h"
 
 #include <optional>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -47,6 +49,26 @@ struct VolumeDefaults {
 
 struct FilteredCollisionVolume : RuntimeVolume {
     std::vector<CollisionChannel> channels;
+    std::vector<std::string> includeTags;
+    std::vector<std::string> excludeTags;
+    bool requireAllIncludeTags = false;
+    bool allowUntaggedTrace = true;
+    std::uint32_t channelMask = 0U;
+};
+
+struct InvisibleStructuralProxyVolume : RuntimeVolume {
+    std::string sourceId;
+    bool collisionEnabled = true;
+    bool queryEnabled = true;
+    bool logicEnabled = true;
+    float inflation = 0.0f;
+};
+
+struct CollisionChannelResolveResult {
+    std::vector<CollisionChannel> channels;
+    std::vector<std::string> unknownTokens;
+    bool usedDefault = false;
+    std::uint32_t mask = 0U;
 };
 
 struct ClipRuntimeVolume : RuntimeVolume {
@@ -94,14 +116,32 @@ struct SafeZoneVolume : RuntimeVolume {
 [[nodiscard]] std::vector<ClipVolumeMode> ParseClipVolumeModes(const std::vector<std::string>& rawModes);
 [[nodiscard]] std::vector<CollisionChannel> ParseCollisionChannels(const std::vector<std::string>& rawChannels);
 [[nodiscard]] std::vector<ConstraintAxis> ParseConstraintAxes(const std::vector<std::string>& rawAxes);
+[[nodiscard]] CollisionChannelResolveResult ResolveCollisionChannelAuthoring(
+    const std::vector<std::string>& rawChannels,
+    CollisionChannel defaultChannel = CollisionChannel::Player);
+[[nodiscard]] std::uint32_t BuildCollisionChannelMask(const std::vector<CollisionChannel>& channels);
+[[nodiscard]] std::vector<std::string> NormalizeTraceTags(const std::vector<std::string>& rawTags);
 
 [[nodiscard]] bool TraceTagMatchesVolume(std::string_view traceTag, const FilteredCollisionVolume& volume);
+[[nodiscard]] bool TraceAndVolumeTagsMatch(std::string_view traceTag,
+                                           const std::vector<std::string>& traceTags,
+                                           const FilteredCollisionVolume& volume);
 
 [[nodiscard]] RuntimeVolume CreateRuntimeVolume(const RuntimeVolumeSeed& data,
                                                 const VolumeDefaults& defaults = {});
 [[nodiscard]] FilteredCollisionVolume CreateFilteredCollisionVolume(const RuntimeVolumeSeed& data,
                                                                    const std::vector<std::string>& rawChannels,
                                                                    const VolumeDefaults& defaults = {});
+[[nodiscard]] InvisibleStructuralProxyVolume CreateInvisibleStructuralProxyVolume(
+    const RuntimeVolumeSeed& data,
+    std::string_view sourceId = {},
+    float inflation = 0.0f,
+    bool collisionEnabled = true,
+    bool queryEnabled = true,
+    bool logicEnabled = true,
+    const VolumeDefaults& defaults = {});
+[[nodiscard]] std::vector<ri::spatial::SpatialEntry> BuildInvisibleStructuralProxySpatialEntries(
+    const std::vector<InvisibleStructuralProxyVolume>& proxies);
 [[nodiscard]] ClipRuntimeVolume CreateClipRuntimeVolume(const RuntimeVolumeSeed& data,
                                                         const std::vector<std::string>& rawModes,
                                                         bool enabled = true,
