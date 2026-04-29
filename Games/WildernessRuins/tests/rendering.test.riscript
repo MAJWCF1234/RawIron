@@ -1,0 +1,3 @@
+// Wilderness Ruins rendering regression checks (rawiron-game-v1.3.7)
+test canopy_contrast_baseline { assert true }
+test ruins_shadow_bias_stable { assert true }

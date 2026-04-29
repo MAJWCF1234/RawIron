@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tx_table_cabin",
+  "type": "texture",
+  "displayName": "TX_Table_Cabin",
+  "sourcePath": "Assets/Source/Post apocalypse/Table_Cabin/TX_Table_Cabin.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tx_table_cabin_source",
+      "path": "Assets/Source/Post apocalypse/Table_Cabin/TX_Table_Cabin.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

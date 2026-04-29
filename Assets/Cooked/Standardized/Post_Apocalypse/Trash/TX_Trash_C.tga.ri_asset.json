@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tx_trash_c",
+  "type": "texture",
+  "displayName": "TX_Trash_C",
+  "sourcePath": "Assets/Source/Post apocalypse/Trash/TX_Trash_C.tga",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tx_trash_c_source",
+      "path": "Assets/Source/Post apocalypse/Trash/TX_Trash_C.tga"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

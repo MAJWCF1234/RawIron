@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_fence_wood_pole",
+  "type": "mesh",
+  "displayName": "MS_Fence_Wood_Pole",
+  "sourcePath": "Assets/Source/Post apocalypse/Fence_Wood/MS_Fence_Wood_Pole.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_fence_wood_pole_source",
+      "path": "Assets/Source/Post apocalypse/Fence_Wood/MS_Fence_Wood_Pole.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

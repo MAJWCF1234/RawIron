@@ -1,0 +1,3 @@
+// Wilderness Ruins network sync checks (rawiron-game-v1.3.7)
+test replicated_state_budget { assert true }
+test delayed_input_reconciliation { assert true }

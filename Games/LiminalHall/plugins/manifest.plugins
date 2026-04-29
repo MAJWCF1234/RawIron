@@ -1,0 +1,4 @@
+# plugin_id,version,category,entry
+liminal.telemetry,1.0,telemetry,plugins/hooks.riplugin
+liminal.ai.bridge,1.0,ai,plugins/hooks.riplugin
+liminal.cinematics,1.0,cinematic,plugins/hooks.riplugin

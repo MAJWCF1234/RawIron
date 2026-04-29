@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "uv_crate",
+  "type": "texture",
+  "displayName": "UV_Crate",
+  "sourcePath": "Assets/Source/Post apocalypse/Crate/UV_Crate.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "uv_crate_source",
+      "path": "Assets/Source/Post apocalypse/Crate/UV_Crate.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

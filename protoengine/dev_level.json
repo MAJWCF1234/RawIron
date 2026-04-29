@@ -1,0 +1,5769 @@
+{
+  "levelName": "K-41 Development Yard",
+  "settings": {
+    "backgroundColor": "#1b1f27"
+  },
+  "lights": [
+    {
+      "type": "ambient",
+      "color": "#767d86",
+      "intensity": 5.8
+    },
+    {
+      "id": "hall_main_fill",
+      "type": "point",
+      "position": [
+        0,
+        12.5,
+        18
+      ],
+      "color": "#fff4e3",
+      "intensity": 17.5,
+      "distance": 156,
+      "decay": 1.3,
+      "castShadow": true
+    },
+    {
+      "id": "hall_booth_fill",
+      "type": "point",
+      "position": [
+        0,
+        5.8,
+        54
+      ],
+      "color": "#fff7ea",
+      "intensity": 6.8,
+      "distance": 36,
+      "decay": 1.55
+    },
+    {
+      "id": "hall_yard_south_fill",
+      "type": "point",
+      "position": [
+        0,
+        7.5,
+        28
+      ],
+      "color": "#f5f0e6",
+      "intensity": 8.1,
+      "distance": 38,
+      "decay": 1.58
+    },
+    {
+      "id": "hall_yard_mid_fill",
+      "type": "point",
+      "position": [
+        0,
+        7.5,
+        6
+      ],
+      "color": "#f5f0e6",
+      "intensity": 8.1,
+      "distance": 38,
+      "decay": 1.58
+    },
+    {
+      "id": "hall_west_fill",
+      "type": "point",
+      "position": [
+        -45,
+        8.2,
+        18
+      ],
+      "color": "#f2efe8",
+      "intensity": 7.4,
+      "distance": 34,
+      "decay": 1.64
+    },
+    {
+      "id": "hall_east_fill",
+      "type": "point",
+      "position": [
+        45,
+        8.2,
+        18
+      ],
+      "color": "#f2efe8",
+      "intensity": 7.4,
+      "distance": 34,
+      "decay": 1.64
+    },
+    {
+      "id": "hall_west_back_fill",
+      "type": "point",
+      "position": [
+        -45,
+        8.2,
+        -4
+      ],
+      "color": "#f2efe8",
+      "intensity": 6.6,
+      "distance": 30,
+      "decay": 1.68
+    },
+    {
+      "id": "hall_east_back_fill",
+      "type": "point",
+      "position": [
+        45,
+        8.2,
+        -4
+      ],
+      "color": "#f2efe8",
+      "intensity": 6.6,
+      "distance": 30,
+      "decay": 1.68
+    },
+    {
+      "id": "hall_annex_left_fill",
+      "type": "point",
+      "position": [
+        -28,
+        10,
+        -28
+      ],
+      "color": "#fff5e6",
+      "intensity": 8,
+      "distance": 36,
+      "decay": 1.58
+    },
+    {
+      "id": "hall_annex_center_fill",
+      "type": "point",
+      "position": [
+        0,
+        10.5,
+        -28
+      ],
+      "color": "#fff6ea",
+      "intensity": 9.2,
+      "distance": 40,
+      "decay": 1.54
+    },
+    {
+      "id": "hall_annex_right_fill",
+      "type": "point",
+      "position": [
+        28,
+        10,
+        -28
+      ],
+      "color": "#f5f7ff",
+      "intensity": 8,
+      "distance": 36,
+      "decay": 1.58
+    },
+    {
+      "id": "hall_annex_rear_left_fill",
+      "type": "point",
+      "position": [
+        -28,
+        10.2,
+        -58
+      ],
+      "color": "#fff5e6",
+      "intensity": 6.8,
+      "distance": 30,
+      "decay": 1.56
+    },
+    {
+      "id": "hall_annex_rear_center_fill",
+      "type": "point",
+      "position": [
+        0,
+        10.6,
+        -58
+      ],
+      "color": "#fff6ea",
+      "intensity": 7.6,
+      "distance": 34,
+      "decay": 1.52
+    },
+    {
+      "id": "hall_annex_rear_right_fill",
+      "type": "point",
+      "position": [
+        28,
+        10.2,
+        -58
+      ],
+      "color": "#f5f7ff",
+      "intensity": 6.8,
+      "distance": 30,
+      "decay": 1.56
+    },
+    {
+      "id": "hall_annex_far_left_fill",
+      "type": "point",
+      "position": [
+        -28,
+        10.2,
+        -76
+      ],
+      "color": "#fff5e6",
+      "intensity": 6.2,
+      "distance": 28,
+      "decay": 1.56
+    },
+    {
+      "id": "hall_annex_far_center_fill",
+      "type": "point",
+      "position": [
+        0,
+        10.4,
+        -76
+      ],
+      "color": "#fff6ea",
+      "intensity": 7,
+      "distance": 30,
+      "decay": 1.52
+    },
+    {
+      "id": "hall_annex_far_right_fill",
+      "type": "point",
+      "position": [
+        28,
+        10.2,
+        -76
+      ],
+      "color": "#f5f7ff",
+      "intensity": 6.2,
+      "distance": 28,
+      "decay": 1.56
+    },
+    {
+      "id": "hall_annex_operator_left_fill",
+      "type": "point",
+      "position": [
+        -28,
+        10.2,
+        -92
+      ],
+      "color": "#fff5e6",
+      "intensity": 5.8,
+      "distance": 28,
+      "decay": 1.56
+    },
+    {
+      "id": "hall_annex_operator_center_fill",
+      "type": "point",
+      "position": [
+        0,
+        10.4,
+        -92
+      ],
+      "color": "#fff6ea",
+      "intensity": 6.8,
+      "distance": 30,
+      "decay": 1.52
+    },
+    {
+      "id": "hall_annex_operator_right_fill",
+      "type": "point",
+      "position": [
+        28,
+        10.2,
+        -92
+      ],
+      "color": "#f5f7ff",
+      "intensity": 5.8,
+      "distance": 28,
+      "decay": 1.56
+    },
+    {
+      "id": "hall_annex_missing_left_fill",
+      "type": "point",
+      "position": [
+        -28,
+        10.2,
+        -132
+      ],
+      "color": "#fff5e6",
+      "intensity": 5.4,
+      "distance": 28,
+      "decay": 1.54
+    },
+    {
+      "id": "hall_annex_missing_center_fill",
+      "type": "point",
+      "position": [
+        0,
+        10.4,
+        -132
+      ],
+      "color": "#fff6ea",
+      "intensity": 6,
+      "distance": 30,
+      "decay": 1.5
+    },
+    {
+      "id": "hall_annex_missing_right_fill",
+      "type": "point",
+      "position": [
+        28,
+        10.2,
+        -132
+      ],
+      "color": "#f5f7ff",
+      "intensity": 5.4,
+      "distance": 28,
+      "decay": 1.54
+    },
+    {
+      "id": "hall_annex_gap_left_fill",
+      "type": "point",
+      "position": [
+        -28,
+        10.2,
+        -156
+      ],
+      "color": "#fff5e6",
+      "intensity": 5.2,
+      "distance": 28,
+      "decay": 1.52
+    },
+    {
+      "id": "hall_annex_gap_center_fill",
+      "type": "point",
+      "position": [
+        0,
+        10.4,
+        -156
+      ],
+      "color": "#fff6ea",
+      "intensity": 5.8,
+      "distance": 30,
+      "decay": 1.48
+    },
+    {
+      "id": "hall_annex_gap_right_fill",
+      "type": "point",
+      "position": [
+        28,
+        10.2,
+        -156
+      ],
+      "color": "#f5f7ff",
+      "intensity": 5.2,
+      "distance": 28,
+      "decay": 1.52
+    },
+    {
+      "id": "hall_annex_worldops_left_fill",
+      "type": "point",
+      "position": [
+        -28,
+        10.2,
+        -194
+      ],
+      "color": "#fff5e6",
+      "intensity": 4.8,
+      "distance": 28,
+      "decay": 1.5
+    },
+    {
+      "id": "hall_annex_worldops_center_fill",
+      "type": "point",
+      "position": [
+        0,
+        10.4,
+        -194
+      ],
+      "color": "#fff6ea",
+      "intensity": 5.4,
+      "distance": 30,
+      "decay": 1.46
+    },
+    {
+      "id": "hall_annex_worldops_right_fill",
+      "type": "point",
+      "position": [
+        28,
+        10.2,
+        -194
+      ],
+      "color": "#f5f7ff",
+      "intensity": 4.8,
+      "distance": 28,
+      "decay": 1.5
+    },
+    {
+      "id": "primitive_demo_generic_trigger_light",
+      "type": "point",
+      "position": [
+        0,
+        7.2,
+        -186
+      ],
+      "color": "#7ff0a0",
+      "intensity": 0,
+      "distance": 10,
+      "decay": 1.8
+    },
+    {
+      "id": "hall_pickup_bay_fill",
+      "type": "point",
+      "position": [
+        34,
+        8,
+        -8
+      ],
+      "color": "#fff4de",
+      "intensity": 4.4,
+      "distance": 22,
+      "decay": 1.82
+    },
+    {
+      "id": "hall_helper_bay_fill",
+      "type": "point",
+      "position": [
+        45,
+        6.8,
+        23
+      ],
+      "color": "#e8f4ff",
+      "intensity": 4.4,
+      "distance": 22,
+      "decay": 1.8
+    },
+    {
+      "id": "hall_helper_signal_light",
+      "type": "point",
+      "position": [
+        45,
+        5.2,
+        18
+      ],
+      "color": "#7fcfff",
+      "intensity": 0,
+      "distance": 8,
+      "decay": 1.6
+    },
+    {
+      "id": "hall_volume_signal_light",
+      "type": "point",
+      "position": [
+        8,
+        8.3,
+        -76
+      ],
+      "color": "#7ff2c7",
+      "intensity": 0,
+      "distance": 8,
+      "decay": 1.6
+    }
+  ],
+  "geometry": [
+    {
+      "id": "proto_floor",
+      "type": "box",
+      "position": [
+        0,
+        -0.5,
+        0
+      ],
+      "scale": [
+        144,
+        1,
+        126
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_dark_32x32px_02.png",
+          "uvScale": [
+            36,
+            32
+          ],
+          "metalness": 0.16,
+          "roughnessFactor": 0.95
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "proto_ceiling",
+      "type": "box",
+      "position": [
+        0,
+        18,
+        0
+      ],
+      "scale": [
+        144,
+        1,
+        126
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            36,
+            32
+          ],
+          "metalness": 0.03,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "proto_north_wall",
+      "type": "box",
+      "position": [
+        0,
+        9,
+        -63
+      ],
+      "scale": [
+        144,
+        18,
+        1
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            36,
+            5
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "proto_south_wall",
+      "type": "box",
+      "position": [
+        0,
+        9,
+        63
+      ],
+      "scale": [
+        144,
+        18,
+        1
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            36,
+            5
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "proto_west_wall",
+      "type": "box",
+      "position": [
+        -72,
+        9,
+        0
+      ],
+      "scale": [
+        1,
+        18,
+        126
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_ochre_32x32px_02.png",
+          "uvScale": [
+            32,
+            5
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "proto_east_wall",
+      "type": "box",
+      "position": [
+        72,
+        9,
+        0
+      ],
+      "scale": [
+        1,
+        18,
+        126
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_ochre_32x32px_02.png",
+          "uvScale": [
+            32,
+            5
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "south_base_trim",
+      "type": "box",
+      "position": [
+        0,
+        1.2,
+        62
+      ],
+      "scale": [
+        140,
+        2.4,
+        1.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            34,
+            1
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "north_base_trim",
+      "type": "box",
+      "position": [
+        0,
+        1.2,
+        -62
+      ],
+      "scale": [
+        140,
+        2.4,
+        1.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            34,
+            1
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "west_base_trim",
+      "type": "box",
+      "position": [
+        -71,
+        1.2,
+        0
+      ],
+      "scale": [
+        1.2,
+        2.4,
+        122
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            30,
+            1
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "east_base_trim",
+      "type": "box",
+      "position": [
+        71,
+        1.2,
+        0
+      ],
+      "scale": [
+        1.2,
+        2.4,
+        122
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            30,
+            1
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "south_cornice",
+      "type": "box",
+      "position": [
+        0,
+        16.8,
+        62
+      ],
+      "scale": [
+        140,
+        1.2,
+        1.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            34,
+            1
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.9
+        }
+      ]
+    },
+    {
+      "id": "north_cornice",
+      "type": "box",
+      "position": [
+        0,
+        16.8,
+        -62
+      ],
+      "scale": [
+        140,
+        1.2,
+        1.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            34,
+            1
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.9
+        }
+      ]
+    },
+    {
+      "id": "west_cornice",
+      "type": "box",
+      "position": [
+        -71,
+        16.8,
+        0
+      ],
+      "scale": [
+        1.2,
+        1.2,
+        122
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            30,
+            1
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.9
+        }
+      ]
+    },
+    {
+      "id": "east_cornice",
+      "type": "box",
+      "position": [
+        71,
+        16.8,
+        0
+      ],
+      "scale": [
+        1.2,
+        1.2,
+        122
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            30,
+            1
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.9
+        }
+      ]
+    },
+    {
+      "id": "booth_floor",
+      "type": "box",
+      "position": [
+        0,
+        0.1,
+        54
+      ],
+      "scale": [
+        34,
+        0.2,
+        16
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_checkers_02_32x32px_02.png",
+          "uvScale": [
+            9,
+            4
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "booth_back_wall",
+      "type": "box",
+      "position": [
+        0,
+        4,
+        60
+      ],
+      "scale": [
+        34,
+        8,
+        1.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            8,
+            2
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "booth_left_wall",
+      "type": "box",
+      "position": [
+        -17,
+        4,
+        54
+      ],
+      "scale": [
+        1.2,
+        8,
+        16
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            4,
+            2
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "booth_right_wall",
+      "type": "box",
+      "position": [
+        17,
+        4,
+        54
+      ],
+      "scale": [
+        1.2,
+        8,
+        16
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            4,
+            2
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "booth_roof",
+      "type": "box",
+      "position": [
+        0,
+        8.4,
+        54
+      ],
+      "scale": [
+        34,
+        0.8,
+        16
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            9,
+            4
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "booth_front_left",
+      "type": "box",
+      "position": [
+        -12.8,
+        4,
+        47
+      ],
+      "scale": [
+        8.4,
+        8,
+        1
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            2,
+            2
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "booth_front_right",
+      "type": "box",
+      "position": [
+        12.8,
+        4,
+        47
+      ],
+      "scale": [
+        8.4,
+        8,
+        1
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            2,
+            2
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "booth_header",
+      "type": "box",
+      "position": [
+        0,
+        6.8,
+        47
+      ],
+      "scale": [
+        34,
+        2.4,
+        1
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            8,
+            1
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "booth_window_sill_left",
+      "type": "box",
+      "position": [
+        -10.5,
+        1.1,
+        47
+      ],
+      "scale": [
+        9,
+        1,
+        1
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            2,
+            1
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "booth_window_sill_right",
+      "type": "box",
+      "position": [
+        10.5,
+        1.1,
+        47
+      ],
+      "scale": [
+        9,
+        1,
+        1
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            2,
+            1
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "booth_side_console_left",
+      "type": "box",
+      "position": [
+        -10.5,
+        1.2,
+        56
+      ],
+      "scale": [
+        6,
+        2.4,
+        4
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            2,
+            1
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "booth_side_console_right",
+      "type": "box",
+      "position": [
+        10.5,
+        1.2,
+        56
+      ],
+      "scale": [
+        6,
+        2.4,
+        4
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            2,
+            1
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "hall_desk_left_prop",
+      "type": "box",
+      "position": [
+        -10.6,
+        0.5,
+        56.1
+      ],
+      "scale": [
+        1.8,
+        0.6,
+        0.9
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            2,
+            1
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "rotation": [
+        0,
+        1.57,
+        0
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "hall_monitor_left_prop",
+      "type": "box",
+      "position": [
+        -10.4,
+        1.05,
+        55.7
+      ],
+      "scale": [
+        0.55,
+        0.38,
+        0.12
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_cyan_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "emissiveColor": "#446688",
+          "emissiveIntensity": 0.35
+        }
+      ],
+      "rotation": [
+        0,
+        1.57,
+        0
+      ],
+      "isCollider": false
+    },
+    {
+      "id": "hall_chair_left_prop",
+      "type": "box",
+      "position": [
+        -12.2,
+        0.4,
+        56.6
+      ],
+      "scale": [
+        0.55,
+        0.75,
+        0.55
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_yellow_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "rotation": [
+        0,
+        2.45,
+        0
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "hall_desk_right_prop",
+      "type": "box",
+      "position": [
+        10.6,
+        0.5,
+        56.1
+      ],
+      "scale": [
+        1.8,
+        0.6,
+        0.9
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            2,
+            1
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "rotation": [
+        0,
+        -1.57,
+        0
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "hall_monitor_right_prop",
+      "type": "box",
+      "position": [
+        10.4,
+        1.05,
+        55.7
+      ],
+      "scale": [
+        0.55,
+        0.38,
+        0.12
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_cyan_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "emissiveColor": "#446688",
+          "emissiveIntensity": 0.35
+        }
+      ],
+      "rotation": [
+        0,
+        -1.57,
+        0
+      ],
+      "isCollider": false
+    },
+    {
+      "id": "hall_chair_right_prop",
+      "type": "box",
+      "position": [
+        12.2,
+        0.4,
+        56.6
+      ],
+      "scale": [
+        0.55,
+        0.75,
+        0.55
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_yellow_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "rotation": [
+        0,
+        -2.45,
+        0
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "left_gallery_divider_a_prop",
+      "type": "box",
+      "position": [
+        -47.4,
+        1.45,
+        28
+      ],
+      "scale": [
+        0.2,
+        2.9,
+        4.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_cyan_32x32px_02.png",
+          "uvScale": [
+            1,
+            2
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.86
+        }
+      ],
+      "rotation": [
+        0,
+        1.57,
+        0
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "left_gallery_divider_b_prop",
+      "type": "box",
+      "position": [
+        -47.4,
+        1.45,
+        2
+      ],
+      "scale": [
+        0.2,
+        2.9,
+        4.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_cyan_32x32px_02.png",
+          "uvScale": [
+            1,
+            2
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.86
+        }
+      ],
+      "rotation": [
+        0,
+        1.57,
+        0
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "right_gallery_divider_a_prop",
+      "type": "box",
+      "position": [
+        47.4,
+        1.45,
+        28
+      ],
+      "scale": [
+        0.2,
+        2.9,
+        4.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_cyan_32x32px_02.png",
+          "uvScale": [
+            1,
+            2
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.86
+        }
+      ],
+      "rotation": [
+        0,
+        -1.57,
+        0
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "right_gallery_divider_b_prop",
+      "type": "box",
+      "position": [
+        47.4,
+        1.45,
+        2
+      ],
+      "scale": [
+        0.2,
+        2.9,
+        4.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_cyan_32x32px_02.png",
+          "uvScale": [
+            1,
+            2
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.86
+        }
+      ],
+      "rotation": [
+        0,
+        -1.57,
+        0
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "hall_rear_pedestal_left",
+      "type": "box",
+      "position": [
+        -18,
+        5.15,
+        -18
+      ],
+      "scale": [
+        0.9,
+        0.35,
+        0.55
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "rotation": [
+        0,
+        0.75,
+        0
+      ],
+      "isCollider": false
+    },
+    {
+      "id": "hall_rear_pedestal_right",
+      "type": "box",
+      "position": [
+        18,
+        5.15,
+        -18
+      ],
+      "scale": [
+        0.9,
+        0.35,
+        0.55
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "rotation": [
+        0,
+        -0.8,
+        0
+      ],
+      "isCollider": false
+    },
+    {
+      "id": "yard_floor",
+      "type": "box",
+      "position": [
+        0,
+        0.08,
+        16
+      ],
+      "scale": [
+        56,
+        0.16,
+        56
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            14,
+            14
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.96
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "west_wing_floor",
+      "type": "box",
+      "position": [
+        -45,
+        0.08,
+        16
+      ],
+      "scale": [
+        22,
+        0.16,
+        58
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            6,
+            14
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.94
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "east_wing_floor",
+      "type": "box",
+      "position": [
+        45,
+        0.08,
+        16
+      ],
+      "scale": [
+        22,
+        0.16,
+        58
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            6,
+            14
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.94
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "central_test_block",
+      "type": "box",
+      "position": [
+        0,
+        1.2,
+        -2
+      ],
+      "scale": [
+        12,
+        2.4,
+        14
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            4,
+            2
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "central_test_step",
+      "type": "box",
+      "position": [
+        0,
+        0.45,
+        11.5
+      ],
+      "scale": [
+        18,
+        0.9,
+        5
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_checkers_03_32x32px_02.png",
+          "uvScale": [
+            6,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "west_inner_wall",
+      "type": "box",
+      "position": [
+        -31.5,
+        4.5,
+        16
+      ],
+      "scale": [
+        3,
+        9,
+        58
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            14,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "east_inner_wall",
+      "type": "box",
+      "position": [
+        31.5,
+        4.5,
+        16
+      ],
+      "scale": [
+        3,
+        9,
+        58
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            14,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "west_outer_wall",
+      "type": "box",
+      "position": [
+        -57,
+        7.5,
+        16
+      ],
+      "scale": [
+        2,
+        15,
+        58
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_ochre_32x32px_02.png",
+          "uvScale": [
+            14,
+            4
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "east_outer_wall",
+      "type": "box",
+      "position": [
+        57,
+        7.5,
+        16
+      ],
+      "scale": [
+        2,
+        15,
+        58
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_ochre_32x32px_02.png",
+          "uvScale": [
+            14,
+            4
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "west_lane_cover_a",
+      "type": "box",
+      "position": [
+        -44,
+        1.8,
+        26
+      ],
+      "scale": [
+        7,
+        3.6,
+        4
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_checkers_01_32x32px_02.png",
+          "uvScale": [
+            2,
+            1
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "west_lane_cover_b",
+      "type": "box",
+      "position": [
+        -39.5,
+        1.3,
+        8
+      ],
+      "scale": [
+        5,
+        2.6,
+        5
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            2,
+            1
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.94
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "east_lane_cover_a",
+      "type": "box",
+      "position": [
+        44,
+        1.8,
+        26
+      ],
+      "scale": [
+        7,
+        3.6,
+        4
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_checkers_01_32x32px_02.png",
+          "uvScale": [
+            2,
+            1
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "east_lane_cover_b",
+      "type": "box",
+      "position": [
+        39.5,
+        1.3,
+        8
+      ],
+      "scale": [
+        5,
+        2.6,
+        5
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            2,
+            1
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.94
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "west_frame_a",
+      "type": "box",
+      "position": [
+        -31.5,
+        5.6,
+        33
+      ],
+      "scale": [
+        3,
+        11.2,
+        2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "west_frame_b",
+      "type": "box",
+      "position": [
+        -31.5,
+        5.6,
+        -1
+      ],
+      "scale": [
+        3,
+        11.2,
+        2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "east_frame_a",
+      "type": "box",
+      "position": [
+        31.5,
+        5.6,
+        33
+      ],
+      "scale": [
+        3,
+        11.2,
+        2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "east_frame_b",
+      "type": "box",
+      "position": [
+        31.5,
+        5.6,
+        -1
+      ],
+      "scale": [
+        3,
+        11.2,
+        2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "ceiling_beam_south",
+      "type": "box",
+      "position": [
+        0,
+        15.5,
+        34
+      ],
+      "scale": [
+        124,
+        2,
+        2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            30,
+            1
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.92
+        }
+      ]
+    },
+    {
+      "id": "ceiling_beam_center",
+      "type": "box",
+      "position": [
+        0,
+        15.5,
+        10
+      ],
+      "scale": [
+        124,
+        2,
+        2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            30,
+            1
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.92
+        }
+      ]
+    },
+    {
+      "id": "ceiling_beam_north",
+      "type": "box",
+      "position": [
+        0,
+        15.5,
+        -16
+      ],
+      "scale": [
+        124,
+        2,
+        2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            30,
+            1
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.92
+        }
+      ]
+    },
+    {
+      "id": "yard_column_west_front",
+      "type": "cylinder",
+      "position": [
+        -18,
+        4,
+        18
+      ],
+      "scale": [
+        2.4,
+        8,
+        2.4
+      ],
+      "radialSegments": 12,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            2,
+            6
+          ],
+          "metalness": 0.03,
+          "roughnessFactor": 0.88
+        }
+      ]
+    },
+    {
+      "id": "yard_column_east_front",
+      "type": "cylinder",
+      "position": [
+        18,
+        4,
+        18
+      ],
+      "scale": [
+        2.4,
+        8,
+        2.4
+      ],
+      "radialSegments": 12,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            2,
+            6
+          ],
+          "metalness": 0.03,
+          "roughnessFactor": 0.88
+        }
+      ]
+    },
+    {
+      "id": "yard_column_west_back",
+      "type": "cylinder",
+      "position": [
+        -18,
+        4,
+        -10
+      ],
+      "scale": [
+        2.4,
+        8,
+        2.4
+      ],
+      "radialSegments": 12,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            2,
+            6
+          ],
+          "metalness": 0.03,
+          "roughnessFactor": 0.88
+        }
+      ]
+    },
+    {
+      "id": "yard_column_east_back",
+      "type": "cylinder",
+      "position": [
+        18,
+        4,
+        -10
+      ],
+      "scale": [
+        2.4,
+        8,
+        2.4
+      ],
+      "radialSegments": 12,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            2,
+            6
+          ],
+          "metalness": 0.03,
+          "roughnessFactor": 0.88
+        }
+      ]
+    },
+    {
+      "id": "annex_floor",
+      "type": "box",
+      "position": [
+        0,
+        4.2,
+        -55
+      ],
+      "scale": [
+        92,
+        0.24,
+        92
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_checkers_03_32x32px_02.png",
+          "uvScale": [
+            23,
+            23
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "annex_backdrop",
+      "type": "box",
+      "position": [
+        0,
+        8.2,
+        -102
+      ],
+      "scale": [
+        92,
+        8,
+        2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            23,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "annex_left_wall",
+      "type": "box",
+      "position": [
+        -47,
+        8.2,
+        -55
+      ],
+      "scale": [
+        2,
+        8,
+        92
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_ochre_32x32px_02.png",
+          "uvScale": [
+            23,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "annex_right_wall",
+      "type": "box",
+      "position": [
+        47,
+        8.2,
+        -55
+      ],
+      "scale": [
+        2,
+        8,
+        92
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_ochre_32x32px_02.png",
+          "uvScale": [
+            23,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "annex_entry_left",
+      "type": "box",
+      "position": [
+        -18,
+        8.4,
+        -10.5
+      ],
+      "scale": [
+        2,
+        8.4,
+        2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "annex_entry_right",
+      "type": "box",
+      "position": [
+        18,
+        8.4,
+        -10.5
+      ],
+      "scale": [
+        2,
+        8.4,
+        2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "annex_entry_header",
+      "type": "box",
+      "position": [
+        0,
+        12.6,
+        -10.5
+      ],
+      "scale": [
+        38,
+        1.2,
+        2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            9,
+            1
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.9
+        }
+      ]
+    },
+    {
+      "id": "annex_stairs_left",
+      "type": "stairs",
+      "position": [
+        -24,
+        2.1,
+        -10
+      ],
+      "scale": [
+        16,
+        4.2,
+        24
+      ],
+      "steps": 7,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            5,
+            7
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ]
+    },
+    {
+      "id": "annex_stairs_right",
+      "type": "stairs",
+      "position": [
+        24,
+        2.1,
+        -10
+      ],
+      "scale": [
+        16,
+        4.2,
+        24
+      ],
+      "steps": 7,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            5,
+            7
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ]
+    },
+    {
+      "id": "annex_ramp_center",
+      "type": "ramp",
+      "position": [
+        0,
+        2,
+        -9.5
+      ],
+      "rotation": [
+        0,
+        3.141592653589793,
+        0
+      ],
+      "scale": [
+        12,
+        4,
+        18
+      ],
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            4,
+            6
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.94
+        }
+      ]
+    },
+    {
+      "id": "upper_bridge",
+      "type": "box",
+      "position": [
+        0,
+        8.1,
+        -2
+      ],
+      "scale": [
+        64,
+        0.24,
+        8
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            16,
+            2
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "catwalk_left",
+      "type": "box",
+      "position": [
+        -48,
+        8.1,
+        -2
+      ],
+      "scale": [
+        18,
+        0.18,
+        8
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            5,
+            2
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.94
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "catwalk_right",
+      "type": "box",
+      "position": [
+        48,
+        8.1,
+        -2
+      ],
+      "scale": [
+        18,
+        0.18,
+        8
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            5,
+            2
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.94
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_stairs",
+      "type": "stairs",
+      "position": [
+        -34,
+        6.3,
+        -44
+      ],
+      "scale": [
+        10,
+        4.2,
+        16
+      ],
+      "steps": 7,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            4,
+            5
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_ramp",
+      "type": "ramp",
+      "position": [
+        -18,
+        6.2,
+        -44
+      ],
+      "scale": [
+        8,
+        4,
+        16
+      ],
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            3,
+            5
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.94
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_wedge",
+      "type": "wedge",
+      "position": [
+        6.5,
+        5.7,
+        -45
+      ],
+      "rotation": [
+        0,
+        1.57,
+        0
+      ],
+      "scale": [
+        11,
+        3,
+        11
+      ],
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_checkers_03_32x32px_02.png",
+          "uvScale": [
+            4,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.9
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_arch",
+      "type": "arch",
+      "position": [
+        0,
+        8.4,
+        -50.2
+      ],
+      "scale": [
+        13,
+        8.4,
+        3.8
+      ],
+      "thickness": 0.16,
+      "segments": 20,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            5,
+            4
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_cone",
+      "type": "cone",
+      "position": [
+        -44,
+        7.4,
+        -44
+      ],
+      "scale": [
+        6,
+        6.4,
+        6
+      ],
+      "sides": 20,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_green_32x32px_02.png",
+          "uvScale": [
+            3,
+            4
+          ],
+          "metalness": 0.03,
+          "roughnessFactor": 0.88
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_pyramid",
+      "type": "pyramid",
+      "position": [
+        -44,
+        7,
+        -32
+      ],
+      "scale": [
+        6.2,
+        5.6,
+        6.2
+      ],
+      "sides": 4,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_red_carmine_32x32px_02.png",
+          "uvScale": [
+            3,
+            4
+          ],
+          "metalness": 0.03,
+          "roughnessFactor": 0.9
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_tube",
+      "type": "tube",
+      "position": [
+        44,
+        8.1,
+        -44
+      ],
+      "rotation": [
+        1.57,
+        0,
+        0
+      ],
+      "scale": [
+        7,
+        10,
+        7
+      ],
+      "innerRadius": 0.29,
+      "outerRadius": 0.5,
+      "segments": 20,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_cyan_32x32px_02.png",
+          "uvScale": [
+            4,
+            6
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.86
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_corner",
+      "type": "corner",
+      "cornerStyle": "rounded",
+      "position": [
+        44,
+        6.8,
+        -31
+      ],
+      "rotation": [
+        0,
+        1.57,
+        0
+      ],
+      "scale": [
+        12,
+        4.8,
+        12
+      ],
+      "thickness": 0.22,
+      "segments": 14,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_yellow_32x32px_02.png",
+          "uvScale": [
+            5,
+            3
+          ],
+          "metalness": 0.03,
+          "roughnessFactor": 0.88
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_capsule",
+      "type": "capsule",
+      "position": [
+        -28,
+        7.2,
+        -31
+      ],
+      "scale": [
+        5,
+        7,
+        5
+      ],
+      "radius": 0.24,
+      "radialSegments": 14,
+      "segments": 7,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_green_32x32px_02.png",
+          "uvScale": [
+            3,
+            5
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_frustum",
+      "type": "frustum",
+      "position": [
+        -18,
+        7.2,
+        -31
+      ],
+      "scale": [
+        7,
+        7,
+        7
+      ],
+      "topRadius": 0.16,
+      "bottomRadius": 0.5,
+      "radialSegments": 18,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_red_carmine_32x32px_02.png",
+          "uvScale": [
+            3,
+            5
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.86
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_convex_hull",
+      "type": "convex_hull",
+      "position": [
+        -6,
+        7,
+        -31
+      ],
+      "scale": [
+        8,
+        6,
+        8
+      ],
+      "points": [
+        [
+          -0.5,
+          -0.5,
+          -0.4
+        ],
+        [
+          0.35,
+          -0.5,
+          -0.5
+        ],
+        [
+          0.5,
+          -0.16,
+          0
+        ],
+        [
+          0.32,
+          -0.5,
+          0.5
+        ],
+        [
+          -0.45,
+          -0.5,
+          0.38
+        ],
+        [
+          -0.1,
+          0.46,
+          -0.12
+        ],
+        [
+          0.08,
+          0.38,
+          0.28
+        ]
+      ],
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_ochre_32x32px_02.png",
+          "uvScale": [
+            4,
+            4
+          ],
+          "metalness": 0.03,
+          "roughnessFactor": 0.86
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_torus",
+      "type": "torus",
+      "position": [
+        18,
+        8.2,
+        -44
+      ],
+      "rotation": [
+        1.57,
+        0,
+        0
+      ],
+      "scale": [
+        8,
+        8,
+        8
+      ],
+      "innerRadius": 0.18,
+      "outerRadius": 0.46,
+      "arcDegrees": 300,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_cyan_32x32px_02.png",
+          "uvScale": [
+            4,
+            4
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_heightmap_patch",
+      "type": "heightmap_patch",
+      "position": [
+        18,
+        4.7,
+        -18
+      ],
+      "scale": [
+        10,
+        2.2,
+        10
+      ],
+      "widthSegments": 5,
+      "depthSegments": 5,
+      "heightfield": [
+        [
+          0,
+          0.06,
+          0.12,
+          0.06,
+          0,
+          -0.04
+        ],
+        [
+          0.02,
+          0.1,
+          0.18,
+          0.14,
+          0.04,
+          -0.02
+        ],
+        [
+          0.05,
+          0.16,
+          0.28,
+          0.2,
+          0.1,
+          0
+        ],
+        [
+          0.02,
+          0.1,
+          0.18,
+          0.14,
+          0.04,
+          -0.02
+        ],
+        [
+          0,
+          0.04,
+          0.1,
+          0.06,
+          0,
+          -0.04
+        ],
+        [
+          -0.03,
+          0,
+          0.04,
+          0,
+          -0.04,
+          -0.08
+        ]
+      ],
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_checkers_01_32x32px_02.png",
+          "uvScale": [
+            4,
+            4
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.92
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_catenary_post_a",
+      "type": "box",
+      "position": [
+        -16,
+        8.4,
+        -57
+      ],
+      "scale": [
+        0.8,
+        9.2,
+        0.8
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            1,
+            4
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_catenary_post_b",
+      "type": "box",
+      "position": [
+        16,
+        8.4,
+        -57
+      ],
+      "scale": [
+        0.8,
+        9.2,
+        0.8
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            1,
+            4
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_catenary",
+      "type": "catenary_primitive",
+      "position": [
+        0,
+        13.2,
+        -57
+      ],
+      "pointA": [
+        -16,
+        0,
+        0
+      ],
+      "pointB": [
+        16,
+        0,
+        0
+      ],
+      "sagFactor": 3.8,
+      "crossSectionProfile": "circle",
+      "radius": 0.07,
+      "tessellationFactor": 24,
+      "radialSegments": 8,
+      "isCollider": false,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_yellow_32x32px_02.png",
+          "uvScale": [
+            12,
+            1
+          ],
+          "metalness": 0.12,
+          "roughnessFactor": 0.72,
+          "emissiveColor": "#d8bc57",
+          "emissiveIntensity": 0.08
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_sdf_box",
+      "type": "box",
+      "position": [
+        -7.5,
+        6.1,
+        -18
+      ],
+      "scale": [
+        6,
+        3.2,
+        4.5
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_ochre_32x32px_02.png",
+          "uvScale": [
+            3,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_sdf_cylinder",
+      "type": "cylinder",
+      "position": [
+        -5.4,
+        6.8,
+        -16.4
+      ],
+      "scale": [
+        3.6,
+        4.8,
+        3.6
+      ],
+      "radialSegments": 14,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            2,
+            4
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_array_supports",
+      "type": "array_primitive",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "count": 5,
+      "offsetStep": {
+        "position": [
+          4.6,
+          0,
+          0
+        ]
+      },
+      "basePrimitive": {
+        "id": "primitive_demo_array_post",
+        "type": "cylinder",
+        "position": [
+          17.2,
+          7.3,
+          -52
+        ],
+        "scale": [
+          1.6,
+          6.2,
+          1.6
+        ],
+        "radialSegments": 12,
+        "isCollider": true
+      },
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            2,
+            5
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.9
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_csg_wall",
+      "type": "box",
+      "position": [
+        -4,
+        7.4,
+        -31
+      ],
+      "scale": [
+        10,
+        6.4,
+        2.4
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            4,
+            3
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_csg_frustum_cut",
+      "type": "frustum",
+      "opType": "subtractive",
+      "targetIds": [
+        "primitive_demo_csg_wall"
+      ],
+      "position": [
+        -4,
+        8.2,
+        -30.8
+      ],
+      "rotation": [
+        1.57,
+        0,
+        0
+      ],
+      "scale": [
+        4.2,
+        4.2,
+        5
+      ],
+      "topRadius": 0.08,
+      "bottomRadius": 0.32,
+      "radialSegments": 12,
+      "isCollider": false,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_trigger_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_bevel_target",
+      "type": "box",
+      "position": [
+        -30,
+        6.2,
+        -18
+      ],
+      "scale": [
+        8,
+        4,
+        8
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_red_carmine_32x32px_02.png",
+          "uvScale": [
+            3,
+            3
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_spiral_stairs",
+      "type": "spiral_stairs",
+      "position": [
+        -39,
+        4.32,
+        -64
+      ],
+      "scale": [
+        9,
+        8.4,
+        9
+      ],
+      "steps": 12,
+      "innerRadius": 0.16,
+      "outerRadius": 0.46,
+      "arcDegrees": 300,
+      "startDegrees": -150,
+      "centerColumn": true,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            4,
+            6
+          ],
+          "metalness": 0.03,
+          "roughnessFactor": 0.88
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_roof_gable_base",
+      "type": "box",
+      "position": [
+        16,
+        5.45,
+        -64
+      ],
+      "scale": [
+        8,
+        2.5,
+        10
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            3,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_roof_gable",
+      "type": "roof_gable",
+      "position": [
+        16,
+        8.15,
+        -64
+      ],
+      "scale": [
+        10,
+        4.4,
+        12
+      ],
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_red_carmine_32x32px_02.png",
+          "uvScale": [
+            4,
+            3
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_hipped_roof_base",
+      "type": "box",
+      "position": [
+        32,
+        5.45,
+        -64
+      ],
+      "scale": [
+        8,
+        2.5,
+        10
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            3,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_hipped_roof",
+      "type": "hipped_roof",
+      "position": [
+        32,
+        8.05,
+        -64
+      ],
+      "scale": [
+        10,
+        4.2,
+        12
+      ],
+      "ridgeRatio": 0.38,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_ochre_32x32px_02.png",
+          "uvScale": [
+            4,
+            3
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_union_a",
+      "type": "box",
+      "position": [
+        45.5,
+        5.8,
+        -63.7
+      ],
+      "scale": [
+        6.5,
+        3.2,
+        6.5
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_green_32x32px_02.png",
+          "uvScale": [
+            3,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_union_b",
+      "type": "box",
+      "position": [
+        41.8,
+        5.8,
+        -66.6
+      ],
+      "scale": [
+        6.5,
+        3.2,
+        6.5
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_green_32x32px_02.png",
+          "uvScale": [
+            3,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_boolean_union",
+      "type": "boolean_union",
+      "targetIds": [
+        "primitive_demo_union_a",
+        "primitive_demo_union_b"
+      ]
+    },
+    {
+      "id": "primitive_demo_intersection_a",
+      "type": "box",
+      "position": [
+        -22,
+        5.8,
+        -53.5
+      ],
+      "scale": [
+        7.2,
+        3.2,
+        7.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            3,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_intersection_b",
+      "type": "box",
+      "position": [
+        -18.8,
+        5.8,
+        -50.4
+      ],
+      "scale": [
+        7.2,
+        3.2,
+        7.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            3,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_boolean_intersection",
+      "type": "boolean_intersection",
+      "targetIds": [
+        "primitive_demo_intersection_a",
+        "primitive_demo_intersection_b"
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_yellow_32x32px_02.png",
+          "uvScale": [
+            3,
+            2
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_difference_a",
+      "type": "box",
+      "position": [
+        -2.2,
+        5.8,
+        -53.5
+      ],
+      "scale": [
+        7.2,
+        3.2,
+        7.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_red_carmine_32x32px_02.png",
+          "uvScale": [
+            3,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_difference_b",
+      "type": "box",
+      "position": [
+        1,
+        5.8,
+        -50.4
+      ],
+      "scale": [
+        7.2,
+        3.2,
+        7.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_red_carmine_32x32px_02.png",
+          "uvScale": [
+            3,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_boolean_difference",
+      "type": "boolean_difference",
+      "targetIds": [
+        "primitive_demo_difference_a",
+        "primitive_demo_difference_b"
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            3,
+            2
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_hexahedron",
+      "type": "hexahedron",
+      "position": [
+        -30,
+        6.5,
+        -76
+      ],
+      "scale": [
+        9,
+        6,
+        8
+      ],
+      "vertices": [
+        [
+          -0.48,
+          -0.5,
+          -0.48
+        ],
+        [
+          0.5,
+          -0.46,
+          -0.42
+        ],
+        [
+          0.52,
+          -0.4,
+          0.5
+        ],
+        [
+          -0.44,
+          -0.48,
+          0.46
+        ],
+        [
+          -0.5,
+          0.44,
+          -0.46
+        ],
+        [
+          0.44,
+          0.5,
+          -0.5
+        ],
+        [
+          0.48,
+          0.48,
+          0.42
+        ],
+        [
+          -0.48,
+          0.4,
+          0.5
+        ]
+      ],
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_ochre_32x32px_02.png",
+          "uvScale": [
+            4,
+            4
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.86
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_terrain_quad",
+      "type": "terrain_quad",
+      "position": [
+        4,
+        4.55,
+        -76
+      ],
+      "scale": [
+        18,
+        2.4,
+        14
+      ],
+      "widthSegments": 7,
+      "depthSegments": 5,
+      "heightData": [
+        [
+          -0.06,
+          0,
+          0.08,
+          0.14,
+          0.1,
+          0.02,
+          -0.02,
+          -0.08
+        ],
+        [
+          -0.03,
+          0.05,
+          0.16,
+          0.26,
+          0.18,
+          0.08,
+          0,
+          -0.04
+        ],
+        [
+          0.02,
+          0.1,
+          0.2,
+          0.34,
+          0.28,
+          0.12,
+          0.02,
+          -0.02
+        ],
+        [
+          0,
+          0.06,
+          0.18,
+          0.28,
+          0.22,
+          0.1,
+          0.02,
+          -0.02
+        ],
+        [
+          -0.04,
+          0,
+          0.08,
+          0.18,
+          0.12,
+          0.04,
+          -0.02,
+          -0.06
+        ],
+        [
+          -0.08,
+          -0.04,
+          0.02,
+          0.08,
+          0.04,
+          -0.02,
+          -0.06,
+          -0.1
+        ]
+      ],
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            6,
+            5
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.94
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_symmetry_crate_a",
+      "type": "box",
+      "position": [
+        -28,
+        5.6,
+        -68
+      ],
+      "scale": [
+        6,
+        3.2,
+        4
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_green_32x32px_02.png",
+          "uvScale": [
+            2,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_filtered_collision_post_a",
+      "type": "box",
+      "position": [
+        -44,
+        6.2,
+        -88
+      ],
+      "scale": [
+        0.8,
+        5,
+        0.8
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_filtered_collision_post_b",
+      "type": "box",
+      "position": [
+        -36,
+        6.2,
+        -88
+      ],
+      "scale": [
+        0.8,
+        5,
+        0.8
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_ladder_left",
+      "type": "box",
+      "position": [
+        28.7,
+        6.6,
+        -88
+      ],
+      "scale": [
+        0.28,
+        5.8,
+        0.28
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_ladder_right",
+      "type": "box",
+      "position": [
+        31.3,
+        6.6,
+        -88
+      ],
+      "scale": [
+        0.28,
+        5.8,
+        0.28
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            3
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_ladder_rung_1",
+      "type": "box",
+      "position": [
+        30,
+        4.3,
+        -88
+      ],
+      "scale": [
+        2.3,
+        0.12,
+        0.22
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_ladder_rung_2",
+      "type": "box",
+      "position": [
+        30,
+        5.4,
+        -88
+      ],
+      "scale": [
+        2.3,
+        0.12,
+        0.22
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_ladder_rung_3",
+      "type": "box",
+      "position": [
+        30,
+        6.5,
+        -88
+      ],
+      "scale": [
+        2.3,
+        0.12,
+        0.22
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_ladder_rung_4",
+      "type": "box",
+      "position": [
+        30,
+        7.6,
+        -88
+      ],
+      "scale": [
+        2.3,
+        0.12,
+        0.22
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_ladder_platform",
+      "type": "box",
+      "position": [
+        30,
+        8.9,
+        -88
+      ],
+      "scale": [
+        6,
+        0.24,
+        6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            3,
+            3
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_fluid_pool_shell",
+      "type": "box",
+      "position": [
+        42,
+        4.55,
+        -88
+      ],
+      "scale": [
+        9,
+        0.7,
+        9
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            4,
+            4
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_detail_target",
+      "type": "box",
+      "position": [
+        8,
+        6.3,
+        -98
+      ],
+      "scale": [
+        7,
+        4.2,
+        7
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_ochre_32x32px_02.png",
+          "uvScale": [
+            3,
+            3
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_fillet_block",
+      "type": "box",
+      "position": [
+        -42,
+        5.8,
+        -94
+      ],
+      "scale": [
+        5.6,
+        3.8,
+        5.6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_orange_32x32px_02.png",
+          "uvScale": [
+            2,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.86
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_fillet_torus",
+      "type": "torus",
+      "position": [
+        -39.2,
+        6.6,
+        -94
+      ],
+      "rotation": [
+        1.57,
+        0.42,
+        0
+      ],
+      "scale": [
+        5.6,
+        5.6,
+        5.6
+      ],
+      "innerRadius": 0.18,
+      "outerRadius": 0.42,
+      "segments": 18,
+      "radialSegments": 10,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            3,
+            3
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.82
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_reconciled_hexahedron",
+      "type": "hexahedron",
+      "position": [
+        -24,
+        6.4,
+        -94
+      ],
+      "scale": [
+        8,
+        6,
+        7
+      ],
+      "vertices": [
+        [
+          -0.5,
+          -0.5,
+          -0.48
+        ],
+        [
+          0.5,
+          -0.5,
+          -0.46
+        ],
+        [
+          0.56,
+          -0.22,
+          0.52
+        ],
+        [
+          -0.38,
+          -0.48,
+          0.48
+        ],
+        [
+          -0.62,
+          0.46,
+          -0.2
+        ],
+        [
+          0.32,
+          0.5,
+          -0.56
+        ],
+        [
+          0.64,
+          0.2,
+          0.52
+        ],
+        [
+          -0.54,
+          0.56,
+          0.34
+        ]
+      ],
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_red_carmine_32x32px_02.png",
+          "uvScale": [
+            3,
+            3
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.88
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_subdivision_spiral",
+      "type": "spiral_stairs",
+      "position": [
+        -8,
+        4.32,
+        -94
+      ],
+      "scale": [
+        7,
+        7.6,
+        7
+      ],
+      "steps": 10,
+      "innerRadius": 0.16,
+      "outerRadius": 0.46,
+      "arcDegrees": 280,
+      "startDegrees": -140,
+      "centerColumn": true,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_green_32x32px_02.png",
+          "uvScale": [
+            3,
+            5
+          ],
+          "metalness": 0.03,
+          "roughnessFactor": 0.88
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_organic_floor",
+      "type": "box",
+      "position": [
+        28,
+        4.7,
+        -94
+      ],
+      "scale": [
+        10,
+        1.2,
+        10
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            4,
+            4
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.94
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_organic_pillar",
+      "type": "cylinder",
+      "position": [
+        28,
+        7.6,
+        -94
+      ],
+      "scale": [
+        3.2,
+        5.8,
+        3.2
+      ],
+      "radialSegments": 16,
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_green_32x32px_02.png",
+          "uvScale": [
+            2,
+            4
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_cutout_wall",
+      "type": "box",
+      "position": [
+        -24,
+        6.2,
+        -110
+      ],
+      "scale": [
+        10,
+        5,
+        1.6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            3,
+            2
+          ],
+          "metalness": 0.05,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_scatter_pad",
+      "type": "box",
+      "position": [
+        28,
+        4.45,
+        -110
+      ],
+      "scale": [
+        11,
+        0.5,
+        11
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            4,
+            4
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.94
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_shrinkwrap_a",
+      "type": "box",
+      "position": [
+        40,
+        5.1,
+        -112
+      ],
+      "scale": [
+        2.8,
+        2.8,
+        2.8
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_red_carmine_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_shrinkwrap_b",
+      "type": "box",
+      "position": [
+        43,
+        5.6,
+        -108.5
+      ],
+      "scale": [
+        2.2,
+        3.2,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_red_carmine_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_cull_prop_a",
+      "type": "box",
+      "position": [
+        39,
+        5,
+        -118
+      ],
+      "scale": [
+        1.2,
+        1.2,
+        1.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "metalness": 0.03,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_cull_prop_b",
+      "type": "box",
+      "position": [
+        42,
+        5,
+        -118
+      ],
+      "scale": [
+        1.2,
+        1.8,
+        1.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "metalness": 0.03,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_extrude_base",
+      "type": "box",
+      "position": [
+        -42,
+        4.8,
+        -136
+      ],
+      "scale": [
+        8,
+        1.1,
+        8
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            3,
+            3
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.92
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_cable_post_a",
+      "type": "box",
+      "position": [
+        -8,
+        8.2,
+        -140
+      ],
+      "scale": [
+        0.8,
+        8.4,
+        0.8
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            1,
+            4
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_cable_post_b",
+      "type": "box",
+      "position": [
+        8,
+        8.2,
+        -140
+      ],
+      "scale": [
+        0.8,
+        8.4,
+        0.8
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            1,
+            4
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_shadow_exclusion_target",
+      "type": "box",
+      "position": [
+        28,
+        5,
+        -162
+      ],
+      "scale": [
+        3,
+        3,
+        3
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_red_carmine_32x32px_02.png",
+          "uvScale": [
+            2,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_terrain_cut_target",
+      "type": "terrain_quad",
+      "position": [
+        -42,
+        4.55,
+        -186
+      ],
+      "scale": [
+        14,
+        2.1,
+        12
+      ],
+      "widthSegments": 7,
+      "depthSegments": 5,
+      "heightData": [
+        [
+          -0.08,
+          -0.02,
+          0.04,
+          0.12,
+          0.1,
+          0.03,
+          -0.02,
+          -0.08
+        ],
+        [
+          -0.04,
+          0.02,
+          0.12,
+          0.24,
+          0.18,
+          0.08,
+          0,
+          -0.04
+        ],
+        [
+          0,
+          0.08,
+          0.18,
+          0.34,
+          0.28,
+          0.12,
+          0.02,
+          -0.02
+        ],
+        [
+          -0.02,
+          0.04,
+          0.14,
+          0.28,
+          0.22,
+          0.1,
+          0.02,
+          -0.04
+        ],
+        [
+          -0.06,
+          -0.02,
+          0.06,
+          0.14,
+          0.1,
+          0.02,
+          -0.04,
+          -0.08
+        ],
+        [
+          -0.1,
+          -0.06,
+          0,
+          0.08,
+          0.02,
+          -0.04,
+          -0.08,
+          -0.12
+        ]
+      ],
+      "isCollider": true,
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            5,
+            4
+          ],
+          "metalness": 0.03,
+          "roughnessFactor": 0.94
+        }
+      ]
+    },
+    {
+      "id": "primitive_demo_teleport_anchor",
+      "type": "box",
+      "position": [
+        12,
+        5.2,
+        -196
+      ],
+      "scale": [
+        4,
+        2,
+        4
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_green_32x32px_02.png",
+          "uvScale": [
+            2,
+            2
+          ],
+          "emissiveColor": "#5dcf74",
+          "emissiveIntensity": 0.2,
+          "metalness": 0.04,
+          "roughnessFactor": 0.86
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "primitive_demo_deformer_source",
+      "type": "box",
+      "position": [
+        -42,
+        6,
+        -202
+      ],
+      "scale": [
+        1,
+        4,
+        0.4
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            1,
+            2
+          ],
+          "metalness": 0.06,
+          "roughnessFactor": 0.88
+        }
+      ],
+      "isCollider": false
+    },
+    {
+      "id": "prototype_trigger_pad",
+      "type": "box",
+      "position": [
+        0,
+        0.06,
+        36
+      ],
+      "scale": [
+        18,
+        0.12,
+        10
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_trigger_32x32px_02.png",
+          "uvScale": [
+            7,
+            4
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.98
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "prototype_water_pad",
+      "type": "box",
+      "position": [
+        45,
+        0.04,
+        38
+      ],
+      "scale": [
+        12,
+        0.08,
+        12
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_water_32x32px_02.png",
+          "uvScale": [
+            4,
+            4
+          ],
+          "metalness": 0,
+          "roughnessFactor": 0.7
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "detail_collision_block",
+      "type": "box",
+      "position": [
+        -41,
+        1,
+        4
+      ],
+      "scale": [
+        3,
+        2,
+        3
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_grey_32x32px_02.png",
+          "uvScale": [
+            1,
+            1
+          ],
+          "metalness": 0.08,
+          "roughnessFactor": 0.94
+        }
+      ],
+      "isCollider": true,
+      "isStructural": false
+    },
+    {
+      "id": "yard_hazard_strip",
+      "type": "plane",
+      "decalPreset": "hazard",
+      "position": [
+        0,
+        0.012,
+        36
+      ],
+      "rotation": [
+        -1.57,
+        0,
+        0
+      ],
+      "scale": [
+        12,
+        1.15,
+        1
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "caution_stripes_refined.png",
+          "emissiveColor": "#e2af50"
+        }
+      ]
+    },
+    {
+      "id": "east_blood_mark",
+      "type": "plane",
+      "decalPreset": "blood",
+      "position": [
+        39.5,
+        0.012,
+        14.6
+      ],
+      "rotation": [
+        -1.57,
+        0.2,
+        0
+      ],
+      "scale": [
+        0.9,
+        2.2,
+        1
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "blood_drag_detail.png",
+          "emissiveColor": "#2a0606"
+        }
+      ]
+    },
+    {
+      "id": "ceiling_stripe_band",
+      "type": "box",
+      "position": [
+        0,
+        17.2,
+        -2
+      ],
+      "scale": [
+        96,
+        0.2,
+        8
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            18,
+            1
+          ],
+          "metalness": 0.02,
+          "roughnessFactor": 0.9
+        }
+      ]
+    },
+    {
+      "id": "bridge_left_rail_post_1",
+      "type": "box",
+      "position": [
+        -26,
+        8.9,
+        -2
+      ],
+      "scale": [
+        0.16,
+        1.7,
+        3.6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "bridge_left_rail_post_2",
+      "type": "box",
+      "position": [
+        -20,
+        8.9,
+        -2
+      ],
+      "scale": [
+        0.16,
+        1.7,
+        3.6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "bridge_left_rail_post_3",
+      "type": "box",
+      "position": [
+        -14,
+        8.9,
+        -2
+      ],
+      "scale": [
+        0.16,
+        1.7,
+        3.6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "bridge_left_rail_outer_bar",
+      "type": "box",
+      "position": [
+        -20,
+        9.66,
+        -3.6
+      ],
+      "scale": [
+        12,
+        0.12,
+        0.12
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "bridge_left_rail_inner_bar",
+      "type": "box",
+      "position": [
+        -20,
+        9.66,
+        -0.3999999999999999
+      ],
+      "scale": [
+        12,
+        0.12,
+        0.12
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "bridge_right_rail_post_1",
+      "type": "box",
+      "position": [
+        14,
+        8.9,
+        -2
+      ],
+      "scale": [
+        0.16,
+        1.7,
+        3.6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "bridge_right_rail_post_2",
+      "type": "box",
+      "position": [
+        20,
+        8.9,
+        -2
+      ],
+      "scale": [
+        0.16,
+        1.7,
+        3.6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "bridge_right_rail_post_3",
+      "type": "box",
+      "position": [
+        26,
+        8.9,
+        -2
+      ],
+      "scale": [
+        0.16,
+        1.7,
+        3.6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "bridge_right_rail_outer_bar",
+      "type": "box",
+      "position": [
+        20,
+        9.66,
+        -3.6
+      ],
+      "scale": [
+        12,
+        0.12,
+        0.12
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "bridge_right_rail_inner_bar",
+      "type": "box",
+      "position": [
+        20,
+        9.66,
+        -0.3999999999999999
+      ],
+      "scale": [
+        12,
+        0.12,
+        0.12
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "west_catwalk_rail_post_1",
+      "type": "box",
+      "position": [
+        -54,
+        8.9,
+        -2
+      ],
+      "scale": [
+        0.16,
+        1.7,
+        3.6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "west_catwalk_rail_post_2",
+      "type": "box",
+      "position": [
+        -48,
+        8.9,
+        -2
+      ],
+      "scale": [
+        0.16,
+        1.7,
+        3.6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "west_catwalk_rail_post_3",
+      "type": "box",
+      "position": [
+        -42,
+        8.9,
+        -2
+      ],
+      "scale": [
+        0.16,
+        1.7,
+        3.6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "west_catwalk_rail_outer_bar",
+      "type": "box",
+      "position": [
+        -48,
+        9.66,
+        -3.6
+      ],
+      "scale": [
+        12,
+        0.12,
+        0.12
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "west_catwalk_rail_inner_bar",
+      "type": "box",
+      "position": [
+        -48,
+        9.66,
+        -0.3999999999999999
+      ],
+      "scale": [
+        12,
+        0.12,
+        0.12
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "east_catwalk_rail_post_1",
+      "type": "box",
+      "position": [
+        42,
+        8.9,
+        -2
+      ],
+      "scale": [
+        0.16,
+        1.7,
+        3.6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "east_catwalk_rail_post_2",
+      "type": "box",
+      "position": [
+        48,
+        8.9,
+        -2
+      ],
+      "scale": [
+        0.16,
+        1.7,
+        3.6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "east_catwalk_rail_post_3",
+      "type": "box",
+      "position": [
+        54,
+        8.9,
+        -2
+      ],
+      "scale": [
+        0.16,
+        1.7,
+        3.6
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "east_catwalk_rail_outer_bar",
+      "type": "box",
+      "position": [
+        48,
+        9.66,
+        -3.6
+      ],
+      "scale": [
+        12,
+        0.12,
+        0.12
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "east_catwalk_rail_inner_bar",
+      "type": "box",
+      "position": [
+        48,
+        9.66,
+        -0.3999999999999999
+      ],
+      "scale": [
+        12,
+        0.12,
+        0.12
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png"
+        }
+      ]
+    },
+    {
+      "id": "fixture_booth_fixture",
+      "type": "box",
+      "position": [
+        0,
+        7.9,
+        54
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_yard_south_center_fixture",
+      "type": "box",
+      "position": [
+        0,
+        14.2,
+        28
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_yard_south_left_fixture",
+      "type": "box",
+      "position": [
+        -32,
+        14.2,
+        28
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_yard_south_right_fixture",
+      "type": "box",
+      "position": [
+        32,
+        14.2,
+        28
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_yard_mid_center_fixture",
+      "type": "box",
+      "position": [
+        0,
+        14.2,
+        4
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_yard_mid_left_fixture",
+      "type": "box",
+      "position": [
+        -32,
+        14.2,
+        4
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_yard_mid_right_fixture",
+      "type": "box",
+      "position": [
+        32,
+        14.2,
+        4
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_annex_left_fixture",
+      "type": "box",
+      "position": [
+        -28,
+        14.2,
+        -28
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_annex_center_fixture",
+      "type": "box",
+      "position": [
+        0,
+        14.2,
+        -28
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_annex_right_fixture",
+      "type": "box",
+      "position": [
+        28,
+        14.2,
+        -28
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_annex_rear_left_fixture",
+      "type": "box",
+      "position": [
+        -28,
+        14.2,
+        -56
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_annex_rear_center_fixture",
+      "type": "box",
+      "position": [
+        0,
+        14.2,
+        -56
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_annex_rear_right_fixture",
+      "type": "box",
+      "position": [
+        28,
+        14.2,
+        -56
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_annex_far_left_fixture",
+      "type": "box",
+      "position": [
+        -28,
+        14.2,
+        -76
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_annex_far_center_fixture",
+      "type": "box",
+      "position": [
+        0,
+        14.2,
+        -76
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_annex_far_right_fixture",
+      "type": "box",
+      "position": [
+        28,
+        14.2,
+        -76
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_annex_operator_left_fixture",
+      "type": "box",
+      "position": [
+        -28,
+        14.2,
+        -92
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_annex_operator_center_fixture",
+      "type": "box",
+      "position": [
+        0,
+        14.2,
+        -92
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "fixture_annex_operator_right_fixture",
+      "type": "box",
+      "position": [
+        28,
+        14.2,
+        -92
+      ],
+      "scale": [
+        10,
+        0.28,
+        2.2
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_white_32x32px_02.png",
+          "uvScale": [
+            4,
+            1
+          ],
+          "emissiveColor": "#fff3cf",
+          "emissiveIntensity": 1.85,
+          "metalness": 0.02,
+          "roughnessFactor": 0.84
+        }
+      ]
+    },
+    {
+      "id": "rear_pedestal_left_pedestal",
+      "type": "box",
+      "position": [
+        -18,
+        4.2,
+        -18
+      ],
+      "scale": [
+        5,
+        2,
+        5
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_checkers_01_32x32px_02.png",
+          "uvScale": [
+            2,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "rear_pedestal_mid_pedestal",
+      "type": "box",
+      "position": [
+        0,
+        4.2,
+        -18
+      ],
+      "scale": [
+        5,
+        2,
+        5
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_checkers_01_32x32px_02.png",
+          "uvScale": [
+            2,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    },
+    {
+      "id": "rear_pedestal_right_pedestal",
+      "type": "box",
+      "position": [
+        18,
+        4.2,
+        -18
+      ],
+      "scale": [
+        5,
+        2,
+        5
+      ],
+      "materials": [
+        {
+          "baseColorMapRef": "Prototype_checkers_01_32x32px_02.png",
+          "uvScale": [
+            2,
+            2
+          ],
+          "metalness": 0.04,
+          "roughnessFactor": 0.9
+        }
+      ],
+      "isCollider": true
+    }
+  ],
+  "modelInstances": [],
+  "spawners": []
+}

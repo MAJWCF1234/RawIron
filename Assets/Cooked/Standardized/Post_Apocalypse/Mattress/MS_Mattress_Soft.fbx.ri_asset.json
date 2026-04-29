@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_mattress_soft",
+  "type": "mesh",
+  "displayName": "MS_Mattress_Soft",
+  "sourcePath": "Assets/Source/Post apocalypse/Mattress/MS_Mattress_Soft.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_mattress_soft_source",
+      "path": "Assets/Source/Post apocalypse/Mattress/MS_Mattress_Soft.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

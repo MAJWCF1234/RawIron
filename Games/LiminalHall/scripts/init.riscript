@@ -1,0 +1,9 @@
+# RawIron Init Script v1 (scalar contract)
+# Required by RawIron game format v1.3.5.
+
+warmup_frames = 4
+precache_enabled = 1
+preload_streaming_cells = 1
+compile_logic_graph_on_boot = 1
+liminal_showcase_enabled = 1
+liminal_showcase_duration_s = 11.0

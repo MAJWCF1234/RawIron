@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_composter",
+  "type": "mesh",
+  "displayName": "MS_Composter",
+  "sourcePath": "Assets/Source/Post apocalypse/Composter/MS_Composter.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_composter_source",
+      "path": "Assets/Source/Post apocalypse/Composter/MS_Composter.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

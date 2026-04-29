@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_planter_box",
+  "type": "mesh",
+  "displayName": "MS_Planter_Box",
+  "sourcePath": "Assets/Source/Post apocalypse/Planter_Box/MS_Planter_Box.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_planter_box_source",
+      "path": "Assets/Source/Post apocalypse/Planter_Box/MS_Planter_Box.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

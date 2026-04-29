@@ -1,0 +1,25 @@
+/build/
+/out/
+/.tmp/
+
+# CMake exports (regenerated; stale copies confuse clangd after moving build dirs)
+/compile_commands.json
+/.vs/
+/.vscode/
+CMakeUserPresets.json
+*.user
+*.suo
+*.vcxproj.user
+*.obj
+*.pdb
+*.ilk
+*.log
+
+# Node tooling
+Tools/**/node_modules/
+
+# Generated content caches (not source)
+/Assets/Source/**/Library/
+
+# Raw source art (kept local to keep repo pushable)
+/Assets/Source/

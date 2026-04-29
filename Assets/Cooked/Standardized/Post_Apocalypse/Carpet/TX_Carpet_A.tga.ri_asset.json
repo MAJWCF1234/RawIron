@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tx_carpet_a",
+  "type": "texture",
+  "displayName": "TX_Carpet_A",
+  "sourcePath": "Assets/Source/Post apocalypse/Carpet/TX_Carpet_A.tga",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tx_carpet_a_source",
+      "path": "Assets/Source/Post apocalypse/Carpet/TX_Carpet_A.tga"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

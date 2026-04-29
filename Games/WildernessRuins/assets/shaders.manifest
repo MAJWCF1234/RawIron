@@ -1,0 +1,5 @@
+# key=relative_shader_path
+terrain.base=assets/shaders/terrain_base.rishader
+foliage.wind=assets/shaders/foliage_wind.rishader
+water.murk=assets/shaders/water_murk.rishader
+ui.overlay=assets/shaders/ui_overlay.rishader

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "bodt_conifer_bark_array__normal___ao___specular",
+  "type": "mesh",
+  "displayName": "BODT Conifer Bark Array [Normal] [AO] [Specular]",
+  "sourcePath": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Shared Textures/BODT Conifer Bark Array [Normal] [AO] [Specular].asset",
+  "references": [
+    {
+      "kind": "source",
+      "id": "bodt_conifer_bark_array__normal___ao___specular_source",
+      "path": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Shared Textures/BODT Conifer Bark Array [Normal] [AO] [Specular].asset"
+    }
+  ],
+  "payload": {"sourceFormat":"unity-mesh-yaml","meshName":"BODT Conifer Bark Array [Normal] [AO] [Specular]","subMeshCount":0,"indexCount":0,"vertexCount":0}
+}

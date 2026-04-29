@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "conifer_medium_lod1",
+  "type": "mesh",
+  "displayName": "Conifer Medium LOD1",
+  "sourcePath": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Meshes/Conifer Medium LOD1.asset",
+  "references": [
+    {
+      "kind": "source",
+      "id": "conifer_medium_lod1_source",
+      "path": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Meshes/Conifer Medium LOD1.asset"
+    }
+  ],
+  "payload": {"sourceFormat":"unity-mesh-yaml","meshName":"Conifer Medium LOD1","subMeshCount":2,"indexCount":7827,"vertexCount":3118,"bounds":{"center":{"x":0.354084,"y":9.05445,"z":-0.0259392},"extent":{"x":2.88617,"y":9.43278,"z":3.07693}}}
+}

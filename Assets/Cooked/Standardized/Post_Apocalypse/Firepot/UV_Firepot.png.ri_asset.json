@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "uv_firepot",
+  "type": "texture",
+  "displayName": "UV_Firepot",
+  "sourcePath": "Assets/Source/Post apocalypse/Firepot/UV_Firepot.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "uv_firepot_source",
+      "path": "Assets/Source/Post apocalypse/Firepot/UV_Firepot.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

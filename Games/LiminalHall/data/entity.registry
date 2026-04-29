@@ -1,0 +1,6 @@
+# archetypeId,class,tags,defaultFaction,brain
+hall_watcher,npc,hostile|patrol,anomaly,bt_hall_watcher
+hall_keeper,npc,hostile|guard,anomaly,bt_hall_keeper
+echo_guide,npc,neutral|guide,echoes,bt_echo_guide
+cinematic_anchor,helper,cinematic|anchor,echoes,bt_anchor_passive
+plugin_probe,helper,diagnostic|plugin,echoes,bt_probe_idle

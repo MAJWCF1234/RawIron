@@ -1,0 +1,6 @@
+:root {
+  --accent: #7fd6ff;
+  --panel: rgba(12, 16, 22, 0.82);
+  --text: #f4f8fb;
+}
+#liminal-hud .label { font-weight: 600; letter-spacing: 0.04em; }

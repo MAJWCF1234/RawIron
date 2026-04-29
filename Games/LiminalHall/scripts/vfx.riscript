@@ -1,0 +1,6 @@
+# Liminal Hall VFX profile.
+vfx_fog_scale = 1.55
+vfx_spark_density = 0.92
+vfx_beam_intensity = 1.65
+vfx_spawn_budget = 72
+vfx_cinematic_overlay = 1

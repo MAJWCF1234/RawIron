@@ -1,0 +1,6 @@
+# Wilderness Ruins AI tuning (v1.3.5)
+ai_tick_hz = 20
+ai_sense_interval_ms = 100
+ai_max_agents = 18
+ai_path_replan_seconds = 1.2
+ai_debug_overlay = 0

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_mattress_hard",
+  "type": "mesh",
+  "displayName": "MS_Mattress_Hard",
+  "sourcePath": "Assets/Source/Post apocalypse/Mattress/MS_Mattress_Hard.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_mattress_hard_source",
+      "path": "Assets/Source/Post apocalypse/Mattress/MS_Mattress_Hard.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

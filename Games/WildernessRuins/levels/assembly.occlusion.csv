@@ -1,0 +1,3 @@
+# volume_id,cull_group,min_x,min_y,min_z,max_x,max_y,max_z
+forest.canopy_far,environment,-200,-12,-200,200,90,200
+ruins.shell_mid,environment,-72,2,-72,72,38,72

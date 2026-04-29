@@ -1,0 +1,3 @@
+zone_id,min_x,min_y,min_z,max_x,max_y,max_z,stream_group,priority
+ruins_core,0.0,0.0,0.0,64.0,28.0,64.0,core,100
+ruins_outer_forest,64.0,0.0,16.0,220.0,40.0,220.0,extended,50

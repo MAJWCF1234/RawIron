@@ -1,0 +1,10 @@
+{
+  "name": "rawiron-logic-kit-export",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.65",
+    "pngjs": "^7.0.0",
+    "three": "0.160.0"
+  }
+}

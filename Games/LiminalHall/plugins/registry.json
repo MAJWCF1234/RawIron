@@ -1,0 +1,19 @@
+{
+  "plugins": [
+    {
+      "id": "liminal.telemetry",
+      "enabled": true,
+      "hookGroup": "runtime.telemetry"
+    },
+    {
+      "id": "liminal.ai.bridge",
+      "enabled": true,
+      "hookGroup": "runtime.ai"
+    },
+    {
+      "id": "liminal.cinematics",
+      "enabled": true,
+      "hookGroup": "runtime.cinematics"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "conifer_small_lod0",
+  "type": "mesh",
+  "displayName": "Conifer Small LOD0",
+  "sourcePath": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Meshes/Conifer Small LOD0.asset",
+  "references": [
+    {
+      "kind": "source",
+      "id": "conifer_small_lod0_source",
+      "path": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Meshes/Conifer Small LOD0.asset"
+    }
+  ],
+  "payload": {"sourceFormat":"unity-mesh-yaml","meshName":"Conifer Small LOD0","subMeshCount":2,"indexCount":6237,"vertexCount":2545,"bounds":{"center":{"x":-0.0684751,"y":3.90112,"z":-0.100278},"extent":{"x":2.2075,"y":4.11372,"z":2.15177}}}
+}

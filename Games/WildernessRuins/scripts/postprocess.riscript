@@ -1,0 +1,15 @@
+# RawIron Postprocess Script v1 (scalar contract)
+# Required by RawIron game format v1.3.5.
+
+postprocess_quality = 1
+postprocess_tint_strength = 0.03
+bloom_strength = 0.16
+vignette_strength = 0.08
+sharpen_amount = 0.20
+native_exposure = 1.00
+native_contrast = 1.18
+native_saturation = 1.08
+native_fog_density = 0.0088
+fov_base = 80.0
+fov_sprint_add = 3.5
+fov_lerp_per_second = 8.5

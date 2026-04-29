@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_crate",
+  "type": "mesh",
+  "displayName": "MS_Crate",
+  "sourcePath": "Assets/Source/Post apocalypse/Crate/MS_Crate.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_crate_source",
+      "path": "Assets/Source/Post apocalypse/Crate/MS_Crate.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

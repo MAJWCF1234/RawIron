@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "uv_candle",
+  "type": "texture",
+  "displayName": "UV_Candle",
+  "sourcePath": "Assets/Source/Post apocalypse/Candle/UV_Candle.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "uv_candle_source",
+      "path": "Assets/Source/Post apocalypse/Candle/UV_Candle.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

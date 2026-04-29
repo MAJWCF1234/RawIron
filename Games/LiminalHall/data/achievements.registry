@@ -1,0 +1,6 @@
+{
+  "achievements": [
+    { "id": "liminal.enter_void", "steam": "LIMINAL_ENTER_VOID", "generic": "enter_void" },
+    { "id": "liminal.finish_plates", "steam": "LIMINAL_PLATES_DONE", "psn": "LIMINAL_PLT_01" }
+  ]
+}

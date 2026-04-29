@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "conifer_small_billboardasset",
+  "type": "mesh",
+  "displayName": "Conifer Small_BillboardAsset",
+  "sourcePath": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Billboards/Billboard Small/Conifer Small_BillboardAsset.asset",
+  "references": [
+    {
+      "kind": "source",
+      "id": "conifer_small_billboardasset_source",
+      "path": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Billboards/Billboard Small/Conifer Small_BillboardAsset.asset"
+    }
+  ],
+  "payload": {"sourceFormat":"unity-mesh-yaml","meshName":"Conifer Small_BillboardAsset","subMeshCount":0,"indexCount":0,"vertexCount":0}
+}

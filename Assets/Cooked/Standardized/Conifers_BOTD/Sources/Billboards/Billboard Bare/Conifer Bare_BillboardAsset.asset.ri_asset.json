@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "conifer_bare_billboardasset",
+  "type": "mesh",
+  "displayName": "Conifer Bare_BillboardAsset",
+  "sourcePath": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Billboards/Billboard Bare/Conifer Bare_BillboardAsset.asset",
+  "references": [
+    {
+      "kind": "source",
+      "id": "conifer_bare_billboardasset_source",
+      "path": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Billboards/Billboard Bare/Conifer Bare_BillboardAsset.asset"
+    }
+  ],
+  "payload": {"sourceFormat":"unity-mesh-yaml","meshName":"Conifer Bare_BillboardAsset","subMeshCount":0,"indexCount":0,"vertexCount":0}
+}

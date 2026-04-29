@@ -1,0 +1,9 @@
+# RawIron NavMesh Descriptor v1
+# regionId,minX,minY,minZ,maxX,maxY,maxZ,areaCost,flags
+trail-hub,-96.0,0.0,-96.0,96.0,24.0,96.0,1.0,walk
+ruin-courtyard,-32.0,0.0,-24.0,28.0,18.0,40.0,1.1,walk
+ridge-pass,30.0,4.0,-64.0,78.0,26.0,-18.0,1.25,walk
+
+# linkId,fromRegion,toRegion,bidirectional
+link-hub-courtyard,trail-hub,ruin-courtyard,1
+link-hub-ridge,trail-hub,ridge-pass,1

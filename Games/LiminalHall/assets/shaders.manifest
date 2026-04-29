@@ -1,0 +1,7 @@
+# key=relative_shader_path
+hall.surface=assets/shaders/hall_surface.rishader
+void.water=assets/shaders/void_water.rishader
+logic.beam=assets/shaders/logic_beam.rishader
+ui.overlay=assets/shaders/ui_overlay.rishader
+cinematic.grade=assets/shaders/cinematic_grade.rishader
+vfx.fog=assets/shaders/vfx_fog.rishader

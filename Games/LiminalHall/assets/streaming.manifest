@@ -1,0 +1,7 @@
+asset_key,weight,tier,notes
+world/liminal/floor_tiles,100,hot,core traversal surfaces
+world/liminal/void_columns,70,warm,secondary silhouette props
+fx/liminal/ambient_fog,45,cold,background atmosphere
+fx/liminal/void_beam,95,hot,used by mid_alert cinematic
+fx/liminal/spark_rain,72,warm,used by exit_resolve cinematic
+anim/hall_walk,80,warm,animation graph patrol phase

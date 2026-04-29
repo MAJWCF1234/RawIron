@@ -1,0 +1,4 @@
+# archetypeId,class,tags,defaultFaction,brain
+ruins_scout,npc,hostile|patrol,scavengers,bt_ruins_scout
+ruins_sentry,npc,hostile|guard,scavengers,bt_ruins_sentry
+merchant_nomad,npc,neutral|vendor,nomads,bt_idle_vendor

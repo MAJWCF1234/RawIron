@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "uv_pallet",
+  "type": "texture",
+  "displayName": "UV_Pallet",
+  "sourcePath": "Assets/Source/Post apocalypse/Pallet/UV_Pallet.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "uv_pallet_source",
+      "path": "Assets/Source/Post apocalypse/Pallet/UV_Pallet.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

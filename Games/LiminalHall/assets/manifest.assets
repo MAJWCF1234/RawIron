@@ -1,0 +1,6 @@
+ui.crosshair=assets/ui/crosshair_default.png
+ui.objective.icon=assets/ui/objective_marker.png
+ui.splash.logo=assets/ui/liminal_logo.png
+audio.ambient.loop=assets/audio/ambient_loop.ogg
+audio.reverb.corridor=assets/audio/reverb_corridor.ogg
+material.floor.primary=assets/materials/liminal_floor.mat

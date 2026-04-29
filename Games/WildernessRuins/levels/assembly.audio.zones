@@ -1,0 +1,3 @@
+# zone_id,reverb_preset,occlusion_dampening,min_x,min_y,min_z,max_x,max_y,max_z
+wilderness.ruins_core,ruin_stone_cavity,0.55,-140,-6,-140,140,66,140
+wilderness.roadside_cut,forest_open_low,0.31,-72,-4,-88,72,22,88

@@ -1,0 +1,3 @@
+# material_id,binding,source
+liminal.plate_world,pbr_bundle,assets/materials/liminal_plate_world.rimat
+liminal.water_sheet,transparent_pbr,assets/materials/liminal_water.rimat

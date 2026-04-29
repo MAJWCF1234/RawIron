@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_fridge",
+  "type": "mesh",
+  "displayName": "MS_Fridge",
+  "sourcePath": "Assets/Source/Post apocalypse/Fridge/MS_Fridge.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_fridge_source",
+      "path": "Assets/Source/Post apocalypse/Fridge/MS_Fridge.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

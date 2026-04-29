@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_frame_metal",
+  "type": "mesh",
+  "displayName": "MS_Frame_Metal",
+  "sourcePath": "Assets/Source/Post apocalypse/Frame_Metal/MS_Frame_Metal.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_frame_metal_source",
+      "path": "Assets/Source/Post apocalypse/Frame_Metal/MS_Frame_Metal.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

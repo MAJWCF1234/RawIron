@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "bodt_conifer_bark_array__albedo___smoothness",
+  "type": "mesh",
+  "displayName": "BODT Conifer Bark Array [Albedo] [Smoothness]",
+  "sourcePath": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Shared Textures/BODT Conifer Bark Array [Albedo] [Smoothness].asset",
+  "references": [
+    {
+      "kind": "source",
+      "id": "bodt_conifer_bark_array__albedo___smoothness_source",
+      "path": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Shared Textures/BODT Conifer Bark Array [Albedo] [Smoothness].asset"
+    }
+  ],
+  "payload": {"sourceFormat":"unity-mesh-yaml","meshName":"BODT Conifer Bark Array [Albedo] [Smoothness]","subMeshCount":0,"indexCount":0,"vertexCount":0}
+}

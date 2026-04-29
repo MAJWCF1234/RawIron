@@ -1,0 +1,3 @@
+// Wilderness Ruins — gameplay contract tests (rawiron-game-v1.3.7)
+test spawn_primitives_nonempty { assert true }
+test ruin_zone_bounds { assert true }

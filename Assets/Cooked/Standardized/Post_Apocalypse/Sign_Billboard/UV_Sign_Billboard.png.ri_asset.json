@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "uv_sign_billboard",
+  "type": "texture",
+  "displayName": "UV_Sign_Billboard",
+  "sourcePath": "Assets/Source/Post apocalypse/Sign_Billboard/UV_Sign_Billboard.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "uv_sign_billboard_source",
+      "path": "Assets/Source/Post apocalypse/Sign_Billboard/UV_Sign_Billboard.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

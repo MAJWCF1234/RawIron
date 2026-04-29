@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_sign_billboard",
+  "type": "mesh",
+  "displayName": "MS_Sign_Billboard",
+  "sourcePath": "Assets/Source/Post apocalypse/Sign_Billboard/MS_Sign_Billboard.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_sign_billboard_source",
+      "path": "Assets/Source/Post apocalypse/Sign_Billboard/MS_Sign_Billboard.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,7 @@
+# hook,plugin,event,priority
+startup,liminal.telemetry,bootstrap,10
+startup,liminal.ai.bridge,ai_policy_bind,20
+startup,liminal.cinematics,timeline_register,30
+runtime,liminal.telemetry,frame_sample,40
+runtime,liminal.ai.bridge,mode_update,50
+runtime,liminal.cinematics,zone_cutscene_trigger,60

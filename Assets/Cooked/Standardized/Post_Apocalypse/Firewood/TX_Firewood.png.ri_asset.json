@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tx_firewood",
+  "type": "texture",
+  "displayName": "TX_Firewood",
+  "sourcePath": "Assets/Source/Post apocalypse/Firewood/TX_Firewood.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tx_firewood_source",
+      "path": "Assets/Source/Post apocalypse/Firewood/TX_Firewood.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

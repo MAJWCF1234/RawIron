@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "conifer_tall_billboardmaterial",
+  "type": "material",
+  "displayName": "Conifer Tall_BillboardMaterial",
+  "sourcePath": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Billboards/Billboard Tall/Conifer Tall_BillboardMaterial.mat",
+  "references": [
+    {
+      "kind": "source",
+      "id": "conifer_tall_billboardmaterial_source",
+      "path": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Billboards/Billboard Tall/Conifer Tall_BillboardMaterial.mat"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,6 @@
+:root {
+  --accent: #c9a227;
+  --panel: rgba(18, 14, 10, 0.85);
+  --text: #f2ece4;
+}
+#wilderness-hud .accent { color: var(--accent); }

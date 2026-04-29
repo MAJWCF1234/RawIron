@@ -1,0 +1,29 @@
+tree bt_hall_watcher {
+  selector root {
+    sequence cinematic_gate {
+      cond in_cinematic_zone
+      task hold_anchor_pose
+    }
+    sequence track_intruder {
+      cond has_visible_enemy
+      task close_distance
+      task attack_pulse
+    }
+    sequence search_last_seen {
+      cond has_last_seen_position
+      task move_to_last_seen
+      task sweep_look
+    }
+    task drift_patrol
+  }
+}
+
+tree bt_hall_keeper {
+  selector root {
+    sequence defend_exit {
+      cond zone_is_stream_exit
+      task guard_exit_gate
+    }
+    task drift_patrol
+  }
+}

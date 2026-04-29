@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tx_tent_civilian",
+  "type": "texture",
+  "displayName": "TX_Tent_Civilian",
+  "sourcePath": "Assets/Source/Post apocalypse/Tent_Civilian/TX_Tent_Civilian.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tx_tent_civilian_source",
+      "path": "Assets/Source/Post apocalypse/Tent_Civilian/TX_Tent_Civilian.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

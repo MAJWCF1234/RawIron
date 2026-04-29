@@ -1,0 +1,15 @@
+# RawIron NavMesh Descriptor v1 — surreal parkour route + world
+# regionId,minX,minY,minZ,maxX,maxY,maxZ,areaCost,flags
+plaza-core,-22.0,0.0,-30.0,22.0,14.0,14.0,1.0,walk
+parkour-chain,5.0,0.0,-44.0,38.0,18.0,-16.0,1.08,walk
+shard-ascent,8.0,0.0,-24.0,52.0,20.0,28.0,1.25,walk
+bridge-west,-54.0,0.0,-10.0,-10.0,14.0,34.0,1.18,walk
+north-court,-18.0,0.0,18.0,18.0,14.0,42.0,1.15,walk
+portal-pocket,-46.0,0.0,0.0,-28.0,10.0,18.0,1.08,walk
+
+# linkId,fromRegion,toRegion,bidirectional
+link-plaza-parkour,plaza-core,parkour-chain,1
+link-plaza-shard,plaza-core,shard-ascent,1
+link-plaza-bridge,plaza-core,bridge-west,1
+link-plaza-north,plaza-core,north-court,1
+link-plaza-portal,plaza-core,portal-pocket,1

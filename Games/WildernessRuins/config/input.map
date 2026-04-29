@@ -1,0 +1,11 @@
+# RawIron Input Map v1
+move=WASD
+look=Mouse
+jump=Space
+interact=E
+pause=Esc
+sprint=Shift
+use_primary=Mouse1
+use_secondary=Mouse2
+reload=R
+inventory=Tab

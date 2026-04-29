@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_firepot",
+  "type": "mesh",
+  "displayName": "MS_Firepot",
+  "sourcePath": "Assets/Source/Post apocalypse/Firepot/MS_Firepot.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_firepot_source",
+      "path": "Assets/Source/Post apocalypse/Firepot/MS_Firepot.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

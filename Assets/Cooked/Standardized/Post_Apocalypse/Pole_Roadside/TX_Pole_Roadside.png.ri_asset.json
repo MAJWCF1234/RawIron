@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tx_pole_roadside",
+  "type": "texture",
+  "displayName": "TX_Pole_Roadside",
+  "sourcePath": "Assets/Source/Post apocalypse/Pole_Roadside/TX_Pole_Roadside.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tx_pole_roadside_source",
+      "path": "Assets/Source/Post apocalypse/Pole_Roadside/TX_Pole_Roadside.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

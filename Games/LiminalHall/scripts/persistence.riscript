@@ -1,0 +1,9 @@
+# RawIron Persistence Script v1 (scalar contract)
+# Required by RawIron game format v1.3.5.
+
+save_slot_count = 3
+autosave_interval_seconds = 75
+checkpoint_ring_size = 5
+persistence_flush_on_checkpoint = 1
+persistence_journal_enabled = 1
+persistence_max_rollback_steps = 8

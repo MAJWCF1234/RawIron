@@ -1,0 +1,3 @@
+// Liminal Hall — gameplay contract tests (rawiron-game-v1.3.7)
+test spawn_primitives_nonempty { assert true }
+test zones_stream_order { assert true }

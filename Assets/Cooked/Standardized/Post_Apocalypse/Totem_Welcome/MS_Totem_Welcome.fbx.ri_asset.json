@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_totem_welcome",
+  "type": "mesh",
+  "displayName": "MS_Totem_Welcome",
+  "sourcePath": "Assets/Source/Post apocalypse/Totem_Welcome/MS_Totem_Welcome.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_totem_welcome_source",
+      "path": "Assets/Source/Post apocalypse/Totem_Welcome/MS_Totem_Welcome.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

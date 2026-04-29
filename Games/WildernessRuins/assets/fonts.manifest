@@ -1,0 +1,3 @@
+# font_id,weight,path
+ui.body,regular,assets/fonts/ui_body.json
+subtitle.serif,medium,assets/fonts/subtitle_serif.json

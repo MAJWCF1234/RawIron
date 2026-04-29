@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "keys": {
+    "targetEntityId": "",
+    "lastSeenEnemySeconds": 9999,
+    "heardNoiseSeconds": 9999,
+    "patrolIndex": 0
+  }
+}

@@ -1,0 +1,4 @@
+SQLite format 3
+-- demo telemetry schema marker for startup header validation.
+-- event,level,node,zone
+session_start,info,hall_entry_patrol,stream.entry

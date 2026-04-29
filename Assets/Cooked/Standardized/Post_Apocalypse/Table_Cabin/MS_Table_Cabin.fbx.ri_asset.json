@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_table_cabin",
+  "type": "mesh",
+  "displayName": "MS_Table_Cabin",
+  "sourcePath": "Assets/Source/Post apocalypse/Table_Cabin/MS_Table_Cabin.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_table_cabin_source",
+      "path": "Assets/Source/Post apocalypse/Table_Cabin/MS_Table_Cabin.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

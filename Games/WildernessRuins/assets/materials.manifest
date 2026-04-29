@@ -1,0 +1,3 @@
+# material_id,binding,source
+forest.moss_rock,pbr_bundle,assets/materials/moss_rock.rimat
+roadside.rusted_metal,pbr_bundle,assets/materials/rusted_metal.rimat

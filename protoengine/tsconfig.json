@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "vite.config.mjs",
+    "browser-launcher.mjs",
+    "proto-tool.mjs",
+    "dev-level.build.mjs",
+    "*.js",
+    "models/**/*.js"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

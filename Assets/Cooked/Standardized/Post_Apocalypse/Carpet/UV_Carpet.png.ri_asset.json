@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "uv_carpet",
+  "type": "texture",
+  "displayName": "UV_Carpet",
+  "sourcePath": "Assets/Source/Post apocalypse/Carpet/UV_Carpet.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "uv_carpet_source",
+      "path": "Assets/Source/Post apocalypse/Carpet/UV_Carpet.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

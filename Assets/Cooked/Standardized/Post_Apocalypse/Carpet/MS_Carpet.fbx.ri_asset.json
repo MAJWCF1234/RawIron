@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_carpet",
+  "type": "mesh",
+  "displayName": "MS_Carpet",
+  "sourcePath": "Assets/Source/Post apocalypse/Carpet/MS_Carpet.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_carpet_source",
+      "path": "Assets/Source/Post apocalypse/Carpet/MS_Carpet.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,6 @@
+cinematic_id,trigger_zone,camera_anchor,duration_s,next_state,vfx_tag
+intro_pan,void_plaza,cinematic_intro_anchor,5.4,state_intro,fx/liminal/ambient_fog
+mid_alert,shard_east,cinematic_shard_anchor,4.6,state_alert,fx/liminal/void_beam
+exit_resolve,portal_ring,cinematic_portal_anchor,4.2,state_resolve,fx/liminal/spark_rain
+boot_stamp,void_plaza,watch_split_east,2.4,state_secure,fx/liminal/security_scan
+parkour_pulse,parkour_void,pk_course_anchor,3.2,state_course,fx/liminal/spark_rain

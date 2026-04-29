@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "uv_mailbox",
+  "type": "texture",
+  "displayName": "UV_Mailbox",
+  "sourcePath": "Assets/Source/Post apocalypse/Mailbox/UV_Mailbox.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "uv_mailbox_source",
+      "path": "Assets/Source/Post apocalypse/Mailbox/UV_Mailbox.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

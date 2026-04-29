@@ -1,0 +1,6 @@
+light_id,type,x,y,z,intensity,color,zone
+light_void_key,directional,-18.0,14.0,-20.0,2.05,0.38|0.72|0.94,void_plaza
+light_shard_hot,spot,44.0,14.0,18.0,2.35,0.98|0.52|0.28,shard_east
+light_bridge_fill,point,-32.0,8.0,16.0,1.25,0.62|0.78|0.92,bridge_west
+light_monolith_rim,spot,0.0,12.0,34.0,1.85,0.92|0.42|0.52,monolith_north
+light_course_bloom,spot,22.0,16.0,-32.0,2.45,0.42|0.95|0.78,parkour_void

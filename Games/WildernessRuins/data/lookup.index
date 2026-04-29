@@ -1,0 +1,4 @@
+key,type,path,tag
+spawn.default,vec3,levels/assembly.primitives.csv,start
+checkpoint.slot0,string,Saved/Checkpoints/wilderness-ruins/slot0.risave,checkpoint
+objective.primary,string,scripts/gameplay.riscript,mission

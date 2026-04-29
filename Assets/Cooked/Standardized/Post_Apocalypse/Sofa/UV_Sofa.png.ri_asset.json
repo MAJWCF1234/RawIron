@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "uv_sofa",
+  "type": "texture",
+  "displayName": "UV_Sofa",
+  "sourcePath": "Assets/Source/Post apocalypse/Sofa/UV_Sofa.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "uv_sofa_source",
+      "path": "Assets/Source/Post apocalypse/Sofa/UV_Sofa.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "requiredSections": ["player", "checkpoint", "inventory_hotbar"],
+  "maxSerializedBytes": 1048576
+}

@@ -1,0 +1,3 @@
+# trigger_id,event_type,min_x,min_y,min_z,max_x,max_y,max_z,param
+wilderness.wind_gust,ambient_zone,-180,-8,-180,180,64,180,forest_wind_hi
+roadside.shard_cluster,loot_hint,-40,0,-52,40,14,52,scrap_ping

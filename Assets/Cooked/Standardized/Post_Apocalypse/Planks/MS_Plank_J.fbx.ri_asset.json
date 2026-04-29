@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_plank_j",
+  "type": "mesh",
+  "displayName": "MS_Plank_J",
+  "sourcePath": "Assets/Source/Post apocalypse/Planks/MS_Plank_J.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_plank_j_source",
+      "path": "Assets/Source/Post apocalypse/Planks/MS_Plank_J.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,5 @@
+# effect_id,path,zone,priority
+fx/liminal/ambient_fog,assets/vfx/ambient_fog.rivfx,stream.entry,140
+fx/liminal/void_beam,assets/vfx/void_beam.rivfx,stream.core,185
+fx/liminal/spark_rain,assets/vfx/spark_rain.rivfx,stream.exit,150
+fx/liminal/security_scan,assets/vfx/void_beam.rivfx,stream.core,200

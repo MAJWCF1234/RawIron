@@ -1,0 +1,5 @@
+# Wilderness Ruins security policy scalars (v1.3.5)
+allow_mod_scripts = 0
+allow_unsigned_content = 0
+max_remote_clients = 8
+state_checksum_enforced = 1

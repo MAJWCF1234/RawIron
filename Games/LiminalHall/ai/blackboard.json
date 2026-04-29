@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "keys": {
+    "targetEntityId": "",
+    "lastSeenEnemySeconds": 9999,
+    "echoPulseCooldown": 0,
+    "patrolIndex": 0,
+    "behaviorMode": "patrol",
+    "activeCinematic": "",
+    "currentZone": "stream.entry",
+    "pluginHookState": "startup"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_dartboard",
+  "type": "mesh",
+  "displayName": "MS_Dartboard",
+  "sourcePath": "Assets/Source/Post apocalypse/Dartboard/MS_Dartboard.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_dartboard_source",
+      "path": "Assets/Source/Post apocalypse/Dartboard/MS_Dartboard.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

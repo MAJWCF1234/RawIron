@@ -1,0 +1,6 @@
+# Liminal Hall animation staging profile.
+animation_bob_scale = 1.42
+animation_idle_cycle_seconds = 2.2
+animation_turn_smoothing = 0.62
+animation_overlay_slots = 3
+animation_graph_blend_bias = 0.58

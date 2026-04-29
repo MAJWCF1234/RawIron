@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_trash",
+  "type": "mesh",
+  "displayName": "MS_Trash",
+  "sourcePath": "Assets/Source/Post apocalypse/Trash/MS_Trash.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_trash_source",
+      "path": "Assets/Source/Post apocalypse/Trash/MS_Trash.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "uv_cabinet_basic",
+  "type": "texture",
+  "displayName": "UV_Cabinet_Basic",
+  "sourcePath": "Assets/Source/Post apocalypse/Cabinet_Basic/UV_Cabinet_Basic.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "uv_cabinet_basic_source",
+      "path": "Assets/Source/Post apocalypse/Cabinet_Basic/UV_Cabinet_Basic.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

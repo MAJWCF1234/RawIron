@@ -1,0 +1,9 @@
+# RawIron UI Script v1 (scalar contract)
+# Required by RawIron game format v1.3.5.
+# Values are numeric for ScriptScalars parsing.
+
+show_runtime_diagnostics = 0
+show_objective_panel = 1
+crosshair_mode = 1
+crosshair_scale = 1.0
+hud_style_variant = 1

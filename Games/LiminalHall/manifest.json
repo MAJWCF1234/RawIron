@@ -1,0 +1,25 @@
+{
+  "id": "liminal-hall",
+  "name": "Liminal Hall",
+  "format": "rawiron-game-v1.3.7",
+  "type": "test-game",
+  "entry": "RawIron.LiminalGame",
+  "version": "1.3.7",
+  "author": "RawIron Team",
+  "editorProjectArg": "--game=liminal-hall",
+  "primaryLevel": "levels/assembly.primitives.csv",
+  "description": "Explorable PSX-CGI void: fractured plates over animated water, not a literal corridor.",
+  "editorPreviewScene": "liminal-hall",
+  "controls": {
+    "move": "WASD",
+    "look": "Mouse",
+    "jump": "Space",
+    "sprint": "Shift",
+    "quit": "Esc"
+  },
+  "editorOpenArgs": [
+    "--game=liminal-hall"
+  ]
+}
+
+

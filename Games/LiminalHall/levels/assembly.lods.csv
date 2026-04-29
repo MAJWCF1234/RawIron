@@ -1,0 +1,3 @@
+# lod_id,near_distance_m,far_distance_m,min_scale,max_scale
+liminal.plate_cluster_a,8,54,0.72,1.0
+liminal.bridge_west,14,88,0.58,1.0

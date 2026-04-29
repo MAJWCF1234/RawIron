@@ -1,0 +1,5 @@
+# RawIron Audio Script v1 (scalar contract)
+# Required by RawIron game format v1.3.5.
+
+audio_master_gain = 1.0
+audio_environment_blend = 1.0

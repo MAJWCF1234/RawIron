@@ -1,0 +1,15 @@
+# RawIron Schema Descriptor v1
+schema_version=1
+project_id=liminal-hall
+
+[table.player_profile]
+key=profile_id
+columns=profile_id:string,display_name:string,last_checkpoint:string,total_play_seconds:int
+
+[table.checkpoint_state]
+key=checkpoint_id
+columns=checkpoint_id:string,slot_index:int,position_x:float,position_y:float,position_z:float,yaw:float,pitch:float,saved_at_utc:string
+
+[table.world_flags]
+key=flag_key
+columns=flag_key:string,flag_value:int,updated_at_utc:string

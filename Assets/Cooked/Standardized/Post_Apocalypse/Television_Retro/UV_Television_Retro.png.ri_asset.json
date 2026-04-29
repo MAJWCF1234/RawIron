@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "uv_television_retro",
+  "type": "texture",
+  "displayName": "UV_Television_Retro",
+  "sourcePath": "Assets/Source/Post apocalypse/Television_Retro/UV_Television_Retro.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "uv_television_retro_source",
+      "path": "Assets/Source/Post apocalypse/Television_Retro/UV_Television_Retro.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "requiredSections": ["player", "world_flags", "stash"],
+  "maxSerializedBytes": 786432
+}

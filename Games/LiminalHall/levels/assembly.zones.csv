@@ -1,0 +1,8 @@
+zone_id,min_x,min_y,min_z,max_x,max_y,max_z,stream_group,priority
+void_plaza,-20.0,-2.0,-28.0,20.0,14.0,12.0,core,100
+shard_east,8.0,-1.0,-22.0,54.0,22.0,28.0,extended,88
+bridge_west,-52.0,-1.0,-6.0,-8.0,22.0,34.0,extended,86
+monolith_north,-18.0,-1.0,18.0,18.0,18.0,44.0,extended,84
+portal_ring,-46.0,-1.0,-2.0,-28.0,14.0,20.0,core,90
+south_basin,-20.0,-2.0,-44.0,38.0,20.0,-12.0,extended,72
+parkour_void,6.0,-2.0,-44.0,38.0,22.0,-16.0,extended,95

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_sign_public_road_ends",
+  "type": "mesh",
+  "displayName": "MS_Sign_Public_Road_Ends",
+  "sourcePath": "Assets/Source/Post apocalypse/Sign_Public_Road_Ends/MS_Sign_Public_Road_Ends.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_sign_public_road_ends_source",
+      "path": "Assets/Source/Post apocalypse/Sign_Public_Road_Ends/MS_Sign_Public_Road_Ends.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

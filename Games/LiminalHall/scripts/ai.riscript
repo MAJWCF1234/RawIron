@@ -1,0 +1,9 @@
+# Liminal Hall AI tuning (showcase profile)
+ai_tick_hz = 24
+ai_sense_interval_ms = 84
+ai_max_agents = 12
+ai_path_replan_seconds = 0.9
+ai_debug_overlay = 0
+ai_alert_speed_scale = 1.22
+ai_behavior_switch_ms = 340
+ai_perception_radius_multiplier = 1.20

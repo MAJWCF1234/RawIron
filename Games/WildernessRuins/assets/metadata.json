@@ -1,0 +1,9 @@
+{
+  "rawironMetadataVersion": 1,
+  "projectCode": "wilderness-ruins",
+  "contentRevision": 3,
+  "buildChannel": "dev",
+  "targetTickHz": 120,
+  "defaultInputMap": "config/input.map",
+  "assetManifest": "assets/manifest.assets"
+}

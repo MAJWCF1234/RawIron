@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_mailbox",
+  "type": "mesh",
+  "displayName": "MS_Mailbox",
+  "sourcePath": "Assets/Source/Post apocalypse/Mailbox/MS_Mailbox.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_mailbox_source",
+      "path": "Assets/Source/Post apocalypse/Mailbox/MS_Mailbox.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

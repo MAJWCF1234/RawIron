@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tx_decal_graffiti_d",
+  "type": "texture",
+  "displayName": "TX_Decal_Graffiti_D",
+  "sourcePath": "Assets/Source/Post apocalypse/Decals/TX_Decal_Graffiti_D.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tx_decal_graffiti_d_source",
+      "path": "Assets/Source/Post apocalypse/Decals/TX_Decal_Graffiti_D.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

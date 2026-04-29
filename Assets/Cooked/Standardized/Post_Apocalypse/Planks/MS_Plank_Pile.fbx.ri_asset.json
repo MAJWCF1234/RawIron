@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_plank_pile",
+  "type": "mesh",
+  "displayName": "MS_Plank_Pile",
+  "sourcePath": "Assets/Source/Post apocalypse/Planks/MS_Plank_Pile.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_plank_pile_source",
+      "path": "Assets/Source/Post apocalypse/Planks/MS_Plank_Pile.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

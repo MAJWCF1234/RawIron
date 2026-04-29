@@ -1,0 +1,3 @@
+# zone_id,reverb_preset,occlusion_dampening,min_x,min_y,min_z,max_x,max_y,max_z
+liminal.void_basin,void_plate_long,0.62,-220,-30,-220,220,92,220
+liminal.portal_ring,metal_chamber_tight,0.48,-64,0,-64,64,28,64

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<layout version="1" root="hud_liminal">
+  <region id="compass" anchor="top" safe_area="true" />
+  <region id="interaction" anchor="bottom" />
+</layout>

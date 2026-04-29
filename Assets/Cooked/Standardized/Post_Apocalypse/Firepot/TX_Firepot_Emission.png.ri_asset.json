@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tx_firepot_emission",
+  "type": "texture",
+  "displayName": "TX_Firepot_Emission",
+  "sourcePath": "Assets/Source/Post apocalypse/Firepot/TX_Firepot_Emission.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tx_firepot_emission_source",
+      "path": "Assets/Source/Post apocalypse/Firepot/TX_Firepot_Emission.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

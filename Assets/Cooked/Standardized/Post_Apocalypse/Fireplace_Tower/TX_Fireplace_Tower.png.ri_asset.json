@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tx_fireplace_tower",
+  "type": "texture",
+  "displayName": "TX_Fireplace_Tower",
+  "sourcePath": "Assets/Source/Post apocalypse/Fireplace_Tower/TX_Fireplace_Tower.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tx_fireplace_tower_source",
+      "path": "Assets/Source/Post apocalypse/Fireplace_Tower/TX_Fireplace_Tower.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

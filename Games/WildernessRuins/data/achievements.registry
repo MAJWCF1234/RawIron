@@ -1,0 +1,6 @@
+{
+  "achievements": [
+    { "id": "wilderness.leave_road", "steam": "WILD_LEAVE_ROAD", "generic": "leave_road" },
+    { "id": "wilderness.ruins_found", "steam": "WILD_RUINS_FOUND", "xbox": "WildRuinsFound" }
+  ]
+}

@@ -1,0 +1,8 @@
+# Liminal Hall security policy scalars (showcase profile)
+allow_mod_scripts = 0
+allow_unsigned_content = 0
+max_remote_clients = 6
+state_checksum_enforced = 1
+allow_runtime_plugin_overrides = 1
+runtime_command_gate = 1
+allow_external_asset_roots = 0

@@ -1,0 +1,6 @@
+# Liminal Hall plugin orchestration profile.
+plugin_render_priority_boost = 1
+plugin_hook_batch_size = 4
+plugin_diag_log_level = 2
+plugin_fail_open = 1
+plugin_order_source = 1

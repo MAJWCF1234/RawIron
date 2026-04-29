@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tx_bus_stop_rural",
+  "type": "texture",
+  "displayName": "TX_Bus_Stop_Rural",
+  "sourcePath": "Assets/Source/Post apocalypse/Bus_Stop_Rural/TX_Bus_Stop_Rural.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tx_bus_stop_rural_source",
+      "path": "Assets/Source/Post apocalypse/Bus_Stop_Rural/TX_Bus_Stop_Rural.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,3 @@
+# trigger_id,event_type,min_x,min_y,min_z,max_x,max_y,max_z,param
+liminal.zone.void,ambient_zone,-220,-32,-220,220,96,220,void_hum
+stream.entry.portal,level_proxy,-48,0,-48,48,24,48,enter_void

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "uv_barrier_road",
+  "type": "texture",
+  "displayName": "UV_Barrier_Road",
+  "sourcePath": "Assets/Source/Post apocalypse/Barrier_Road/UV_Barrier_Road.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "uv_barrier_road_source",
+      "path": "Assets/Source/Post apocalypse/Barrier_Road/UV_Barrier_Road.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

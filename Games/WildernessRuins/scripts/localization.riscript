@@ -1,0 +1,8 @@
+# RawIron Localization Script v1 (scalar contract)
+# Required by RawIron game format v1.3.5.
+
+default_locale = 0
+fallback_locale = 0
+subtitle_enabled = 1
+subtitle_scale = 1.0
+glossary_mode = 1

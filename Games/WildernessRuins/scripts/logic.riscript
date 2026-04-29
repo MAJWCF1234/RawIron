@@ -1,0 +1,9 @@
+# RawIron Logic Script v1.1
+# Text-authored logic graph for this game.
+# Spatial editors may round-trip this source into placed logic nodes/wires.
+#
+# Suggested sections (engine-side parser can evolve independently):
+# - [nodes]
+# - [routes]
+# - [world_endpoints]
+# - [layout_fallback]

@@ -1,0 +1,14 @@
+tree bt_ruins_scout {
+  selector root {
+    sequence engage_target {
+      cond has_visible_enemy
+      task strafe_and_fire
+    }
+    sequence investigate_noise {
+      cond heard_recent_noise
+      task move_to_noise
+      task scan_area
+    }
+    task patrol_route
+  }
+}

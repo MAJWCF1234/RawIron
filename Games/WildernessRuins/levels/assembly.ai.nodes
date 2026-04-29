@@ -1,0 +1,5 @@
+# nodeId,type,x,y,z,group,links
+ruins_patrol_a,patrol,12.0,0.0,-8.0,ruins_guard,ruins_patrol_b|ruins_watch_high
+ruins_patrol_b,patrol,32.0,0.0,-18.0,ruins_guard,ruins_patrol_a|ruins_choke
+ruins_watch_high,watch,20.0,6.0,-24.0,ruins_guard,ruins_patrol_a
+ruins_choke,cover,38.0,0.0,-6.0,ruins_guard,ruins_patrol_b

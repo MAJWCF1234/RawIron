@@ -1,0 +1,9 @@
+# RawIron Network Script v1 (scalar contract)
+# Required by RawIron game format v1.3.5.
+
+network_tick_hz = 30
+network_snapshot_rate = 20
+network_prediction_window_ms = 120
+network_interpolation_backtime_ms = 100
+network_max_clients = 8
+network_timeout_seconds = 15

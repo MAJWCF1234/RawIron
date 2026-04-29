@@ -1,0 +1,16 @@
+# nodeId,type,x,y,z,group,links
+plaza_patrol_a,patrol,0.0,0.0,-10.0,void_guard,watch_split_east|watch_split_west
+watch_split_east,watch,14.0,1.5,-6.0,void_guard,plaza_patrol_a|shard_probe_mid
+watch_split_west,watch,-12.0,1.2,4.0,void_guard,plaza_patrol_a|bridge_probe_entry
+shard_probe_mid,probe,30.0,4.5,6.0,void_guard,watch_split_east|shard_overlook_cover
+shard_overlook_cover,cover,42.0,7.0,14.0,void_guard,shard_probe_mid|cinematic_shard_anchor
+bridge_probe_entry,probe,-22.0,2.5,12.0,void_guard,watch_split_west|annex_patrol
+annex_patrol,patrol,-40.0,4.0,22.0,void_guard,bridge_probe_entry|portal_cover_west
+portal_cover_west,cover,-36.0,1.2,8.0,void_guard,annex_patrol|portal_watch_center
+portal_watch_center,watch,-38.0,2.5,8.0,void_guard,portal_cover_west
+north_disk_patrol,patrol,0.0,1.0,36.0,void_guard,shard_overlook_cover|cinematic_intro_anchor
+cinematic_intro_anchor,anchor,-3.0,2.8,-14.0,cinematic,intro_pan
+cinematic_shard_anchor,anchor,44.0,8.5,14.0,cinematic,mid_alert
+cinematic_portal_anchor,anchor,-36.0,3.5,8.0,cinematic,exit_resolve
+pk_course_anchor,anchor,14.0,10.5,-31.5,cinematic,parkour_pulse
+parkour_mid_watch,watch,15.8,9.5,-33.5,void_guard,cinematic_intro_anchor

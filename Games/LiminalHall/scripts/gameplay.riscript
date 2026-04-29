@@ -1,0 +1,34 @@
+# Liminal Hall gameplay tuning script (engine-read key/value pairs)
+walk_speed=5.6
+sprint_speed=9.2
+air_speed=9.5
+jump_speed=8.9
+ground_acceleration=88.0
+air_acceleration=26.0
+ground_friction=6.5
+stop_speed=1.2
+air_control=0.42
+air_turn_responsiveness=0.62
+air_strafe_accel_boost=1.45
+coyote_time=0.22
+jump_buffer_time=0.26
+# Ledge forgiveness (uses trace probe near platform edges)
+ground_probe_jump_max_down=0.62
+ground_adhesion_speed=2.8
+wall_jump_enabled=1
+wall_jump_probe_distance=0.72
+wall_jump_vertical_speed=8.4
+wall_jump_away_speed=6.6
+wall_jump_carry=0.58
+low_jump_gravity_multiplier=1.14
+max_fall_speed=28.0
+camera_height=1.62
+head_bob_amplitude=0.012
+head_bob_frequency=1.60
+head_bob_sprint_scale=1.65
+mouse_sensitivity=0.11
+spawn_x=0.0
+spawn_y=0.0
+spawn_z=-14.0
+spawn_yaw=0.0
+spawn_pitch=-2.0

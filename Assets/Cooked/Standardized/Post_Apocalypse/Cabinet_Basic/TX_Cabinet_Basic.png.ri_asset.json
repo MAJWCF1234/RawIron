@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tx_cabinet_basic",
+  "type": "texture",
+  "displayName": "TX_Cabinet_Basic",
+  "sourcePath": "Assets/Source/Post apocalypse/Cabinet_Basic/TX_Cabinet_Basic.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tx_cabinet_basic_source",
+      "path": "Assets/Source/Post apocalypse/Cabinet_Basic/TX_Cabinet_Basic.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

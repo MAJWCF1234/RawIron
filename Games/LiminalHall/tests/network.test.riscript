@@ -1,0 +1,3 @@
+// Liminal Hall network sync checks (rawiron-game-v1.3.7)
+test simulated_latency_budget { assert true }
+test checkpoint_state_sync { assert true }

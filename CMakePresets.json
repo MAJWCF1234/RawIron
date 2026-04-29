@@ -1,0 +1,80 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "dev-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "20",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    },
+    {
+      "name": "dev-msvc",
+      "inherits": "dev-base",
+      "displayName": "Development (MSVC)",
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "value": "x64"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl"
+      }
+    },
+    {
+      "name": "dev-clang",
+      "inherits": "dev-base",
+      "displayName": "Development (Clang)",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "C:/Program Files/LLVM/bin/clang.exe",
+        "CMAKE_CXX_COMPILER": "C:/Program Files/LLVM/bin/clang++.exe"
+      }
+    },
+    {
+      "name": "dev-mingw",
+      "inherits": "dev-base",
+      "displayName": "Development (MinGW)",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "C:/Users/majwc/AppData/Local/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe/mingw64/bin/gcc.exe",
+        "CMAKE_CXX_COMPILER": "C:/Users/majwc/AppData/Local/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe/mingw64/bin/g++.exe"
+      }
+    },
+    {
+      "name": "dev-linux-clang",
+      "inherits": "dev-base",
+      "displayName": "Development (Linux Clang)",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "build-dev-msvc",
+      "configurePreset": "dev-msvc",
+      "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "build-dev-clang",
+      "configurePreset": "dev-clang"
+    },
+    {
+      "name": "build-dev-mingw",
+      "configurePreset": "dev-mingw"
+    },
+    {
+      "name": "build-dev-linux-clang",
+      "configurePreset": "dev-linux-clang"
+    }
+  ]
+}

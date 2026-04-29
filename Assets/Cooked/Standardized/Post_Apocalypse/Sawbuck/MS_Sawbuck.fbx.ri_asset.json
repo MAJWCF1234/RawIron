@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_sawbuck",
+  "type": "mesh",
+  "displayName": "MS_Sawbuck",
+  "sourcePath": "Assets/Source/Post apocalypse/Sawbuck/MS_Sawbuck.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_sawbuck_source",
+      "path": "Assets/Source/Post apocalypse/Sawbuck/MS_Sawbuck.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

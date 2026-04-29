@@ -1,0 +1,18 @@
+{
+  "runtime": [
+    "assets/manifest.assets",
+    "assets/layers.config",
+    "config/game.cfg",
+    "config/network.cfg"
+  ],
+  "editor": [
+    "levels/assembly.primitives.csv",
+    "levels/assembly.colliders.csv",
+    "levels/assembly.navmesh"
+  ],
+  "persistence": [
+    "data/schema.db",
+    "scripts/state.riscript",
+    "scripts/persistence.riscript"
+  ]
+}

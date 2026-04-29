@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "uv_chair_sun",
+  "type": "texture",
+  "displayName": "UV_Chair_Sun",
+  "sourcePath": "Assets/Source/Post apocalypse/Chair_Sun/UV_Chair_Sun.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "uv_chair_sun_source",
+      "path": "Assets/Source/Post apocalypse/Chair_Sun/UV_Chair_Sun.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

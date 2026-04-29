@@ -1,0 +1,5 @@
+# RawIron Streaming Script v1 (scalar contract)
+# Required by RawIron game format v1.3.5.
+
+streaming_budget_scale = 1.0
+checkpoint_autosave_enabled = 1

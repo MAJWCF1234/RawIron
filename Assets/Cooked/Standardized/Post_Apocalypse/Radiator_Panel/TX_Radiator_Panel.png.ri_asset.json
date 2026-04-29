@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tx_radiator_panel",
+  "type": "texture",
+  "displayName": "TX_Radiator_Panel",
+  "sourcePath": "Assets/Source/Post apocalypse/Radiator_Panel/TX_Radiator_Panel.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tx_radiator_panel_source",
+      "path": "Assets/Source/Post apocalypse/Radiator_Panel/TX_Radiator_Panel.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

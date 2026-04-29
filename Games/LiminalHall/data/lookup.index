@@ -1,0 +1,10 @@
+key,type,path,tag
+spawn.default,vec3,levels/assembly.primitives.csv,start
+checkpoint.slot0,string,Saved/Checkpoints/liminal-hall/slot0.risave,checkpoint
+ui.objective.default,string,scripts/ui.riscript,hud
+levels.lighting,csv,levels/assembly.lighting.csv,lighting
+levels.cinematics,csv,levels/assembly.cinematics.csv,cinematics
+assets.animation_graph,text,assets/animation.graph,animation
+assets.vfx_manifest,text,assets/vfx.manifest,vfx
+plugins.manifest,text,plugins/manifest.plugins,plugins
+data.telemetry,db,data/telemetry.db,telemetry

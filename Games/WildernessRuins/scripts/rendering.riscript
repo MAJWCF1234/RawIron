@@ -1,0 +1,13 @@
+# Wilderness Ruins rendering tuning
+clear_top_r=0.20
+clear_top_g=0.29
+clear_top_b=0.34
+clear_bottom_r=0.045
+clear_bottom_g=0.075
+clear_bottom_b=0.055
+fog_r=0.115
+fog_g=0.165
+fog_b=0.145
+ambient_r=0.105
+ambient_g=0.130
+ambient_b=0.095

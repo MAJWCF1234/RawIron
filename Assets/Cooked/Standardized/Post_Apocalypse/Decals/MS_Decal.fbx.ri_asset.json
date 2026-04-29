@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_decal",
+  "type": "mesh",
+  "displayName": "MS_Decal",
+  "sourcePath": "Assets/Source/Post apocalypse/Decals/MS_Decal.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_decal_source",
+      "path": "Assets/Source/Post apocalypse/Decals/MS_Decal.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

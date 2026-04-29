@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_pole_light_rural",
+  "type": "mesh",
+  "displayName": "MS_Pole_Light_Rural",
+  "sourcePath": "Assets/Source/Post apocalypse/Pole_Light_Rural/MS_Pole_Light_Rural.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_pole_light_rural_source",
+      "path": "Assets/Source/Post apocalypse/Pole_Light_Rural/MS_Pole_Light_Rural.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

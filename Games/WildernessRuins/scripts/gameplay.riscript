@@ -1,0 +1,32 @@
+# Wilderness Ruins gameplay tuning
+walk_speed=4.9
+sprint_speed=7.9
+air_speed=7.5
+jump_speed=7.0
+mouse_sensitivity=0.105
+camera_height=1.62
+head_bob_amplitude=0.010
+head_bob_frequency=1.45
+head_bob_sprint_scale=1.55
+spawn_x=0.0
+spawn_y=1.2
+spawn_z=76.0
+spawn_yaw=180.0
+spawn_pitch=-4.0
+
+# Engine spatial index tuning (BSP)
+bsp_max_leaf_size=10
+bsp_max_depth=13
+
+# Procedural forest/field ruin scatter
+scatter_seed=41017
+scatter_extent=220.0
+scatter_clearings=10
+scatter_clearing_radius_min=11.0
+scatter_clearing_radius_max=31.0
+scatter_ruin_count=28
+scatter_rock_count=66
+scatter_bush_count=128
+scatter_tree_count=520
+scatter_tree_proxies=1
+scatter_tree_billboards=1

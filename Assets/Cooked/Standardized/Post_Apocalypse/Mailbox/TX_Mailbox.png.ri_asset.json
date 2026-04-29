@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tx_mailbox",
+  "type": "texture",
+  "displayName": "TX_Mailbox",
+  "sourcePath": "Assets/Source/Post apocalypse/Mailbox/TX_Mailbox.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tx_mailbox_source",
+      "path": "Assets/Source/Post apocalypse/Mailbox/TX_Mailbox.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

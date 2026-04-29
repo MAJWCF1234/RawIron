@@ -1,0 +1,9 @@
+# RawIron Physics Script v1 (scalar contract)
+# Required by RawIron game format v1.3.5.
+
+global_gravity_scale = 0.96
+global_drag_scale = 1.08
+global_jump_scale = 1.06
+global_air_control_scale = 1.14
+movement_gravity = 23.2
+movement_fall_gravity_multiplier = 1.18

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_radiator_panel",
+  "type": "mesh",
+  "displayName": "MS_Radiator_Panel",
+  "sourcePath": "Assets/Source/Post apocalypse/Radiator_Panel/MS_Radiator_Panel.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_radiator_panel_source",
+      "path": "Assets/Source/Post apocalypse/Radiator_Panel/MS_Radiator_Panel.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,207 @@
+{
+  "main": {
+    "id": "f398da17c6151f96",
+    "type": "split",
+    "children": [
+      {
+        "id": "78ec551e3b695ac0",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f2ac3f8fa2ff5cf5",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "02 Engine/Architecture Direction.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Architecture Direction"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "c2cc72d181fc2948",
+    "type": "split",
+    "children": [
+      {
+        "id": "15406d8cb7807f03",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "1e2aadfb7fe32b30",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "965cae11ecfe23bd",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "a6b735732f9e145a",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "509e2c97625e1b49",
+    "type": "split",
+    "children": [
+      {
+        "id": "78f4f502094a682d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "7365020c1918f7b2",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "02 Engine/Architecture Direction.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for Architecture Direction"
+            }
+          },
+          {
+            "id": "bad4850757c319ee",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "02 Engine/Architecture Direction.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from Architecture Direction"
+            }
+          },
+          {
+            "id": "efa132ccf38990d2",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "8a40f00a3d279b41",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "b4a61b4577333a35",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "02 Engine/Architecture Direction.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of Architecture Direction"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "f2ac3f8fa2ff5cf5",
+  "lastOpenFiles": [
+    "05 Migration/Pass 12 Authored Volume Content Bridge.md",
+    "05 Migration/Pass 11 World Volume Descriptor Foundation.md",
+    "02 Engine/06 Content Assembly.md",
+    "05 Migration/Pass 10 Content Templates and Prefab Expansion Foundation.md",
+    "02 Engine/Scene Kit Milestones.md",
+    "04 Build/Visual Shell.md",
+    "02 Engine/Platform Support.md",
+    "02 Engine/05 Debugging and Instrumentation.md",
+    "02 Engine/04 Level Design Patterns.md",
+    "02 Engine/03 Event Engine.md",
+    "02 Engine/02 World Systems.md",
+    "02 Engine/01 Runtime Flow.md",
+    "02 Engine/00 Engine Home.md",
+    "05 Migration/Pass 09 Runtime Instrumentation Foundation.md",
+    "05 Migration/Pass 08 World Runtime Environment Foundation.md",
+    "05 Migration/Pass 07 Debug Snapshot Foundation.md",
+    "01 Brand/RawIron.md",
+    "00 Inbox/Open Questions.md"
+  ]
+}

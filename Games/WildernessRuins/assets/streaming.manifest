@@ -1,0 +1,4 @@
+asset_key,weight,tier,notes
+world/ruins/ground_chunks,100,hot,terrain and traversal-critical meshes
+world/ruins/foliage_clusters,65,warm,nearby vegetation and clutter
+fx/ruins/wind_particles,35,cold,distant ambience particles

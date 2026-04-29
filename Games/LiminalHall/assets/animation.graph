@@ -1,0 +1,7 @@
+# node,clip,blendIn,blendOut,next
+idle,anim/hall_idle,0.15,0.10,patrol_turn
+patrol_turn,anim/hall_turn,0.08,0.06,patrol_walk
+patrol_walk,anim/hall_walk,0.10,0.06,watch_pose
+watch_pose,anim/hall_watch,0.06,0.08,security_scan
+security_scan,anim/hall_turn,0.04,0.04,alert_stride
+alert_stride,anim/hall_walk,0.06,0.05,idle

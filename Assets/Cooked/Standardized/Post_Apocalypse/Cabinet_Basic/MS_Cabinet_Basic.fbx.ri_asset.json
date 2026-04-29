@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_cabinet_basic",
+  "type": "mesh",
+  "displayName": "MS_Cabinet_Basic",
+  "sourcePath": "Assets/Source/Post apocalypse/Cabinet_Basic/MS_Cabinet_Basic.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_cabinet_basic_source",
+      "path": "Assets/Source/Post apocalypse/Cabinet_Basic/MS_Cabinet_Basic.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "uv_brick_pile",
+  "type": "texture",
+  "displayName": "UV_Brick_Pile",
+  "sourcePath": "Assets/Source/Post apocalypse/Brick_Pile/UV_Brick_Pile.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "uv_brick_pile_source",
+      "path": "Assets/Source/Post apocalypse/Brick_Pile/UV_Brick_Pile.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

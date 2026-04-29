@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "conifer_small__albedo",
+  "type": "texture",
+  "displayName": "Conifer Small [Albedo]",
+  "sourcePath": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Billboards/Billboard Small/Conifer Small [Albedo].png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "conifer_small__albedo_source",
+      "path": "Assets/Source/Forest Scene/Assets/Assets/Conifers [BOTD]/Sources/Billboards/Billboard Small/Conifer Small [Albedo].png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

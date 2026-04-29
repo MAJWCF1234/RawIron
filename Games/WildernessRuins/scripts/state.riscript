@@ -1,0 +1,9 @@
+# RawIron State Script v1 (scalar contract)
+# Required by RawIron game format v1.3.5.
+
+checkpoint_autosave_enabled = 1
+checkpoint_autosave_interval_seconds = 60
+checkpoint_resume_slot = 1
+state_snapshot_history = 5
+state_event_buffer = 128
+state_streaming_guard_radius = 36

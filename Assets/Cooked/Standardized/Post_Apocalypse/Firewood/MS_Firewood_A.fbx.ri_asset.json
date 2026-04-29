@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ms_firewood_a",
+  "type": "mesh",
+  "displayName": "MS_Firewood_A",
+  "sourcePath": "Assets/Source/Post apocalypse/Firewood/MS_Firewood_A.fbx",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ms_firewood_a_source",
+      "path": "Assets/Source/Post apocalypse/Firewood/MS_Firewood_A.fbx"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

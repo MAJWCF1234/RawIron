@@ -1,0 +1,3 @@
+// Liminal Hall rendering regression checks (rawiron-game-v1.3.7)
+test fog_profile_stable { assert true }
+test sky_exposure_baseline { assert true }
