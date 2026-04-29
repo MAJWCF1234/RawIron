@@ -23,8 +23,10 @@ RawIron treats the repository root as the active workspace root, wherever the de
   Workspace-level config files
 - `Documentation`
   Obsidian vault and design notes
+- `Games`
+  Built-in game modules and standalone game executables
 - `Projects`
-  Local engine projects and sandboxes
+  Local engine projects and sandboxes created by tooling when needed
 - `Saved`
   Workspace-level logs, caches, and generated state
 - `Scripts`
@@ -35,6 +37,10 @@ RawIron treats the repository root as the active workspace root, wherever the de
   External libraries and mirrored dependencies
 - `Tools`
   Command-line tools such as `ri_tool`
+- `Tests`
+  Native CTest-backed suites
+- `protoengine`
+  Prototype/reference web engine material, not the native runtime path
 
 ## Sandbox Project
 
@@ -42,7 +48,9 @@ The first local project space is:
 
 - `Projects/Sandbox`
 
-Current child folders:
+This folder may not exist in a fresh checkout. It is the workspace shape that `ri_tool --ensure-workspace` creates.
+
+Expected child folders:
 
 - `Projects/Sandbox/Config`
 - `Projects/Sandbox/Content`
@@ -57,6 +65,12 @@ Useful commands:
 
 - `ri_tool --workspace`
 - `ri_tool --ensure-workspace`
+- `ri_tool --save-scene-state`
+- `ri_tool --load-scene-state`
+
+## GitHub Publishing Note
+
+`Assets/Source` is part of the local workspace shape but is ignored for GitHub publishing because raw art/source drops can be very large. Runtime-ready and standardized outputs belong under `Assets/Cooked`.
 
 ## Direction
 

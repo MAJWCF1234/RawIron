@@ -31,8 +31,21 @@ Owns the fundamentals:
 Owns reusable runtime services that are engine-level but not scene-graph fundamentals:
 
 - runtime IDs
+- runtime tuning
 - runtime event bus
+- experience presets
+- entity-I/O telemetry event contracts
 - runtime service metrics
+
+### `RawIron.Logic`
+
+Owns reusable logic authoring and graph execution:
+
+- logic graph execution
+- port schema and circuit signals
+- world actor ports
+- logic visual primitives
+- logic kit manifests
 
 ### `RawIron.Validation`
 
@@ -56,6 +69,9 @@ Owns prototype-derived authored-content expansion that should stay engine-side i
 - authored environment-volume translation into typed native runtime descriptors
 - pipeline-side asset extraction inventory / manifest bookkeeping (development and validation; see [[Asset Extraction Inventory]])
 - declarative model definition interchange for data-driven compositions (see [[Declarative Model Definition]])
+- standard asset documents (`.ri_asset.json`)
+- game manifest parsing and runtime-support helpers
+- scripted scalar helpers used by content/runtime bridges
 
 ### `RawIron.Events`
 
@@ -121,6 +137,9 @@ Owns prototype-derived world/runtime helper logic that sits between pure engine 
 - optional native inventory loadout for hotbar/backpack/off-hand, stacking, and logic inventory gates ([[Inventory and Possession]])
 - optional native level-flow presentation state for load/ready status, level toasts, story intro callouts, and checkpoint restore notices
 - optional native signal-broadcast state for unknown-voice callouts, subtitle pairing, and guidance-hint suppression
+- optional native text-overlay events and text-overlay state helpers
+- optional native player vitality helpers
+- optional checkpoint persistence
 - native interaction-prompt state helpers for action labels, verb-aware prompt text, and suppression flags
 - post-process, reverb, occlusion, and fluid runtime creation helpers
 - localized-fog and fog-blocker runtime volume creation helpers
@@ -136,6 +155,7 @@ Owns prototype-derived world/runtime helper logic that sits between pure engine 
 - entity-I/O instrumentation counters and capped history (logic graph ↔ bus contract: [[Entity IO and Logic Graph]])
 - spatial-query instrumentation counters
 - runtime-stats-overlay attachment and visibility state
+- headless module verification helpers
 
 ### `RawIron.SceneUtilities`
 
@@ -146,19 +166,28 @@ Owns convenience behavior that is useful but not fundamental:
 - scene traversal and typed collection helpers
 - orbit-camera support
 - scripted **automated camera review** sequences for development (orbit rig + JSON/programmatic steps; see [[Automated Review and Scripted Camera]])
-- convenience scene assembly helpers
+- workspace starter scene assembly and animation helpers
+- OBJ, glTF/GLB, and FBX model import paths
+- scene state save/load helpers
+- ten Scene Kit example/milestone definitions
 
 Public-facing identity:
 
 - plain name: `RawIron Scene Kit`
 - CMake alias: `RawIron::SceneKit`
 
-### `RawIron.SceneSamples`
+Historical note:
 
-Owns sample/demo content assembly:
+- `Source/RawIron.SceneSamples` exists only as an empty legacy directory right now.
+- Starter scene and sample behavior live in `RawIron.SceneUtilities` today.
 
-- starter scene construction
-- starter scene animation helpers
+### `RawIron.EditorPreview`
+
+Owns editor preview scene registration:
+
+- fallback starter scene construction
+- game-preview hook dispatch
+- bundled-game preview integration surface
 
 ### `RawIron.Render.Software`
 
@@ -167,6 +196,16 @@ Owns early engine-side software rendering helpers that are useful for previews, 
 - shaded cube preview rendering
 - bitmap output helpers
 - render-output smoke-test foundations
+
+### `RawIron.Render.Vulkan`
+
+Owns Vulkan bootstrap and native preview presentation:
+
+- loader/runtime diagnostics
+- instance extension/layer/device summaries
+- Scene Kit preview bridge validation
+- Windows interactive preview windows
+- command recording, frame submission, intent staging, and pipeline-state cache foundations
 
 ### `RawIron.Structural`
 
@@ -181,6 +220,7 @@ Owns prototype-derived structural systems that should stay reusable and renderer
 - convex-hull aggregate compilation over authored target groups
 - authored array and symmetry expansion helpers
 - authored detail-marking and hull-reconciliation helpers
+- compile orchestration, cutter-volume clipping, and deferred terrain/shrinkwrap/scatter/spline/decal-ribbon helpers
 
 ### `RawIron.DevInspector`
 
@@ -198,6 +238,6 @@ If a feature is foundational engine state, it belongs in `RawIron.Core`.
 
 If it is useful but convenience-heavy, it should live in a utility library.
 
-If it is demo/sample assembly, it should live in a sample library.
+If it is starter/demo assembly, it can live in `RawIron.SceneUtilities` until it grows enough to justify a separate active module.
 
 If it is a reusable engine service or structural-system import from the prototype, it should live in a dedicated library instead of getting stuffed into `RawIron.Core`.

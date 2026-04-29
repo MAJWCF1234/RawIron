@@ -82,8 +82,8 @@ A pressure plate may emit `triggerChanged` when stepped on **and** later show `e
 
 - Contract: `Source/RawIron.Runtime/include/RawIron/Runtime/EntityIoTelemetry.h`
 - Bridge: `Source/RawIron.World/include/RawIron/World/LogicEntityIoTelemetry.h`, `Source/RawIron.World/src/LogicEntityIoTelemetry.cpp`
-- Engine test: `Tests/RawIron.EngineImport.Tests/src/TestLogicEntityIoTelemetry.cpp`
-- Helper activity listener: `Tests/RawIron.EngineImport.Tests/src/main.cpp` (`TestWorldHelperActivityTracking`)
+- Engine test: `Tests/RawIron.EngineImport.Tests/src/EngineImportTests.cpp` (`TestLogicEntityIoTelemetry`)
+- Helper activity listener: `Tests/RawIron.EngineImport.Tests/src/EngineImportTests.cpp` (`TestSummarizeHelperActivity` and related world instrumentation coverage)
 
 ## Related Notes
 

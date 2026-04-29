@@ -27,6 +27,20 @@ The runtime should not directly depend on dozens of third-party source formats.
 3. Cookers convert canonical assets into runtime-ready engine assets
 4. The runtime loads only RawIron-owned formats
 
+## Current Implemented Tooling
+
+The current native tooling starts with standard asset documents rather than final packed runtime binaries.
+
+Implemented today:
+
+- `ri_tool --formats` reports `.ri_asset.json` as the current standard asset document.
+- `ri_tool --asset-standardize <source-path>` writes one standardized document.
+- `ri_tool --asset-standardize-dir <source-dir>` batch-writes standardized documents.
+- Outputs default under `Assets/Cooked/Standardized`.
+- Supported standardization inputs currently include Unity-style `.asset`, `.spm`, `.fbx`, `.obj`, `.gltf`, `.glb`, common image formats, common audio formats, `.mat`, and `.unity`.
+
+This is the pipeline's metadata and normalization stage, not the final cooked binary runtime package.
+
 ## Why This Matters
 
 - faster load times
@@ -41,9 +55,9 @@ The runtime should not directly depend on dozens of third-party source formats.
 - **Importer layer**
   Reads foreign file formats
 - **Canonical asset layer**
-  Normalized engine-owned representation
+  Normalized engine-owned representation; `.ri_asset.json` is the current implemented document shape
 - **Cooker layer**
-  Produces runtime-ready binaries per platform and build target
+  Produces runtime-ready binaries per platform and build target; still a next layer beyond current standardization output
 - **Runtime loader**
   Loads only cooked RawIron assets
 

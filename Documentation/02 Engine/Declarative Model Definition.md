@@ -60,5 +60,5 @@ Connecting this format to scene objects or rendering is a separate integration s
 
 - [[Asset Extraction Inventory]]
 - [[06 Content Assembly]]
-- [[File Format Decisions]]
+- [[03 Assets/File Formats|File Format Decisions]]
 - [[Library Layers]]

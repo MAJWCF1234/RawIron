@@ -27,8 +27,9 @@ Current built-ins:
 - scene traversal utilities for walking subtrees and typed node collections
 - scene raycast utilities for picking and interaction-style examples
 - camera-to-ray helpers for viewport-style picking
-- Wavefront OBJ model loading into Scene Kit mesh nodes
-- five milestone scenario checks covering lit scene setup, orbit navigation, lighting, model loading, and click-style picking
+- OBJ, glTF/GLB, and FBX model loading into Scene Kit mesh nodes
+- scripted orbit-camera review sequences for development passes
+- ten Scene Kit milestone examples covering orbit controls, primitive geometry, picking, terrain raycasts, spot lights, glTF loading, animation keyframes, instance-density previews, environment-map staging, and positional-audio orientation staging
 
 ## Why This Is Built In
 
@@ -41,7 +42,11 @@ They are not part of `RawIron.Core`.
 Current home:
 
 - `Source/RawIron.SceneUtilities`
-- `Source/RawIron.SceneSamples`
+
+Historical note:
+
+- `Source/RawIron.SceneSamples` is currently an empty legacy directory.
+- Starter scenes, sample-style assembly, animation helpers, and Scene Kit examples live in `RawIron.SceneUtilities`.
 
 ## Current API Surface
 
@@ -84,6 +89,22 @@ Note: scene-owned **camera confinement volumes** are authored as `CameraConfinem
 - `BuildPerspectiveCameraRay`
 - `LoadWavefrontObjMesh`
 - `AddWavefrontObjNode`
+- `LoadGltfScene`
+- `AddGltfModelNode`
+- `LoadFbxScene`
+- `AddFbxModelNode`
+- `AddModelNode`
+- `SaveSceneNodeTransforms`
+- `LoadSceneNodeTransforms`
+- `BuildStarterScene`
+- `AnimateStarterScene`
+- `AnimateStarterSceneProps`
+- `AnimateStarterSceneOrbitPreview`
+- `TryParseScriptedCameraSequenceFromJson`
+- `BuildDefaultStarterSandboxReview`
+- `GetSceneKitExampleDefinitions`
+- `BuildSceneKitPreview`
+- `BuildSceneKitMilestone`
 - `BuildLitCubeSceneKitPreview`
 - `RunSceneKitMilestoneChecks`
 - `AllSceneKitMilestonesPassed`

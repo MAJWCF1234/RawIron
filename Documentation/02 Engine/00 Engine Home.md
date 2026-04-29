@@ -12,6 +12,7 @@ This section documents how the native RawIron runtime works at a high level so t
 
 ## Core Reading Order
 
+- [[Current Engine Review]]
 - [[01 Runtime Flow]]
 - [[02 World Systems]]
 - [[03 Event Engine]]
@@ -52,16 +53,23 @@ That means:
 
 The native engine already has real C++ landing zones for the first major prototype systems:
 
+- `RawIron.Core`: math, host loop, scene graph, render command plumbing, action bindings, post-process presets, and crash diagnostics
 - `RawIron.Runtime`: runtime IDs and runtime event bus
-- `RawIron.Structural`: structural graph, convex clipper, compiler helpers, native structural primitives, and boolean operator compilation
+- `RawIron.Logic`: logic graph authoring, ports, visual primitives, world actor ports, and logic kit manifests
+- `RawIron.Structural`: structural graph, convex clipper, compiler helpers, native structural primitives, boolean operators, cutter volumes, and deferred operations
 - `RawIron.Events`: hook, action, timer, and sequence flow
 - `RawIron.Spatial`: BSP-style broadphase foundations
 - `RawIron.Trace`: overlap, ray, swept-box, slide, and ground queries
 - `RawIron.Validation`: schema and validation contracts
-- `RawIron.Content`: template, prefab, and authored-content expansion
+- `RawIron.Content`: template, prefab, authored-content expansion, asset documents, manifests, asset inventory, and declarative model definitions
 - `RawIron.Audio`: managed audio and environment-shaped playback
 - `RawIron.Debug`: snapshots and debug-report formatting
-- `RawIron.World`: environment state, helper metrics, and instrumentation
+- `RawIron.World`: runtime volumes, helper metrics, presentation/NPC/inventory states, trigger orchestration, checkpointing, text overlays, and instrumentation
+- `RawIron.SceneUtilities`: Scene Kit helpers, importers, starter scenes, scripted camera review, scene state I/O, and the ten-example milestone gate
+- `RawIron.EditorPreview`: editor preview registry and fallback starter-scene construction
+- `RawIron.DevInspector`: optional snapshot/diagnostic side channel
+- `RawIron.Render.Software`: deterministic preview snapshots
+- `RawIron.Render.Vulkan`: Vulkan bootstrap, command/presentation path, and native preview window support
 
 ## Why This Section Exists
 
@@ -78,6 +86,7 @@ Both matter:
 
 - [[Engine Vision]]
 - [[Architecture Direction]]
+- [[Current Engine Review]]
 - [[Library Layers]]
 - [[Repository Layout]]
 - [[01 Runtime Flow]]

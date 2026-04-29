@@ -48,6 +48,20 @@ Current preset rule:
 
 - CMake presets now pin both `C` and `C++` compilers so mixed-language dependencies like `cgltf` regenerate cleanly under both MSVC and Clang
 
+Current configure presets:
+
+- `dev-msvc`
+- `dev-clang`
+- `dev-mingw`
+- `dev-linux-clang`
+
+Current build presets:
+
+- `build-dev-msvc`
+- `build-dev-clang`
+- `build-dev-mingw`
+- `build-dev-linux-clang`
+
 ## Helper Command
 
 A convenience launcher exists at:

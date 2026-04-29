@@ -53,7 +53,7 @@ Current structural foundations:
 - native `structural_detail_modifier` and `non_manifold_reconciler` compile helpers
 - native structural compile orchestration that runs symmetry, array, modifier, aggregate, reconcile, and boolean passes in one result-producing flow
 - native compile-time cutter-volume orchestration for targeted subtractive and intersect clipping over additive structural solids
-- native deferred-operation execution helpers for terrain cutouts and shrinkwrap hull generation over compiled structural geometry
+- native deferred-operation execution helpers for terrain cutouts, shrinkwrap hull generation, deterministic surface scatter, spline-driven mesh placement, projected spline decal ribbons, topological UV remapping, tri-planar staging, and instance-cloud primitives
 
 This is the seed of the engine's authored structural language.
 
@@ -114,6 +114,8 @@ Current runtime world services:
 - runtime counts for trigger-helper volumes like streaming, checkpoint, teleport, launch, and analytics heatmap helpers
 - native trigger spatial-index rebuilds and point-query candidate collection
 - native trigger spatial-query stats for index builds, point queries, and candidate counts
+- authored/render-facing helper descriptors for reference image planes, annotation comments, 3D text, measure tools, render-target surfaces, planar reflection surfaces, pass-through primitives, sky projection surfaces, and volumetric emitter bounds
+- checkpoint persistence, text overlay state, player vitality, and headless module verification helpers
 
 ## Structural Versus Detail Collision
 
@@ -190,16 +192,14 @@ RawIron is not at full parity yet, but the structural direction is already clear
 The structural graph and convex compiler layers were ported first so this vocabulary can grow on a stable native base.
 The newer structural passes now add a first real authored-shape kit plus native boolean-operator compilation on top of it.
 
-## What Still Needs To Be Ported
+## What Still Needs To Mature
 
-Important world layers still trapped in the prototype include:
+Important layers that still need deeper runtime/editor maturity include:
 
-- more authored primitive/operator expansion
-- prefab and template-style world reuse
-- deeper bridges from authored content into typed runtime-volume descriptors beyond the first native volume families
-- broader trigger orchestration and local logic services
-- richer moving world objects
+- final runtime instantiation for all authored content and standardized asset documents
+- richer moving world objects beyond the current structural/runtime-helper foundations
 - more editor-facing world inspection tools
+- tighter render/editor feedback for the newer visual helper descriptors
 
 ## Practical Consequence
 

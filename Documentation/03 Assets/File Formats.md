@@ -25,9 +25,17 @@ Reason:
 - already used in other software/tooling contexts
 - likely to create confusion and search collisions
 
-## Working Extension Family
+## Current Standard Document
 
-These are currently liked and should be treated as the main candidates:
+The active tooling standard is:
+
+- `.ri_asset.json`
+
+`ri_tool --formats` reports this as the single unified standard asset document for mesh, material, texture, audio, scene, and behavior metadata. `ri_tool --asset-standardize` and `ri_tool --asset-standardize-dir` write this format into `Assets/Cooked/Standardized`.
+
+## Legacy / Experimental Extension Family
+
+These still exist as useful vocabulary and legacy/experimental aliases, but they are not the current standardized output:
 
 - `.ri_model`
 - `.ri_mesh`
@@ -35,6 +43,7 @@ These are currently liked and should be treated as the main candidates:
 - `.ri_mat`
 - `.ri_tex`
 - `.ri_audio`
+- `.ri_meshc`
 
 ## Compact Alternatives
 
@@ -45,7 +54,7 @@ These are also liked and may be used where a shorter extension is better:
 - `.ritex`
 - `.riaudio`
 
-## Current Favorites
+## Earlier Favorites
 
 - editable model: `.rimodel`
 - cooked runtime mesh: `.rimeshbin` or `.ri_meshc`
@@ -63,7 +72,7 @@ Example split:
 - canonical editable model asset: `.rimodel`
 - cooked mesh payload: `.rimeshbin`
 
-This is still a working direction, not a locked standard.
+This remains useful design context, but the current implemented path is `.ri_asset.json` first.
 
 ## Pipeline bookkeeping (non-runtime)
 

@@ -23,7 +23,13 @@ It also has smoke tests for the current executable hosts and tools:
 - `RawIron.Tool.SampleScene`
 - `RawIron.Tool.Formats`
 - `RawIron.Tool.Workspace`
+- `RawIron.Tool.SceneKitTargets`
 - `RawIron.Tool.SceneKitChecks`
+- `RawIron.Tool.VulkanDiagnostics`
+- `RawIron.Tool.EnsureWorkspace`
+- `RawIron.Tool.RenderCube`
+- `RawIron.Tool.SaveSceneState`
+- `RawIron.Tool.LoadSceneState`
 
 Current coverage includes:
 
@@ -36,8 +42,10 @@ Current coverage includes:
 - scene description output and resource counts
 - scene query utilities
 - scene raycast queries for primitive picking
-- Scene Kit milestone checks for lit scene setup, orbit controls, lighting, model loading, and picking
+- Scene Kit milestone checks for the ten-example gate: orbit controls, geometry cube, interactive cubes, terrain raycasting, spot lights, glTF loader, animation keyframes, instancing performance, environment maps, and positional audio orientation
 - starter scene structure and animation movement
+- OBJ, glTF/GLB, and FBX import smoke coverage
+- scene state save/load coverage
 - player host boot and expected log output
 - editor host boot and expected log output
 - preview host boot and expected image-save output
@@ -50,6 +58,7 @@ Current coverage includes:
 - Vulkan SDK and runtime diagnostics reporting
 - engine-side shaded cube preview rendering and image-file output
 - workspace creation and directory verification
+- post-process preset reporting through tooling
 - runtime ID prefix sanitization and suffix generation
 - runtime event bus metrics and listener behavior
 - structural graph ordering, unresolved dependencies, and cycle reporting
@@ -109,7 +118,27 @@ ctest --test-dir .\build\dev-msvc --output-on-failure -V
 
 Current MSVC suite size:
 
-- 14 tests
+- 17 generated CTest entries
+
+Current generated entries:
+
+- `RawIron.Player.Smoke`
+- `RawIron.Editor.Smoke`
+- `RawIron.Preview.Smoke`
+- `RawIron.VisualShell.Smoke`
+- `RawIron.Tool.SampleScene`
+- `RawIron.Tool.Formats`
+- `RawIron.Tool.Workspace`
+- `RawIron.Tool.SceneKitTargets`
+- `RawIron.Tool.SceneKitChecks`
+- `RawIron.Tool.VulkanDiagnostics`
+- `RawIron.Tool.EnsureWorkspace`
+- `RawIron.Tool.RenderCube`
+- `RawIron.Tool.SaveSceneState`
+- `RawIron.Tool.LoadSceneState`
+- `RawIron.Core.Tests`
+- `RawIron.EngineImport.Tests`
+- `RawIron.EngineImport.StacktraceSmoke`
 
 Clang build and test:
 

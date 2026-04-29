@@ -9,69 +9,119 @@ tags:
 
 ## Root
 
-- `Source`: shared engine code
-- `Apps`: executable hosts
-- `Tools`: command-line tools and import/cook utilities
-- `Documentation`: project notes and design docs
+- `Apps`: native executable hosts.
+- `Assets`: source and cooked assets. `Assets/Source` is kept local/ignored for GitHub because raw art can be large.
+- `Config`: workspace-level configuration.
+- `Documentation`: Obsidian vault and design notes.
+- `Games`: game modules and game executables.
+- `Saved`: generated logs, previews, scratch data, and tool output.
+- `Scripts`: helper scripts and automation.
+- `Source`: shared engine libraries.
+- `Tests`: native test targets.
+- `ThirdParty`: vendored external code.
+- `Tools`: command-line and content/tooling utilities.
+- `protoengine`: prototype/reference web engine material, not the native runtime target.
 
-## Current Code Modules
+## Current Source Modules
 
 ### `Source/RawIron.Core`
 
-Shared core runtime code.
+Core runtime fundamentals:
 
-Current contents:
-
-- command-line parsing
-- host interface
-- simple logging
-- fixed-step main loop bootstrap
+- command-line parsing and logging
+- host loop and fixed-step pacing
 - starter math types
-- scene graph and transform composition
+- scene graph, components, transforms, and camera helpers
+- action binding and input-label helpers
+- render command stream, recorder, submission-plan foundations
+- post-process preset catalog and stack composition
+- crash diagnostics and stacktrace integration
 
-### `Source/RawIron.Runtime`
+### `Source/RawIron.Audio`
 
-Runtime-service library for engine-side systems imported from the prototype.
+Native managed audio layer:
 
-Current contents:
-
-- runtime ID generation
-- runtime event bus
-- runtime bus metrics
-
-### `Source/RawIron.Validation`
-
-Schema and validation library for prototype-derived authored data contracts.
-
-Current contents:
-
-- stored runtime-tuning sanitization
-- level payload validation
-- validation metrics
+- miniaudio backend and stub fallback
+- managed sound wrappers
+- active voice ownership
+- environment-shaped playback
+- delayed echo scheduling
+- audio metrics
 
 ### `Source/RawIron.Content`
 
-Authored-content expansion library for prototype-derived templates, prefabs, and transform normalization.
+Authored-content and asset-document layer:
 
-Current contents:
+- generic content-value tree and value schema helpers
+- asset documents and game manifests
+- pipeline asset extraction inventory
+- declarative model definitions
+- scripted scalar helpers
+- template inheritance and merge behavior
+- prefab transform extraction, nesting, and recursion rejection
+- authored world/environment/helper volume conversion into typed runtime descriptors
 
-- generic content-value tree
-- vec2, vec3, quaternion, and scale sanitization
-- finite-number and finite-integer clamp helpers
-- entity-template merge and resolution flow
-- prefab transform extraction and node transformation
-- nested prefab expansion and recursion rejection
-- authored world-volume conversion into typed native runtime descriptors
-- authored environment-volume conversion into typed native runtime descriptors
+### `Source/RawIron.Debug`
+
+Debug snapshot and report layer:
+
+- helper-library metrics aggregation
+- event-engine world-state snapshots
+- spatial-index summaries
+- compact machine-readable state formatting
+- full native debug-report formatting
+
+### `Source/RawIron.DevInspector`
+
+Optional development observability side channel:
+
+- named snapshot sources
+- diagnostic streams
+- pluggable transports
+- guarded development commands
+
+### `Source/RawIron.Runtime`
+
+Reusable runtime services:
+
+- runtime IDs
+- runtime tuning
+- runtime event bus
+- experience presets
+- entity-I/O event contract
+- runtime metrics
+
+### `Source/RawIron.Logic`
+
+Logic graph and authoring layer:
+
+- logic graph execution
+- port schema and circuit signals
+- world actor ports
+- logic visual primitives
+- logic authoring helpers
+- logic kit manifests
+
+### `Source/RawIron.World`
+
+World/runtime helper layer:
+
+- typed runtime-volume descriptors
+- presentation, access, dialogue, pickup, level-flow, signal, inventory, NPC, hostile, and vitality state helpers
+- checkpoint persistence
+- trigger orchestration and trigger spatial index helpers
+- helper telemetry and activity summaries
+- entity-I/O bridge wiring between logic graphs and the runtime bus
+- text overlay events/state
+- headless module verification
+- runtime instrumentation counters
 
 ### `Source/RawIron.Events`
 
-Event-runtime library for prototype-derived hook, action, and timer flow.
-
-Current contents:
+Event runtime:
 
 - event normalization
-- world flag and value state
+- world flag/value state
 - hook processing
 - target-group resolution
 - action-group execution
@@ -80,179 +130,183 @@ Current contents:
 
 ### `Source/RawIron.Spatial`
 
-Spatial-query foundation library for prototype-derived broadphase systems.
-
-Current contents:
+Spatial-query foundation:
 
 - axis-aligned bounds
-- ray helpers
-- BSP-style spatial indexing
-- box candidate queries
-- ray candidate queries
+- static broadphase indexing
+- box and ray candidate queries
+- volume containment helpers
 
 ### `Source/RawIron.Trace`
 
-Trace and movement-query library layered over the spatial broadphase.
+Trace, physics, and movement helpers:
 
-Current contents:
+- overlap, ray, and swept traces
+- slide movement
+- ground probing
+- object and entity physics helpers
+- kinematic physics
+- locomotion tuning and movement controller helpers
+- trace-scene metrics
 
-- overlap box tracing
-- ray tracing
-- swept box tracing
-- slide movement helpers
-- ground-hit probing
+### `Source/RawIron.Validation`
 
-### `Source/RawIron.Audio`
+Schema and validation contracts:
 
-Managed audio library for prototype-derived engine-side playback behavior.
-
-Current contents:
-
-- managed sound wrappers
-- active voice-line ownership
-- environment profile normalization and playback shaping
-- delayed echo scheduling
-- audio metrics
-
-### `Source/RawIron.Debug`
-
-Debug and instrumentation library for prototype-derived snapshot/report behavior.
-
-Current contents:
-
-- helper-library metrics aggregation
-- event-engine world flag/value snapshots
-- spatial-index summary snapshots
-- compact state snapshot formatting
-- full debug-report formatting
-
-### `Source/RawIron.World`
-
-World/runtime helper library for prototype-derived mixed runtime systems.
-
-Current contents:
-
-- typed runtime-volume descriptors
-- post-process, reverb, occlusion, and fluid runtime creation helpers
-- localized-fog and fog-blocker runtime creation helpers
-- clip-volume mode parsing
-- collision-channel parsing
-- safe-zone and camera-modifier queries
-- runtime volume containment for box, cylinder, and sphere helpers
-- active post-process aggregation
-- active audio reverb and occlusion aggregation
-- localized-fog, fog-blocker, and fluid-environment merges
-- helper-activity summarization
-- world/runtime helper metrics
-- helper-activity observer tracking over the runtime event bus
-- entity-I/O counters and capped event history
-- spatial-query instrumentation counters
-- runtime-stats-overlay state mirroring
+- schema registry and validation reports
+- scalar, string, object, collection, and primitive checks
+- coercion, migration, and reference-integrity helpers
+- path normalization
+- ID format and color parsing
 
 ### `Source/RawIron.SceneUtilities`
 
-Utility library layered on top of the core scene model.
+Scene Kit and utility layer:
 
-Current contents:
+- helper builders for primitives, lights, grids, axes, orbit cameras, and procedural terrain
+- scene traversal, query, bounds, and camera confinement helpers
+- raycast utilities and camera-to-ray helpers
+- OBJ, glTF/GLB, and FBX import paths
+- scene state save/load
+- starter workspace scene construction and animation
+- scripted orbit-camera review
+- ten Scene Kit milestone examples and checks
 
-- helper builders
-- helper input sanitization
-- scene query utilities
-- orbit-camera utility
+Note: `Source/RawIron.SceneSamples` is an empty legacy directory and is not an active CMake module. Starter scenes now live in `RawIron.SceneUtilities`.
 
-### `Source/RawIron.SceneSamples`
+### `Source/RawIron.EditorPreview`
 
-Sample/demo library layered on top of scene utilities.
+Editor preview registry:
 
-Current contents:
+- preview scene registration
+- fallback starter-scene construction
+- game-preview hook dispatch
 
-- starter scene construction
-- starter scene animation helpers
+### `Source/RawIron.Editor.BundledGames`
+
+Optional editor game-preview link layer:
+
+- registers Liminal Hall previews when enabled
+- registers Forest Ruins previews when enabled
 
 ### `Source/RawIron.Render.Software`
 
-Software preview renderer for early engine-side image generation and deterministic render smoke tests.
+Deterministic software preview renderer:
 
-Current contents:
+- scene preview rendering
+- shaded cube and Scene Kit snapshot support
+- BMP output helpers
 
-- shaded cube preview rendering
-- BMP image output helpers
-- early engine-owned render-output path outside the Vulkan backend
+### `Source/RawIron.Render.Vulkan`
+
+Vulkan preview/render backend foundation:
+
+- platform/bootstrap diagnostics
+- native Scene Kit preview window path on Windows
+- software-upload fallback presenter
+- command buffer/list/recorder helpers
+- frame submission
+- intent staging
+- pipeline-state cache
 
 ### `Source/RawIron.Structural`
 
-Structural runtime/compiler library for prototype-engine world-building systems.
-
-Current contents:
+Structural runtime/compiler layer:
 
 - structural dependency graph ordering
-- structural phase classification
-- convex polygon and solid clipping
-- convex-solid mesh compilation
-- structural compiler helpers for bounds, transforms, and fragment generation
-- native primitive builders for `box`, `plane`, `hollow_box`, `ramp`, `wedge`, `cylinder`, `cone`, `pyramid`, `capsule`, `frustum`, `geodesic_sphere`, `arch`, `hexahedron`, `convex_hull`, `roof_gable`, and `hipped_roof`
-- boolean-operator compile helpers for `union`, `intersection`, and `difference`
-- convex-hull aggregate compilation over authored target groups
-- authored array and symmetry expansion helpers
-- authored detail-marking and hull-reconciliation helpers
+- convex clipping
+- structural primitive mesh generation
+- compiler orchestration
+- boolean operators for `union`, `intersection`, and `difference`
+- convex-hull aggregate compilation
+- array/symmetry expansion helpers
+- detail/reconciler helpers
+- cutter-volume clipping
+- deferred terrain, shrinkwrap, scatter, spline, and decal-ribbon operation helpers
+
+## Games
+
+### `Games/Common`
+
+Shared game runtime diagnostics drawing helpers.
+
+### `Games/LiminalHall`
+
+- `RawIron.Game.LiminalHall`: game runtime module
+- `RawIron.LiminalGame`: standalone game executable
+- editor preview hooks for the bundled editor-preview path
+
+### `Games/WildernessRuins`
+
+- `RawIron.Game.ForestRuins`: game runtime module
+- `RawIron.ForestRuinsGame`: standalone game executable
+- editor preview hooks for the bundled editor-preview path
+
+## Applications
 
 ### `Apps/RawIron.Player`
 
-Standalone runtime shell.
+Starter runtime host:
 
-Current contents:
-
-- thin host executable
-- frame loop bootstrap
-- player-mode sample scene and simulation tick
+- shared host loop
+- starter workspace scene
+- scripted camera review flags
+- player-mode simulation tick
 
 ### `Apps/RawIron.Editor`
 
-Native editor shell.
+Native editor shell:
 
-Current contents:
-
-- thin host executable
-- frame loop bootstrap
-- editor-mode sample scene inspection
+- shared host loop
+- editor workspace view
+- preview scene registry integration
+- bundled game preview support when enabled
 
 ### `Apps/RawIron.Preview`
 
-Native preview window for engine-side render smoke testing.
+Scene Kit preview host:
 
-Current contents:
-
-- shaded cube preview window
-- headless BMP output mode for tests and automation
+- software BMP snapshot mode
+- Windows Vulkan interactive preview mode
+- Scene Kit example selection
+- photo-mode FOV options
 
 ### `Apps/RawIron.VisualShell`
 
-Temporary launch shell for the current engine workspace.
+Keyboard-first launch shell:
 
-Current contents:
+- preview launch actions
+- Scene Kit example browsing
+- Vulkan diagnostics
+- test/tool actions
+- documentation and previews shortcuts
+- live activity log
 
-- X68000-inspired keyboard-first visual shell
-- native preview launch action
-- diagnostics and test-run actions
-- documentation and previews folder shortcuts
-- live activity log inside the shell window
+## Tools
 
 ### `Tools/ri_tool`
 
-Command-line tools bootstrap.
+Current command surface:
 
-Current contents:
+- workspace discovery and workspace creation
+- format-family reporting
+- asset standardization into `.ri_asset.json`
+- Scene Kit target/check/example commands
+- post-process preset reporting
+- Vulkan diagnostics
+- software preview rendering
+- sample scene reporting
+- scene-state save/load
 
-- planned import/cook/pack command surface
-- format-family placeholder output
-- sample scene inspection command
-- shaded cube preview render command
+## Tests
+
+- `Tests/RawIron.Core.Tests`: core runtime, Scene Kit, import, motion/trace, and dev-inspector coverage.
+- `Tests/RawIron.EngineImport.Tests`: merged prototype-import suite covering runtime, content, world, logic, events, triggers, inventory, checkpointing, structural operations, and helper/volume families.
 
 ## Direction
 
-This layout is meant to stay understandable even as the engine grows.
-
 The host executables should stay thin.
-The core should absorb reusable systems.
-The tools layer should own importer and cooker complexity instead of leaking that complexity into the runtime.
-The convenience layer should stay outside the core whenever it does not need to be fundamental engine state.
+The shared libraries should own reusable engine behavior.
+The game modules should prove the runtime without becoming engine dependencies.
+The tools layer should own importer, cooker, validation, and workspace complexity.
+The convenience layer should stay outside `RawIron.Core` unless a feature becomes fundamental engine state.

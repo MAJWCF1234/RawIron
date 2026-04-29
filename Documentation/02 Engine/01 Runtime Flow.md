@@ -103,9 +103,15 @@ RawIron already has native verification surfaces even before the full editor exi
 
 - CTest suites under MSVC and Clang
 - `ri_tool --workspace`
+- `ri_tool --ensure-workspace`
 - `ri_tool --sample-scene`
 - `ri_tool --scenekit-targets`
+- `ri_tool --scenekit-example <slug>`
 - `ri_tool --vulkan-diagnostics`
+- `ri_tool --postprocess-presets`
+- `ri_tool --save-scene-state`
+- `ri_tool --load-scene-state`
+- `ri_tool --asset-standardize <source-path>`
 - native debug snapshot and report formatting
 
 The future editor and player overlays should build on those same runtime services instead of inventing separate inspection paths.
