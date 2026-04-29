@@ -1,106 +1,75 @@
 # RawIron
 
-RawIron is a native, standalone game engine prototype.
+RawIron is a native C++ game engine project focused on fast desktop iteration, clear runtime boundaries, and practical tooling for authored worlds.
 
-Current direction:
+The engine is currently Windows-first, with Linux kept in the build and architecture path. The repository includes the shared engine libraries, native application hosts, tooling, test coverage, documentation, and two built-in game/runtime modules used to exercise the engine.
 
-- C++20 core
-- standalone player and editor applications
-- tools-first asset pipeline
-- no Electron or browser dependency
-- desktop target direction: Windows first, Linux alongside it
-- Apple and mobile platforms intentionally out of scope for now
-- early architecture priorities: fast startup, compact runtime, strong tooling, and clean host boundaries
-- integrated scene helpers instead of prototype-only addon glue
+## Highlights
 
-Current built-in scene utilities:
-
-- scene graph and transform hierarchy
-- mesh, material, camera, and light descriptors
-- grid helper
-- axes helper
-- orbit-camera utility
-- orbit camera framing and reconstruction helpers
-- world-bounds helpers for scene content
-- scene query helpers
-- scene raycast helpers for picking-style workflows
-- camera-to-ray helpers for viewport selection
-- Wavefront OBJ loading for external Scene Kit mesh content
-- a ten-example Scene Kit usability gate with preview output
-
-The convenience-heavy pieces now live in utility libraries instead of `RawIron.Core`.
-The current helper layer is `RawIron.SceneUtilities`, treated as `RawIron Scene Kit` and exposed in CMake as `RawIron::SceneKit`.
-
-RawIron also now tracks a hard Scene Kit replacement-library gate: the engine should be able to reproduce at least 10 official examples before we call the layer genuinely usable.
+- C++20 engine code organized into focused runtime libraries
+- Native player, editor, preview, and visual shell applications
+- Vulkan preview backend with deterministic software-rendered snapshots for tests
+- Scene Kit utility layer for scene helpers, model import smoke tests, scripted camera review, and preview examples
+- Runtime systems for events, logic graphs, world volumes, inventory, NPC state, triggers, checkpoints, audio, tracing, and instrumentation
+- Tooling for workspace inspection, asset standardization, Scene Kit checks, Vulkan diagnostics, preview rendering, and scene-state save/load
+- CTest-backed smoke and engine-import test coverage
 
 ## Repository Layout
 
-- `Source/RawIron.Core`: shared engine runtime
-- `Source/RawIron.Audio`: backend-agnostic managed audio runtime imported from prototype audio systems
-- `Source/RawIron.Debug`: debug snapshot and report foundation imported from prototype instrumentation systems
-- `Source/RawIron.Runtime`: runtime services imported from the prototype engine foundation
-- `Source/RawIron.World`: world/runtime environment, helper-metrics, and instrumentation foundation imported from prototype mixed runtime systems
-- `Source/RawIron.Events`: event and sequence runtime imported from prototype hook/action systems
-- `Source/RawIron.Spatial`: BSP-style broadphase queries imported from prototype world systems
-- `Source/RawIron.Trace`: shared tracing and movement queries imported from prototype world systems
-- `Source/RawIron.Validation`: schema and validation contracts imported from prototype runtime schemas
-- `Source/RawIron.Content`: authored-content template, prefab, world-volume, and environment-volume expansion imported from prototype world-assembly helpers
-- `Source/RawIron.SceneUtilities`: helper and query utilities over the core scene layer
-- `Source/RawIron.SceneSamples`: sample/demo scene assembly over the utility layer
-- `Source/RawIron.Render.Software`: deterministic headless preview rendering for smoke tests and image output
-- `Source/RawIron.Structural`: structural graph, convex-solid tooling, and native primitive builders imported from prototype engine systems
-- `Apps/RawIron.Player`: standalone runtime shell
-- `Apps/RawIron.Editor`: native editor shell
-- `Apps/RawIron.Preview`: native Scene Kit cube preview window
-- `Apps/RawIron.VisualShell`: keyboard-first launch shell for previews, diagnostics, docs, and tests
-- `Tools/ri_tool`: command-line asset and project tooling
-- `Documentation`: Obsidian-friendly project documentation
-- `Assets/Source`: imported source assets
-- `Assets/Cooked`: cooked runtime-ready assets
-- `Projects/Sandbox`: first local playground project
-- `Config`: workspace-level config
-- `Saved`: workspace-level logs and generated state
-- `Scripts`: automation and helper scripts
-- `ThirdParty`: vendored or mirrored external dependencies
+- `Source/RawIron.Core`: core runtime, math, scene graph, host loop, input helpers, render command plumbing, and diagnostics
+- `Source/RawIron.Audio`: managed audio and miniaudio-backed playback
+- `Source/RawIron.Content`: asset documents, manifests, prefab/template expansion, and authored-content conversion
+- `Source/RawIron.Debug`: runtime snapshots and debug report formatting
+- `Source/RawIron.DevInspector`: optional development snapshot and diagnostic channel
+- `Source/RawIron.Events`: hook, action, sequence, timer, and world-state event flow
+- `Source/RawIron.Logic`: logic graph, port schema, visual primitives, and logic kit support
+- `Source/RawIron.Runtime`: runtime IDs, event bus, tuning, experience presets, and entity-I/O telemetry
+- `Source/RawIron.SceneUtilities`: Scene Kit helpers, starter scenes, importers, raycasts, animation, scripted camera review, and scene-state I/O
+- `Source/RawIron.Spatial`: AABB primitives, broadphase indexing, and spatial queries
+- `Source/RawIron.Structural`: structural graph, primitive builders, compiler helpers, boolean operators, cutter volumes, and deferred operations
+- `Source/RawIron.Trace`: trace scene, movement, locomotion, kinematic, entity, and object physics helpers
+- `Source/RawIron.Validation`: schema registry, constraints, coercion, reference checks, and validation reports
+- `Source/RawIron.World`: world volumes, triggers, presentation state, inventory, NPC state, checkpoints, helper telemetry, text overlays, and runtime instrumentation
+- `Source/RawIron.Render.Software`: deterministic software preview rendering
+- `Source/RawIron.Render.Vulkan`: Vulkan bootstrap, diagnostics, preview presentation, and command submission foundations
+- `Apps`: native player, editor, preview, and visual shell hosts
+- `Games`: built-in Liminal Hall and Wilderness Ruins runtime modules and game executables
+- `Tools/ri_tool`: command-line workspace, asset, preview, Scene Kit, and diagnostics tooling
+- `Tests`: native test targets
+- `Documentation`: Obsidian-friendly engine documentation
+- `Assets/Cooked`: runtime-ready and standardized asset output
+- `Assets/Source`: local source-asset workspace, intentionally excluded from GitHub because raw art drops can be large
 
 ## Build
 
-Open a development shell with `cpp-dev`, then run:
+From a configured C++ development shell:
 
 ```powershell
 cmake --preset dev-msvc
 cmake --build --preset build-dev-msvc
+ctest --test-dir .\build\dev-msvc --output-on-failure -V
+```
+
+Useful tooling commands after a successful build:
+
+```powershell
 .\build\dev-msvc\Tools\ri_tool\ri_tool.exe --workspace
 .\build\dev-msvc\Tools\ri_tool\ri_tool.exe --scenekit-targets
 .\build\dev-msvc\Tools\ri_tool\ri_tool.exe --scenekit-checks
 .\build\dev-msvc\Tools\ri_tool\ri_tool.exe --vulkan-diagnostics
 .\build\dev-msvc\Tools\ri_tool\ri_tool.exe --render-cube
 .\build\dev-msvc\Apps\RawIron.VisualShell\RawIron.VisualShell.exe
-ctest --test-dir .\build\dev-msvc --output-on-failure -V
+```
 
+Clang build:
+
+```powershell
 cmake --preset dev-clang
 cmake --build --preset build-dev-clang
 ctest --test-dir .\build\dev-clang --output-on-failure -V
 ```
 
-Optional crash diagnostics can be toggled with
-`-DRAWIRON_ENABLE_STACKTRACE_DIAGNOSTICS=ON|OFF`.
-RawIron currently vendors `backward-cpp` for symbolic stack traces on Windows,
-so readable traces depend on debug symbols (`/Zi` and matching PDBs).
-
-Repository-root launchers:
-
-- `RawIron Visual Shell.lnk`
-- `Launch RawIron Visual Shell.cmd`
-- `Launch RawIron Editor.cmd`
-
-Linux root launcher:
-
-- `./launch_rawiron_editor.sh`
-- `./launch_rawiron_visual_shell.sh`
-- pass `--frames <N>` to either launcher for bounded headless-style runs
-
-On Linux, the intended build shape is:
+Linux-oriented preset:
 
 ```bash
 cmake --preset dev-linux-clang
@@ -108,22 +77,51 @@ cmake --build --preset build-dev-linux-clang
 ctest --test-dir build/dev-linux-clang --output-on-failure -V
 ```
 
-## Current Status
+## Applications
 
-This repository is the active landing zone for porting the prototype engine ideas into native C++ passes.
+- `RawIron.Player`: starter runtime host
+- `RawIron.Editor`: native editor shell
+- `RawIron.Preview`: Scene Kit preview window and headless snapshot host
+- `RawIron.VisualShell`: keyboard-first launch surface for previews, diagnostics, tests, and documentation
+- `RawIron.LiminalGame`: Liminal Hall game host
+- `RawIron.ForestRuinsGame`: Wilderness Ruins game host
 
-Migration passes currently landed:
+Repository-root launchers are available for common local workflows:
 
-- `RawIron.Runtime` now covers runtime IDs and runtime event-bus metrics
-- `RawIron.Validation` now covers stored tuning sanitization, level payload validation, and schema metrics
-- `RawIron.Content` now covers content-value storage, authoring sanitization, template expansion, prefab transforms, nested prefab expansion, and authored world/environment/trigger volume conversion into typed native descriptors
-- `RawIron.Structural` now covers structural dependency ordering, convex-solid compile helpers, native primitive builders for `box`, `plane`, `hollow_box`, `ramp`, `wedge`, `cylinder`, `cone`, `pyramid`, `capsule`, `frustum`, `geodesic_sphere`, `arch`, `hexahedron`, `convex_hull`, `roof_gable`, and `hipped_roof`, plus native boolean operator compilation for `union`, `intersection`, and `difference`, convex-hull aggregate compilation over authored target groups, authored `array_primitive` / `symmetry_mirror_plane` expansion helpers, native `bevel_modifier_primitive` metadata application, native `structural_detail_modifier` / `non_manifold_reconciler` behavior, a higher-level structural compile pipeline that runs those helpers together, compile-time cutter-volume clipping for targeted subtractive/intersect structural authoring, and native deferred-operation execution helpers for terrain cutouts, shrinkwrap collider generation, deterministic surface scatter, spline-driven mesh placement, and projected spline decal ribbons
-- `RawIron.Events` now covers hook execution, conditions, groups, sequences, and named timers
-- `RawIron.Spatial` now covers axis-aligned bounds, BSP broadphase indexing, box queries, and ray queries
-- `RawIron.Trace` now covers overlap traces, ray traces, swept box traces, slide movement, and ground probes
-- `RawIron.Audio` now covers managed sounds, active voice replacement, environment-driven playback shaping, and echo scheduling
-- `RawIron.Debug` now covers helper-library metric aggregation, event-engine world-state snapshots, spatial snapshot summaries, and native debug-report formatting
-- `RawIron.World` now covers typed world-volume descriptors, post-process/reverb/occlusion/fluid creation helpers, localized-fog and fog-blocker volume creation helpers, native custom-gravity/wind/buoyancy/surface-velocity/radial-force helper volumes, typed physics constraints, traversal links, ladder/climb helpers, local grid snap volumes, hint/skip brushes, camera confinement volumes, lod override volumes, navmesh modifier volumes, ambient audio volumes and spline helpers, generic trigger volumes, spatial query volumes, streaming level volumes, checkpoint spawn volumes, teleport volumes, launch volumes, analytics heatmap volumes, reflection probes, light-importance bounds, light portals, typed visibility primitives for portals/anti-portals/occlusion-portals, native occlusion-portal closed/open state, tint-color-aware environment-state aggregation, authored physics-helper aggregation, native trigger-helper runtime queries, native trigger spatial-index rebuilds, indexed trigger candidate queries, trigger enter/stay/exit orchestration, typed trigger directives, analytics heatmap counter accumulation, runtime volume containment, helper-activity summarization, world/runtime helper metrics, runtime observer tracking, entity-I/O counters, spatial-query counters, and stats-overlay state
-- `RawIron.Render.Vulkan` now reports richer Vulkan diagnostics such as instance extensions, instance layers, validation-layer availability, and selected-device summaries shared by the player and tooling paths
-- `RawIron.Core` now defaults to paced fixed-step host loops with quieter frame logging so the bootstrap apps behave less like runaway debug harnesses
-- `RawIron.EngineImport.Tests` verifies the imported prototype-engine systems under both MSVC and Clang
+- `Launch RawIron Editor.cmd`
+- `Launch RawIron Visual Shell.cmd`
+- `launch_rawiron_editor.sh`
+- `launch_rawiron_visual_shell.sh`
+- `play-liminal.cmd`
+- `play-forest-ruins.cmd`
+
+## Tooling
+
+`ri_tool` currently supports:
+
+- workspace discovery and workspace folder creation
+- standard asset document generation with `.ri_asset.json`
+- Scene Kit target listing, example rendering, and milestone checks
+- Vulkan diagnostics
+- post-process preset reporting
+- software preview rendering
+- sample scene reporting
+- scene-state save/load
+
+## Testing
+
+The MSVC build currently exposes 17 generated CTest entries, including host smoke tests, tooling smoke tests, the core test suite, the engine-import suite, and stacktrace smoke coverage.
+
+```powershell
+ctest --test-dir .\build\dev-msvc -N
+ctest --test-dir .\build\dev-msvc --output-on-failure -V
+```
+
+## Documentation
+
+Project documentation lives in `Documentation` as an Obsidian-friendly vault. Start with:
+
+- `Documentation/00 Home.md`
+- `Documentation/02 Engine/Current Engine Review.md`
+- `Documentation/02 Engine/Repository Layout.md`
+- `Documentation/04 Build/Testing.md`
