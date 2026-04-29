@@ -144,7 +144,6 @@ export default defineConfig({
     },
     build: {
       emptyOutDir: false,
-      // Smaller dist/ on disk; esbuild minify stays fast for build:quick / mechtest static path.
       minify: 'esbuild',
       sourcemap: false,
       esbuild: {

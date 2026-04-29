@@ -63,7 +63,6 @@ const geometry = [
   box('booth_window_sill_right', [10.5, 1.1, 47], [9, 1, 1], 'Prototype_white_32x32px_02.png', { isCollider: true, material: { uvScale: [2, 1], metalness: 0.02, roughnessFactor: 0.9 } }),
   box('booth_side_console_left', [-10.5, 1.2, 56], [6, 2.4, 4], 'Prototype_orange_32x32px_02.png', { isCollider: true, material: { uvScale: [2, 1], metalness: 0.02, roughnessFactor: 0.88 } }),
   box('booth_side_console_right', [10.5, 1.2, 56], [6, 2.4, 4], 'Prototype_orange_32x32px_02.png', { isCollider: true, material: { uvScale: [2, 1], metalness: 0.02, roughnessFactor: 0.88 } }),
-  // Booth + gallery props (structural boxes only — external GLB/FBX live in Raw Iron)
   box('hall_desk_left_prop', [-10.6, 0.5, 56.1], [1.8, 0.6, 0.9], 'Prototype_orange_32x32px_02.png', { rotation: [0, 1.57, 0], isCollider: true, material: { uvScale: [2, 1], metalness: 0.04, roughnessFactor: 0.88 } }),
   box('hall_monitor_left_prop', [-10.4, 1.05, 55.7], [0.55, 0.38, 0.12], 'Prototype_cyan_32x32px_02.png', { rotation: [0, 1.57, 0], isCollider: false, material: { uvScale: [1, 1], emissiveColor: '#446688', emissiveIntensity: 0.35 } }),
   box('hall_chair_left_prop', [-12.2, 0.4, 56.6], [0.55, 0.75, 0.55], 'Prototype_yellow_32x32px_02.png', { rotation: [0, 2.45, 0], isCollider: true, material: { uvScale: [1, 1], metalness: 0.05, roughnessFactor: 0.88 } }),

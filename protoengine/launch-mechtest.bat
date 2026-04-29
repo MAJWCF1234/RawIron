@@ -13,7 +13,7 @@ if not exist ".\dist\index.html" (
   pause
   exit /b 1
 )
-node ".\browser-launcher.mjs" --mechtest
+node ".\proto-tool.mjs" launch --mechtest
 if errorlevel 1 (
   echo [launcher] Launch failed.
   pause

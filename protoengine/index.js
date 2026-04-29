@@ -7,28 +7,20 @@ import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { ExtrudeGeometry } from 'three/src/geometries/ExtrudeGeometry.js';
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
-import { GameAssets } from './assetLoader.js';
-import { BSPSpatialIndex } from './spatialIndex.js';
-import { STRINGS, DEFAULT_KEYS } from './constants.js';
 import {
-    buildCompiledGeometryNodesFromSolids,
-    buildStructuralDependencyGraph,
+    DEFAULT_KEYS,
+    GameAssets,
+    STRINGS,
     clampFiniteInteger,
     clampFiniteNumber,
     clampPickupMotion,
-    computeSolidBounds,
     createRuntimeId,
-    createWorldSpaceBoxSolid,
-    extractConvexPlanesFromGeometry,
     finiteVec2Components,
     finiteVec3Components,
     finiteQuatComponents,
     finiteScaleComponents,
-    intersectSolidWithConvexPlanes,
     pointInsideAuthoringVolume,
-    stepYawToward,
-    subtractConvexPlanesFromSolid,
-    validateLevelPayload
+    stepYawToward
 } from './engine.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -809,13 +801,8 @@ export class AnomalousEchoGame {
         this._levelLoadInProgress = false;
         this.currentLevelFilename = null;
         this.currentLevelData = null;
-        this.currentStructuralGraphSummary = null;
         this.hudDismissTimers = new Map();
         this._activeGuidanceHint = null;
-        this.autoFilletPrimitives = [];
-        this.authoredDebugVisuals = [];
-        this.aiClipMeshes = [];
-        this.visibilityClipMeshes = [];
         this.activeAudioEnvironmentState = null;
         this.currentShaderIntensityLevel = 'menu';
         this.lightSafetyState = { playerInside: false, known: false, lastMessageAt: -Infinity };
@@ -1098,44 +1085,7 @@ export class AnomalousEchoGame {
         this.handleMovementKeys(e, false);
     }
 
-    cloneLoadedTexture(sourceName, targetName) {
-        const sourceTexture = this.loadedAssets.textures[sourceName];
-        if (!sourceTexture?.clone) return null;
-        const texture = sourceTexture.clone();
-        texture.name = targetName;
-        texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-        texture.needsUpdate = true;
-        return texture;
-    }
-
-    populateTextureAliases(aliasManifest = {}) {
-        Object.entries(aliasManifest).forEach(([filename, descriptor]) => {
-            if (this.loadedAssets.textures[filename]) return;
-            if (typeof descriptor === 'string') {
-                const aliased = this.cloneLoadedTexture(descriptor, filename);
-                if (aliased) {
-                    this.loadedAssets.textures[filename] = aliased;
-                    return;
-                }
-            } else if (descriptor && typeof descriptor === 'object') {
-                if (typeof descriptor.source === 'string') {
-                    const aliased = this.cloneLoadedTexture(descriptor.source, filename);
-                    if (aliased) {
-                        this.loadedAssets.textures[filename] = aliased;
-                        return;
-                    }
-                }
-            }
-        });
-    }
-
-    ensureDebugHelpersRoot() { return null; }
-
     clearDebugHelpers() {}
-
-    buildDebugHelpers() {}
-
-    toggleDebugHelpers(force = null) { void force; }
 
     createPhysicsPrimitiveFromData(data, position) {
         const primitiveType = data.primitiveType || 'sphere';
@@ -2202,8 +2152,6 @@ export class AnomalousEchoGame {
             }
         };
         manager.onLoad = async () => {
-            this.populateTextureAliases(GameAssets.textureAliasManifest || {});
-
             this.gameState.isLoaded = true;
             this.setShaderIntensity('high');
             this.emitRuntimeEvent('stateChanged', { id: createRuntimeId('state'), key: 'isLoaded', value: true });
@@ -2355,53 +2303,11 @@ export class AnomalousEchoGame {
         this.hudDismissTimers?.set(channel, id);
     }
 
-    createLoopingAudio() {
-        return null;
-    }
-
-    /** No-op: protoengine does not play media in-browser (RawIron.Audio owns output). */
-    async playAudioSafe() {}
-
-    playAccessGrantedBeep() {}
-
-    playPickupBeep() {}
-
-    playAccessDeniedBeep() {}
-
-    playContainmentAlarmBurst() {}
-
-    playOneShotAudio() {
-        return null;
-    }
-
-    getLevelAudioProfile(levelFilename) {
-        const profiles = {
-            'dev_level.json': {
-                music: './audio/6- The Veil of Night.ogg',
-                musicVolume: 0.15,
-                chase: './audio/Hunted.wav',
-                chaseVolume: 0.34
-            }
-        };
-        return profiles[levelFilename] || null;
-    }
-
     stopLoopingAudio(channel) {
         void channel;
     }
 
-    stopAllNonVoiceAudio() {
-        
-    }
-
-    async resumeLoopingAudio(channel, startMuted = false) {
-        void channel;
-        void startMuted;
-    }
-
-    async ensureSoundtrack(levelFilename) {
-        void levelFilename;
-    }
+    stopAllNonVoiceAudio() {}
 
     updateSoundscape(delta) {
         void delta;
@@ -2435,30 +2341,8 @@ export class AnomalousEchoGame {
     }
 
     rebuildSpatialIndices() {
-        this.staticCollisionIndex = new BSPSpatialIndex(this.staticCollidableMeshes);
-        this.structuralCollisionIndex = new BSPSpatialIndex(this.structuralCollidableMeshes);
-    }
-
-    queryRuntimeClipMeshesForBox(box, meshes = [], predicate = null) {
-        if (!box || !Array.isArray(meshes) || meshes.length === 0) return [];
-        return meshes.filter((mesh) => {
-            if (!mesh?.geometry) return false;
-            if (predicate && !predicate(mesh)) return false;
-            const bounds = this.getCollisionBounds(mesh, this._structuralTempBox);
-            return bounds?.intersectsBox?.(box);
-        });
-    }
-
-    queryRuntimeClipMeshesForRay(origin, direction, far, meshes = [], predicate = null) {
-        if (!origin || !direction || !Array.isArray(meshes) || meshes.length === 0) return [];
-        const end = origin.clone().addScaledVector(direction, far);
-        const rayBounds = new THREE.Box3().setFromPoints([origin, end]);
-        return meshes.filter((mesh) => {
-            if (!mesh?.geometry) return false;
-            if (predicate && !predicate(mesh)) return false;
-            const bounds = this.getCollisionBounds(mesh, this._structuralTempBox);
-            return bounds?.intersectsBox?.(rayBounds);
-        });
+        this.staticCollisionIndex = null;
+        this.structuralCollisionIndex = null;
     }
 
     queryCollidablesForBox(box) {
@@ -2606,94 +2490,6 @@ export class AnomalousEchoGame {
             point: refined?.point || this._tracePoint.clone(),
             normal: refined?.normal || this._traceNormal.clone(),
             penetration
-        };
-    }
-
-    computeSweptBoxHit(queryBox, delta, candidateBox, object) {
-        if (!queryBox || !delta || !candidateBox) return null;
-        if (queryBox.intersectsBox(candidateBox)) {
-            const overlapHit = this.computeTraceBoxHit(queryBox, candidateBox, object);
-            if (!overlapHit) return null;
-            return {
-                ...overlapHit,
-                time: 0,
-                endBox: queryBox.clone()
-            };
-        }
-
-        let entryTime = -Infinity;
-        let exitTime = Infinity;
-        let hitAxis = 'x';
-        let hitSign = 0;
-        const axes = ['x', 'y', 'z'];
-
-        for (const axis of axes) {
-            const boxMin = queryBox.min[axis];
-            const boxMax = queryBox.max[axis];
-            const staticMin = candidateBox.min[axis];
-            const staticMax = candidateBox.max[axis];
-            const velocity = delta[axis];
-
-            if (Math.abs(velocity) < 1e-8) {
-                if (boxMax <= staticMin || boxMin >= staticMax) {
-                    return null;
-                }
-                continue;
-            }
-
-            const invVelocity = 1 / velocity;
-            let axisEntry = velocity > 0
-                ? (staticMin - boxMax) * invVelocity
-                : (staticMax - boxMin) * invVelocity;
-            let axisExit = velocity > 0
-                ? (staticMax - boxMin) * invVelocity
-                : (staticMin - boxMax) * invVelocity;
-            if (axisEntry > axisExit) {
-                const temp = axisEntry;
-                axisEntry = axisExit;
-                axisExit = temp;
-            }
-
-            if (axisEntry > entryTime) {
-                entryTime = axisEntry;
-                hitAxis = axis;
-                hitSign = velocity > 0 ? -1 : 1;
-            }
-            exitTime = Math.min(exitTime, axisExit);
-            if (entryTime > exitTime) return null;
-        }
-
-        if (entryTime < 0 || entryTime > 1 || exitTime < 0) return null;
-
-        this._sweepMovedBox.copy(queryBox).translate(this._traceDelta.copy(delta).multiplyScalar(entryTime));
-        this._sweepMovedBox.getCenter(this._sweepMovedCenter);
-        this._traceNormal.set(0, 0, 0);
-        this._traceNormal[hitAxis] = hitSign || 1;
-        this._sweepHitPoint.copy(this._sweepMovedCenter);
-        if (hitAxis === 'x') {
-            this._sweepHitPoint.x = hitSign > 0 ? candidateBox.max.x : candidateBox.min.x;
-            this._sweepHitPoint.y = THREE.MathUtils.clamp(this._sweepMovedCenter.y, candidateBox.min.y, candidateBox.max.y);
-            this._sweepHitPoint.z = THREE.MathUtils.clamp(this._sweepMovedCenter.z, candidateBox.min.z, candidateBox.max.z);
-        } else if (hitAxis === 'y') {
-            this._sweepHitPoint.y = hitSign > 0 ? candidateBox.max.y : candidateBox.min.y;
-            this._sweepHitPoint.x = THREE.MathUtils.clamp(this._sweepMovedCenter.x, candidateBox.min.x, candidateBox.max.x);
-            this._sweepHitPoint.z = THREE.MathUtils.clamp(this._sweepMovedCenter.z, candidateBox.min.z, candidateBox.max.z);
-        } else {
-            this._sweepHitPoint.z = hitSign > 0 ? candidateBox.max.z : candidateBox.min.z;
-            this._sweepHitPoint.x = THREE.MathUtils.clamp(this._sweepMovedCenter.x, candidateBox.min.x, candidateBox.max.x);
-            this._sweepHitPoint.y = THREE.MathUtils.clamp(this._sweepMovedCenter.y, candidateBox.min.y, candidateBox.max.y);
-        }
-
-        const refined = this.refineTraceHitSurface(object, queryBox, this._sweepHitPoint, this._traceNormal);
-
-        return {
-            object,
-            box: candidateBox.clone(),
-            point: refined?.point || this._sweepHitPoint.clone(),
-            normal: refined?.normal || this._traceNormal.clone(),
-            time: entryTime,
-            endBox: this._sweepMovedBox.clone(),
-            penetration: 0
         };
     }
 
@@ -2944,7 +2740,7 @@ export class AnomalousEchoGame {
 
     rebuildTriggerVolumeIndex() {
         this.triggerVolumes.forEach((volume) => this.updateTriggerVolumeBounds(volume));
-        this.triggerVolumeIndex = new BSPSpatialIndex(this.triggerVolumes);
+        this.triggerVolumeIndex = null;
     }
 
     queryTriggerVolumesForPoint(point) {
@@ -3013,10 +2809,6 @@ export class AnomalousEchoGame {
         this.triggerVolumeIndex = null;
         this.currentLevelData = null;
         this.bvhMeshCount = 0;
-        this.autoFilletPrimitives = [];
-        this.authoredDebugVisuals = [];
-        this.aiClipMeshes = [];
-        this.visibilityClipMeshes = [];
         this.activeAudioEnvironmentState = null;
         this.clearDebugHelpers();
 
@@ -3076,12 +2868,10 @@ export class AnomalousEchoGame {
         const expandedLevelData = rawLevelData;
         const validationError = this.validateLevelData(expandedLevelData, levelFilename);
         if (validationError) throw new Error(validationError);
-        const structuralGraph = buildStructuralDependencyGraph(expandedLevelData.geometry || []);
-        this.currentStructuralGraphSummary = structuralGraph.summary;
         const structuralCompilerSettings = expandedLevelData?.settings?.structuralCompiler || {};
         const levelData = {
             ...expandedLevelData,
-            geometry: this.compileStructuralGeometryNodes(structuralGraph.orderedNodes || [], structuralCompilerSettings)
+            geometry: this.compileStructuralGeometryNodes(expandedLevelData.geometry || [], structuralCompilerSettings)
         };
 
         this.clearLevel();
@@ -3109,7 +2899,6 @@ export class AnomalousEchoGame {
         if (this.ui.loadingProgressFill) this.ui.loadingProgressFill.style.width = '100%';
         if (this.ui.loadingProgressBar) this.ui.loadingProgressBar.setAttribute('aria-valuenow', '100');
         this.ui.loadingProgress && (this.ui.loadingProgress.textContent = 'Ready.');
-        await this.ensureSoundtrack(levelFilename);
         if (levelData.settings && levelData.settings.backgroundColor) this.scene.background = new THREE.Color(levelData.settings.backgroundColor);
         levelData.lights?.forEach((d) => this.createLightFromData(d));
         const geometryNodes = Array.isArray(levelData.geometry) ? levelData.geometry : [];
@@ -3212,32 +3001,13 @@ export class AnomalousEchoGame {
             });
             return invalidMessage;
         }
-        const validationError = validateLevelPayload(levelData, levelFilename);
         this.emitRuntimeEvent('schemaValidated', {
             id: createRuntimeId('schema'),
-            ok: !validationError,
+            ok: true,
             target: levelFilename || 'level',
-            error: validationError || null
+            error: null
         });
-        return validationError;
-    }
-
-    scheduleLevelTimeout(callback, delay) {
-        const ms = Number.isFinite(delay) ? Math.max(0, delay) : 0;
-        const timeoutId = window.setTimeout(() => {
-            const index = this.levelTimeouts.indexOf(timeoutId);
-            if (index >= 0) this.levelTimeouts.splice(index, 1);
-            callback();
-        }, ms);
-        this.levelTimeouts.push(timeoutId);
-        return timeoutId;
-    }
-
-    scheduleLevelInterval(callback, delay) {
-        const ms = Number.isFinite(delay) && delay > 0 ? delay : 1000;
-        const intervalId = window.setInterval(callback, ms);
-        this.levelIntervals.push(intervalId);
-        return intervalId;
+        return null;
     }
 
     
@@ -4594,89 +4364,6 @@ export class AnomalousEchoGame {
         );
     }
 
-    buildHollowBoxPrimitiveBoxExtents(data) {
-        const openSide = typeof data?.openSide === 'string' ? data.openSide.toLowerCase() : null;
-        const wallThickness = clampFiniteNumber(data?.wallThickness, 0.12, 0.04, 0.45);
-        const extents = [];
-        const pushBox = (min, max) => extents.push({ min, max });
-
-        const topThickness = openSide === 'top' ? 0 : wallThickness;
-        const bottomThickness = openSide === 'bottom' ? 0 : wallThickness;
-        const leftThickness = openSide === 'left' ? 0 : wallThickness;
-        const rightThickness = openSide === 'right' ? 0 : wallThickness;
-        const frontThickness = openSide === 'front' ? 0 : wallThickness;
-        const backThickness = openSide === 'back' ? 0 : wallThickness;
-
-        if (bottomThickness > 0) pushBox([-0.5, -0.5, -0.5], [0.5, -0.5 + bottomThickness, 0.5]);
-        if (topThickness > 0) pushBox([-0.5, 0.5 - topThickness, -0.5], [0.5, 0.5, 0.5]);
-
-        const innerMinY = -0.5 + bottomThickness;
-        const innerMaxY = 0.5 - topThickness;
-        const innerMinZ = -0.5 + backThickness;
-        const innerMaxZ = 0.5 - frontThickness;
-        const innerMinX = -0.5 + leftThickness;
-        const innerMaxX = 0.5 - rightThickness;
-
-        if (leftThickness > 0) pushBox([-0.5, innerMinY, innerMinZ], [-0.5 + leftThickness, innerMaxY, innerMaxZ]);
-        if (rightThickness > 0) pushBox([0.5 - rightThickness, innerMinY, innerMinZ], [0.5, innerMaxY, innerMaxZ]);
-        if (backThickness > 0) pushBox([innerMinX, innerMinY, -0.5], [innerMaxX, innerMaxY, -0.5 + backThickness]);
-        if (frontThickness > 0) pushBox([innerMinX, innerMinY, 0.5 - frontThickness], [innerMaxX, innerMaxY, 0.5]);
-
-        return extents;
-    }
-
-    buildConvexBooleanSolidFromNode(data) {
-        if (!data || data.compiledWorldSpace) return [];
-        const geometry = this.createStructuralPrimitiveGeometryFromData(data);
-        if (!geometry?.getAttribute?.('position')) return [];
-
-        const transform = this.getGeometryTransformMatrix(data);
-        const bounds = new THREE.Box3().setFromBufferAttribute(geometry.getAttribute('position')).applyMatrix4(transform);
-        if (bounds.isEmpty()) {
-            if (geometry !== data?.compiledGeometry) geometry.dispose();
-            return [];
-        }
-
-        const center = bounds.getCenter(new THREE.Vector3());
-        const orientedPlanes = extractConvexPlanesFromGeometry(geometry, transform).map((plane) => {
-            const orientedPlane = plane.clone();
-            if (orientedPlane.distanceToPoint(center) > 1e-4) orientedPlane.negate();
-            return orientedPlane;
-        });
-
-        if (geometry !== data?.compiledGeometry) geometry.dispose();
-        if (orientedPlanes.length < 4) return [];
-
-        const seedBounds = bounds.clone().expandByScalar(0.05);
-        const seedSolid = createWorldSpaceBoxSolid(
-            new THREE.Matrix4(),
-            seedBounds.min.toArray(),
-            seedBounds.max.toArray()
-        );
-        return intersectSolidWithConvexPlanes(seedSolid, orientedPlanes).filter((solid) => Array.isArray(solid?.polygons) && solid.polygons.length >= 4);
-    }
-
-    supportsBooleanAdditiveTargetNode(data) {
-        if (!data || typeof data !== 'object') return false;
-        const type = this.getStructuralPrimitiveType(data);
-        if (type === 'box' || type === 'hollow_box') return true;
-        return this.isConvexBooleanVolumeType(type) && !data.compiledWorldSpace;
-    }
-
-    buildBooleanAdditiveSolidsFromNode(data) {
-        const matrix = this.getGeometryTransformMatrix(data);
-        if (data?.type === 'box') {
-            return [createWorldSpaceBoxSolid(matrix)];
-        }
-        if (data?.type === 'hollow_box') {
-            return this.buildHollowBoxPrimitiveBoxExtents(data).map(({ min, max }) => createWorldSpaceBoxSolid(matrix, min, max));
-        }
-        if (this.isConvexBooleanVolumeType(this.getStructuralPrimitiveType(data))) {
-            return this.buildConvexBooleanSolidFromNode(data);
-        }
-        return [];
-    }
-
     getOffsetStepMatrix(data = {}) {
         const matrixValues = Array.isArray(data?.offsetStepMatrix) ? data.offsetStepMatrix : (Array.isArray(data?.offsetMatrix) ? data.offsetMatrix : null);
         if (Array.isArray(matrixValues) && matrixValues.length >= 16) {
@@ -4690,20 +4377,6 @@ export class AnomalousEchoGame {
         const rotation = new THREE.Euler(...finiteVec3Components(step?.rotation ?? step?.rotationStep, [0, 0, 0]), 'XYZ');
         const scale = new THREE.Vector3(...finiteScaleComponents(step?.scale ?? step?.scaleStep, [1, 1, 1]));
         return new THREE.Matrix4().compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
-    }
-
-    getBooleanOperatorTargetIds(node = {}) {
-        if (Array.isArray(node?.targetIds) && node.targetIds.length > 0) return [...node.targetIds];
-        if (Array.isArray(node?.childNodeList) && node.childNodeList.length > 0) return [...node.childNodeList];
-        return [];
-    }
-
-    createGeometryBoundsForNode(data) {
-        const geometry = this.createStructuralPrimitiveGeometryFromData(data);
-        if (!geometry?.getAttribute?.('position')) return null;
-        const bounds = new THREE.Box3().setFromBufferAttribute(geometry.getAttribute('position')).applyMatrix4(this.getGeometryTransformMatrix(data));
-        if (geometry !== data?.compiledGeometry) geometry.dispose();
-        return bounds;
     }
 
     createTransformedArrayPrimitiveNode(baseNode, transformMatrix, arrayNode, index) {
@@ -4780,425 +4453,12 @@ export class AnomalousEchoGame {
         return expanded;
     }
 
-    applyBevelModifiersToNode(node, bevelModifiers = []) {
-        if (!node || node.type !== 'box' || !Array.isArray(bevelModifiers) || bevelModifiers.length === 0) return node;
-        const nodeBounds = this.createGeometryBoundsForNode(node);
-        if (!nodeBounds) return node;
-        let appliedRadius = Number(node.bevelRadius) || 0;
-        let appliedSegments = Number(node.bevelSegments) || 0;
-
-        bevelModifiers.forEach((modifier) => {
-            if (!modifier?.bounds || !nodeBounds.intersectsBox(modifier.bounds)) return;
-            if (Array.isArray(modifier.targetIds) && modifier.targetIds.length > 0) {
-                const nodeId = node.id || node.name || null;
-                if (!nodeId || !modifier.targetIds.includes(nodeId)) return;
-            }
-            appliedRadius = Math.max(appliedRadius, modifier.radius);
-            appliedSegments = Math.max(appliedSegments, modifier.segments);
-        });
-
-        if (!(appliedRadius > 0)) return node;
-        return {
-            ...node,
-            bevelRadius: appliedRadius,
-            bevelSegments: appliedSegments > 0 ? appliedSegments : undefined
-        };
-    }
-
-    applyStructuralDetailModifiersToNode(node, detailModifiers = []) {
-        if (!node || !Array.isArray(detailModifiers) || detailModifiers.length === 0) return node;
-        const nodeBounds = this.createGeometryBoundsForNode(node);
-        if (!nodeBounds) return node;
-        let flaggedAsDetail = node.isStructural === false;
-
-        detailModifiers.forEach((modifier) => {
-            if (!modifier?.bounds || !nodeBounds.intersectsBox(modifier.bounds)) return;
-            if (Array.isArray(modifier.targetIds) && modifier.targetIds.length > 0) {
-                const nodeId = node.id || node.name || null;
-                if (!nodeId || !modifier.targetIds.includes(nodeId)) return;
-            }
-            flaggedAsDetail = true;
-        });
-
-        if (!flaggedAsDetail) return node;
-        return {
-            ...node,
-            isStructural: false,
-            detailOnly: true,
-            excludeFromVisibility: true,
-            excludeFromNavigation: true
-        };
-    }
-
-    isConvexBooleanVolumeType(type) {
-        return new Set(['box', 'ramp', 'wedge', 'cylinder', 'cone', 'pyramid', 'capsule', 'frustum', 'convex_hull', 'hexahedron', 'roof_gable', 'hipped_roof']).has(type);
-    }
-
-    compileBooleanUnionNode(unionNode, targetNodes = []) {
-        const targetIds = new Set(this.getBooleanOperatorTargetIds(unionNode));
-        if (targetIds.size < 2) return { compiledNodes: [], targetIds: new Set() };
-        const supportedTargets = targetNodes.filter((node) => node?.id && targetIds.has(node.id) && this.supportsBooleanAdditiveTargetNode(node));
-        if (supportedTargets.length < 2) return { compiledNodes: [], targetIds: new Set() };
-
-        const unionCompiledNodes = [];
-        supportedTargets.forEach((targetNode, targetIndex) => {
-            let fragments = this.buildBooleanAdditiveSolidsFromNode(targetNode).map((solid) => ({
-                solid,
-                bounds: computeSolidBounds(solid)
-            }));
-
-            for (let otherIndex = targetIndex + 1; otherIndex < supportedTargets.length; otherIndex += 1) {
-                const otherSolids = this.buildBooleanAdditiveSolidsFromNode(supportedTargets[otherIndex]).map((solid) => ({
-                    solid,
-                    bounds: computeSolidBounds(solid),
-                    planes: (solid?.polygons || []).map((polygon) => polygon?.plane).filter(Boolean)
-                }));
-                otherSolids.forEach((otherSolid) => {
-                    const nextFragments = [];
-                    fragments.forEach((fragment) => {
-                        if (fragment.bounds && otherSolid.bounds && !fragment.bounds.intersectsBox(otherSolid.bounds)) {
-                            nextFragments.push(fragment);
-                            return;
-                        }
-                        const resultSolids = subtractConvexPlanesFromSolid(fragment.solid, otherSolid.planes);
-                        resultSolids.forEach((solid) => nextFragments.push({
-                            solid,
-                            bounds: computeSolidBounds(solid)
-                        }));
-                    });
-                    fragments = nextFragments;
-                });
-                if (fragments.length === 0) break;
-            }
-
-            if (fragments.length > 0) {
-                unionCompiledNodes.push(...buildCompiledGeometryNodesFromSolids(
-                    {
-                        ...targetNode,
-                        opType: 'additive',
-                        isCollider: targetNode.isCollider !== false
-                    },
-                    fragments.map((fragment) => fragment.solid),
-                    unionNode.id ? `${unionNode.id}_${targetNode.id || targetIndex + 1}` : `${targetNode.id || `union_${targetIndex + 1}`}`
-                ));
-            }
-        });
-
-        return {
-            compiledNodes: unionCompiledNodes,
-            targetIds: new Set(supportedTargets.map((node) => node.id).filter(Boolean))
-        };
-    }
-
-    compileBooleanIntersectionNode(intersectionNode, targetNodes = []) {
-        const targetIds = new Set(this.getBooleanOperatorTargetIds(intersectionNode));
-        if (targetIds.size < 2) return { compiledNodes: [], targetIds: new Set() };
-        const supportedTargets = targetNodes.filter((node) => node?.id && targetIds.has(node.id) && this.supportsBooleanAdditiveTargetNode(node));
-        if (supportedTargets.length < 2) return { compiledNodes: [], targetIds: new Set() };
-
-        let fragments = this.buildBooleanAdditiveSolidsFromNode(supportedTargets[0]).map((solid) => ({
-            solid,
-            bounds: computeSolidBounds(solid)
-        }));
-
-        for (let targetIndex = 1; targetIndex < supportedTargets.length; targetIndex += 1) {
-            const targetSolids = this.buildBooleanAdditiveSolidsFromNode(supportedTargets[targetIndex]).map((solid) => ({
-                solid,
-                bounds: computeSolidBounds(solid),
-                planes: (solid?.polygons || []).map((polygon) => polygon?.plane).filter(Boolean)
-            }));
-
-            const nextFragments = [];
-            fragments.forEach((fragment) => {
-                targetSolids.forEach((targetSolid) => {
-                    if (fragment.bounds && targetSolid.bounds && !fragment.bounds.intersectsBox(targetSolid.bounds)) return;
-                    const resultSolids = intersectSolidWithConvexPlanes(fragment.solid, targetSolid.planes);
-                    resultSolids.forEach((solid) => nextFragments.push({
-                        solid,
-                        bounds: computeSolidBounds(solid)
-                    }));
-                });
-            });
-            fragments = nextFragments;
-            if (fragments.length === 0) break;
-        }
-
-        if (fragments.length === 0) {
-            return {
-                compiledNodes: [],
-                targetIds: new Set(supportedTargets.map((node) => node.id).filter(Boolean))
-            };
-        }
-
-        const baseNode = supportedTargets[0];
-        return {
-            compiledNodes: buildCompiledGeometryNodesFromSolids(
-                {
-                    ...baseNode,
-                    isCollider: baseNode.isCollider !== false,
-                    materials: Array.isArray(intersectionNode.materials) && intersectionNode.materials.length > 0
-                        ? intersectionNode.materials
-                        : baseNode.materials
-                },
-                fragments.map((fragment) => fragment.solid),
-                intersectionNode.id || baseNode.id || 'boolean_intersection'
-            ),
-            targetIds: new Set(supportedTargets.map((node) => node.id).filter(Boolean))
-        };
-    }
-
-    compileBooleanDifferenceNode(differenceNode, targetNodes = []) {
-        const targetIds = new Set(this.getBooleanOperatorTargetIds(differenceNode));
-        if (targetIds.size < 2) return { compiledNodes: [], targetIds: new Set() };
-        const supportedTargets = targetNodes.filter((node) => node?.id && targetIds.has(node.id) && this.supportsBooleanAdditiveTargetNode(node));
-        if (supportedTargets.length < 2) return { compiledNodes: [], targetIds: new Set() };
-
-        const differenceCompiledNodes = [];
-        supportedTargets.forEach((targetNode, targetIndex) => {
-            let fragments = this.buildBooleanAdditiveSolidsFromNode(targetNode).map((solid) => ({
-                solid,
-                bounds: computeSolidBounds(solid)
-            }));
-
-            supportedTargets.forEach((otherNode, otherIndex) => {
-                if (otherIndex === targetIndex || fragments.length === 0) return;
-                const otherSolids = this.buildBooleanAdditiveSolidsFromNode(otherNode).map((solid) => ({
-                    solid,
-                    bounds: computeSolidBounds(solid),
-                    planes: (solid?.polygons || []).map((polygon) => polygon?.plane).filter(Boolean)
-                }));
-
-                otherSolids.forEach((otherSolid) => {
-                    const nextFragments = [];
-                    fragments.forEach((fragment) => {
-                        if (fragment.bounds && otherSolid.bounds && !fragment.bounds.intersectsBox(otherSolid.bounds)) {
-                            nextFragments.push(fragment);
-                            return;
-                        }
-                        const resultSolids = subtractConvexPlanesFromSolid(fragment.solid, otherSolid.planes);
-                        resultSolids.forEach((solid) => nextFragments.push({
-                            solid,
-                            bounds: computeSolidBounds(solid)
-                        }));
-                    });
-                    fragments = nextFragments;
-                });
-            });
-
-            if (fragments.length > 0) {
-                differenceCompiledNodes.push(...buildCompiledGeometryNodesFromSolids(
-                    {
-                        ...targetNode,
-                        isCollider: targetNode.isCollider !== false,
-                        materials: Array.isArray(differenceNode.materials) && differenceNode.materials.length > 0
-                            ? differenceNode.materials
-                            : targetNode.materials
-                    },
-                    fragments.map((fragment) => fragment.solid),
-                    differenceNode.id ? `${differenceNode.id}_${targetNode.id || targetIndex + 1}` : `${targetNode.id || `difference_${targetIndex + 1}`}`
-                ));
-            }
-        });
-
-        return {
-            compiledNodes: differenceCompiledNodes,
-            targetIds: new Set(supportedTargets.map((node) => node.id).filter(Boolean))
-        };
-    }
-
     compileStructuralGeometryNodes(nodes = [], compilerOptions = {}) {
         if (!Array.isArray(nodes) || nodes.length === 0) return [];
         void compilerOptions;
         return this.expandArrayPrimitiveNodes(nodes).filter((node) => node && typeof node === 'object');
-        const highCostPassesEnabled = compilerOptions?.enableHighCostPasses !== false;
-        const expandedNodes = this.expandArrayPrimitiveNodes(nodes);
-        const passthroughNodes = [];
-        const booleanTargets = [];
-        const volumeInfos = [];
-        const bevelModifiers = [];
-        const detailModifiers = [];
-        const unionNodes = [];
-        const intersectionNodes = [];
-        const differenceNodes = [];
-
-        expandedNodes.forEach((node) => {
-            if (!node || typeof node !== 'object') return;
-            const opType = typeof node.opType === 'string' ? node.opType.toLowerCase() : 'additive';
-            if (highCostPassesEnabled && node.type === 'boolean_union') {
-                unionNodes.push(node);
-                return;
-            }
-            if (highCostPassesEnabled && node.type === 'boolean_intersection' && !node.primitiveType) {
-                intersectionNodes.push(node);
-                return;
-            }
-            if (highCostPassesEnabled && node.type === 'boolean_difference' && !node.primitiveType) {
-                differenceNodes.push(node);
-                return;
-            }
-            if (node.type === 'bevel_modifier_primitive') {
-                const bounds = this.createGeometryBoundsForNode({
-                    ...node,
-                    type: 'box'
-                });
-                if (bounds) {
-                    bevelModifiers.push({
-                        id: node.id || createRuntimeId('bevel'),
-                        bounds,
-                        radius: clampFiniteNumber(node.radius, 0.12, 0.01, 0.45),
-                        segments: clampFiniteInteger(node.segments, 4, 1, 12),
-                        targetIds: Array.isArray(node.targetIds) ? [...node.targetIds] : null
-                    });
-                }
-                passthroughNodes.push(node);
-                return;
-            }
-            if (node.type === 'structural_detail_modifier') {
-                const bounds = this.createGeometryBoundsForNode({
-                    ...node,
-                    type: 'box'
-                });
-                if (bounds) {
-                    detailModifiers.push({
-                        id: node.id || createRuntimeId('detail'),
-                        bounds,
-                        targetIds: Array.isArray(node.targetIds) ? [...node.targetIds] : null
-                    });
-                }
-                passthroughNodes.push(node);
-                return;
-            }
-            const volumeNode = node.type === 'boolean_subtractor'
-                ? { ...node, type: this.getStructuralPrimitiveType(node), opType: 'subtractive' }
-                : node.type === 'boolean_intersection'
-                    ? { ...node, type: this.getStructuralPrimitiveType(node), opType: 'intersect' }
-                    : node.type === 'boolean_difference'
-                        ? { ...node, type: this.getStructuralPrimitiveType(node), opType: 'subtractive' }
-                : node;
-            const volumeType = this.getStructuralPrimitiveType(volumeNode);
-            if (highCostPassesEnabled && (opType === 'subtractive' || opType === 'intersect' || node.type === 'boolean_subtractor' || node.type === 'boolean_intersection' || node.type === 'boolean_difference') && this.isConvexBooleanVolumeType(volumeType)) {
-                const localGeometry = this.createStructuralPrimitiveGeometryFromData(volumeNode);
-                if (!localGeometry) return;
-                const transform = this.getGeometryTransformMatrix(volumeNode);
-                const bounds = new THREE.Box3().setFromBufferAttribute(localGeometry.getAttribute('position')).applyMatrix4(transform);
-                const center = bounds.getCenter(new THREE.Vector3());
-                const planes = extractConvexPlanesFromGeometry(localGeometry, transform).map((plane) => {
-                    const orientedPlane = plane.clone();
-                    if (orientedPlane.distanceToPoint(center) > 1e-4) orientedPlane.negate();
-                    return orientedPlane;
-                });
-                if (localGeometry !== volumeNode.compiledGeometry) localGeometry.dispose();
-                volumeInfos.push({
-                    id: node.id || createRuntimeId('csg'),
-                    opType: node.type === 'boolean_subtractor' || node.type === 'boolean_difference'
-                        ? 'subtractive'
-                        : node.type === 'boolean_intersection'
-                            ? 'intersect'
-                            : opType,
-                    planes,
-                    bounds,
-                    targetIds: (() => {
-                        const ids = this.getBooleanOperatorTargetIds(node);
-                        return ids.length > 0 ? new Set(ids) : null;
-                    })()
-                });
-                passthroughNodes.push(node);
-                return;
-            }
-            const beveledNode = this.applyBevelModifiersToNode(node, bevelModifiers);
-            const detailedNode = this.applyStructuralDetailModifiersToNode(beveledNode, detailModifiers);
-            if (this.supportsBooleanAdditiveTargetNode(detailedNode)) {
-                booleanTargets.push(detailedNode);
-                return;
-            }
-            passthroughNodes.push(detailedNode);
-        });
-
-        const compiledNodes = [];
-        const suppressedTargetIds = new Set();
-        let remainingBooleanTargets = [...booleanTargets];
-        unionNodes.forEach((unionNode) => {
-            const unionResult = this.compileBooleanUnionNode(unionNode, remainingBooleanTargets);
-            unionResult.compiledNodes.forEach((compiledNode) => compiledNodes.push(compiledNode));
-            unionResult.targetIds.forEach((id) => suppressedTargetIds.add(id));
-        });
-        remainingBooleanTargets = remainingBooleanTargets.filter((node) => !(node?.id && suppressedTargetIds.has(node.id)));
-
-        intersectionNodes.forEach((intersectionNode) => {
-            const intersectionResult = this.compileBooleanIntersectionNode(intersectionNode, remainingBooleanTargets);
-            intersectionResult.compiledNodes.forEach((compiledNode) => compiledNodes.push(compiledNode));
-            intersectionResult.targetIds.forEach((id) => suppressedTargetIds.add(id));
-        });
-        remainingBooleanTargets = remainingBooleanTargets.filter((node) => !(node?.id && suppressedTargetIds.has(node.id)));
-
-        differenceNodes.forEach((differenceNode) => {
-            const differenceResult = this.compileBooleanDifferenceNode(differenceNode, remainingBooleanTargets);
-            differenceResult.compiledNodes.forEach((compiledNode) => compiledNodes.push(compiledNode));
-            differenceResult.targetIds.forEach((id) => suppressedTargetIds.add(id));
-        });
-        remainingBooleanTargets = remainingBooleanTargets.filter((node) => !(node?.id && suppressedTargetIds.has(node.id)));
-        if (volumeInfos.length === 0) {
-            const compiledResult = [...passthroughNodes, ...compiledNodes, ...remainingBooleanTargets];
-            this.emitRuntimeEvent('structuralCompile', {
-                id: createRuntimeId('compile'),
-                inputNodes: nodes.length,
-                outputNodes: compiledResult.length,
-                highCostPassesEnabled
-            });
-            return compiledResult;
-        }
-        for (const node of remainingBooleanTargets) {
-            let fragments = this.buildBooleanAdditiveSolidsFromNode(node).map((solid) => ({
-                solid,
-                bounds: computeSolidBounds(solid)
-            }));
-            let touched = false;
-            for (const volume of volumeInfos) {
-                if (volume.targetIds && !volume.targetIds.has(node.id || '')) {
-                    continue;
-                }
-                const nextFragments = [];
-                for (const fragment of fragments) {
-                    if (fragment.bounds && volume.bounds && !fragment.bounds.intersectsBox(volume.bounds)) {
-                        nextFragments.push(fragment);
-                        continue;
-                    }
-                    touched = true;
-                    const resultSolids = volume.opType === 'intersect'
-                        ? intersectSolidWithConvexPlanes(fragment.solid, volume.planes)
-                        : subtractConvexPlanesFromSolid(fragment.solid, volume.planes);
-                    resultSolids.forEach((solid) => nextFragments.push({
-                        solid,
-                        bounds: computeSolidBounds(solid)
-                    }));
-                }
-                fragments = nextFragments;
-                if (fragments.length === 0) break;
-            }
-            if (!touched) {
-                passthroughNodes.push(node);
-                continue;
-            }
-            compiledNodes.push(...buildCompiledGeometryNodesFromSolids(
-                {
-                    ...node,
-                    opType: 'additive',
-                    isCollider: node.isCollider !== false
-                },
-                fragments.map((fragment) => fragment.solid),
-                node.id || `${node.type}_csg`
-            ));
-        }
-        const compiledResult = [...passthroughNodes, ...compiledNodes];
-        this.emitRuntimeEvent('structuralCompile', {
-            id: createRuntimeId('compile'),
-            inputNodes: nodes.length,
-            outputNodes: compiledResult.length,
-            highCostPassesEnabled,
-            clippedVolumeCount: volumeInfos.length
-        });
-        return compiledResult;
     }
+
     createStructuralPrimitiveGeometryFromData(data) {
         if (data?.compiledGeometry?.isBufferGeometry) {
             return data.compiledGeometry;
@@ -5322,65 +4582,6 @@ export class AnomalousEchoGame {
             .map((mode) => String(mode).toLowerCase())
             .filter((mode) => mode === 'physics' || mode === 'ai' || mode === 'visibility');
         return parsed.length > 0 ? [...new Set(parsed)] : ['physics'];
-    }
-
-    createInvisibleStructuralHelperMesh(data, thickness = 1) {
-        const geometry = new THREE.BoxGeometry(1, 1, thickness);
-        this.levelGeometries.push(geometry);
-        const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
-            transparent: true,
-            opacity: 0,
-            depthWrite: false,
-            colorWrite: false
-        }));
-        mesh.position.fromArray(finiteVec3Components(data?.position, [0, 0, 0]));
-        mesh.rotation.fromArray(finiteVec3Components(data?.rotation, [0, 0, 0]));
-        mesh.scale.fromArray(finiteScaleComponents(data?.scale, [1, 1, 1]));
-        mesh.visible = false;
-        return mesh;
-    }
-
-    createDebugVolumeHelper(data, color = '#4fc3ff') {
-        const geometry = new THREE.BoxGeometry(1, 1, 1);
-        this.levelGeometries.push(geometry);
-        const helper = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
-            color,
-            transparent: true,
-            opacity: 0.18,
-            wireframe: true,
-            depthWrite: false
-        }));
-        helper.position.fromArray(finiteVec3Components(data?.position, [0, 0, 0]));
-        helper.rotation.fromArray(finiteVec3Components(data?.rotation, [0, 0, 0]));
-        helper.scale.fromArray(finiteScaleComponents(data?.scale, [1, 1, 1]));
-        helper.renderOrder = 32;
-        helper.visible = false;
-        this.authoredDebugVisuals.push(helper);
-        return helper;
-    }
-
-    createDebugLineHelper(start, end, color = '#7fd6ff') {
-        const geometry = new THREE.BufferGeometry().setFromPoints([start.clone(), end.clone()]);
-        this.levelGeometries.push(geometry);
-        const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color }));
-        line.renderOrder = 31;
-        return line;
-    }
-
-    getVolumeChannels(data = {}) {
-        const raw = Array.isArray(data.collisionChannels)
-            ? data.collisionChannels
-            : (Array.isArray(data.blocks) ? data.blocks : []);
-        const normalized = raw
-            .map((entry) => String(entry).toLowerCase())
-            .filter((entry) => ['player', 'physics', 'camera', 'bullet', 'ai', 'vehicle'].includes(entry));
-        return normalized.length > 0 ? [...new Set(normalized)] : ['player'];
-    }
-
-    traceTagMatchesVolume(traceTag = 'player', volume = null) {
-        if (!volume) return false;
-        const tag = typeof traceTag === 'string' ? traceTag.toLowerCase() : 'player';
-        return Array.isArray(volume.channels) && volume.channels.includes(tag);
     }
 
     collectTargetNodeMeshes(ids = []) {

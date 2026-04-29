@@ -5,25 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "mechtest": "node ./browser-launcher.mjs --mechtest",
-    "mechtest:live": "node ./browser-launcher.mjs --mechtest",
-    "standalone": "node ./browser-launcher.mjs --mechtest",
-    "standalone:live": "node ./browser-launcher.mjs --mechtest",
+    "mechtest": "node ./proto-tool.mjs launch --mechtest",
     "testhall": "npm run mechtest",
-    "testhall:live": "npm run mechtest:live",
     "build": "vite build",
     "build:quick": "vite build --mode devfast",
-    "test": "node --test ./engine.test.js",
-    "test:engine": "node --test ./engine.test.js",
+    "test": "node ./proto-tool.mjs proof",
     "preview": "vite preview",
     "ensure:assets": "node ./proto-tool.mjs extract",
     "rebuild:level": "node ./proto-tool.mjs rebuild-level",
-    "desktop": "npm run mechtest",
-    "tower:pieces": "node ./tower.mjs pieces",
-    "tower:proof": "node ./tower.mjs proof"
+    "tower:pieces": "node ./proto-tool.mjs pieces",
+    "tower:proof": "node ./proto-tool.mjs proof"
   },
   "dependencies": {
-    "mitt": "^3.0.1",
     "three": "^0.179.1",
     "three-mesh-bvh": "^0.9.9"
   },

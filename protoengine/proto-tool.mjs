@@ -1,20 +1,30 @@
 /**
- * Proto Engine CLI: asset extract and rebuild-level dispatch.
+ * Proto Engine CLI: extract, rebuild, and tower checks.
  * Usage:
  *   node proto-tool.mjs extract
  *   node proto-tool.mjs rebuild-level
+ *   node proto-tool.mjs pieces
+ *   node proto-tool.mjs proof
  */
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
+import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { execFile as execFileCallback } from 'node:child_process';
+import { execFile as execFileCallback, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFile = promisify(execFileCallback);
 const toolPath = fileURLToPath(import.meta.url);
 const rootDir = path.dirname(toolPath);
-
-// --- extract (models/archives) ---
+const criticalFiles = [
+  'index.js',
+  'engine.js',
+  'proto-tool.mjs',
+  'launch-mechtest.bat',
+  'dev_level.json',
+  'dist/index.html'
+];
 
 async function runExtract() {
   const modelsDir = path.join(rootDir, 'models');
@@ -173,7 +183,168 @@ function runNodeToExit(scriptArgs) {
   });
 }
 
-// --- router ---
+function runCommand(command, args) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: rootDir,
+      stdio: 'inherit',
+      shell: process.platform === 'win32'
+    });
+    child.on('exit', (code) => resolve(code ?? 1));
+  });
+}
+
+function printPieces() {
+  const exists = (relPath) => fs.existsSync(path.join(rootDir, relPath));
+  const sizeKb = (relPath) => {
+    const fullPath = path.join(rootDir, relPath);
+    if (!fs.existsSync(fullPath)) return null;
+    return Math.round(fs.statSync(fullPath).size / 1024);
+  };
+  console.log('Protoengine Piece Board');
+  console.log('=======================');
+  for (const relPath of criticalFiles) {
+    const present = exists(relPath);
+    const marker = present ? 'OK' : 'MISSING';
+    const kb = present ? `${sizeKb(relPath)} KB` : '-';
+    console.log(`${marker.padEnd(8)} ${relPath.padEnd(22)} ${kb}`);
+  }
+}
+
+async function runProof() {
+  const checks = [
+    ['node', ['--check', './proto-tool.mjs']]
+  ];
+  let allPassed = true;
+  for (const [cmd, args] of checks) {
+    console.log(`\n[check] ${cmd} ${args.join(' ')}`);
+    const code = await runCommand(cmd, args);
+    if (code !== 0) allPassed = false;
+  }
+  try {
+    const {
+      clampFiniteNumber,
+      createRuntimeId
+    } = await import('./engine.js');
+    assert.match(createRuntimeId('piece'), /^piece_[0-9A-Za-z]{10}$/);
+    assert.equal(clampFiniteNumber(999, 5, 0, 10), 10);
+  } catch (error) {
+    allPassed = false;
+    console.error('[check] embedded engine assertions failed');
+    console.error(error);
+  }
+  console.log('\nStanding verdict');
+  console.log('===============');
+  console.log(allPassed ? 'TOWER_STANDING' : 'TOWER_UNSTABLE');
+  process.exit(allPassed ? 0 : 1);
+}
+
+function resolveBrowserExecutable() {
+  if (process.platform !== 'win32') return null;
+  const candidates = [
+    process.env.PROTO_BROWSER_PATH,
+    process.env.BROWSER,
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+  ].filter(Boolean);
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+}
+
+function resolveRequestPath(distDir, urlPath) {
+  const safePath = decodeURIComponent((urlPath || '/').split('?')[0]);
+  const relativePath = (safePath === '/' ? '/index.html' : safePath).replace(/^\/+/, '');
+  if (relativePath.includes('..')) return null;
+  const filePath = path.normalize(path.join(distDir, relativePath));
+  const rel = path.relative(distDir, filePath);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return filePath;
+}
+
+async function runLaunch(launchArgs = []) {
+  const distDir = path.join(rootDir, 'dist');
+  if (!fs.existsSync(path.join(distDir, 'index.html'))) {
+    throw new Error('[launcher] dist/index.html is missing. Build first with: npm run build:quick');
+  }
+  const useKiosk = !launchArgs.includes('--no-kiosk');
+  const mechtest = launchArgs.includes('--mechtest');
+  const host = '127.0.0.1';
+  const requestedPort = Number.parseInt(launchArgs.find((a) => a.startsWith('--port='))?.split('=')[1] || '0', 10) || 0;
+  const MIME_TYPES = {
+    '.css': 'text/css; charset=utf-8',
+    '.glb': 'model/gltf-binary',
+    '.gltf': 'model/gltf+json',
+    '.html': 'text/html; charset=utf-8',
+    '.jpeg': 'image/jpeg',
+    '.jpg': 'image/jpeg',
+    '.js': 'text/javascript; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.png': 'image/png',
+    '.svg': 'image/svg+xml',
+    '.txt': 'text/plain; charset=utf-8',
+    '.wasm': 'application/wasm'
+  };
+
+  const server = http.createServer((request, response) => {
+    const filePath = resolveRequestPath(distDir, request.url || '/');
+    if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      response.writeHead(404);
+      response.end('Not found');
+      return;
+    }
+    fs.readFile(filePath, (error, data) => {
+      if (error) {
+        response.writeHead(500);
+        response.end('Server error');
+        return;
+      }
+      const ext = path.extname(filePath).toLowerCase();
+      response.writeHead(200, {
+        'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+        'Cache-Control': 'no-cache'
+      });
+      response.end(data);
+    });
+  });
+
+  const buildUrl = (port) => {
+    const query = mechtest ? '?mechtest=1' : '';
+    return `http://${host}:${port}/index.html${query}`;
+  };
+
+  const launchBrowser = (url) => {
+    const browserExe = resolveBrowserExecutable();
+    if (!browserExe) {
+      console.log(`[launcher] no Chrome/Edge executable found; open manually: ${url}`);
+      return;
+    }
+    const browserArgs = useKiosk
+      ? ['--kiosk', '--app=' + url, '--disable-features=Translate,AutofillServerCommunication']
+      : ['--app=' + url];
+    const child = spawn(browserExe, browserArgs, {
+      cwd: rootDir,
+      stdio: 'ignore',
+      detached: false,
+      windowsHide: false
+    });
+    child.on('error', (error) => {
+      console.warn('[launcher] browser failed to start:', error.message);
+      console.log(`[launcher] open manually: ${url}`);
+    });
+  };
+
+  await new Promise((resolve) => server.listen(requestedPort, host, resolve));
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : requestedPort;
+  const url = buildUrl(port);
+  console.log(`[launcher] serving ${distDir}`);
+  console.log(`[launcher] url: ${url}`);
+  launchBrowser(url);
+  const shutdown = () => server.close(() => process.exit(0));
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
 
 async function main() {
   const cmd = process.argv[2];
@@ -186,7 +357,19 @@ async function main() {
     process.exit(code);
     return;
   }
-  console.error('Usage: node proto-tool.mjs <extract|rebuild-level>');
+  if (cmd === 'pieces') {
+    printPieces();
+    return;
+  }
+  if (cmd === 'proof') {
+    await runProof();
+    return;
+  }
+  if (cmd === 'launch') {
+    await runLaunch(process.argv.slice(3));
+    return;
+  }
+  console.error('Usage: node proto-tool.mjs <extract|rebuild-level|pieces|proof|launch>');
   process.exit(1);
 }
 
