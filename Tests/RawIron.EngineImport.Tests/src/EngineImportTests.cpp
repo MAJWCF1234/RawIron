@@ -69,6 +69,12 @@
 #include "RawIron/World/TextOverlayEvents.h"
 #include "RawIron/Debug/RuntimeSnapshots.h"
 #include "RawIron/Debug/SnapshotFormatting.h"
+#include "RawIron/Render/RgbaImagePathCache.h"
+#include "RawIron/Scene/AnimationLibraryHydration.h"
+#include "RawIron/Scene/LoftPrimitiveStack.h"
+#include "RawIron/Trace/BvhLifetimeRegistry.h"
+#include "RawIron/World/HudChannelTtlScheduler.h"
+#include "RawIron/World/MissionCompletionFlow.h"
 #include "RawIron/Math/Mat4.h"
 #include "RawIron/Structural/ConvexClipper.h"
 #include "RawIron/Structural/StructuralCompiler.h"
@@ -10097,5 +10103,101 @@ void TestWorldVolumeDescriptors() {
            "World volume descriptors should reject points outside safe zones");
 }
 
+void TestRawIronGameplayInfrastructureStacks() {
+    using namespace detail_WorldVolumeDescriptors;
 
+    ri::trace::BvhLifetimeRegistry bvh{};
+    bvh.MarkParticipating("collider_a", true);
+    bvh.MarkParticipating("collider_b", false);
+    Expect(bvh.ActiveParticipationCount() == 1U, "BVH registry should count only BVH-accelerated ids");
+    Expect(bvh.ReleaseParticipating("collider_a"), "BVH release should succeed for registered id");
+    Expect(bvh.ActiveParticipationCount() == 0U, "BVH registry should decrement after release");
 
+    const std::string assetsJson = R"({
+      "animationLibraryProfiles":[
+        {
+          "profile":"hazmat_survivor",
+          "libraries":[
+            {"path":"./packs/hazmat.glb","priority":5},
+            {"path":"./packs/common.glb","priority":1}
+          ]
+        }
+      ]
+    })";
+    const auto defs = ri::scene::GetProfileAnimationLibraryDefinitions(assetsJson);
+    Expect(defs.contains("hazmat_survivor") && defs.at("hazmat_survivor").size() == 2U,
+           "Profile animation library definitions should parse profile->library entries");
+
+    ri::scene::AnimationLibraryDefinition missingLib{};
+    missingLib.sourcePath = "definitely_missing_library.glb";
+    missingLib.profileName = "hazmat_survivor";
+    const auto loadedMissing = ri::scene::LoadAnimationLibrarySource(missingLib).get();
+    Expect(!loadedMissing.success && !loadedMissing.error.empty(),
+           "Streaming library ingest should surface an error for missing source packs");
+
+    ri::scene::Scene scene{};
+    const int hipsNode = scene.CreateNode("mixamorig:Hips");
+    const int spineNode = scene.CreateNode("mixamorig:Spine");
+    Expect(hipsNode >= 0 && spineNode >= 0, "Scene test setup should create source skeleton nodes");
+    ri::scene::LoadedAnimationLibrarySource source{};
+    source.success = true;
+    source.sourcePath = "./packs/common.glb";
+    source.profileName = "hazmat_survivor";
+    source.priority = 3;
+    source.clipAlias["Armature|Walk_Loop"] = "walk";
+    source.clips.push_back(ri::scene::AnimationClip{.name = "Armature|Walk_Loop", .durationSeconds = 1.0});
+    ri::scene::HumanoidAnimationSourceRegistry registry{};
+    const auto registered = ri::scene::RegisterHumanoidAnimationSource(registry, scene, source);
+    Expect(registered.clipMap.contains("walk"),
+           "registerHumanoidAnimationSource should apply clip aliases into canonical clip map");
+    Expect(registered.normalizedBoneAliasLookup.contains("mixamorighips"),
+           "registerHumanoidAnimationSource should build normalized bone alias lookup");
+
+    ri::render::software::RgbaImagePathCache texCache{};
+    const auto missingOnce = texCache.Load(std::filesystem::path("rawiron_texture_cache_missing.png"));
+    const auto missingTwice = texCache.Load(std::filesystem::path("rawiron_texture_cache_missing.png"));
+    Expect(missingOnce == nullptr && missingTwice == nullptr,
+           "Texture cache should dedupe failed loads without crashing");
+    Expect(texCache.CachedEntryCount() == 0U, "Failed texture loads should not populate positive cache rows");
+
+    ri::runtime::RuntimeEventBus bus{};
+    std::size_t missionEvents = 0U;
+    const auto listener =
+        bus.On("missionCompletion", [&](const ri::runtime::RuntimeEvent&) { ++missionEvents; });
+    ri::world::MissionCompletionTelemetry mt{};
+    mt.missionId = "unit_test";
+    mt.outcome = "success";
+    mt.missionElapsedSeconds = 12.5;
+    ri::world::ApplyAuthoritativeMissionCompletionTransition(&bus, mt, {});
+    Expect(missionEvents == 1U, "Mission completion transition should emit terminal telemetry");
+    bus.Off("missionCompletion", listener);
+
+    ri::world::HudChannelTtlScheduler hud{};
+    hud.Schedule("pickup", "Item acquired", 1000.0);
+    hud.Schedule("pickup", "Different item", 500.0);
+    Expect(hud.ClearHudDismissTimer("nonexistent") == false,
+           "clearHudDismissTimer should report false for unknown channels");
+    Expect(hud.ClearHudDismissTimer("pickup"),
+           "clearHudDismissTimer should remove active channel timers");
+    Expect(!hud.Active("pickup").has_value(),
+           "clearHudDismissTimer should clear the channel immediately");
+    hud.Schedule("pickup", "Different item", 500.0);
+    const auto active = hud.Active("pickup");
+    Expect(active.has_value() && active->text.find("Different") != std::string::npos,
+           "HUD channel TTL should overwrite prior timers on reschedule");
+    hud.Advance(600.0);
+    Expect(!hud.Active("pickup").has_value(), "HUD channel TTL should expire after advance");
+
+    const auto startProfile = ri::scene::GetPrimitiveProfilePreset("duct");
+    const auto endProfile = ri::scene::GetPrimitiveProfilePreset("beam");
+    const auto resampled = ri::scene::ResamplePrimitiveProfileLoop(startProfile, 12U);
+    Expect(resampled.size() == 12U,
+           "resamplePrimitiveProfileLoop should produce requested closed-loop sample count");
+    Expect(ri::scene::GetLoftInterpolationValue(0.5f) > 0.49f
+            && ri::scene::GetLoftInterpolationValue(0.5f) < 0.51f,
+           "getLoftInterpolationValue should remain centered at mid blend");
+    const ri::scene::Mesh loft =
+        ri::scene::BuildLoftPrimitiveGeometryFromProfiles(startProfile, endProfile, 8U, true);
+    Expect(loft.vertexCount > 0 && loft.indexCount > 0,
+           "buildLoftPrimitiveGeometryFromProfiles should emit watertight loft geometry");
+}

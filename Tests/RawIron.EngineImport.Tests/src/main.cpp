@@ -6,6 +6,7 @@
 #include "RawIron/Debug/RuntimeSnapshots.h"
 #include "RawIron/Events/EventEngine.h"
 #include "RawIron/Math/Mat4.h"
+#include "RawIron/Math/Vec2.h"
 #include "RawIron/Math/Vec3.h"
 #include "RawIron/Render/VulkanCommandBufferRecorder.h"
 #include "RawIron/Render/VulkanCommandList.h"
@@ -13,16 +14,24 @@
 #include "RawIron/Render/VulkanFrameSubmission.h"
 #include "RawIron/Render/VulkanIntentStaging.h"
 #include "RawIron/Render/VulkanPipelineStateCache.h"
+#include "RawIron/Runtime/LevelScopedSchedulers.h"
 #include "RawIron/Runtime/RuntimeEventBus.h"
 #include "RawIron/Runtime/RuntimeId.h"
 #include "RawIron/Runtime/RuntimeTuning.h"
+#include "RawIron/Scene/AuthoringTransform.h"
+#include "RawIron/Scene/LoftPrimitiveStack.h"
 #include "RawIron/Render/PostProcessProfiles.h"
 #include "RawIron/Scene/ModelLoader.h"
 #include "RawIron/Spatial/SpatialIndex.h"
+#include "RawIron/Trace/CameraFeetReconciliation.h"
+#include "RawIron/Trace/LocomotionTuningSmoother.h"
+#include "RawIron/Trace/ImpactDecalPlacement.h"
 #include "RawIron/Trace/KinematicPhysics.h"
+#include "RawIron/Trace/LocomotionRuntimeBridge.h"
 #include "RawIron/Trace/MovementController.h"
 #include "RawIron/Trace/ObjectPhysics.h"
 #include "RawIron/Trace/SpatialQueryHelpers.h"
+#include "RawIron/Trace/SweptVolumeContactSolver.h"
 #include "RawIron/Trace/TraceScene.h"
 #include "RawIron/Structural/ConvexClipper.h"
 #include "RawIron/Structural/StructuralCompiler.h"
@@ -34,6 +43,7 @@
 #include "RawIron/World/InventoryState.h"
 #include "RawIron/World/InteractionPromptState.h"
 #include "RawIron/World/PresentationState.h"
+#include "RawIron/World/RuntimeClipQuery.h"
 #include "RawIron/World/RuntimeState.h"
 #include "RawIron/World/SpatialDebugDraw.h"
 #include "RawIron/World/VolumeDescriptors.h"
@@ -105,6 +115,7 @@ void TestLogicGraph();
 void TestLogicEntityIoTelemetry();
 void TestLogicWorldActors();
 void TestWorldSpatialDebugAndProxyVolumes();
+void TestRawIronGameplayInfrastructureStacks();
 
 namespace {
 
@@ -382,6 +393,66 @@ void TestRuntimeTuning() {
                && tuningReport.find("walkSpeed=") != std::string::npos
                && tuningReport.find("gravity=") != std::string::npos,
            "Runtime tuning report should serialize a readable snapshot");
+
+    const std::optional<double> crouch = ri::runtime::SanitizeRuntimeTuningValue("crouchSpeed", 99.0);
+    Expect(crouch.has_value() && std::fabs(*crouch - 10.0) < 1e-6,
+           "Crouch speed should clamp to the schema maximum");
+
+    const ri::trace::LocomotionTuning locomotion =
+        ri::trace::LocomotionTuningFromRuntimeRecord({{"walkSpeed", 6.0}, {"crouchSpeed", 3.0}});
+    Expect(std::fabs(locomotion.walkSpeed - 6.0f) < 1e-5f && std::fabs(locomotion.crouchSpeed - 3.0f) < 1e-5f,
+           "Locomotion runtime bridge should merge sanitized tuning into locomotion scalars");
+
+    const auto locomotionRecord = ri::trace::LocomotionTuningToRuntimeRecordSubset(locomotion);
+    Expect(locomotionRecord.at("walkSpeed") == 6.0 && locomotionRecord.at("crouchSpeed") == 3.0,
+           "Locomotion subset snapshot should round-trip numeric entries");
+
+    ri::trace::TraceScene scene{};
+    scene.SetColliders({
+        {.id = "a", .bounds = ri::spatial::Aabb{{0, 0, 0}, {1, 1, 1}}},
+        {.id = "b", .bounds = ri::spatial::Aabb{{2, 2, 2}, {3, 3, 3}}},
+    });
+    Expect(scene.EraseCollidersWithIds({"a"}) == 1U && scene.ColliderCount() == 1U,
+           "TraceScene should erase colliders by id and rebuild broadphase entries");
+
+    const auto splatter =
+        ri::trace::BuildSplatterDecalPlacement({0, 0, 0}, {0, 1, 0}, 0.25f);
+    Expect(splatter.has_value() && splatter->kind == ri::trace::ImpactDecalKind::Splatter
+               && std::fabs(splatter->halfExtentU - 0.25f) < 1e-5f,
+           "Splatter decal placement should face the surface normal with radius extents");
+
+    const auto streak = ri::trace::BuildDragStreakDecalPlacement(
+        {0, 0, 0}, {0, 1, 0}, {10.0f, 0.0f, 0.0f}, 0.05f, 0.5f, 5.0f, 0.1f, 2.0f);
+    Expect(streak.has_value() && streak->kind == ri::trace::ImpactDecalKind::DragStreak,
+           "Drag streak decal should align to projected velocity on the surface");
+
+    const ri::math::Vec3 feet = ri::trace::CameraFeetPositionFromEye({1.0f, 4.0f, -2.0f},
+                                                                     ri::trace::MovementStance::Standing);
+    Expect(std::fabs(feet.y - (4.0f - 1.65f)) < 1e-4f,
+           "Camera feet reconciliation should drop eye height along world up");
+
+    const ri::math::Vec3 feetYaw = ri::trace::CameraFeetPositionFromEyeLocalOffset(
+        {2.0f, 3.0f, 1.0f},
+        {0.0f, 0.0f, 1.0f},
+        {0.0f, 1.65f, 0.4f});
+    Expect(std::fabs(feetYaw.y - (3.0f - 1.65f)) < 1e-4f && std::fabs(feetYaw.z - 0.6f) < 1e-4f,
+           "Yaw-frame camera feet solve should separate vertical eye offset from forward camera lead");
+
+    ri::trace::LocomotionTuningSmoother smoother{};
+    smoother.value = ri::trace::DefaultLocomotionTuning();
+    smoother.value.walkSpeed = 5.0f;
+    ri::trace::LocomotionTuning target = smoother.value;
+    target.walkSpeed = 10.0f;
+    const ri::trace::LocomotionTuning blended =
+        ri::trace::AdvanceLocomotionTuningSmoother(smoother, target, 0.1f);
+    Expect(blended.walkSpeed > 5.2f && blended.walkSpeed < 9.9f,
+           "Locomotion tuning smoother should ease toward targets without instantaneous pops");
+
+    ri::scene::Transform import{};
+    import.scale = {2.0f, 1.0f, 1.0f};
+    const ri::scene::Transform scaled = ri::scene::ApplyAuthoringScaleMultiply(import, {0.5f, 2.0f, 1.0f});
+    Expect(std::fabs(scaled.scale.x - 1.0f) < 1e-5f && std::fabs(scaled.scale.y - 2.0f) < 1e-5f,
+           "Authoring scale multiply should apply component-wise after import scale");
 }
 
 void TestRuntimeEventBus() {
@@ -672,14 +743,22 @@ void TestStructuralPrimitives() {
                && IsNativeStructuralPrimitive("cylinder")
                && IsNativeStructuralPrimitive("cone")
                && IsNativeStructuralPrimitive("pyramid")
+               && IsNativeStructuralPrimitive("stairs")
+               && IsNativeStructuralPrimitive("spiral_stairs")
+               && IsNativeStructuralPrimitive("tube")
+               && IsNativeStructuralPrimitive("torus")
+               && IsNativeStructuralPrimitive("corner")
                && IsNativeStructuralPrimitive("capsule")
                && IsNativeStructuralPrimitive("frustum")
                && IsNativeStructuralPrimitive("geodesic_sphere")
+               && IsNativeStructuralPrimitive("superellipsoid")
+               && IsNativeStructuralPrimitive("extrude_along_normal_primitive")
+               && IsNativeStructuralPrimitive("lattice_volume")
                && IsNativeStructuralPrimitive("hexahedron")
                && IsNativeStructuralPrimitive("convex_hull")
                && IsNativeStructuralPrimitive("roof_gable")
                && IsNativeStructuralPrimitive("hipped_roof")
-               && !IsNativeStructuralPrimitive("tube"),
+               && !IsNativeStructuralPrimitive("portal"),
            "Structural primitive registry should recognize the expanded native primitive subset");
 
     const auto boxSolid = CreateConvexPrimitiveSolid("box");
@@ -775,6 +854,292 @@ void TestStructuralPrimitives() {
                && geodesicSphereMesh.hasBounds
                && geodesicSphereMesh.boundsMax.y > 0.4f,
            "Structural primitives should compile a native geodesic sphere mesh");
+
+    const ri::structural::CompiledMesh detailedGeodesicSphereMesh =
+        BuildPrimitiveMesh("geodesic_sphere", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.detail = 2;
+        }));
+    Expect(detailedGeodesicSphereMesh.triangleCount == 320U
+               && detailedGeodesicSphereMesh.hasBounds
+               && detailedGeodesicSphereMesh.boundsMax.x > 0.45f,
+           "Structural primitives should compile detail-controlled geodesic sphere meshes");
+
+    const ri::structural::CompiledMesh superellipsoidMesh =
+        BuildPrimitiveMesh("superellipsoid", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.radialSegments = 10;
+            options.sides = 16;
+            options.exponentX = 0.35f;
+            options.exponentY = 0.5f;
+            options.exponentZ = 0.75f;
+        }));
+    Expect(superellipsoidMesh.triangleCount == 320U
+               && superellipsoidMesh.hasBounds
+               && superellipsoidMesh.boundsMax.y > 0.45f,
+           "Structural primitives should compile signed-power superellipsoid meshes");
+
+    const std::vector<ri::math::Vec2> sanitizedProfile =
+        ri::scene::SanitizePrimitiveProfile2dLoop({
+            {std::numeric_limits<float>::quiet_NaN(), 0.0f},
+            {-10.0f, -0.25f},
+            {0.25f, -0.25f},
+            {0.25f, 0.25f},
+        }, "diamond", 16U, 0.5f);
+    Expect(sanitizedProfile.size() >= 3U
+               && sanitizedProfile.front().x >= -0.5f
+               && sanitizedProfile.front().x <= 0.5f,
+           "Profile sanitizer should normalize arbitrary authored points into bounded 2D loops");
+
+    const ri::structural::CompiledMesh extrudeMesh =
+        BuildPrimitiveMesh("extrude_along_normal_primitive", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.depth = 0.35f;
+            options.points = {{-0.5f, -0.25f, 0.0f}, {0.5f, -0.25f, 0.0f}, {0.0f, 0.5f, 0.0f}};
+        }));
+    Expect(extrudeMesh.triangleCount == 12U
+               && extrudeMesh.hasBounds
+               && extrudeMesh.boundsMax.z > 0.15f,
+           "Structural primitives should compile author-profile extrude-along-normal meshes");
+
+    const ri::structural::CompiledMesh latticeMesh =
+        BuildPrimitiveMesh("lattice_volume", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.cellsX = 2;
+            options.cellsY = 1;
+            options.cellsZ = 2;
+            options.latticeStyle = "octet_truss";
+            options.strutRadius = 0.025f;
+        }));
+    Expect(latticeMesh.triangleCount > 200U
+               && latticeMesh.hasBounds
+               && latticeMesh.boundsMin.x < -0.5f
+               && latticeMesh.boundsMax.z > 0.5f,
+           "Structural primitives should compile deduplicated cell lattice volume meshes");
+
+    const ri::structural::CompiledMesh stairsMesh =
+        BuildPrimitiveMesh("stairs", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.steps = 5;
+        }));
+    Expect(stairsMesh.triangleCount == 60U
+               && stairsMesh.hasBounds
+               && stairsMesh.boundsMax.y > 0.45f,
+           "Structural primitives should compile native stepped stair meshes");
+
+    const ri::structural::CompiledMesh spiralStairsMesh =
+        BuildPrimitiveMesh("spiral_stairs", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.steps = 6;
+            options.radialSegments = 12;
+            options.sweepDegrees = 270.0f;
+            options.startDegrees = -120.0f;
+            options.topRadius = 0.14f;
+            options.bottomRadius = 0.48f;
+            options.centerColumn = true;
+        }));
+    Expect(spiralStairsMesh.triangleCount == 120U
+               && spiralStairsMesh.hasBounds
+               && spiralStairsMesh.boundsMax.y > 0.45f,
+           "Structural primitives should compile native spiral stair meshes with a center column");
+
+    const ri::structural::CompiledMesh tubeMesh =
+        BuildPrimitiveMesh("tube", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.radialSegments = 12;
+            options.topRadius = 0.24f;
+        }));
+    Expect(tubeMesh.triangleCount == 96U
+               && tubeMesh.hasBounds
+               && tubeMesh.boundsMax.z > 0.45f,
+           "Structural primitives should compile native hollow tube meshes");
+
+    const ri::structural::CompiledMesh torusMesh =
+        BuildPrimitiveMesh("torus", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.radialSegments = 12;
+            options.sides = 8;
+            options.thickness = 0.12f;
+        }));
+    Expect(torusMesh.triangleCount == 192U
+               && torusMesh.hasBounds
+               && torusMesh.boundsMax.x > 0.45f,
+           "Structural primitives should compile native full torus meshes");
+
+    const ri::structural::CompiledMesh cornerMesh =
+        BuildPrimitiveMesh("corner", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.thickness = 0.18f;
+            options.radialSegments = 4;
+            options.archStyle = "rounded";
+        }));
+    Expect(cornerMesh.triangleCount == 32U
+               && cornerMesh.hasBounds
+               && cornerMesh.boundsMax.x > 0.45f,
+           "Structural primitives should compile native mitered/rounded corner meshes");
+
+    const ri::structural::CompiledMesh halfPipeMesh =
+        BuildPrimitiveMesh("half_pipe", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.radialSegments = 12;
+            options.thickness = 0.12f;
+        }));
+    Expect(halfPipeMesh.triangleCount > 40U
+               && halfPipeMesh.hasBounds
+               && halfPipeMesh.boundsMax.y > 0.4f,
+           "Structural primitives should compile native half-pipe channel meshes");
+
+    const ri::structural::CompiledMesh quarterPipeMesh =
+        BuildPrimitiveMesh("quarter_pipe", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.radialSegments = 10;
+            options.thickness = 0.1f;
+        }));
+    Expect(quarterPipeMesh.triangleCount > 30U
+               && quarterPipeMesh.hasBounds
+               && quarterPipeMesh.boundsMax.x > 0.3f,
+           "Structural primitives should compile native quarter-pipe channel meshes");
+
+    const ri::structural::CompiledMesh pipeElbowMesh =
+        BuildPrimitiveMesh("pipe_elbow", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.radialSegments = 12;
+            options.sides = 8;
+            options.sweepDegrees = 90.0f;
+            options.length = 0.32f;
+            options.thickness = 0.08f;
+        }));
+    Expect(pipeElbowMesh.triangleCount == 192U
+               && pipeElbowMesh.hasBounds
+               && pipeElbowMesh.boundsMax.z > 0.25f,
+           "Structural primitives should compile native pipe elbow arc meshes");
+
+    const ri::structural::CompiledMesh torusSliceMesh =
+        BuildPrimitiveMesh("torus_slice", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.radialSegments = 14;
+            options.sides = 8;
+            options.sweepDegrees = 135.0f;
+            options.length = 0.34f;
+            options.thickness = 0.06f;
+        }));
+    Expect(torusSliceMesh.triangleCount == 224U
+               && torusSliceMesh.hasBounds
+               && torusSliceMesh.boundsMax.x > 0.3f,
+           "Structural primitives should compile native torus-slice meshes");
+
+    const ri::structural::CompiledMesh splineSweepMesh =
+        BuildPrimitiveMesh("spline_sweep", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.thickness = 0.04f;
+            options.points = {{-0.45f, 0.0f, -0.4f}, {0.0f, 0.25f, 0.0f}, {0.45f, 0.0f, 0.4f}};
+        }));
+    Expect(splineSweepMesh.triangleCount == 24U
+               && splineSweepMesh.hasBounds
+               && splineSweepMesh.boundsMax.y > 0.25f,
+           "Structural primitives should compile native spline-sweep beam meshes");
+
+    const ri::structural::CompiledMesh revolveMesh =
+        BuildPrimitiveMesh("revolve", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.radialSegments = 12;
+            options.sweepDegrees = 270.0f;
+            options.points = {{0.18f, -0.5f, 0.0f}, {0.34f, -0.1f, 0.0f}, {0.2f, 0.45f, 0.0f}};
+        }));
+    Expect(revolveMesh.triangleCount == 72U
+               && revolveMesh.hasBounds
+               && revolveMesh.boundsMax.y > 0.4f,
+           "Structural primitives should compile native profile-revolve meshes");
+
+    const ri::structural::CompiledMesh domeVaultMesh =
+        BuildPrimitiveMesh("dome_vault", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.radialSegments = 12;
+            options.sides = 6;
+            options.ridgeRatio = 0.8f;
+        }));
+    Expect(domeVaultMesh.triangleCount == 144U
+               && domeVaultMesh.hasBounds
+               && domeVaultMesh.boundsMax.y > 0.35f,
+           "Structural primitives should compile native dome-vault meshes");
+
+    const ri::structural::CompiledMesh loftMesh =
+        BuildPrimitiveMesh("loft_primitive", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.points = {{-0.4f, -0.25f, 0.0f}, {0.4f, -0.25f, 0.0f}, {0.4f, 0.25f, 0.0f}, {-0.4f, 0.25f, 0.0f}};
+            options.vertices = {{0.0f, 0.0f, -0.5f}, {0.15f, 0.1f, 0.0f}, {0.0f, 0.0f, 0.5f}};
+        }));
+    Expect(loftMesh.triangleCount == 16U
+               && loftMesh.hasBounds
+               && loftMesh.boundsMax.z > 0.45f,
+           "Structural primitives should compile native profile loft meshes");
+
+    const ri::structural::CompiledMesh splineRibbonMesh =
+        BuildPrimitiveMesh("spline_ribbon", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.thickness = 0.08f;
+            options.points = {{-0.5f, 0.0f, -0.25f}, {0.0f, 0.12f, 0.0f}, {0.5f, 0.0f, 0.25f}};
+        }));
+    Expect(splineRibbonMesh.triangleCount == 4U
+               && splineRibbonMesh.hasBounds
+               && splineRibbonMesh.boundsMax.x > 0.45f,
+           "Structural primitives should compile native spline ribbon surface meshes");
+
+    const ri::structural::CompiledMesh catenaryMesh =
+        BuildPrimitiveMesh("catenary_primitive", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.radialSegments = 12;
+            options.depth = 0.25f;
+            options.thickness = 0.025f;
+        }));
+    Expect(catenaryMesh.triangleCount == 144U
+               && catenaryMesh.hasBounds
+               && catenaryMesh.boundsMin.y < -0.2f,
+           "Structural primitives should compile native catenary cable meshes");
+
+    const ri::structural::CompiledMesh cableMesh =
+        BuildPrimitiveMesh("cable_primitive", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.radialSegments = 10;
+            options.depth = 0.18f;
+            options.thickness = 0.02f;
+        }));
+    Expect(cableMesh.triangleCount == 120U
+               && cableMesh.hasBounds
+               && cableMesh.boundsMin.y < -0.15f,
+           "Structural primitives should compile native suspended cable meshes");
+
+    const ri::structural::CompiledMesh thickPolygonMesh =
+        BuildPrimitiveMesh("thick_polygon_primitive", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.depth = 0.4f;
+            options.points = {{-0.4f, -0.3f, 0.0f}, {0.35f, -0.25f, 0.0f}, {0.45f, 0.2f, 0.0f}, {-0.25f, 0.35f, 0.0f}};
+        }));
+    Expect(thickPolygonMesh.triangleCount == 16U
+               && thickPolygonMesh.hasBounds
+               && thickPolygonMesh.boundsMax.y > 0.15f,
+           "Structural primitives should compile native thick polygon blockout meshes");
+
+    const ri::structural::CompiledMesh trimSheetSweepMesh =
+        BuildPrimitiveMesh("trim_sheet_sweep", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.thickness = 0.035f;
+            options.points = {{-0.45f, 0.0f, -0.3f}, {0.0f, 0.1f, 0.0f}, {0.45f, 0.0f, 0.3f}};
+        }));
+    Expect(trimSheetSweepMesh.triangleCount == 24U
+               && trimSheetSweepMesh.hasBounds
+               && trimSheetSweepMesh.boundsMax.z > 0.3f,
+           "Structural primitives should compile native trim-sheet sweep meshes");
+
+    const ri::structural::CompiledMesh waterSurfaceMesh =
+        BuildPrimitiveMesh("water_surface_primitive", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.radialSegments = 4;
+            options.thickness = 0.04f;
+        }));
+    Expect(waterSurfaceMesh.triangleCount == 32U
+               && waterSurfaceMesh.hasBounds
+               && waterSurfaceMesh.boundsMax.y > 0.01f,
+           "Structural primitives should compile native water surface tessellation meshes");
+
+    const ri::structural::CompiledMesh terrainQuadMesh =
+        BuildPrimitiveMesh("terrain_quad", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.cellsX = 4;
+            options.cellsZ = 3;
+            options.depth = 0.18f;
+        }));
+    Expect(terrainQuadMesh.triangleCount == 24U
+               && terrainQuadMesh.hasBounds
+               && terrainQuadMesh.boundsMax.y > 0.05f,
+           "Structural primitives should compile native terrain quad meshes");
+
+    const ri::structural::CompiledMesh heightmapPatchMesh =
+        BuildPrimitiveMesh("heightmap_patch", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.cellsX = 3;
+            options.cellsZ = 3;
+            options.depth = 0.2f;
+        }));
+    Expect(heightmapPatchMesh.triangleCount == 18U
+               && heightmapPatchMesh.hasBounds
+               && heightmapPatchMesh.boundsMin.y < -0.05f,
+           "Structural primitives should compile native heightmap patch meshes");
 
     const ri::structural::CompiledMesh capsuleMesh =
         BuildPrimitiveMesh("capsule", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
@@ -1894,6 +2259,83 @@ void TestTraceScene() {
            "Trace scene duplicate-ID handling should preserve first-ingested collider geometry");
 }
 
+void TestRuntimeClipQuerySweepAndLevelSchedulers() {
+    using ri::spatial::Aabb;
+    using ri::trace::TraceCollider;
+    using ri::trace::TraceScene;
+
+    ri::world::RuntimeEnvironmentService env;
+    ri::world::ClippingRuntimeVolume clip{};
+    clip.id = "clip_a";
+    clip.position = {0.0f, 0.0f, 0.0f};
+    clip.size = {2.0f, 2.0f, 2.0f};
+    clip.modes = {"visibility"};
+    clip.enabled = true;
+
+    ri::world::FilteredCollisionRuntimeVolume filt{};
+    filt.id = "filt_b";
+    filt.position = {5.0f, 0.0f, 0.0f};
+    filt.size = {2.0f, 2.0f, 2.0f};
+    filt.channels = {"player"};
+
+    env.SetClippingVolumes({clip});
+    env.SetFilteredCollisionVolumes({filt});
+
+    ri::world::RuntimeClipQueryBroadphase broadphase(env);
+    ri::world::RuntimeClipBoundsCache cache;
+
+    const std::vector<std::string> boxHits = broadphase.QueryBox(
+        Aabb{.min = {-0.5f, -0.5f, -0.5f}, .max = {0.5f, 0.5f, 0.5f}}, {}, &cache);
+    Expect(boxHits.size() == 1U && boxHits[0] == "clip_a",
+           "Runtime clip box broadphase should return sorted overlapping clip volumes");
+
+    ri::world::RuntimeClipBoxQueryOptions physicsOnly{};
+    physicsOnly.clipModeMask = ri::world::ClipVolumeModeBit(ri::world::ClipVolumeMode::Physics);
+    const std::vector<std::string> noPhysicsMatch = broadphase.QueryBox(
+        Aabb{.min = {-0.5f, -0.5f, -0.5f}, .max = {0.5f, 0.5f, 0.5f}}, physicsOnly, &cache);
+    Expect(noPhysicsMatch.empty(),
+           "Clip mode mask should exclude volumes that only carry other clip modes");
+
+    const std::vector<std::string> rayIds = broadphase.QueryRaySweptBounds(
+        {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, 10.0f, {.sweptThickness = 0.05f}, &cache);
+    Expect(rayIds.size() >= 2U,
+           "Swept-ray AABB should gather clip and collision candidates along the segment");
+    Expect(std::find(rayIds.begin(), rayIds.end(), "clip_a") != rayIds.end(),
+           "Swept-ray broadphase should include clipping volumes near the ray origin");
+    Expect(std::find(rayIds.begin(), rayIds.end(), "filt_b") != rayIds.end(),
+           "Swept-ray broadphase should include filtered collision volumes along the segment");
+
+    TraceScene traceScene({
+        TraceCollider{.id = "obs", .bounds = Aabb{.min = {2.0f, 0.0f, -1.0f}, .max = {3.0f, 2.0f, 1.0f}}, .structural = true},
+    });
+    const ri::trace::SweptVolumeContactSolver solver(traceScene);
+    const std::optional<ri::trace::TraceHit> swept = solver.ResolveFirstContact(
+        Aabb{.min = {-0.5f, 0.5f, -0.5f}, .max = {0.5f, 1.5f, 0.5f}}, {4.0f, 0.0f, 0.0f});
+    Expect(swept.has_value() && swept->id == "obs",
+           "SweptVolumeContactSolver should resolve earliest swept contact via TraceScene");
+
+    const std::optional<ri::trace::TraceHit> staticHit = ri::trace::SweptVolumeContactSolver::ResolveVsStaticAabb(
+        Aabb{.min = {0.0f, 0.0f, 0.0f}, .max = {1.0f, 1.0f, 1.0f}},
+        {2.0f, 0.0f, 0.0f},
+        Aabb{.min = {2.5f, -1.0f, -1.0f}, .max = {4.0f, 2.0f, 2.0f}},
+        "wall");
+    Expect(staticHit.has_value() && NearlyEqual(staticHit->time, 0.75f),
+           "Static swept AABB narrow-phase should report normalized impact time");
+
+    ri::runtime::LevelScopedTimeoutScheduler timeouts;
+    int once = 0;
+    (void)timeouts.ScheduleAfter(0.5, [&] { ++once; }, 0.0);
+    timeouts.Tick(0.6);
+    Expect(once == 1, "Level-scoped timeout scheduler should invoke one-shot callbacks");
+    timeouts.Clear();
+
+    ri::runtime::LevelScopedIntervalScheduler intervals;
+    int rep = 0;
+    (void)intervals.ScheduleEvery(1.0, [&] { ++rep; }, 0.0);
+    intervals.Tick(1.0, 1.0);
+    Expect(rep == 1, "Level-scoped interval scheduler should invoke repeating callbacks");
+}
+
 void TestKinematicPhysics() {
     using ri::spatial::Aabb;
     using ri::trace::KinematicBodyState;
@@ -1958,6 +2400,27 @@ void TestKinematicPhysics() {
             ri::trace::SimulateKinematicBodyStep(scene, firstHit.state, 0.05f, cool, {}, {});
         Expect(!secondHit.impact.has_value(),
                "Impact notify cooldown should throttle repeat notifications like the prototype physics object");
+    }
+
+    {
+        TraceScene tallWallScene({
+            TraceCollider{.id = "floor", .bounds = Aabb{.min = {-10.0f, -1.0f, -10.0f}, .max = {10.0f, 0.0f, 10.0f}}, .structural = true, .dynamic = false},
+            TraceCollider{.id = "tall_wall", .bounds = Aabb{.min = {0.6f, 0.0f, -1.0f}, .max = {0.9f, 2.0f, 1.0f}}, .structural = true, .dynamic = false},
+        });
+        KinematicBodyState blocked{};
+        blocked.bounds = Aabb{.min = {-0.25f, 0.02f, -0.25f}, .max = {0.25f, 1.02f, 0.25f}};
+        blocked.velocity = ri::math::Vec3{4.0f, 0.0f, 0.0f};
+        const ri::trace::KinematicStepResult stepAttempt = ri::trace::SimulateKinematicBodyStep(
+            tallWallScene,
+            blocked,
+            0.2f,
+            KinematicPhysicsOptions{.maxStepUpHeight = 1.0f, .ignoreColliderId = "player"},
+            KinematicVolumeModifiers{},
+            KinematicConstraintState{});
+        Expect(stepAttempt.state.bounds.max.x <= 0.62f,
+               "Step-up should not bypass a tall wall without a valid landing surface");
+        Expect(stepAttempt.state.bounds.min.y <= 0.08f,
+               "Rejected step-up should keep the body near its grounded height instead of hovering upward");
     }
 }
 
@@ -5692,6 +6155,7 @@ const ri::test::TestCase kEngineImportCases[] = {
     {"TestEventEngine", TestEventEngine},
     {"TestSpatialIndex", TestSpatialIndex},
     {"TestTraceScene", TestTraceScene},
+    {"TestRuntimeClipQuerySweepAndLevelSchedulers", TestRuntimeClipQuerySweepAndLevelSchedulers},
     {"TestKinematicPhysics", TestKinematicPhysics},
     {"TestOrientedKinematicPhysics", TestOrientedKinematicPhysics},
     {"TestKinematicAdvanceDuration", TestKinematicAdvanceDuration},
@@ -5753,6 +6217,7 @@ const ri::test::TestCase kEngineImportCases[] = {
     {"TestWorldRuntimeState", TestWorldRuntimeState},
     {"TestWorldInstrumentation", TestWorldInstrumentation},
     {"TestWorldSpatialDebugAndProxyVolumes", TestWorldSpatialDebugAndProxyVolumes},
+    {"TestRawIronGameplayInfrastructureStacks", TestRawIronGameplayInfrastructureStacks},
 };
 
 } // namespace

@@ -5,6 +5,7 @@ add_executable(RawIron.Core.Tests
 target_link_libraries(RawIron.Core.Tests
   PRIVATE
     RawIron::Core
+    RawIron::Runtime
     RawIron::RenderVulkan
     RawIron::RenderSoftware
     RawIron::SceneUtilities

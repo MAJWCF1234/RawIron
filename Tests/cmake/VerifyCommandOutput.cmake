@@ -6,6 +6,10 @@ if(NOT DEFINED EXPECTED_STRINGS)
   message(FATAL_ERROR "EXPECTED_STRINGS must be provided.")
 endif()
 
+if(DEFINED COMMAND_ARGS_RAW)
+  string(REPLACE "|" ";" COMMAND_ARGS "${COMMAND_ARGS_RAW}")
+endif()
+
 execute_process(
   COMMAND "${EXECUTABLE}" ${COMMAND_ARGS}
   RESULT_VARIABLE command_result

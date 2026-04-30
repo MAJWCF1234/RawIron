@@ -12,7 +12,9 @@ target_link_libraries(RawIron.EngineImport.Tests
     RawIron::Events
     RawIron::Logic
     RawIron::RenderVulkan
+    RawIron::RenderSoftware
     RawIron::Runtime
+    RawIron::SceneUtilities
     RawIron::Spatial
     RawIron::Trace
     RawIron::Structural
@@ -29,6 +31,11 @@ target_include_directories(RawIron.EngineImport.Tests
 if(MSVC)
   # Avoid C1041 when /MP compiles multiple TUs into one vc*.pdb.
   target_compile_options(RawIron.EngineImport.Tests PRIVATE /FS)
+else()
+  # The import suite uses designated aggregate literals heavily for sparse authoring fixtures.
+  target_compile_options(RawIron.EngineImport.Tests PRIVATE
+    -Wno-missing-field-initializers
+    -fno-var-tracking-assignments)
 endif()
 
 rawiron_stage_runtime_dlls(RawIron.EngineImport.Tests)

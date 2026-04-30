@@ -5,6 +5,7 @@
 #include "RawIron/Core/Detail/JsonScan.h"
 #include "RawIron/Core/FixedStepAccumulator.h"
 #include "RawIron/Core/GameSimulationClock.h"
+#include "RawIron/Runtime/LevelScopedSchedulers.h"
 #include "RawIron/Core/FrameArena.h"
 #include "RawIron/Core/InputPolling.h"
 #include "RawIron/Core/MainLoop.h"
@@ -21,6 +22,8 @@
 #include "RawIron/Scene/FbxLoader.h"
 #include "RawIron/Scene/GltfLoader.h"
 #include "RawIron/Scene/Helpers.h"
+#include "RawIron/Scene/LevelObjectRegistry.h"
+#include "RawIron/Scene/RuntimeMeshFactory.h"
 #include "RawIron/Scene/ModelLoader.h"
 #include "RawIron/Scene/Raycast.h"
 #include "RawIron/Scene/PhotoModeCamera.h"
@@ -522,6 +525,52 @@ void TestGameSimulationClock() {
     Expect(clock.RealtimeSeconds() == 0.0, "Game clock reset should clear realtime");
     Expect(NearlyEqual(static_cast<float>(clock.SimulationTimeSeconds()), 0.0f, 0.0001f),
            "Game clock reset should clear simulation time");
+}
+
+void TestLevelScopedSchedulers() {
+    ri::runtime::LevelScopedTimeoutScheduler timeouts;
+    int fireCount = 0;
+    (void)timeouts.ScheduleAfter(1.0, [&] { ++fireCount; }, 0.0);
+    timeouts.Tick(0.5);
+    Expect(fireCount == 0, "Timeout callback should not run before deadline");
+    timeouts.Tick(1.0);
+    Expect(fireCount == 1, "Timeout callback should run once at deadline");
+    (void)timeouts.ScheduleAfter(10.0, [&] { ++fireCount; }, 1.0);
+    timeouts.Clear();
+    timeouts.Tick(100.0);
+    Expect(fireCount == 1, "Clear should drop pending timeouts without firing");
+
+    ri::runtime::LevelScopedIntervalScheduler intervals;
+    int ticks = 0;
+    (void)intervals.ScheduleEvery(1.0, [&] { ++ticks; }, 0.0);
+    intervals.Tick(1.0, 1.0);
+    Expect(ticks == 1, "Interval should fire after one period");
+    intervals.Tick(2.0, 1.0);
+    Expect(ticks == 2, "Interval should accumulate firings across ticks");
+    intervals.SetPaused(true);
+    intervals.Tick(100.0, 98.0);
+    Expect(ticks == 2, "Paused interval scheduler should not invoke callbacks");
+
+    ri::runtime::LevelScopedIntervalScheduler selfMutating;
+    int cancelTicks = 0;
+    std::uint64_t cancelToken = 0;
+    cancelToken = selfMutating.ScheduleEvery(1.0, [&] {
+        ++cancelTicks;
+        selfMutating.Cancel(cancelToken);
+    }, 0.0);
+    selfMutating.Tick(1.0, 1.0);
+    Expect(cancelTicks == 1, "Interval scheduler should tolerate self-cancel during callback execution");
+    Expect(selfMutating.ActiveCount() == 0U, "Self-cancelled interval should be removed cleanly");
+
+    ri::runtime::LevelScopedIntervalScheduler clearInsideCallback;
+    int clearTicks = 0;
+    (void)clearInsideCallback.ScheduleEvery(1.0, [&] {
+        ++clearTicks;
+        clearInsideCallback.Clear();
+    }, 0.0);
+    (void)clearInsideCallback.ScheduleEvery(1.0, [&] { clearTicks += 100; }, 0.0);
+    clearInsideCallback.Tick(1.0, 1.0);
+    Expect(clearTicks == 1, "Clearing inside an interval callback should prevent later staged callbacks from running");
 }
 
 void TestMainLoopSanitizesInvalidFixedDelta() {
@@ -1379,6 +1428,51 @@ void TestSceneReparentingBookkeeping() {
            "New parent should receive the child");
     Expect(scene.SetParent(child, rootB), "Re-parenting to the same parent should remain a valid no-op");
     Expect(scene.GetNode(rootB).children.size() == 1U, "Re-parenting to the same parent should not duplicate child links");
+}
+
+void TestLevelObjectRegistryAndRuntimeMeshFactory() {
+    ri::scene::LevelObjectRegistry registry{};
+    registry.Register("door_a", 4);
+    Expect(registry.Size() == 1U, "Registry should track one id");
+    Expect(registry.TryResolveNode("door_a").value_or(-999) == 4, "Resolve should return registered handle");
+
+    const std::optional<ri::scene::LevelObjectRegistry::WeakRef> weak = registry.CaptureWeak("door_a");
+    Expect(weak.has_value() && !weak->id.empty() && weak->generation > 0U, "Weak capture should succeed");
+
+    registry.Register("door_a", 7);
+    Expect(registry.TryResolveNode("door_a").value_or(-999) == 7, "Replace should update handle");
+    Expect(!registry.TryResolveWeak(*weak).has_value(), "Stale weak ref should fail after replace");
+
+    const std::optional<ri::scene::LevelObjectRegistry::WeakRef> weak2 = registry.CaptureWeak("door_a");
+    Expect(registry.TryResolveWeak(*weak2).value_or(-999) == 7, "Fresh weak ref should resolve");
+
+    registry.Unregister("door_a");
+    Expect(registry.Size() == 0U, "Unregister should clear id");
+    Expect(!registry.TryResolveNode("door_a").has_value(), "Resolve should fail after unregister");
+
+    ri::scene::Scene scene("RegistryRebuild");
+    const int root = scene.CreateNode("root");
+    const int a = scene.CreateNode("pickup_gem", root);
+    const int b = scene.CreateNode("pickup_coin", root);
+    (void)b;
+    registry.RebuildFromNamedSceneNodes(scene);
+    Expect(registry.TryResolveNode("pickup_gem").value_or(-999) == a, "Rebuild should map node names");
+
+    registry.Register("extra", 99999);
+    Expect(registry.PruneInvalidHandles(scene) >= 1U, "Prune should drop out-of-range handles");
+
+    ri::scene::RuntimePrimitiveParams params{};
+    params.nodeName = "FactoryCube";
+    params.primitiveKind = "BoX";
+    params.parent = root;
+    params.registryId = "logic_cube";
+    const int factoryNode = ri::scene::InstantiateRuntimePrimitive(scene, params, &registry);
+    Expect(factoryNode != ri::scene::kInvalidHandle, "Factory should create a node");
+    Expect(registry.TryResolveNode("logic_cube").value_or(-999) == factoryNode, "Factory should register id");
+
+    Expect(ri::scene::ParsePrimitiveKindLoose("SPHERE") == ri::scene::PrimitiveType::Sphere, "Loose parse sphere");
+    Expect(ri::scene::ParsePrimitiveKindLoose("unknown", ri::scene::PrimitiveType::Plane) == ri::scene::PrimitiveType::Plane,
+           "Loose parse should fall back");
 }
 
 void TestHelperBuilders() {
@@ -3389,6 +3483,7 @@ const ri::test::TestCase kCoreTests[] = {
     {"TestActionBindings", TestActionBindings},
     {"TestFixedStepAccumulator", TestFixedStepAccumulator},
     {"TestGameSimulationClock", TestGameSimulationClock},
+    {"TestLevelScopedSchedulers", TestLevelScopedSchedulers},
     {"TestMainLoopSanitizesInvalidFixedDelta", TestMainLoopSanitizesInvalidFixedDelta},
     {"TestMainLoopSanitizesNonFiniteFixedDelta", TestMainLoopSanitizesNonFiniteFixedDelta},
     {"TestFixedStepAccumulatorSanitizesNonFiniteConfig", TestFixedStepAccumulatorSanitizesNonFiniteConfig},
@@ -3406,6 +3501,7 @@ const ri::test::TestCase kCoreTests[] = {
     {"TestCameraConfinementVolume", TestCameraConfinementVolume},
     {"TestSceneHierarchy", TestSceneHierarchy},
     {"TestSceneReparentingBookkeeping", TestSceneReparentingBookkeeping},
+    {"TestLevelObjectRegistryAndRuntimeMeshFactory", TestLevelObjectRegistryAndRuntimeMeshFactory},
     {"TestHelperBuilders", TestHelperBuilders},
     {"TestSceneDescriptionAndCounts", TestSceneDescriptionAndCounts},
     {"TestSceneUtilities", TestSceneUtilities},
