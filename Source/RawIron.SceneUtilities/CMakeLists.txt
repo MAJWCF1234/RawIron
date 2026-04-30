@@ -20,19 +20,30 @@ endif()
 
 add_library(RawIron.SceneUtilities
   src/Animation.cpp
+  src/AnimationLibraryHydration.cpp
   src/FbxLoader.cpp
   src/GltfLoader.cpp
   src/Helpers.cpp
+  src/LevelObjectRegistry.cpp
+  src/LoftPrimitiveStack.cpp
   src/ModelLoader.cpp
+  src/PhysicsPropSpawn.cpp
+  src/PrimitiveTypeCanonical.cpp
   src/StructuralBrush.cpp
+  src/StructuralPrimitiveBundle.cpp
   src/PrimitivesCsvIO.cpp
   src/Raycast.cpp
+  src/RuntimeMeshFactory.cpp
   src/SceneEntityPhysics.cpp
   src/ScriptedCameraReview.cpp
   src/SceneRenderSubmission.cpp
   src/SceneKit.cpp
   src/SceneStateIO.cpp
   src/SceneUtils.cpp
+  src/SceneStructuralTraceFeed.cpp
+  src/SceneSubtreeColliders.cpp
+  src/SceneSubtreeHelpers.cpp
+  src/TraceMeshRefinement.cpp
   src/WorkspaceSandbox.cpp
 )
 

@@ -551,6 +551,12 @@ ri::world::RuntimeVolumeSeed BuildRuntimeVolumeSeed(const Value::Object& data,
     return BuildSeedWithSizeAliases(data, defaults);
 }
 
+ri::world::AuthoringRuntimeVolumeRecord BuildAuthoringRuntimeVolumeRecordFromLevelObject(
+    const Value::Object& data,
+    const ri::world::VolumeDefaults& defaults) {
+    return ri::world::BuildAuthoringRuntimeVolumeRecord(BuildRuntimeVolumeSeed(data, defaults), defaults);
+}
+
 ri::world::FilteredCollisionVolume BuildFilteredCollisionVolume(const Value::Object& data) {
     ri::world::VolumeDefaults defaults{};
     defaults.runtimeId = "filtered_collision";

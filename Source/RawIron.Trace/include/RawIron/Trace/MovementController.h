@@ -2,10 +2,19 @@
 
 #include "RawIron/Math/Vec3.h"
 #include "RawIron/Trace/KinematicPhysics.h"
+#include "RawIron/Trace/TraceScene.h"
 
 #include <cstdint>
+#include <functional>
+#include <optional>
 
 namespace ri::trace {
+
+/// Optional mesh-accurate refinement for coarse broad-phase hits (collider id matches scene node name).
+using StructuralTraceRefiner = std::function<std::optional<TraceHit>(
+    const TraceHit& coarse,
+    const ri::math::Vec3& rayOriginWorld,
+    const ri::math::Vec3& rayDirectionUnitWorld)>;
 
 enum class MovementStance : std::uint8_t {
     Standing = 0,
@@ -72,6 +81,8 @@ struct MovementControllerOptions {
     float jumpBufferTimeSeconds = 0.18f;
     /// While ascending, if jump is not held, gravity is scaled by this (1 disables short-hop cut).
     float lowJumpGravityMultiplier = 1.18f;
+    /// Authored max step-up height (meters). Live-tuned via locomotion channel; consumed when games enable step logic.
+    float maxStepUpHeight = 0.7f;
     /// If greater than zero, a downward structural ground probe within this vertical distance allows jump when not `onGround` (proto-style).
     /// Small non-zero default: allows jump when feet are slightly past a ledge but still near ground (platforming).
     float groundProbeJumpMaxDown = 0.28f;
@@ -90,6 +101,8 @@ struct MovementControllerOptions {
     /// Project camera wish onto the ground tangent plane using `groundNormal` (proto slope walking).
     bool projectMovementOntoGroundNormal = true;
     KinematicPhysicsOptions kinematic{};
+    /// When set, structural wall probes may replace AABB normals with mesh-derived normals (custom meshes).
+    StructuralTraceRefiner refineStructuralTraceHit{};
 };
 
 struct MovementControllerState {

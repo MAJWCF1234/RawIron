@@ -9,6 +9,10 @@ namespace ri::content {
     const Value::Object& data,
     const ri::world::VolumeDefaults& defaults = {});
 
+[[nodiscard]] ri::world::AuthoringRuntimeVolumeRecord BuildAuthoringRuntimeVolumeRecordFromLevelObject(
+    const Value::Object& data,
+    const ri::world::VolumeDefaults& defaults = {});
+
 [[nodiscard]] ri::world::FilteredCollisionVolume BuildFilteredCollisionVolume(const Value::Object& data);
 [[nodiscard]] ri::world::FilteredCollisionVolume BuildCameraBlockingVolume(const Value::Object& data);
 [[nodiscard]] ri::world::ClipRuntimeVolume BuildAiPerceptionBlockerVolume(const Value::Object& data);

@@ -36,8 +36,10 @@
 #include <iomanip>
 #include <limits>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -45,7 +47,9 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #include <shellapi.h>
 #endif
@@ -368,6 +372,346 @@ void EnsureProjectDevConfig(const fs::path& gameRoot) {
     stream << "# RawIron Project Dev Config v1\n"
            << "last_opened_profile=1\n"
            << "local_debug_overlay=0\n";
+}
+
+struct EditorAuthoredNodeRecord {
+    std::string name;
+    std::string parentName;
+    ri::scene::Transform localTransform{};
+    bool hasMesh = false;
+    ri::scene::Mesh mesh{};
+    bool hasMaterial = false;
+    ri::scene::Material material{};
+};
+
+void WriteVec2(std::ostream& stream, const ri::math::Vec2& value) {
+    stream << value.x << " " << value.y;
+}
+
+void WriteVec3(std::ostream& stream, const ri::math::Vec3& value) {
+    stream << value.x << " " << value.y << " " << value.z;
+}
+
+bool ReadVec2(std::istream& stream, ri::math::Vec2& value) {
+    return static_cast<bool>(stream >> value.x >> value.y);
+}
+
+bool ReadVec3(std::istream& stream, ri::math::Vec3& value) {
+    return static_cast<bool>(stream >> value.x >> value.y >> value.z);
+}
+
+bool SaveEditorAuthoredSceneState(const ri::scene::Scene& scene,
+                                  const std::size_t authoredNodeStart,
+                                  const int editorTrashHandle,
+                                  const fs::path& outputPath) {
+    std::vector<EditorAuthoredNodeRecord> records;
+    const std::size_t nodeCount = scene.NodeCount();
+    for (std::size_t index = authoredNodeStart; index < nodeCount; ++index) {
+        const ri::scene::Node& node = scene.GetNode(static_cast<int>(index));
+        if (static_cast<int>(index) == editorTrashHandle || node.parent == editorTrashHandle) {
+            continue;
+        }
+
+        EditorAuthoredNodeRecord record{};
+        record.name = node.name;
+        record.localTransform = node.localTransform;
+        if (node.parent != ri::scene::kInvalidHandle
+            && static_cast<std::size_t>(node.parent) < scene.NodeCount()) {
+            record.parentName = scene.GetNode(node.parent).name;
+        }
+        if (node.mesh != ri::scene::kInvalidHandle && static_cast<std::size_t>(node.mesh) < scene.MeshCount()) {
+            record.hasMesh = true;
+            record.mesh = scene.GetMesh(node.mesh);
+        }
+        if (node.material != ri::scene::kInvalidHandle
+            && static_cast<std::size_t>(node.material) < scene.MaterialCount()) {
+            record.hasMaterial = true;
+            record.material = scene.GetMaterial(node.material);
+        }
+        records.push_back(std::move(record));
+    }
+
+    fs::create_directories(outputPath.parent_path());
+    std::ofstream stream(outputPath, std::ios::trunc);
+    if (!stream.is_open()) {
+        return false;
+    }
+
+    stream << "RAWIRON_EDITOR_AUTHORED_SCENE_V1\n";
+    stream << "node_count " << records.size() << "\n";
+    for (const EditorAuthoredNodeRecord& record : records) {
+        stream << "node "
+               << std::quoted(record.name) << " "
+               << std::quoted(record.parentName) << " ";
+        WriteVec3(stream, record.localTransform.position);
+        stream << " ";
+        WriteVec3(stream, record.localTransform.rotationDegrees);
+        stream << " ";
+        WriteVec3(stream, record.localTransform.scale);
+        stream << " " << (record.hasMesh ? 1 : 0) << " " << (record.hasMaterial ? 1 : 0) << "\n";
+
+        if (record.hasMesh) {
+            stream << "mesh "
+                   << std::quoted(record.mesh.name) << " "
+                   << static_cast<int>(record.mesh.primitive) << " "
+                   << record.mesh.vertexCount << " "
+                   << record.mesh.indexCount << " "
+                   << record.mesh.positions.size() << " ";
+            for (const ri::math::Vec3& position : record.mesh.positions) {
+                WriteVec3(stream, position);
+                stream << " ";
+            }
+            stream << record.mesh.texCoords.size() << " ";
+            for (const ri::math::Vec2& texCoord : record.mesh.texCoords) {
+                WriteVec2(stream, texCoord);
+                stream << " ";
+            }
+            stream << record.mesh.indices.size();
+            for (const int index : record.mesh.indices) {
+                stream << " " << index;
+            }
+            stream << "\n";
+        }
+
+        if (record.hasMaterial) {
+            stream << "material "
+                   << std::quoted(record.material.name) << " "
+                   << static_cast<int>(record.material.shadingModel) << " ";
+            WriteVec3(stream, record.material.baseColor);
+            stream << " "
+                   << std::quoted(record.material.baseColorTexture) << " "
+                   << record.material.baseColorTextureFrames.size();
+            for (const std::string& frame : record.material.baseColorTextureFrames) {
+                stream << " " << std::quoted(frame);
+            }
+            stream << " " << record.material.baseColorTextureFramesPerSecond << " ";
+            WriteVec2(stream, record.material.textureTiling);
+            stream << " ";
+            WriteVec3(stream, record.material.emissiveColor);
+            stream << " "
+                   << record.material.metallic << " "
+                   << record.material.roughness << " "
+                   << record.material.opacity << " "
+                   << record.material.alphaCutoff << " "
+                   << (record.material.doubleSided ? 1 : 0) << " "
+                   << (record.material.transparent ? 1 : 0) << " "
+                   << std::quoted(record.material.normalTexture) << " "
+                   << std::quoted(record.material.ormTexture) << " "
+                   << std::quoted(record.material.roughnessTexture) << " "
+                   << std::quoted(record.material.metallicTexture) << " "
+                   << std::quoted(record.material.emissiveTexture) << " "
+                   << std::quoted(record.material.opacityTexture) << " "
+                   << std::quoted(record.material.occlusionTexture) << "\n";
+        }
+    }
+
+    return stream.good();
+}
+
+bool LoadEditorAuthoredSceneState(ri::scene::Scene& scene,
+                                  const fs::path& inputPath,
+                                  std::string* errorMessage) {
+    std::ifstream stream(inputPath);
+    if (!stream.is_open()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "authored scene sidecar missing";
+        }
+        return false;
+    }
+
+    std::string magic;
+    std::getline(stream, magic);
+    if (magic != "RAWIRON_EDITOR_AUTHORED_SCENE_V1") {
+        if (errorMessage != nullptr) {
+            *errorMessage = "invalid authored scene sidecar header";
+        }
+        return false;
+    }
+
+    std::string header;
+    std::size_t nodeCount = 0;
+    stream >> header >> nodeCount;
+    if (!stream.good() || header != "node_count") {
+        if (errorMessage != nullptr) {
+            *errorMessage = "invalid authored scene sidecar count";
+        }
+        return false;
+    }
+
+    std::unordered_map<std::string, int> nodeByName;
+    for (std::size_t index = 0; index < scene.NodeCount(); ++index) {
+        nodeByName.emplace(scene.GetNode(static_cast<int>(index)).name, static_cast<int>(index));
+    }
+
+    std::size_t loaded = 0;
+    while (loaded < nodeCount && stream.good()) {
+        std::string token;
+        stream >> token;
+        if (!stream.good() || token != "node") {
+            break;
+        }
+
+        EditorAuthoredNodeRecord record{};
+        int hasMesh = 0;
+        int hasMaterial = 0;
+        stream >> std::quoted(record.name) >> std::quoted(record.parentName);
+        if (!ReadVec3(stream, record.localTransform.position)
+            || !ReadVec3(stream, record.localTransform.rotationDegrees)
+            || !ReadVec3(stream, record.localTransform.scale)
+            || !(stream >> hasMesh >> hasMaterial)) {
+            if (errorMessage != nullptr) {
+                *errorMessage = "malformed authored node record";
+            }
+            return false;
+        }
+        record.hasMesh = hasMesh != 0;
+        record.hasMaterial = hasMaterial != 0;
+
+        if (record.hasMesh) {
+            std::string meshToken;
+            std::size_t positionCount = 0;
+            std::size_t texCoordCount = 0;
+            std::size_t indexCount = 0;
+            int primitive = 0;
+            stream >> meshToken
+                   >> std::quoted(record.mesh.name)
+                   >> primitive
+                   >> record.mesh.vertexCount
+                   >> record.mesh.indexCount
+                   >> positionCount;
+            if (!stream.good() || meshToken != "mesh") {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "malformed mesh record";
+                }
+                return false;
+            }
+            record.mesh.primitive = static_cast<ri::scene::PrimitiveType>(primitive);
+            record.mesh.positions.resize(positionCount);
+            for (ri::math::Vec3& position : record.mesh.positions) {
+                if (!ReadVec3(stream, position)) {
+                    if (errorMessage != nullptr) {
+                        *errorMessage = "malformed mesh positions";
+                    }
+                    return false;
+                }
+            }
+            stream >> texCoordCount;
+            record.mesh.texCoords.resize(texCoordCount);
+            for (ri::math::Vec2& texCoord : record.mesh.texCoords) {
+                if (!ReadVec2(stream, texCoord)) {
+                    if (errorMessage != nullptr) {
+                        *errorMessage = "malformed mesh texcoords";
+                    }
+                    return false;
+                }
+            }
+            stream >> indexCount;
+            record.mesh.indices.resize(indexCount);
+            for (int& indexValue : record.mesh.indices) {
+                if (!(stream >> indexValue)) {
+                    if (errorMessage != nullptr) {
+                        *errorMessage = "malformed mesh indices";
+                    }
+                    return false;
+                }
+            }
+        }
+
+        if (record.hasMaterial) {
+            std::string materialToken;
+            std::size_t frameCount = 0;
+            int shadingModel = 0;
+            int doubleSided = 0;
+            int transparent = 0;
+            stream >> materialToken
+                   >> std::quoted(record.material.name)
+                   >> shadingModel;
+            if (!stream.good() || materialToken != "material") {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "malformed material record";
+                }
+                return false;
+            }
+            record.material.shadingModel = static_cast<ri::scene::ShadingModel>(shadingModel);
+            if (!ReadVec3(stream, record.material.baseColor)
+                || !(stream >> std::quoted(record.material.baseColorTexture) >> frameCount)) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "malformed material header";
+                }
+                return false;
+            }
+            record.material.baseColorTextureFrames.resize(frameCount);
+            for (std::string& frame : record.material.baseColorTextureFrames) {
+                if (!(stream >> std::quoted(frame))) {
+                    if (errorMessage != nullptr) {
+                        *errorMessage = "malformed material frame list";
+                    }
+                    return false;
+                }
+            }
+            if (!(stream >> record.material.baseColorTextureFramesPerSecond)
+                || !ReadVec2(stream, record.material.textureTiling)
+                || !ReadVec3(stream, record.material.emissiveColor)
+                || !(stream >> record.material.metallic
+                     >> record.material.roughness
+                     >> record.material.opacity
+                     >> record.material.alphaCutoff
+                     >> doubleSided
+                     >> transparent
+                     >> std::quoted(record.material.normalTexture)
+                     >> std::quoted(record.material.ormTexture)
+                     >> std::quoted(record.material.roughnessTexture)
+                     >> std::quoted(record.material.metallicTexture)
+                     >> std::quoted(record.material.emissiveTexture)
+                     >> std::quoted(record.material.opacityTexture)
+                     >> std::quoted(record.material.occlusionTexture))) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "malformed material payload";
+                }
+                return false;
+            }
+            record.material.doubleSided = doubleSided != 0;
+            record.material.transparent = transparent != 0;
+        }
+
+        int parent = ri::scene::kInvalidHandle;
+        if (!record.parentName.empty()) {
+            const auto found = nodeByName.find(record.parentName);
+            if (found == nodeByName.end()) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "missing parent node '" + record.parentName + "'";
+                }
+                return false;
+            }
+            parent = found->second;
+        }
+
+        const int nodeHandle = scene.CreateNode(record.name, parent);
+        ri::scene::Node& node = scene.GetNode(nodeHandle);
+        node.localTransform = record.localTransform;
+        if (record.hasMaterial) {
+            const int materialHandle = scene.AddMaterial(record.material);
+            if (record.hasMesh) {
+                const int meshHandle = scene.AddMesh(record.mesh);
+                scene.AttachMesh(nodeHandle, meshHandle, materialHandle);
+            }
+        } else if (record.hasMesh) {
+            const int meshHandle = scene.AddMesh(record.mesh);
+            scene.AttachMesh(nodeHandle, meshHandle);
+        }
+
+        nodeByName[record.name] = nodeHandle;
+        ++loaded;
+    }
+
+    if (loaded != nodeCount) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "authored scene sidecar truncated";
+        }
+        return false;
+    }
+
+    return true;
 }
 
 EditorSceneConfig ResolveSceneConfig(const ri::core::CommandLine& commandLine) {
@@ -761,7 +1105,7 @@ public:
             sceneConfig_.gameManifest.has_value() ? sceneConfig_.gameManifest->rootPath : fs::path{});
 
         ri::core::LogSection("Editor Startup");
-        ri::core::LogInfo("Authoring shell: place cube/plane primitives, move them in the scene, then export to the game's levels/assembly.primitives.csv (Ctrl+E).");
+        ri::core::LogInfo("Authoring shell: place primitives/brushes, save persistent editor state with Ctrl+S, then export game CSV with Ctrl+E.");
         ri::core::LogInfo("Scene graph and helpers run in the shared runtime; this is the live edit buffer for level geometry.");
         ri::core::LogInfo("Workspace: " + sceneConfig_.workspaceLabel);
         if (!sceneConfig_.statusMessage.empty()) {
@@ -1587,8 +1931,16 @@ void DrawRawIronFlatSceneView(HDC dc,
 struct AuthoringToolbarRects {
     RECT addCube{};
     RECT addPlane{};
+    RECT addTrigger{};
     RECT exportCsv{};
     RECT play{};
+};
+
+struct TopChromeRects {
+    RECT save{};
+    RECT exportScene{};
+    RECT play{};
+    RECT files{};
 };
 
 struct StructuralBrushPreset {
@@ -1680,8 +2032,21 @@ inline constexpr std::array<StructuralBrushPreset, 24> kStructuralBrushPresets{{
     AuthoringToolbarRects rects{};
     rects.addCube = {x0, rowTop, x0 + 88, rowBot};
     rects.addPlane = {x0 + 94, rowTop, x0 + 188, rowBot};
-    rects.exportCsv = {x0 + 194, rowTop, x0 + 284, rowBot};
-    rects.play = {x0 + 290, rowTop, x0 + 368, rowBot};
+    rects.addTrigger = {x0 + 194, rowTop, x0 + 300, rowBot};
+    rects.exportCsv = {x0 + 306, rowTop, x0 + 396, rowBot};
+    rects.play = {x0 + 402, rowTop, x0 + 480, rowBot};
+    return rects;
+}
+
+[[nodiscard]] TopChromeRects ComputeTopChromeRects(const RECT& topBar) {
+    const LONG rowTop = topBar.top + 10;
+    const LONG rowBot = topBar.top + 36;
+    const LONG right = topBar.right - 18;
+    TopChromeRects rects{};
+    rects.files = {right - 94, rowTop, right, rowBot};
+    rects.play = {right - 194, rowTop, right - 100, rowBot};
+    rects.exportScene = {right - 306, rowTop, right - 200, rowBot};
+    rects.save = {right - 412, rowTop, right - 312, rowBot};
     return rects;
 }
 
@@ -1713,6 +2078,12 @@ public:
         }
         RefreshWorkspaceGamesAndResources();
         EnsureEditorTrashFolder();
+        authoredNodeStart_ = starterScene_.scene.NodeCount();
+        baselineStarterScene_ = starterScene_.scene;
+        std::error_code loadEc{};
+        if (fs::exists(ResolveSceneStatePath(), loadEc) || fs::exists(ResolveAuthoredSceneStatePath(), loadEc)) {
+            (void)TryLoadPersistentEditorScene(ResolveSceneStatePath(), false);
+        }
         lastAutosaveSteady_ = std::chrono::steady_clock::now();
         std::error_code ec{};
         if (fs::exists(ResolveAutosaveScenePath(), ec)) {
@@ -2451,16 +2822,15 @@ private:
                 InvalidateRect(hwnd_, nullptr, FALSE);
                 return 0;
             }
-            const bool sceneSaved = ri::scene::SaveSceneNodeTransforms(starterScene_.scene, ResolveSceneStatePath());
-            const bool orbitSaved = SaveEditorOrbitSidecar(ResolveSceneStatePath(), editorOrbitState_);
-            if (sceneSaved && orbitSaved) {
-                lastIoStatus_ = "Saved scene transforms and orbit camera.";
+            std::string saveError;
+            if (SavePersistentEditorScene(ResolveSceneStatePath(),
+                                          EditorOrbitSidecarPath(ResolveSceneStatePath()),
+                                          &saveError)) {
+                lastIoStatus_ = "Saved scene transforms, authored nodes, and orbit camera.";
                 autosavePending_ = false;
                 lastAutosaveSteady_ = std::chrono::steady_clock::now();
-            } else if (sceneSaved) {
-                lastIoStatus_ = "Saved scene transforms (orbit sidecar failed).";
             } else {
-                lastIoStatus_ = "Failed to save editor scene state.";
+                lastIoStatus_ = "Failed to save editor scene state: " + saveError + ".";
             }
             InvalidateRect(hwnd_, nullptr, FALSE);
             return 0;
@@ -2482,6 +2852,11 @@ private:
         }
         if (controlHeld && shiftHeld && key == 'P') {
             AddAuthoringPrimitive(ri::scene::PrimitiveType::Plane);
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
+        }
+        if (controlHeld && shiftHeld && key == 'T') {
+            AddTriggerVolumePrimitive();
             InvalidateRect(hwnd_, nullptr, FALSE);
             return 0;
         }
@@ -2541,20 +2916,7 @@ private:
             return 0;
         }
         if (controlHeld && key == 'L') {
-            const bool sceneLoaded = ri::scene::LoadSceneNodeTransforms(starterScene_.scene, ResolveSceneStatePath());
-            const bool orbitLoaded = TryLoadEditorOrbitSidecar(sceneConfig_.sceneStatePath, editorOrbitState_);
-            if (orbitLoaded) {
-                ApplyEditorOrbitToScene();
-            }
-            if (sceneLoaded && orbitLoaded) {
-                lastIoStatus_ = "Loaded scene transforms and orbit camera.";
-            } else if (sceneLoaded) {
-                lastIoStatus_ = "Loaded scene transforms (no orbit sidecar).";
-            } else {
-                lastIoStatus_ = "Failed to load editor scene state.";
-            }
-            autosavePending_ = false;
-            lastAutosaveSteady_ = std::chrono::steady_clock::now();
+            (void)TryLoadPersistentEditorScene(ResolveSceneStatePath(), false);
             InvalidateRect(hwnd_, nullptr, FALSE);
             return 0;
         }
@@ -2768,10 +3130,45 @@ private:
         const EditorLayout layout = ComputeLayout();
         UpdateCameraPlotRect(layout.viewportInner);
         POINT point{x, y};
+        RECT client{};
+        GetClientRect(hwnd_, &client);
+        const RECT topBar{0, 0, client.right, 56};
+        const TopChromeRects topChrome = ComputeTopChromeRects(topBar);
 
         const auto hitRect = [&point](const RECT& rect) {
             return PtInRect(&rect, point) != FALSE;
         };
+
+        if (hitRect(topChrome.save)) {
+            std::string saveError;
+            if (SavePersistentEditorScene(ResolveSceneStatePath(),
+                                          EditorOrbitSidecarPath(ResolveSceneStatePath()),
+                                          &saveError)) {
+                lastIoStatus_ = "Saved scene transforms, authored nodes, and orbit camera.";
+                autosavePending_ = false;
+                lastAutosaveSteady_ = std::chrono::steady_clock::now();
+            } else {
+                lastIoStatus_ = "Failed to save editor scene state: " + saveError + ".";
+            }
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
+        }
+        if (hitRect(topChrome.exportScene)) {
+            TryExportAssemblyPrimitivesCsv();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
+        }
+        if (hitRect(topChrome.play)) {
+            TryLaunchPlayer();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
+        }
+        if (hitRect(topChrome.files)) {
+            leftPanelMode_ = LeftPanelMode::Resources;
+            (void)SetInspectorPanel(InspectorPanel::Files);
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
+        }
 
         const RECT translateButton{layout.toolStrip.left + 194, layout.toolStrip.top + 8, layout.toolStrip.left + 268, layout.toolStrip.bottom - 8};
         const RECT rotateButton{layout.toolStrip.left + 274, layout.toolStrip.top + 8, layout.toolStrip.left + 342, layout.toolStrip.bottom - 8};
@@ -2819,6 +3216,11 @@ private:
         }
         if (hitRect(authoringTools.addPlane)) {
             AddAuthoringPrimitive(ri::scene::PrimitiveType::Plane);
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
+        }
+        if (hitRect(authoringTools.addTrigger)) {
+            AddTriggerVolumePrimitive();
             InvalidateRect(hwnd_, nullptr, FALSE);
             return 0;
         }
@@ -2997,6 +3399,9 @@ private:
         if (inspectorPanel_ == InspectorPanel::Gameplay) {
             const RECT inventoryModeRow{layout.inspectorInner.left + 10, layout.inspectorInner.top + 66, layout.inspectorInner.right - 10, layout.inspectorInner.top + 88};
             const RECT offHandRow{layout.inspectorInner.left + 10, layout.inspectorInner.top + 126, layout.inspectorInner.right - 10, layout.inspectorInner.top + 148};
+            const RECT addTriggerBtn{layout.inspectorInner.left + 10, layout.inspectorInner.top + 250, layout.inspectorInner.left + 118, layout.inspectorInner.top + 276};
+            const RECT exportGameplayBtn{layout.inspectorInner.left + 124, layout.inspectorInner.top + 250, layout.inspectorInner.left + 228, layout.inspectorInner.top + 276};
+            const RECT playtestBtn{layout.inspectorInner.left + 234, layout.inspectorInner.top + 250, layout.inspectorInner.right - 10, layout.inspectorInner.top + 276};
             if (hitRect(inventoryModeRow)) {
                 CycleInventoryPresentation();
                 InvalidateRect(hwnd_, nullptr, FALSE);
@@ -3005,6 +3410,21 @@ private:
             if (hitRect(offHandRow)) {
                 creatorInventoryPolicy_.allowOffHand = !creatorInventoryPolicy_.allowOffHand;
                 lastIoStatus_ = creatorInventoryPolicy_.allowOffHand ? "Gameplay policy: off-hand enabled." : "Gameplay policy: off-hand disabled.";
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (hitRect(addTriggerBtn)) {
+                AddTriggerVolumePrimitive();
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (hitRect(exportGameplayBtn)) {
+                TryExportAssemblyPrimitivesCsv();
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (hitRect(playtestBtn)) {
+                TryLaunchPlayer();
                 InvalidateRect(hwnd_, nullptr, FALSE);
                 return 0;
             }
@@ -3174,16 +3594,219 @@ private:
         return sceneConfig_.sceneStatePath;
     }
 
+    [[nodiscard]] fs::path ResolveAuthoredSceneStatePath(const fs::path& baseScenePath) const {
+        return baseScenePath.parent_path() / "authored_scene.ri_editor";
+    }
+
+    [[nodiscard]] fs::path ResolveAuthoredSceneStatePath() const {
+        return ResolveAuthoredSceneStatePath(ResolveSceneStatePath());
+    }
+
+    [[nodiscard]] bool SavePersistentEditorScene(const fs::path& baseScenePath,
+                                                 const fs::path& orbitPath,
+                                                 std::string* errorMessage) {
+        const bool sceneSaved = ri::scene::SaveSceneNodeTransforms(starterScene_.scene, baseScenePath);
+        const bool authoredSaved = SaveEditorAuthoredSceneState(
+            starterScene_.scene,
+            authoredNodeStart_,
+            editorTrashFolderHandle_,
+            ResolveAuthoredSceneStatePath(baseScenePath));
+        const bool orbitSaved = SaveEditorOrbitStateToPath(orbitPath, editorOrbitState_);
+        if (sceneSaved && authoredSaved && orbitSaved) {
+            return true;
+        }
+        if (errorMessage != nullptr) {
+            std::string message;
+            if (!sceneSaved) {
+                message += "transform state";
+            }
+            if (!authoredSaved) {
+                if (!message.empty()) {
+                    message += ", ";
+                }
+                message += "authored scene";
+            }
+            if (!orbitSaved) {
+                if (!message.empty()) {
+                    message += ", ";
+                }
+                message += "orbit sidecar";
+            }
+            *errorMessage = "failed to save " + message;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool TryLoadPersistentEditorScene(const fs::path& baseScenePath,
+                                                    const bool loadAutosaveVariant) {
+        starterScene_.scene = baselineStarterScene_;
+        RebindEditorTrashFolderAfterSceneReplace();
+
+        std::string authoredError;
+        const bool authoredLoaded =
+            LoadEditorAuthoredSceneState(starterScene_.scene,
+                                         ResolveAuthoredSceneStatePath(baseScenePath),
+                                         &authoredError);
+        const bool sceneLoaded = ri::scene::LoadSceneNodeTransforms(starterScene_.scene, baseScenePath);
+        const bool orbitLoaded = TryLoadEditorOrbitStateFromPath(
+            loadAutosaveVariant ? ResolveAutosaveOrbitPath() : EditorOrbitSidecarPath(baseScenePath),
+            editorOrbitState_);
+        if (orbitLoaded) {
+            ApplyEditorOrbitToScene();
+        }
+        RebindEditorTrashFolderAfterSceneReplace();
+
+        if (sceneLoaded) {
+            autosavePending_ = false;
+            lastAutosaveSteady_ = std::chrono::steady_clock::now();
+            if (loadAutosaveVariant) {
+                lastIoStatus_ = orbitLoaded
+                    ? "Loaded autosave scene, authored nodes, and orbit."
+                    : "Loaded autosave scene + authored nodes (orbit autosave missing).";
+            } else {
+                lastIoStatus_ = orbitLoaded
+                    ? "Loaded scene transforms, authored nodes, and orbit camera."
+                    : "Loaded scene transforms + authored nodes (no orbit sidecar).";
+            }
+            return true;
+        }
+
+        starterScene_.scene = baselineStarterScene_;
+        RebindEditorTrashFolderAfterSceneReplace();
+        if (!authoredLoaded && !fs::exists(baseScenePath)) {
+            lastIoStatus_ = loadAutosaveVariant
+                ? "No autosave state available to load."
+                : "Failed to load editor scene state.";
+        } else if (!authoredLoaded) {
+            lastIoStatus_ = "Failed to load authored scene sidecar: " + authoredError + ".";
+        } else {
+            lastIoStatus_ = "Failed to load editor transform state.";
+        }
+        return false;
+    }
+
+    [[nodiscard]] std::string NextTriggerVolumeBasename() const {
+        int maxIndex = 0;
+        static constexpr std::string_view kPrefix = "Trigger_";
+        for (const ri::scene::Node& node : starterScene_.scene.Nodes()) {
+            const std::string& name = node.name;
+            if (name.size() <= kPrefix.size() || name.compare(0, kPrefix.size(), kPrefix) != 0) {
+                continue;
+            }
+            int parsed = 0;
+            bool anyDigit = false;
+            bool bad = false;
+            for (std::size_t i = kPrefix.size(); i < name.size(); ++i) {
+                const char ch = name[i];
+                if (ch < '0' || ch > '9') {
+                    bad = true;
+                    break;
+                }
+                anyDigit = true;
+                parsed = parsed * 10 + static_cast<int>(ch - '0');
+            }
+            if (!bad && anyDigit) {
+                maxIndex = std::max(maxIndex, parsed);
+            }
+        }
+        return std::string(kPrefix) + std::to_string(maxIndex + 1);
+    }
+
+    void AddTriggerVolumePrimitive() {
+        if (starterScene_.handles.root == ri::scene::kInvalidHandle) {
+            lastIoStatus_ = "Cannot add trigger volume: scene has no world root.";
+            return;
+        }
+
+        ri::scene::PrimitiveNodeOptions options{};
+        options.parent = starterScene_.handles.root;
+        options.primitive = ri::scene::PrimitiveType::Cube;
+        options.shadingModel = ri::scene::ShadingModel::Unlit;
+        options.nodeName = NextTriggerVolumeBasename();
+        options.materialName = "author_trigger";
+        options.baseColor = ri::math::Vec3{0.15f, 0.75f, 0.28f};
+        options.transform.position = starterScene_.handles.orbitCamera.orbit.target;
+        options.transform.scale = ri::math::Vec3{2.0f, 2.0f, 2.0f};
+
+        const int newHandle = ri::scene::AddPrimitiveNode(starterScene_.scene, options);
+        selectedNode_ = static_cast<std::size_t>(newHandle);
+        const EditorLayout layout = ComputeLayout();
+        EnsureHierarchySelectionVisible(layout.hierarchyInner);
+        lastIoStatus_ = "Added trigger volume '" + options.nodeName +
+                        "'. Resize/move it, then Ctrl+E exports assembly.primitives.csv and assembly.triggers.csv.";
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    [[nodiscard]] bool TryExportAssemblyTriggersCsv(const fs::path& outputPath, std::string* errorMessage) const {
+        std::error_code ec{};
+        fs::create_directories(outputPath.parent_path(), ec);
+        if (ec) {
+            if (errorMessage != nullptr) {
+                *errorMessage = "could not create trigger export folder";
+            }
+            return false;
+        }
+
+        std::ofstream stream(outputPath, std::ios::out | std::ios::trunc);
+        if (!stream.is_open()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = "could not open trigger export file";
+            }
+            return false;
+        }
+
+        stream << "trigger_id,event_type,min_x,min_y,min_z,max_x,max_y,max_z,param\n";
+        std::size_t exportedCount = 0;
+        for (std::size_t index = 0; index < starterScene_.scene.NodeCount(); ++index) {
+            const ri::scene::Node& node = starterScene_.scene.GetNode(static_cast<int>(index));
+            if (node.name.rfind("Trigger_", 0) != 0) {
+                continue;
+            }
+            if (node.mesh == ri::scene::kInvalidHandle) {
+                continue;
+            }
+            const ri::scene::Mesh& mesh = starterScene_.scene.GetMesh(node.mesh);
+            if (mesh.primitive != ri::scene::PrimitiveType::Cube) {
+                continue;
+            }
+            const std::optional<ri::scene::WorldBounds> bounds =
+                ri::scene::ComputeNodeWorldBounds(starterScene_.scene, static_cast<int>(index), false);
+            if (!bounds.has_value()) {
+                continue;
+            }
+            stream << node.name
+                   << ",generic_trigger_volume,"
+                   << bounds->min.x << "," << bounds->min.y << "," << bounds->min.z << ","
+                   << bounds->max.x << "," << bounds->max.y << "," << bounds->max.z << ","
+                   << "\n";
+            exportedCount += 1U;
+        }
+
+        if (!stream.good()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = "failed while writing trigger rows";
+            }
+            return false;
+        }
+        if (exportedCount == 0U && errorMessage != nullptr) {
+            *errorMessage = "no Trigger_* cube nodes found to export";
+        }
+        return exportedCount > 0U;
+    }
+
     void TryExportAssemblyPrimitivesCsv() {
         fs::path outputPath;
+        fs::path triggersOutputPath;
         std::string destinationSummary;
         if (!workspaceGames_.empty() && focusedWorkspaceGameIndex_ >= 0 &&
             focusedWorkspaceGameIndex_ < static_cast<int>(workspaceGames_.size())) {
             const WorkspaceGameEntry& game = workspaceGames_[static_cast<std::size_t>(focusedWorkspaceGameIndex_)];
             outputPath = game.rootPath / "levels" / "assembly.primitives.csv";
+            triggersOutputPath = game.rootPath / "levels" / "assembly.triggers.csv";
             destinationSummary = game.displayName + " → levels/assembly.primitives.csv";
         } else {
             outputPath = ResolveSceneStatePath().parent_path() / "assembly.primitives.export.csv";
+            triggersOutputPath = ResolveSceneStatePath().parent_path() / "assembly.triggers.export.csv";
             destinationSummary = "editor session folder (no workspace game focused)";
         }
 
@@ -3218,6 +3841,13 @@ private:
         if (customRenderableCount > 0U) {
             lastIoStatus_ += "  Skipped custom/brush meshes: " + std::to_string(customRenderableCount) +
                              " (CSV supports cube/plane rows only).";
+        }
+
+        std::string triggerError;
+        if (TryExportAssemblyTriggersCsv(triggersOutputPath, &triggerError)) {
+            lastIoStatus_ += "  Exported trigger volumes to " + triggersOutputPath.filename().string() + ".";
+        } else if (!triggerError.empty() && triggerError != "no Trigger_* cube nodes found to export") {
+            lastIoStatus_ += "  Trigger export failed: " + triggerError + ".";
         }
     }
 
@@ -3641,13 +4271,18 @@ private:
         const fs::path orbitSnapshotPath =
             basePath.parent_path() / ("editor_orbit_snapshot_" + token + ".ri_cam");
         const bool sceneSaved = ri::scene::SaveSceneNodeTransforms(starterScene_.scene, snapshotPath);
+        const bool authoredSaved = SaveEditorAuthoredSceneState(
+            starterScene_.scene,
+            authoredNodeStart_,
+            editorTrashFolderHandle_,
+            ResolveAuthoredSceneStatePath(snapshotPath));
         const bool orbitSaved = SaveEditorOrbitStateToPath(orbitSnapshotPath, editorOrbitState_);
-        if (sceneSaved && orbitSaved) {
+        if (sceneSaved && authoredSaved && orbitSaved) {
             lastIoStatus_ = "Snapshot saved: " + snapshotPath.filename().string();
-        } else if (sceneSaved) {
+        } else if (sceneSaved && authoredSaved) {
             lastIoStatus_ = "Snapshot saved, but orbit snapshot failed.";
         } else {
-            lastIoStatus_ = "Snapshot failed while writing scene transforms.";
+            lastIoStatus_ = "Snapshot failed while writing scene state.";
         }
     }
 
@@ -3660,23 +4295,7 @@ private:
     }
 
     void TryLoadAutosaveState() {
-        const bool sceneLoaded =
-            ri::scene::LoadSceneNodeTransforms(starterScene_.scene, ResolveAutosaveScenePath());
-        const bool orbitLoaded = TryLoadEditorOrbitStateFromPath(ResolveAutosaveOrbitPath(), editorOrbitState_);
-        if (orbitLoaded) {
-            ApplyEditorOrbitToScene();
-        }
-        if (sceneLoaded && orbitLoaded) {
-            lastIoStatus_ = "Loaded autosave scene + orbit.";
-            autosavePending_ = false;
-            lastAutosaveSteady_ = std::chrono::steady_clock::now();
-        } else if (sceneLoaded) {
-            lastIoStatus_ = "Loaded autosave scene (orbit autosave missing).";
-            autosavePending_ = false;
-            lastAutosaveSteady_ = std::chrono::steady_clock::now();
-        } else {
-            lastIoStatus_ = "No autosave state available to load.";
-        }
+        (void)TryLoadPersistentEditorScene(ResolveAutosaveScenePath(), true);
     }
 
     void MaybeAutosaveState() {
@@ -3687,10 +4306,8 @@ private:
         if (now - lastAutosaveSteady_ < kAutosaveInterval_) {
             return;
         }
-        const bool sceneSaved =
-            ri::scene::SaveSceneNodeTransforms(starterScene_.scene, ResolveAutosaveScenePath());
-        const bool orbitSaved = SaveEditorOrbitStateToPath(ResolveAutosaveOrbitPath(), editorOrbitState_);
-        if (sceneSaved && orbitSaved) {
+        std::string error;
+        if (SavePersistentEditorScene(ResolveAutosaveScenePath(), ResolveAutosaveOrbitPath(), &error)) {
             autosavePending_ = false;
             lastAutosaveSteady_ = now;
             if (elapsedSeconds_ - lastAutosaveStatusSeconds_ > 6.0) {
@@ -4089,6 +4706,74 @@ private:
         return "visible";
     }
 
+    [[nodiscard]] bool IsTriggerNode(const ri::scene::Node& node) const {
+        return node.name.rfind("Trigger_", 0) == 0;
+    }
+
+    [[nodiscard]] std::size_t CountAuthoredNodes() const {
+        std::size_t count = 0;
+        for (std::size_t i = authoredNodeStart_; i < starterScene_.scene.NodeCount(); ++i) {
+            if (!IsProtectedEditorNode(static_cast<int>(i))) {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    [[nodiscard]] std::size_t CountTriggerNodes() const {
+        std::size_t count = 0;
+        for (const ri::scene::Node& node : starterScene_.scene.Nodes()) {
+            if (IsTriggerNode(node)) {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    [[nodiscard]] std::string FocusedWorkspaceGameLabel() const {
+        if (focusedWorkspaceGameIndex_ >= 0
+            && focusedWorkspaceGameIndex_ < static_cast<int>(workspaceGames_.size())) {
+            return workspaceGames_[static_cast<std::size_t>(focusedWorkspaceGameIndex_)].displayName;
+        }
+        if (sceneConfig_.gameManifest.has_value()) {
+            return sceneConfig_.gameManifest->id;
+        }
+        return "No game mounted";
+    }
+
+    [[nodiscard]] std::string SelectedNodeSummary() const {
+        if (selectedNode_ >= starterScene_.scene.NodeCount()) {
+            return "No selection";
+        }
+        const ri::scene::Node& node = starterScene_.scene.GetNode(static_cast<int>(selectedNode_));
+        return node.name + "  |  " + NodeKindLabel(node);
+    }
+
+    [[nodiscard]] std::string ResourceFocusSummary() const {
+        if (selectedResourceRow_ >= 0
+            && selectedResourceRow_ < static_cast<int>(resourceCatalogEntries_.size())) {
+            return resourceCatalogEntries_[static_cast<std::size_t>(selectedResourceRow_)].relativePathUtf8;
+        }
+        return "No file selected";
+    }
+
+    [[nodiscard]] std::string TriggerSelectionSummary() const {
+        if (selectedNode_ >= starterScene_.scene.NodeCount()) {
+            return "Selection is not a trigger volume.";
+        }
+        const ri::scene::Node& node = starterScene_.scene.GetNode(static_cast<int>(selectedNode_));
+        if (!IsTriggerNode(node)) {
+            return "Selection is not a trigger volume.";
+        }
+        const auto bounds =
+            ri::scene::ComputeNodeWorldBounds(starterScene_.scene, static_cast<int>(selectedNode_), false);
+        if (!bounds.has_value()) {
+            return "Trigger volume bounds unavailable.";
+        }
+        const ri::math::Vec3 size = ri::scene::GetBoundsSize(*bounds);
+        return "Trigger export: generic_trigger_volume  |  size " + ri::math::ToString(size);
+    }
+
     void CycleInventoryPresentation() {
         switch (creatorInventoryPolicy_.presentation) {
             case ri::world::InventoryPresentationMode::Visible:
@@ -4410,27 +5095,33 @@ private:
         HGDIOBJ oldBitmap = SelectObject(dc, backBuffer);
 
         const COLORREF kWindowBg = RGB(120, 122, 126);
-        const COLORREF kPanelFill = RGB(176, 178, 182);
-        const COLORREF kPanelDark = RGB(72, 74, 78);
-        const COLORREF kPanelLight = RGB(236, 238, 242);
-        const COLORREF kInsetFill = RGB(96, 98, 102);
-        const COLORREF kViewportFill = RGB(88, 90, 94);
+        const COLORREF kPanelFill = RGB(184, 188, 192);
+        const COLORREF kPanelDark = RGB(63, 68, 76);
+        const COLORREF kPanelLight = RGB(238, 241, 244);
+        const COLORREF kInsetFill = RGB(79, 86, 96);
+        const COLORREF kViewportFill = RGB(72, 80, 92);
         FillRectColor(dc, client, kWindowBg);
 
         RECT topBar{0, 0, client.right, 56};
-        DrawPanelFrame(dc, topBar, RGB(200, 202, 206), RGB(252, 252, 252), RGB(110, 112, 116));
-        DrawTextLine(dc, RECT{16, 8, 620, 30}, "RawIron Editor", RGB(24, 24, 24), titleFont_,
+        DrawPanelFrame(dc, topBar, RGB(198, 207, 216), RGB(250, 250, 248), RGB(84, 90, 98));
+        FillRectColor(dc, RECT{0, 0, client.right, 8}, RGB(214, 166, 62));
+        RECT projectBand{16, 8, client.right - 16, 50};
+        DrawInsetFrame(dc, projectBand, RGB(212, 217, 222), RGB(248, 248, 246), RGB(106, 112, 120));
+        DrawTextLine(dc, RECT{28, 10, 360, 30}, "RawIron Editor", RGB(20, 26, 32), titleFont_,
                      DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-        DrawTextLine(dc, RECT{16, 30, client.right - 16, 50},
-                     "Author here in the viewport, then export to your game's levels folder (toolbar Export or Ctrl+E).",
-                     RGB(28, 28, 28),
-                     smallFont_,
-                     DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-        DrawTextLine(dc, RECT{260, 8, 760, 30}, sceneConfig_.workspaceLabel,
-                     RGB(40, 40, 120), bodyFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-        DrawTextLine(dc, RECT{440, 8, client.right - 16, 30},
-                     "RawIron quad views  |  Project  |  Session",
-                     RGB(60, 60, 60), smallFont_, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
+        DrawTextLine(dc, RECT{28, 28, 620, 46},
+                     "Build spaces, gameplay triggers, and project files from one mounted workspace.",
+                     RGB(36, 42, 48), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        DrawTextLine(dc, RECT{360, 10, 880, 30}, FocusedWorkspaceGameLabel(),
+                     RGB(46, 54, 112), bodyFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        DrawTextLine(dc, RECT{360, 28, client.right - 450, 46},
+                     sceneConfig_.workspaceLabel,
+                     RGB(74, 78, 86), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+        const TopChromeRects topChrome = ComputeTopChromeRects(topBar);
+        DrawToolbarButton(dc, topChrome.save, "Save", false);
+        DrawToolbarButton(dc, topChrome.exportScene, "Export", false);
+        DrawToolbarButton(dc, topChrome.play, "Playtest", false);
+        DrawToolbarButton(dc, topChrome.files, "Files", leftPanelMode_ == LeftPanelMode::Resources);
 
         RECT toolStrip{10, 66, client.right - 10, 106};
         DrawPanelFrame(dc, toolStrip, kPanelFill, kPanelLight, kPanelDark);
@@ -4455,11 +5146,13 @@ private:
         const AuthoringToolbarRects authoringPaint = ComputeAuthoringToolbarRects(toolStrip);
         DrawToolbarButton(dc, authoringPaint.addCube, "+ Cube", false);
         DrawToolbarButton(dc, authoringPaint.addPlane, "+ Plane", false);
+        DrawToolbarButton(dc, authoringPaint.addTrigger, "+ Trigger", false);
         DrawToolbarButton(dc, authoringPaint.exportCsv, "Export", false);
         DrawToolbarButton(dc, authoringPaint.play, "Play", false);
         DrawTextLine(dc, RECT{toolStrip.left + 954, toolStrip.top + 8, toolStrip.right - 12, toolStrip.bottom - 8},
                      "Step " + EditStepLabel() + "  |  Undo " + std::to_string(undoStack_.size()) +
-                         "  |  Redo " + std::to_string(redoStack_.size()),
+                         "  |  Authored " + std::to_string(CountAuthoredNodes()) +
+                         "  |  Triggers " + std::to_string(CountTriggerNodes()),
                      RGB(224, 230, 238), smallFont_, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
 
         RECT hierarchy{10, 116, 332, client.bottom - 92};
@@ -4479,12 +5172,12 @@ private:
         DrawPanelHeader(dc,
                         hierarchy,
                         leftPanelMode_ == LeftPanelMode::Scene ? "Scene Graph" : "Game Archive",
-                        leftPanelMeta);
+                        leftPanelMode_ == LeftPanelMode::Scene ? SelectedNodeSummary() : FocusedWorkspaceGameLabel());
         DrawPanelHeader(dc,
                         viewport,
                         "Authoring views",
                         sceneConfig_.gameManifest.has_value() ? sceneConfig_.gameManifest->id : "starter");
-        DrawPanelHeader(dc, inspector, "Inspector", InspectorPanelLabel());
+        DrawPanelHeader(dc, inspector, "Inspector", InspectorPanelLabel() + "  |  " + leftPanelMeta);
 
         RECT hierarchyInner{hierarchy.left + 8, hierarchy.top + 36, hierarchy.right - 8, hierarchy.bottom - 8};
         RECT viewportInner{viewport.left + 8, viewport.top + 36, viewport.right - 8, viewport.bottom - 8};
@@ -4726,7 +5419,7 @@ private:
                              false);
             DrawTextLine(dc,
                          RECT{inspectorInner.left + 10, inspectorInner.top + 98, inspectorInner.right - 10, inspectorInner.top + 114},
-                         "Ctrl+S saves resource when Files + modified. Key 4 opens Files tab.",
+                         "Ctrl+S saves resource when Files + modified. Key 4 opens Files tab. Focus: " + ResourceFocusSummary(),
                          RGB(200, 196, 160),
                          smallFont_,
                          DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
@@ -4812,7 +5505,7 @@ private:
                              RGB(240, 240, 236), headerFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
                 infoTop += 24;
                 DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 36},
-                             "[ / ] or click < > · Ctrl+Shift+1..9 quick preset · Ctrl+Shift+B spawn · Del removes authored mesh · Ctrl+D duplicate · Ctrl+G group",
+                             "[ / ] or click < > · Ctrl+Shift+1..9 quick preset · Ctrl+Shift+B spawn · Ctrl+Shift+T trigger · Del removes authored mesh · Ctrl+D duplicate · Ctrl+G group",
                              RGB(210, 215, 222), smallFont_, DT_LEFT | DT_WORDBREAK);
                 infoTop += 42;
                 DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 44},
@@ -4844,6 +5537,15 @@ private:
                 DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
                              "Creator Runtime Policy", RGB(240, 240, 236), headerFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
                 infoTop += 24;
+                RECT gameplayCard{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 78};
+                DrawInsetFrame(dc, gameplayCard, RGB(70, 88, 84), RGB(154, 196, 188), RGB(24, 34, 34));
+                DrawTextLine(dc, RECT{gameplayCard.left + 10, gameplayCard.top + 8, gameplayCard.right - 10, gameplayCard.top + 26},
+                             "Game-ready authoring",
+                             RGB(244, 250, 246), headerFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+                DrawTextLine(dc, RECT{gameplayCard.left + 10, gameplayCard.top + 30, gameplayCard.right - 10, gameplayCard.bottom - 8},
+                             TriggerSelectionSummary(),
+                             RGB(216, 236, 228), smallFont_, DT_LEFT | DT_WORDBREAK);
+                infoTop += 88;
                 DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
                              "Inventory Mode: " + InventoryPresentationLabel(),
                              RGB(226, 226, 226), bodyFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
@@ -4867,9 +5569,22 @@ private:
                 DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
                              "Backpack Slots: " + std::to_string(creatorInventoryPolicy_.backpackSize),
                              RGB(200, 200, 200), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                infoTop += 28;
+                infoTop += 30;
+                DrawToolbarButton(dc,
+                                  RECT{inspectorInner.left + 10, infoTop, inspectorInner.left + 118, infoTop + 26},
+                                  "+ Trigger",
+                                  false);
+                DrawToolbarButton(dc,
+                                  RECT{inspectorInner.left + 124, infoTop, inspectorInner.left + 228, infoTop + 26},
+                                  "Export",
+                                  false);
+                DrawToolbarButton(dc,
+                                  RECT{inspectorInner.left + 234, infoTop, inspectorInner.right - 10, infoTop + 26},
+                                  "Playtest",
+                                  false);
+                infoTop += 34;
                 DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 42},
-                             "Controls: 1/2/3 switch inspector pages. I cycles inventory mode. O toggles off-hand.",
+                             "Controls: 1/2/3/4 switch panels. I cycles inventory mode. O toggles off-hand. Ctrl+Shift+T spawns a trigger at orbit focus.",
                              RGB(214, 208, 168), smallFont_, DT_LEFT | DT_WORDBREAK);
             }
         } else {
@@ -4891,7 +5606,7 @@ private:
                               inspectorInner.right - 10,
                               sessionTop + 40},
                          "Undo Depth: " + std::to_string(undoStack_.size()) + "  |  Redo Depth: " +
-                             std::to_string(redoStack_.size()),
+                             std::to_string(redoStack_.size()) + "  |  Mounted Game: " + FocusedWorkspaceGameLabel(),
                          RGB(200, 200, 200),
                          smallFont_,
                          DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
@@ -4909,7 +5624,7 @@ private:
         DrawTextLine(dc, RECT{statusBar.left + 12, statusBar.top + 8, statusBar.right - 12, statusBar.top + 28},
                      consoleLine, RGB(20, 60, 20), smallFont_, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
         DrawTextLine(dc, RECT{statusBar.left + 12, statusBar.top + 30, statusBar.right - 12, statusBar.top + 50},
-                     "Esc clear sel · Ctrl+Shift+Q quit · Space auto-orbit · Tab view · T/R/U modes · WASDQE edit (Shift fine / Alt coarse) · Ctrl+R reset · Shift+F frame all · Ctrl+Shift+W to World · ,/. authored cycle · Ctrl+Shift+S snapshot · Ctrl+Shift+L autosave load · Ctrl+E export · Ctrl+Z/Y · Ctrl+S/L · F6",
+                     "Esc clear sel · Ctrl+Shift+Q quit · Space auto-orbit · Tab view · T/R/U modes · WASDQE edit (Shift fine / Alt coarse) · Ctrl+R reset · Shift+F frame all · Ctrl+Shift+W to World · Ctrl+Shift+T trigger · ,/. authored cycle · Ctrl+Shift+S snapshot · Ctrl+Shift+L autosave load · Ctrl+E export · Ctrl+Z/Y · Ctrl+S persist/load · F6",
                      RGB(32, 32, 32), smallFont_, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
         DrawTextLine(dc, RECT{statusBar.left + 12, statusBar.top + 50, statusBar.right - 12, statusBar.bottom - 8},
                      "State: " + lastIoStatus_ + "  |  Scene file: " + ResolveSceneStatePath().string(),
@@ -4965,6 +5680,8 @@ private:
     double lastAutosaveStatusSeconds_ = -999.0;
     bool autosavePending_ = false;
     ri::scene::StarterScene starterScene_{};
+    ri::scene::Scene baselineStarterScene_{};
+    std::size_t authoredNodeStart_ = 0;
     ri::world::InventoryPolicy creatorInventoryPolicy_{};
     bool statsOverlayVisible_ = false;
     ri::world::RuntimeStatsOverlayState statsOverlayState_{true};

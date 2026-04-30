@@ -41,7 +41,9 @@ if (RAWIRON_BUILD_TESTS)
     "Orbit camera path: World/OrbitRig/OrbitSwivel/MainCamera"
   )
   set(rawiron_tool_format_expected
-    "Known working format candidates:"
+    "RawIron standard asset format:"
+    ".ri_asset.json"
+    "Legacy/experimental aliases:"
     ".ri_model"
     ".ri_meshc"
   )

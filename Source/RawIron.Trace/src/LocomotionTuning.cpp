@@ -54,6 +54,7 @@ MovementControllerOptions ToMovementControllerOptions(const LocomotionTuning& tu
     options.fallGravityMultiplier = tuning.fallGravityMultiplier;
     options.lowJumpGravityMultiplier = tuning.lowJumpGravityMultiplier;
     options.maxFallSpeed = tuning.maxFallSpeed;
+    options.maxStepUpHeight = tuning.maxStepHeight;
     return options;
 }
 

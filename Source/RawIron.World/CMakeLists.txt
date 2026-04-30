@@ -1,16 +1,21 @@
 add_library(RawIron.World
   src/AccessFeedbackState.cpp
+  src/BuiltinEntityCommandRouting.cpp
   src/CheckpointPersistence.cpp
   src/DeveloperConsoleState.cpp
+  src/EntityInputDispatchPipeline.cpp
   src/DialogueCueState.cpp
   src/HostileCharacterAi.cpp
+  src/HudChannelTtlScheduler.cpp
   src/LevelFlowPresentationState.cpp
+  src/MissionCompletionFlow.cpp
   src/InteractionPromptState.cpp
   src/InventoryState.cpp
   src/NpcAgentState.cpp
   src/PickupFeedbackState.cpp
   src/PlayerVitality.cpp
   src/PresentationState.cpp
+  src/RuntimeClipQuery.cpp
   src/RuntimeState.cpp
   src/SignalBroadcastState.cpp
   src/TextOverlayState.cpp

@@ -12,6 +12,7 @@
 #include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
 #include "RawIron/Scene/Scene.h"
+#include "RawIron/Scene/SceneStructuralTraceFeed.h"
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Spatial/Aabb.h"
 #include "RawIron/Trace/MovementController.h"
@@ -1898,6 +1899,8 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     if (demoExtensions.lightingRowCount > 0) {
         state.nativeRenderTuning.exposure = std::clamp(state.nativeRenderTuning.exposure + 0.03f, 0.5f, 2.5f);
     }
+    state.movementOptions.refineStructuralTraceHit =
+        ri::scene::MakeStructuralMeshTraceRefiner(state.world.scene);
     state.authoredMovementOptions = state.movementOptions;
     state.movement.onGround = true;
     const SpawnSetup spawn = ResolveSpawnSetup(options, manifest, gameplay);

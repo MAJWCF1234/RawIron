@@ -112,6 +112,7 @@ KinematicStepResult SimulateKinematicBodyStep(
             result.state.velocity.y = 0.0f;
         }
     }
+    const bool groundedForStep = result.onGround;
 
     if (!result.onGround && !modifiers.suppressAirGravity) {
         const float netGravityScale = Clamp(
@@ -134,13 +135,82 @@ KinematicStepResult SimulateKinematicBodyStep(
     const float substepSeconds = deltaSeconds / static_cast<float>(substeps);
 
     for (std::size_t step = 0; step < substeps; ++step) {
+        const ri::spatial::Aabb boundsBefore = result.state.bounds;
         const ri::math::Vec3 stepDelta = result.state.velocity * substepSeconds;
-        const SlideMoveResult slide = traceScene.SlideMoveBox(
-            result.state.bounds,
+        SlideMoveResult slide = traceScene.SlideMoveBox(
+            boundsBefore,
             stepDelta,
             4U,
             0.001f,
             TraceOptions{.structuralOnly = true, .ignoreId = options.ignoreColliderId});
+
+        if (groundedForStep && options.maxStepUpHeight > 1e-5f) {
+            const ri::math::Vec3 planarDelta = ri::math::Vec3{stepDelta.x, 0.0f, stepDelta.z};
+            const float wantPlanar = ri::math::Length(planarDelta);
+            if (wantPlanar > 1e-4f && !slide.hits.empty()) {
+                const TraceHit& wallProbe = slide.hits.front();
+                const bool wallish = std::fabs(wallProbe.normal.y) < 0.55f;
+                const ri::math::Vec3 c0 = ri::spatial::Center(boundsBefore);
+                const ri::math::Vec3 c1 = ri::spatial::Center(slide.endBox);
+                const ri::math::Vec3 planarMoved{c1.x - c0.x, 0.0f, c1.z - c0.z};
+                ri::math::Vec3 wishDir = ri::math::Vec3{planarDelta.x, 0.0f, planarDelta.z};
+                const float wishLen = ri::math::Length(wishDir);
+                if (wishLen > 1e-5f) {
+                    wishDir = wishDir * (1.0f / wishLen);
+                }
+                const float movedAlongWish = ri::math::Dot(planarMoved, wishDir);
+                /// Compare displacement along **intent**, not total planar length — slides can skim ledges and
+                /// accumulate large sideways motion while making little forward progress (classic CC pitfall).
+                const bool incompleteAlongWish =
+                    !slide.hits.empty() && (movedAlongWish + 0.06f < wantPlanar - 1e-4f);
+                if (wallish && incompleteAlongWish) {
+                    /// Try ascending lift amounts (thin decks vs tall steps). Source-style controllers probe multiple
+                    /// heights instead of one blind max bump so AABB sweeps stay coupled to walkable surfaces.
+                    static constexpr float kLiftAttempts[] = {
+                        0.06f, 0.10f, 0.14f, 0.18f, 0.22f, 0.28f, 0.34f, 0.40f, 0.50f, 0.65f, 0.80f, 1.0f, 1.25f,
+                    };
+                    float bestAlong = movedAlongWish;
+                    SlideMoveResult bestSlide = slide;
+                    for (const float liftAmt : kLiftAttempts) {
+                        if (liftAmt > options.maxStepUpHeight + 1e-5f) {
+                            break;
+                        }
+                        const ri::spatial::Aabb raised = TranslateBox(boundsBefore, {0.0f, liftAmt, 0.0f});
+                        const SlideMoveResult stepSlide = traceScene.SlideMoveBox(
+                            raised,
+                            stepDelta,
+                            4U,
+                            0.001f,
+                            TraceOptions{.structuralOnly = true, .ignoreId = options.ignoreColliderId});
+                        const float dropDistance = liftAmt + std::max(options.groundClearance + 0.08f, 0.18f);
+                        const SlideMoveResult stepDrop = traceScene.SlideMoveBox(
+                            stepSlide.endBox,
+                            {0.0f, -dropDistance, 0.0f},
+                            4U,
+                            0.001f,
+                            TraceOptions{.structuralOnly = true, .ignoreId = options.ignoreColliderId});
+                        if (stepDrop.hits.empty()) {
+                            continue;
+                        }
+                        const TraceHit& landingHit = stepDrop.hits.front();
+                        if (landingHit.normal.y < 0.5f) {
+                            continue;
+                        }
+                        const ri::math::Vec3 c2 = ri::spatial::Center(stepDrop.endBox);
+                        const ri::math::Vec3 pm{c2.x - c0.x, 0.0f, c2.z - c0.z};
+                        const float along = ri::math::Dot(pm, wishDir);
+                        if (along > bestAlong + 0.02f) {
+                            bestAlong = along;
+                            bestSlide = stepDrop;
+                        }
+                    }
+                    if (bestAlong > movedAlongWish + 0.025f) {
+                        slide = bestSlide;
+                    }
+                }
+            }
+        }
+
         result.state.bounds = slide.endBox;
         result.hits.insert(result.hits.end(), slide.hits.begin(), slide.hits.end());
 

@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace ri::structural {
@@ -18,6 +20,17 @@ int ClampInteger(int value, int fallback, int minValue, int maxValue) {
         return fallback;
     }
     return value;
+}
+
+int ClampRange(int value, int minValue, int maxValue) {
+    return std::max(minValue, std::min(maxValue, value));
+}
+
+float SignedPower(float value, float exponent) {
+    if (std::fabs(value) <= 1e-6f) {
+        return 0.0f;
+    }
+    return std::copysign(std::pow(std::fabs(value), exponent), value);
 }
 
 ConvexSolid BuildSolidFromFaces(const std::vector<std::vector<ri::math::Vec3>>& faces) {
@@ -592,9 +605,78 @@ CompiledMesh CreateFrustumMesh(const StructuralPrimitiveOptions& options) {
     return BuildCompiledMeshFromConvexSolid(solid.value_or(CreateAxisAlignedBoxSolid()));
 }
 
-CompiledMesh CreateGeodesicSphereMesh() {
+void SubdivideSphereTriangles(std::vector<ri::math::Vec3>& triangles) {
+    std::vector<ri::math::Vec3> next;
+    next.reserve(triangles.size() * 4U);
+    for (std::size_t i = 0; i + 2U < triangles.size(); i += 3U) {
+        const ri::math::Vec3 a = ri::math::Normalize(triangles[i]) * kHalfExtent;
+        const ri::math::Vec3 b = ri::math::Normalize(triangles[i + 1U]) * kHalfExtent;
+        const ri::math::Vec3 c = ri::math::Normalize(triangles[i + 2U]) * kHalfExtent;
+        const ri::math::Vec3 ab = ri::math::Normalize((a + b) * 0.5f) * kHalfExtent;
+        const ri::math::Vec3 bc = ri::math::Normalize((b + c) * 0.5f) * kHalfExtent;
+        const ri::math::Vec3 ca = ri::math::Normalize((c + a) * 0.5f) * kHalfExtent;
+        AppendOutwardTriangle(next, a, ab, ca);
+        AppendOutwardTriangle(next, b, bc, ab);
+        AppendOutwardTriangle(next, c, ca, bc);
+        AppendOutwardTriangle(next, ab, bc, ca);
+    }
+    triangles = std::move(next);
+}
+
+CompiledMesh CreateGeodesicSphereMesh(const StructuralPrimitiveOptions& options) {
     const std::optional<ConvexSolid> solid = CreateIcosahedronSolid();
-    return BuildCompiledMeshFromConvexSolid(solid.value_or(CreateAxisAlignedBoxSolid()));
+    if (!solid.has_value()) {
+        return BuildCompiledMeshFromConvexSolid(CreateAxisAlignedBoxSolid());
+    }
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve(60U);
+    for (const ConvexPolygon& polygon : solid->polygons) {
+        if (polygon.vertices.size() == 3U) {
+            AppendOutwardTriangle(triangles, polygon.vertices[0], polygon.vertices[1], polygon.vertices[2]);
+        }
+    }
+    const int detail = ClampRange(options.detail, 0, 4);
+    for (int i = 0; i < detail; ++i) {
+        SubdivideSphereTriangles(triangles);
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateSuperellipsoidMesh(const StructuralPrimitiveOptions& options) {
+    const int latSegments = ClampInteger(options.radialSegments, 16, 6, 96);
+    const int lonSegments = ClampInteger(options.sides, 24, 8, 128);
+    const float exponentX = std::clamp(options.exponentX, 0.05f, 8.0f);
+    const float exponentY = std::clamp(options.exponentY, 0.05f, 8.0f);
+    const float exponentZ = std::clamp(options.exponentZ, 0.05f, 8.0f);
+
+    const auto sample = [&](float theta, float phi) {
+        const float cosPhi = std::cos(phi);
+        return ri::math::Vec3{
+            SignedPower(cosPhi * std::cos(theta), exponentX) * kHalfExtent,
+            SignedPower(std::sin(phi), exponentY) * kHalfExtent,
+            SignedPower(cosPhi * std::sin(theta), exponentZ) * kHalfExtent,
+        };
+    };
+
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve(static_cast<std::size_t>(latSegments * lonSegments * 6));
+    for (int lat = 0; lat < latSegments; ++lat) {
+        const float v0 = -0.5f + (static_cast<float>(lat) / static_cast<float>(latSegments));
+        const float v1 = -0.5f + (static_cast<float>(lat + 1) / static_cast<float>(latSegments));
+        const float phi0 = v0 * kPi;
+        const float phi1 = v1 * kPi;
+        for (int lon = 0; lon < lonSegments; ++lon) {
+            const float theta0 = (2.0f * kPi * static_cast<float>(lon)) / static_cast<float>(lonSegments);
+            const float theta1 = (2.0f * kPi * static_cast<float>(lon + 1)) / static_cast<float>(lonSegments);
+            const ri::math::Vec3 a = sample(theta0, phi0);
+            const ri::math::Vec3 b = sample(theta1, phi0);
+            const ri::math::Vec3 c = sample(theta1, phi1);
+            const ri::math::Vec3 d = sample(theta0, phi1);
+            AppendOutwardTriangle(triangles, a, b, c);
+            AppendOutwardTriangle(triangles, a, c, d);
+        }
+    }
+    return BuildMeshFromTriangles(triangles);
 }
 
 std::vector<ri::math::Vec3> BuildRoundArchOuterLoop(int segments, float spanDegrees) {
@@ -702,6 +784,699 @@ CompiledMesh CreateArchMesh(const StructuralPrimitiveOptions& options) {
     return CreateExtrudedBandMesh(outerLoop, innerLoop);
 }
 
+std::vector<ri::math::Vec3> SanitizeProfileLoop3d(const std::vector<ri::math::Vec3>& points) {
+    std::vector<ri::math::Vec3> loop;
+    loop.reserve(std::min<std::size_t>(points.size(), 128U));
+    for (const ri::math::Vec3& point : points) {
+        if (loop.size() >= 128U) {
+            break;
+        }
+        if (!std::isfinite(point.x) || !std::isfinite(point.y)) {
+            continue;
+        }
+        const ri::math::Vec3 clamped{
+            std::clamp(point.x, -1.0f, 1.0f),
+            std::clamp(point.y, -1.0f, 1.0f),
+            0.0f,
+        };
+        if (!loop.empty() && ri::math::DistanceSquared(loop.back(), clamped) <= 1e-8f) {
+            continue;
+        }
+        loop.push_back(clamped);
+    }
+    if (loop.size() > 1U && ri::math::DistanceSquared(loop.front(), loop.back()) <= 1e-8f) {
+        loop.pop_back();
+    }
+    if (loop.size() < 3U) {
+        return {
+            {-0.5f, -0.5f, 0.0f},
+            {0.5f, -0.5f, 0.0f},
+            {0.5f, 0.5f, 0.0f},
+            {-0.5f, 0.5f, 0.0f},
+        };
+    }
+    return loop;
+}
+
+CompiledMesh CreateExtrudeAlongNormalMesh(const StructuralPrimitiveOptions& options) {
+    const std::vector<ri::math::Vec3> loop = SanitizeProfileLoop3d(options.points);
+    const float halfDepth = std::clamp(std::fabs(options.depth), 0.01f, 2.0f) * 0.5f;
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve(loop.size() * 12U);
+
+    const ri::math::Vec3 frontCenter{0.0f, 0.0f, halfDepth};
+    const ri::math::Vec3 backCenter{0.0f, 0.0f, -halfDepth};
+    for (std::size_t i = 0; i < loop.size(); ++i) {
+        const std::size_t next = (i + 1U) % loop.size();
+        const ri::math::Vec3 frontA{loop[i].x, loop[i].y, halfDepth};
+        const ri::math::Vec3 frontB{loop[next].x, loop[next].y, halfDepth};
+        const ri::math::Vec3 backA{loop[i].x, loop[i].y, -halfDepth};
+        const ri::math::Vec3 backB{loop[next].x, loop[next].y, -halfDepth};
+        AppendQuadFacing(triangles, frontA, backA, backB, frontB, ri::math::Normalize(frontA + frontB));
+        AppendTriangle(triangles, frontCenter, frontA, frontB);
+        AppendTriangle(triangles, backCenter, backB, backA);
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+std::tuple<int, int, int> QuantizedPointKey(const ri::math::Vec3& point) {
+    return {
+        static_cast<int>(std::lround(point.x * 10000.0f)),
+        static_cast<int>(std::lround(point.y * 10000.0f)),
+        static_cast<int>(std::lround(point.z * 10000.0f)),
+    };
+}
+
+void AppendBeamMesh(std::vector<ri::math::Vec3>& triangles,
+                    const ri::math::Vec3& a,
+                    const ri::math::Vec3& b,
+                    float radius) {
+    const ri::math::Vec3 axis = b - a;
+    if (ri::math::LengthSquared(axis) <= 1e-8f) {
+        return;
+    }
+    const ri::math::Vec3 forward = ri::math::Normalize(axis);
+    const ri::math::Vec3 upHint = std::fabs(forward.y) < 0.9f ? ri::math::Vec3{0.0f, 1.0f, 0.0f} : ri::math::Vec3{1.0f, 0.0f, 0.0f};
+    const ri::math::Vec3 right = ri::math::Normalize(ri::math::Cross(upHint, forward)) * radius;
+    const ri::math::Vec3 up = ri::math::Normalize(ri::math::Cross(forward, right)) * radius;
+
+    const ri::math::Vec3 a0 = a - right - up;
+    const ri::math::Vec3 a1 = a + right - up;
+    const ri::math::Vec3 a2 = a + right + up;
+    const ri::math::Vec3 a3 = a - right + up;
+    const ri::math::Vec3 b0 = b - right - up;
+    const ri::math::Vec3 b1 = b + right - up;
+    const ri::math::Vec3 b2 = b + right + up;
+    const ri::math::Vec3 b3 = b - right + up;
+
+    AppendQuadFacing(triangles, a0, a1, b1, b0, up * -1.0f);
+    AppendQuadFacing(triangles, a1, a2, b2, b1, right);
+    AppendQuadFacing(triangles, a2, a3, b3, b2, up);
+    AppendQuadFacing(triangles, a3, a0, b0, b3, right * -1.0f);
+    AppendQuadFacing(triangles, a3, a2, a1, a0, forward * -1.0f);
+    AppendQuadFacing(triangles, b0, b1, b2, b3, forward);
+}
+
+CompiledMesh CreateLatticeVolumeMesh(const StructuralPrimitiveOptions& options) {
+    const int cellsX = ClampRange(options.cellsX > 0 ? options.cellsX : options.radialSegments, 1, 12);
+    const int cellsY = ClampRange(options.cellsY > 0 ? options.cellsY : options.detail, 1, 12);
+    const int cellsZ = ClampRange(options.cellsZ > 0 ? options.cellsZ : options.sides, 1, 12);
+    const float radius = std::clamp(std::fabs(options.strutRadius), 0.004f, 0.12f);
+    const std::string style = options.latticeStyle.empty() ? "x_brace" : options.latticeStyle;
+
+    std::set<std::pair<std::tuple<int, int, int>, std::tuple<int, int, int>>> emitted;
+    std::vector<ri::math::Vec3> triangles;
+    const auto pointAt = [&](int x, int y, int z) {
+        return ri::math::Vec3{
+            -0.5f + (static_cast<float>(x) / static_cast<float>(cellsX)),
+            -0.5f + (static_cast<float>(y) / static_cast<float>(cellsY)),
+            -0.5f + (static_cast<float>(z) / static_cast<float>(cellsZ)),
+        };
+    };
+    const auto add = [&](const ri::math::Vec3& a, const ri::math::Vec3& b) {
+        auto ka = QuantizedPointKey(a);
+        auto kb = QuantizedPointKey(b);
+        if (kb < ka) {
+            std::swap(ka, kb);
+        }
+        if (!emitted.insert({ka, kb}).second) {
+            return;
+        }
+        AppendBeamMesh(triangles, a, b, radius);
+    };
+
+    for (int x = 0; x < cellsX; ++x) {
+        for (int y = 0; y < cellsY; ++y) {
+            for (int z = 0; z < cellsZ; ++z) {
+                const ri::math::Vec3 p000 = pointAt(x, y, z);
+                const ri::math::Vec3 p100 = pointAt(x + 1, y, z);
+                const ri::math::Vec3 p010 = pointAt(x, y + 1, z);
+                const ri::math::Vec3 p001 = pointAt(x, y, z + 1);
+                const ri::math::Vec3 p110 = pointAt(x + 1, y + 1, z);
+                const ri::math::Vec3 p101 = pointAt(x + 1, y, z + 1);
+                const ri::math::Vec3 p011 = pointAt(x, y + 1, z + 1);
+                const ri::math::Vec3 p111 = pointAt(x + 1, y + 1, z + 1);
+                add(p000, p100);
+                add(p000, p010);
+                add(p000, p001);
+                add(p100, p110);
+                add(p100, p101);
+                add(p010, p110);
+                add(p010, p011);
+                add(p001, p101);
+                add(p001, p011);
+                add(p111, p110);
+                add(p111, p101);
+                add(p111, p011);
+                if (style == "octet_truss") {
+                    const ri::math::Vec3 center = (p000 + p111) * 0.5f;
+                    add(center, p000); add(center, p100); add(center, p010); add(center, p001);
+                    add(center, p110); add(center, p101); add(center, p011); add(center, p111);
+                } else if (style == "k_brace") {
+                    const ri::math::Vec3 midBottom = (p000 + p100) * 0.5f;
+                    const ri::math::Vec3 midTop = (p011 + p111) * 0.5f;
+                    add(midBottom, p010); add(midBottom, p110);
+                    add(midTop, p001); add(midTop, p101);
+                } else {
+                    add(p000, p111);
+                    add(p100, p011);
+                    add(p010, p101);
+                    add(p001, p110);
+                }
+            }
+        }
+    }
+
+    return BuildMeshFromTriangles(triangles);
+}
+
+float ClampDegrees(float value, float fallback, float minValue = 1.0f, float maxValue = 360.0f) {
+    if (!std::isfinite(value) || value <= 0.0f) {
+        value = fallback;
+    }
+    return std::clamp(value, minValue, maxValue);
+}
+
+CompiledMesh CreateArcChannelMesh(float spanDegrees, const StructuralPrimitiveOptions& options) {
+    const int segments = ClampRange(options.radialSegments, 6, 96);
+    const float outerRadius = 0.5f;
+    const float wall = std::clamp(std::fabs(options.thickness), 0.025f, 0.22f);
+    const float innerRadius = std::max(0.05f, outerRadius - wall);
+    const float halfSpan = ClampDegrees(spanDegrees, spanDegrees, 10.0f, 270.0f) * 0.5f * (kPi / 180.0f);
+
+    std::vector<ri::math::Vec3> outerLoop;
+    std::vector<ri::math::Vec3> innerLoop;
+    outerLoop.reserve(static_cast<std::size_t>(segments + 1));
+    innerLoop.reserve(static_cast<std::size_t>(segments + 1));
+    for (int index = 0; index <= segments; ++index) {
+        const float t = static_cast<float>(index) / static_cast<float>(segments);
+        const float angle = -halfSpan + (2.0f * halfSpan * t);
+        outerLoop.push_back({std::sin(angle) * outerRadius, std::cos(angle) * outerRadius, 0.0f});
+        innerLoop.push_back({std::sin(angle) * innerRadius, std::cos(angle) * innerRadius, 0.0f});
+    }
+    return CreateExtrudedBandMesh(outerLoop, innerLoop);
+}
+
+CompiledMesh CreateTorusArcMesh(const StructuralPrimitiveOptions& options, float fallbackDegrees) {
+    const int arcSegments = ClampRange(options.radialSegments, 6, 128);
+    const int tubeSegments = ClampRange(options.sides, 6, 48);
+    const float sweep = ClampDegrees(options.sweepDegrees > 0.0f ? options.sweepDegrees : options.spanDegrees,
+                                     fallbackDegrees,
+                                     5.0f,
+                                     360.0f) * (kPi / 180.0f);
+    const float majorRadius = std::clamp(std::fabs(options.length), 0.08f, 0.45f);
+    const float tubeRadius = std::clamp(std::fabs(options.thickness), 0.015f, 0.18f);
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve(static_cast<std::size_t>(arcSegments * tubeSegments * 6));
+
+    const auto pointAt = [&](int arcIndex, int tubeIndex) {
+        const float u = (static_cast<float>(arcIndex) / static_cast<float>(arcSegments)) * sweep;
+        const float v = (static_cast<float>(tubeIndex) / static_cast<float>(tubeSegments)) * 2.0f * kPi;
+        const float ringRadius = majorRadius + std::cos(v) * tubeRadius;
+        return ri::math::Vec3{
+            std::cos(u) * ringRadius,
+            std::sin(v) * tubeRadius,
+            std::sin(u) * ringRadius,
+        };
+    };
+
+    for (int arc = 0; arc < arcSegments; ++arc) {
+        for (int tube = 0; tube < tubeSegments; ++tube) {
+            const int nextTube = (tube + 1) % tubeSegments;
+            AppendOutwardQuad(triangles,
+                              pointAt(arc, tube),
+                              pointAt(arc + 1, tube),
+                              pointAt(arc + 1, nextTube),
+                              pointAt(arc, nextTube));
+        }
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateSplineSweepMesh(const StructuralPrimitiveOptions& options) {
+    std::vector<ri::math::Vec3> path;
+    path.reserve(options.points.size());
+    for (const ri::math::Vec3& point : options.points) {
+        if (std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z)) {
+            path.push_back({
+                std::clamp(point.x, -0.5f, 0.5f),
+                std::clamp(point.y, -0.5f, 0.5f),
+                std::clamp(point.z, -0.5f, 0.5f),
+            });
+        }
+    }
+    if (path.size() < 2U) {
+        path = {{-0.5f, 0.0f, -0.5f}, {0.5f, 0.0f, 0.5f}};
+    }
+
+    const float radius = std::clamp(std::fabs(options.thickness), 0.01f, 0.12f);
+    std::vector<ri::math::Vec3> triangles;
+    for (std::size_t index = 1; index < path.size(); ++index) {
+        AppendBeamMesh(triangles, path[index - 1U], path[index], radius);
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateRevolveMesh(const StructuralPrimitiveOptions& options) {
+    const int segments = ClampRange(options.radialSegments, 6, 128);
+    const float sweep = ClampDegrees(options.sweepDegrees > 0.0f ? options.sweepDegrees : options.spanDegrees,
+                                     360.0f,
+                                     5.0f,
+                                     360.0f) * (kPi / 180.0f);
+    std::vector<ri::math::Vec3> profile = SanitizeProfileLoop3d(options.points);
+    for (ri::math::Vec3& point : profile) {
+        point.x = std::clamp(std::fabs(point.x), 0.01f, 0.5f);
+        point.y = std::clamp(point.y, -0.5f, 0.5f);
+        point.z = 0.0f;
+    }
+
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve(profile.size() * static_cast<std::size_t>(segments) * 6U);
+    const auto pointAt = [&](int segment, std::size_t profileIndex) {
+        const float u = (static_cast<float>(segment) / static_cast<float>(segments)) * sweep;
+        const ri::math::Vec3 p = profile[profileIndex % profile.size()];
+        return ri::math::Vec3{std::cos(u) * p.x, p.y, std::sin(u) * p.x};
+    };
+    for (int segment = 0; segment < segments; ++segment) {
+        for (std::size_t profileIndex = 0; profileIndex < profile.size(); ++profileIndex) {
+            const std::size_t nextProfile = (profileIndex + 1U) % profile.size();
+            AppendOutwardQuad(triangles,
+                              pointAt(segment, profileIndex),
+                              pointAt(segment + 1, profileIndex),
+                              pointAt(segment + 1, nextProfile),
+                              pointAt(segment, nextProfile));
+        }
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateDomeVaultMesh(const StructuralPrimitiveOptions& options) {
+    const int radial = ClampRange(options.radialSegments, 8, 128);
+    const int rings = ClampRange(options.sides > 0 ? options.sides : options.detail, 4, 64);
+    const float heightRatio = std::clamp(options.ridgeRatio > 0.0f ? options.ridgeRatio : 0.5f, 0.15f, 1.0f);
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve(static_cast<std::size_t>(radial * rings * 6));
+    const auto pointAt = [&](int ring, int segment) {
+        const float theta = (static_cast<float>(ring) / static_cast<float>(rings)) * (kPi * 0.5f);
+        const float phi = (static_cast<float>(segment) / static_cast<float>(radial)) * 2.0f * kPi;
+        return ri::math::Vec3{
+            std::sin(theta) * std::cos(phi) * 0.5f,
+            std::cos(theta) * 0.5f * heightRatio,
+            std::sin(theta) * std::sin(phi) * 0.5f,
+        };
+    };
+    for (int ring = 0; ring < rings; ++ring) {
+        for (int segment = 0; segment < radial; ++segment) {
+            const int nextSegment = (segment + 1) % radial;
+            AppendOutwardQuad(triangles,
+                              pointAt(ring, segment),
+                              pointAt(ring + 1, segment),
+                              pointAt(ring + 1, nextSegment),
+                              pointAt(ring, nextSegment));
+        }
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateLoftMesh(const StructuralPrimitiveOptions& options) {
+    const std::vector<ri::math::Vec3> profile = SanitizeProfileLoop3d(options.points);
+    std::vector<ri::math::Vec3> path;
+    path.reserve(options.vertices.size());
+    for (const ri::math::Vec3& point : options.vertices) {
+        if (std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z)) {
+            path.push_back({
+                std::clamp(point.x, -0.5f, 0.5f),
+                std::clamp(point.y, -0.5f, 0.5f),
+                std::clamp(point.z, -0.5f, 0.5f),
+            });
+        }
+    }
+    if (path.size() < 2U) {
+        path = {{0.0f, 0.0f, -0.5f}, {0.0f, 0.0f, 0.5f}};
+    }
+
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve((path.size() - 1U) * profile.size() * 6U);
+    const auto pointAt = [&](std::size_t pathIndex, std::size_t profileIndex) {
+        const ri::math::Vec3 p = profile[profileIndex % profile.size()] * 0.5f;
+        return path[pathIndex % path.size()] + ri::math::Vec3{p.x, p.y, 0.0f};
+    };
+    for (std::size_t pathIndex = 0; pathIndex + 1U < path.size(); ++pathIndex) {
+        for (std::size_t profileIndex = 0; profileIndex < profile.size(); ++profileIndex) {
+            const std::size_t nextProfile = (profileIndex + 1U) % profile.size();
+            AppendOutwardQuad(triangles,
+                              pointAt(pathIndex, profileIndex),
+                              pointAt(pathIndex + 1U, profileIndex),
+                              pointAt(pathIndex + 1U, nextProfile),
+                              pointAt(pathIndex, nextProfile));
+        }
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+std::vector<ri::math::Vec3> SanitizePath3d(const std::vector<ri::math::Vec3>& points,
+                                           const std::vector<ri::math::Vec3>& fallback) {
+    std::vector<ri::math::Vec3> path;
+    path.reserve(std::min<std::size_t>(points.size(), 128U));
+    for (const ri::math::Vec3& point : points) {
+        if (path.size() >= 128U) {
+            break;
+        }
+        if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) {
+            continue;
+        }
+        const ri::math::Vec3 clamped{
+            std::clamp(point.x, -0.5f, 0.5f),
+            std::clamp(point.y, -0.5f, 0.5f),
+            std::clamp(point.z, -0.5f, 0.5f),
+        };
+        if (!path.empty() && ri::math::DistanceSquared(path.back(), clamped) <= 1e-8f) {
+            continue;
+        }
+        path.push_back(clamped);
+    }
+    return path.size() >= 2U ? path : fallback;
+}
+
+CompiledMesh CreateRibbonMesh(const StructuralPrimitiveOptions& options) {
+    const std::vector<ri::math::Vec3> path = SanitizePath3d(options.points, {
+        {-0.5f, 0.0f, -0.25f},
+        {0.0f, 0.05f, 0.0f},
+        {0.5f, 0.0f, 0.25f},
+    });
+    const float halfWidth = std::clamp(std::fabs(options.thickness), 0.01f, 0.25f);
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve((path.size() - 1U) * 6U);
+
+    for (std::size_t index = 1; index < path.size(); ++index) {
+        const ri::math::Vec3 a = path[index - 1U];
+        const ri::math::Vec3 b = path[index];
+        const ri::math::Vec3 forward = ri::math::Normalize(b - a);
+        const ri::math::Vec3 side = ri::math::Normalize(ri::math::Cross({0.0f, 1.0f, 0.0f}, forward)) * halfWidth;
+        const ri::math::Vec3 safeSide = ri::math::LengthSquared(side) > 1e-8f ? side : ri::math::Vec3{halfWidth, 0.0f, 0.0f};
+        AppendQuadFacing(triangles, a - safeSide, b - safeSide, b + safeSide, a + safeSide, {0.0f, 1.0f, 0.0f});
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateCableLikeMesh(const StructuralPrimitiveOptions& options, bool catenary) {
+    const int segments = ClampRange(options.radialSegments, 4, 96);
+    const float sag = std::clamp(std::fabs(options.depth), 0.0f, 0.45f);
+    const float radius = std::clamp(std::fabs(options.thickness), 0.006f, 0.08f);
+    std::vector<ri::math::Vec3> path;
+    path.reserve(static_cast<std::size_t>(segments + 1));
+    for (int index = 0; index <= segments; ++index) {
+        const float t = static_cast<float>(index) / static_cast<float>(segments);
+        const float x = -0.5f + t;
+        const float arc = catenary ? (4.0f * (t - 0.5f) * (t - 0.5f)) : std::sin(t * kPi);
+        const float y = catenary ? -sag * (1.0f - arc) : -sag * arc;
+        path.push_back({x, y, 0.0f});
+    }
+
+    std::vector<ri::math::Vec3> triangles;
+    for (std::size_t index = 1; index < path.size(); ++index) {
+        AppendBeamMesh(triangles, path[index - 1U], path[index], radius);
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateThickPolygonMesh(const StructuralPrimitiveOptions& options) {
+    const std::vector<ri::math::Vec3> loop = SanitizeProfileLoop3d(options.points);
+    const float halfHeight = std::clamp(std::fabs(options.depth), 0.02f, 1.0f) * 0.5f;
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve(loop.size() * 12U);
+    const ri::math::Vec3 topCenter{0.0f, halfHeight, 0.0f};
+    const ri::math::Vec3 bottomCenter{0.0f, -halfHeight, 0.0f};
+    for (std::size_t index = 0; index < loop.size(); ++index) {
+        const std::size_t next = (index + 1U) % loop.size();
+        const ri::math::Vec3 topA{loop[index].x, halfHeight, loop[index].y};
+        const ri::math::Vec3 topB{loop[next].x, halfHeight, loop[next].y};
+        const ri::math::Vec3 bottomA{loop[index].x, -halfHeight, loop[index].y};
+        const ri::math::Vec3 bottomB{loop[next].x, -halfHeight, loop[next].y};
+        AppendQuadFacing(triangles, bottomA, bottomB, topB, topA, ri::math::Normalize(topA + topB));
+        AppendTriangle(triangles, topCenter, topA, topB);
+        AppendTriangle(triangles, bottomCenter, bottomB, bottomA);
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateTrimSheetSweepMesh(const StructuralPrimitiveOptions& options) {
+    StructuralPrimitiveOptions sweep = options;
+    sweep.thickness = std::clamp(std::fabs(options.thickness), 0.012f, 0.1f);
+    return CreateSplineSweepMesh(sweep);
+}
+
+CompiledMesh CreateWaterSurfaceMesh(const StructuralPrimitiveOptions& options) {
+    const int segments = ClampRange(options.radialSegments, 2, 64);
+    const float amplitude = std::clamp(std::fabs(options.thickness), 0.0f, 0.08f);
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve(static_cast<std::size_t>(segments * segments * 6));
+    const auto pointAt = [&](int x, int z) {
+        const float fx = -0.5f + (static_cast<float>(x) / static_cast<float>(segments));
+        const float fz = -0.5f + (static_cast<float>(z) / static_cast<float>(segments));
+        const float wave = std::sin((fx + fz) * kPi * 2.0f) * amplitude;
+        return ri::math::Vec3{fx, wave, fz};
+    };
+    for (int x = 0; x < segments; ++x) {
+        for (int z = 0; z < segments; ++z) {
+            AppendQuadFacing(triangles, pointAt(x, z), pointAt(x + 1, z), pointAt(x + 1, z + 1), pointAt(x, z + 1), {0.0f, 1.0f, 0.0f});
+        }
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateHeightfieldMesh(const StructuralPrimitiveOptions& options, bool terrain) {
+    const int xSegments = ClampRange(options.cellsX > 0 ? options.cellsX : options.radialSegments, 2, 64);
+    const int zSegments = ClampRange(options.cellsZ > 0 ? options.cellsZ : options.sides, 2, 64);
+    const float amplitude = std::clamp(std::fabs(options.depth), 0.02f, 0.5f);
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve(static_cast<std::size_t>(xSegments * zSegments * 6));
+    const auto pointAt = [&](int x, int z) {
+        const float fx = -0.5f + (static_cast<float>(x) / static_cast<float>(xSegments));
+        const float fz = -0.5f + (static_cast<float>(z) / static_cast<float>(zSegments));
+        const float ridge = terrain
+            ? std::sin(fx * kPi * 2.0f) * std::cos(fz * kPi * 2.0f)
+            : std::sin((fx * 2.7f + fz * 1.3f) * kPi);
+        return ri::math::Vec3{fx, ridge * amplitude, fz};
+    };
+    for (int x = 0; x < xSegments; ++x) {
+        for (int z = 0; z < zSegments; ++z) {
+            AppendQuadFacing(triangles, pointAt(x, z), pointAt(x, z + 1), pointAt(x + 1, z + 1), pointAt(x + 1, z), {0.0f, 1.0f, 0.0f});
+        }
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+void AppendExtrudedProfile(std::vector<ri::math::Vec3>& triangles,
+                           const std::vector<ri::math::Vec3>& profile,
+                           float halfHeight) {
+    if (profile.size() < 3U) {
+        return;
+    }
+
+    const auto appendTriangleFacing = [&](const ri::math::Vec3& a,
+                                          const ri::math::Vec3& b,
+                                          const ri::math::Vec3& c,
+                                          const ri::math::Vec3& desiredNormal) {
+        const ri::math::Vec3 normal = ri::math::Cross(b - a, c - a);
+        if (ri::math::Dot(normal, desiredNormal) < 0.0f) {
+            AppendTriangle(triangles, a, c, b);
+            return;
+        }
+        AppendTriangle(triangles, a, b, c);
+    };
+
+    for (std::size_t index = 1; index + 1 < profile.size(); ++index) {
+        appendTriangleFacing({profile[0].x, halfHeight, profile[0].z},
+                             {profile[index].x, halfHeight, profile[index].z},
+                             {profile[index + 1].x, halfHeight, profile[index + 1].z},
+                             {0.0f, 1.0f, 0.0f});
+        appendTriangleFacing({profile[0].x, -halfHeight, profile[0].z},
+                             {profile[index + 1].x, -halfHeight, profile[index + 1].z},
+                             {profile[index].x, -halfHeight, profile[index].z},
+                             {0.0f, -1.0f, 0.0f});
+    }
+
+    for (std::size_t index = 0; index < profile.size(); ++index) {
+        const std::size_t next = (index + 1U) % profile.size();
+        const ri::math::Vec3 a{profile[index].x, -halfHeight, profile[index].z};
+        const ri::math::Vec3 b{profile[next].x, -halfHeight, profile[next].z};
+        const ri::math::Vec3 c{profile[next].x, halfHeight, profile[next].z};
+        const ri::math::Vec3 d{profile[index].x, halfHeight, profile[index].z};
+        const ri::math::Vec3 outward = ri::math::Normalize(ri::math::Cross(c - b, a - b));
+        AppendQuadFacing(triangles, a, b, c, d, outward);
+    }
+}
+
+CompiledMesh CreateTubeMesh(const StructuralPrimitiveOptions& options) {
+    const int segments = ClampRange(options.radialSegments, 6, 128);
+    const float outerRadius = 0.5f;
+    const float innerRadius = std::clamp(options.topRadius > 0.0f ? options.topRadius : outerRadius - options.thickness,
+                                        0.04f,
+                                        0.46f);
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve(static_cast<std::size_t>(segments) * 24U);
+    for (int index = 0; index < segments; ++index) {
+        const float a0 = (2.0f * kPi * static_cast<float>(index)) / static_cast<float>(segments);
+        const float a1 = (2.0f * kPi * static_cast<float>(index + 1)) / static_cast<float>(segments);
+        const ri::math::Vec3 o0{std::cos(a0) * outerRadius, -0.5f, std::sin(a0) * outerRadius};
+        const ri::math::Vec3 o1{std::cos(a1) * outerRadius, -0.5f, std::sin(a1) * outerRadius};
+        const ri::math::Vec3 o2{std::cos(a1) * outerRadius, 0.5f, std::sin(a1) * outerRadius};
+        const ri::math::Vec3 o3{std::cos(a0) * outerRadius, 0.5f, std::sin(a0) * outerRadius};
+        const ri::math::Vec3 i0{std::cos(a0) * innerRadius, -0.5f, std::sin(a0) * innerRadius};
+        const ri::math::Vec3 i1{std::cos(a1) * innerRadius, -0.5f, std::sin(a1) * innerRadius};
+        const ri::math::Vec3 i2{std::cos(a1) * innerRadius, 0.5f, std::sin(a1) * innerRadius};
+        const ri::math::Vec3 i3{std::cos(a0) * innerRadius, 0.5f, std::sin(a0) * innerRadius};
+        AppendQuadFacing(triangles, o0, o1, o2, o3, {o0.x, 0.0f, o0.z});
+        AppendQuadFacing(triangles, i1, i0, i3, i2, {-i0.x, 0.0f, -i0.z});
+        AppendQuadFacing(triangles, o3, o2, i2, i3, {0.0f, 1.0f, 0.0f});
+        AppendQuadFacing(triangles, o1, o0, i0, i1, {0.0f, -1.0f, 0.0f});
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateTorusMesh(const StructuralPrimitiveOptions& options) {
+    const int ringSegments = ClampRange(options.radialSegments, 8, 192);
+    const int tubeSegments = ClampRange(options.sides, 6, 64);
+    const float sweep = std::clamp(std::fabs(options.sweepDegrees), 30.0f, 360.0f) * (kPi / 180.0f);
+    const float start = options.startDegrees * (kPi / 180.0f);
+    const bool closed = std::fabs(sweep - (2.0f * kPi)) < 1e-3f;
+    const int ringLimit = closed ? ringSegments : ringSegments + 1;
+    const float tubeRadius = std::clamp(options.thickness > 0.0f ? options.thickness : 0.14f, 0.03f, 0.22f);
+    const float majorRadius = std::max(0.08f, 0.5f - tubeRadius);
+    auto pointAt = [&](int ring, int tube) {
+        const float u = start + (static_cast<float>(ring) / static_cast<float>(ringSegments)) * sweep;
+        const float v = (2.0f * kPi * static_cast<float>(tube)) / static_cast<float>(tubeSegments);
+        const float radius = majorRadius + (std::cos(v) * tubeRadius);
+        return ri::math::Vec3{std::cos(u) * radius, std::sin(v) * tubeRadius, std::sin(u) * radius};
+    };
+
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve(static_cast<std::size_t>(ringSegments * tubeSegments) * 6U);
+    for (int ring = 0; ring < ringSegments; ++ring) {
+        const int nextRing = closed ? (ring + 1) % ringSegments : ring + 1;
+        for (int tube = 0; tube < tubeSegments; ++tube) {
+            const int nextTube = (tube + 1) % tubeSegments;
+            AppendQuadFacing(triangles,
+                             pointAt(ring, tube),
+                             pointAt(nextRing, tube),
+                             pointAt(nextRing, nextTube),
+                             pointAt(ring, nextTube),
+                             pointAt(ring, tube));
+        }
+    }
+    if (!closed) {
+        for (int endRing : {0, ringLimit - 1}) {
+            const ri::math::Vec3 center = pointAt(endRing, 0) - ri::math::Normalize(pointAt(endRing, 0)) * tubeRadius;
+            for (int tube = 0; tube < tubeSegments; ++tube) {
+                const int nextTube = (tube + 1) % tubeSegments;
+                AppendTriangle(triangles, center, pointAt(endRing, tube), pointAt(endRing, nextTube));
+            }
+        }
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateCornerMesh(const StructuralPrimitiveOptions& options) {
+    const bool rounded = options.archStyle == "rounded" || options.latticeStyle == "rounded";
+    const float inner = std::clamp(0.5f - options.thickness, 0.08f, 0.44f);
+    std::vector<ri::math::Vec3> profile = {{-0.5f, 0.0f, -0.5f}, {0.5f, 0.0f, -0.5f}, {0.5f, 0.0f, -inner}};
+    if (rounded) {
+        const int segments = ClampRange(options.radialSegments, 3, 32);
+        for (int index = 0; index <= segments; ++index) {
+            const float t = static_cast<float>(index) / static_cast<float>(segments);
+            const float angle = (-90.0f + (90.0f * t)) * (kPi / 180.0f);
+            profile.push_back({std::cos(angle) * inner, 0.0f, std::sin(angle) * inner});
+        }
+    } else {
+        profile.push_back({inner, 0.0f, inner});
+    }
+    profile.push_back({-0.5f, 0.0f, 0.5f});
+
+    std::vector<ri::math::Vec3> triangles;
+    AppendExtrudedProfile(triangles, profile, 0.5f);
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateStairsMesh(const StructuralPrimitiveOptions& options) {
+    const int steps = ClampRange(options.steps > 0 ? options.steps : options.detail, 2, 64);
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve(static_cast<std::size_t>(steps) * 36U);
+    for (int step = 0; step < steps; ++step) {
+        const float z0 = -0.5f + (static_cast<float>(step) / static_cast<float>(steps));
+        const float z1 = -0.5f + (static_cast<float>(step + 1) / static_cast<float>(steps));
+        const float y0 = -0.5f;
+        const float y1 = -0.5f + (static_cast<float>(step + 1) / static_cast<float>(steps));
+        const ri::math::Vec3 a{-0.5f, y0, z0};
+        const ri::math::Vec3 b{0.5f, y0, z0};
+        const ri::math::Vec3 c{0.5f, y0, z1};
+        const ri::math::Vec3 d{-0.5f, y0, z1};
+        const ri::math::Vec3 e{-0.5f, y1, z0};
+        const ri::math::Vec3 f{0.5f, y1, z0};
+        const ri::math::Vec3 g{0.5f, y1, z1};
+        const ri::math::Vec3 h{-0.5f, y1, z1};
+        AppendQuadFacing(triangles, e, f, g, h, {0.0f, 1.0f, 0.0f});
+        AppendQuadFacing(triangles, a, d, c, b, {0.0f, -1.0f, 0.0f});
+        AppendQuadFacing(triangles, d, h, g, c, {0.0f, 0.0f, 1.0f});
+        AppendQuadFacing(triangles, a, b, f, e, {0.0f, 0.0f, -1.0f});
+        AppendQuadFacing(triangles, a, e, h, d, {-1.0f, 0.0f, 0.0f});
+        AppendQuadFacing(triangles, b, c, g, f, {1.0f, 0.0f, 0.0f});
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateSpiralStairsMesh(const StructuralPrimitiveOptions& options) {
+    const int steps = ClampRange(options.steps > 0 ? options.steps : options.detail, 3, 96);
+    const float sweep = std::clamp(std::fabs(options.sweepDegrees), 60.0f, 720.0f) * (kPi / 180.0f);
+    const float start = options.startDegrees * (kPi / 180.0f);
+    const float innerRadius = std::clamp(options.topRadius > 0.0f ? options.topRadius : 0.16f, 0.02f, 0.42f);
+    const float outerRadius = std::clamp(options.bottomRadius > 0.0f ? options.bottomRadius : 0.5f, innerRadius + 0.04f, 0.5f);
+    const float stepThickness = std::clamp(options.thickness * 0.45f, 0.025f, 0.12f);
+    auto p = [&](float angle, float radius, float y) {
+        return ri::math::Vec3{std::cos(angle) * radius, y, std::sin(angle) * radius};
+    };
+
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve(static_cast<std::size_t>(steps) * 36U);
+    for (int step = 0; step < steps; ++step) {
+        const float a0 = start + (static_cast<float>(step) / static_cast<float>(steps)) * sweep;
+        const float a1 = start + (static_cast<float>(step + 1) / static_cast<float>(steps)) * sweep;
+        const float yTop = -0.5f + (static_cast<float>(step + 1) / static_cast<float>(steps));
+        const float yBottom = std::max(-0.5f, yTop - stepThickness);
+        const ri::math::Vec3 io0 = p(a0, innerRadius, yTop);
+        const ri::math::Vec3 oo0 = p(a0, outerRadius, yTop);
+        const ri::math::Vec3 oo1 = p(a1, outerRadius, yTop);
+        const ri::math::Vec3 io1 = p(a1, innerRadius, yTop);
+        const ri::math::Vec3 bi0 = p(a0, innerRadius, yBottom);
+        const ri::math::Vec3 bo0 = p(a0, outerRadius, yBottom);
+        const ri::math::Vec3 bo1 = p(a1, outerRadius, yBottom);
+        const ri::math::Vec3 bi1 = p(a1, innerRadius, yBottom);
+        AppendQuadFacing(triangles, io0, oo0, oo1, io1, {0.0f, 1.0f, 0.0f});
+        AppendQuadFacing(triangles, bi0, bi1, bo1, bo0, {0.0f, -1.0f, 0.0f});
+        AppendQuadFacing(triangles, oo0, bo0, bo1, oo1, oo0);
+        AppendQuadFacing(triangles, bi0, io0, io1, bi1, {-io0.x, 0.0f, -io0.z});
+        AppendQuadFacing(triangles, io0, bi0, bo0, oo0, p(a0, 1.0f, 0.0f));
+        AppendQuadFacing(triangles, bi1, io1, oo1, bo1, p(a1, 1.0f, 0.0f));
+    }
+
+    if (options.centerColumn) {
+        const int columnSegments = ClampRange(options.radialSegments, 8, 48);
+        const float radius = std::clamp(innerRadius * 0.4f, 0.02f, 0.08f);
+        for (int index = 0; index < columnSegments; ++index) {
+            const float a0 = (2.0f * kPi * static_cast<float>(index)) / static_cast<float>(columnSegments);
+            const float a1 = (2.0f * kPi * static_cast<float>(index + 1)) / static_cast<float>(columnSegments);
+            const ri::math::Vec3 b0{std::cos(a0) * radius, -0.5f, std::sin(a0) * radius};
+            const ri::math::Vec3 b1{std::cos(a1) * radius, -0.5f, std::sin(a1) * radius};
+            const ri::math::Vec3 t0{b0.x, 0.5f, b0.z};
+            const ri::math::Vec3 t1{b1.x, 0.5f, b1.z};
+            AppendQuadFacing(triangles, b0, b1, t1, t0, {b0.x, 0.0f, b0.z});
+            AppendTriangle(triangles, {0.0f, 0.5f, 0.0f}, t0, t1);
+            AppendTriangle(triangles, {0.0f, -0.5f, 0.0f}, b1, b0);
+        }
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
 } // namespace
 
 bool IsNativeStructuralPrimitive(std::string_view type) {
@@ -714,9 +1489,33 @@ bool IsNativeStructuralPrimitive(std::string_view type) {
         || type == "cylinder"
         || type == "cone"
         || type == "pyramid"
+        || type == "stairs"
+        || type == "spiral_stairs"
+        || type == "tube"
+        || type == "torus"
+        || type == "corner"
         || type == "capsule"
         || type == "frustum"
         || type == "geodesic_sphere"
+        || type == "superellipsoid"
+        || type == "extrude_along_normal_primitive"
+        || type == "lattice_volume"
+        || type == "half_pipe"
+        || type == "quarter_pipe"
+        || type == "pipe_elbow"
+        || type == "torus_slice"
+        || type == "spline_sweep"
+        || type == "revolve"
+        || type == "dome_vault"
+        || type == "loft_primitive"
+        || type == "spline_ribbon"
+        || type == "catenary_primitive"
+        || type == "cable_primitive"
+        || type == "thick_polygon_primitive"
+        || type == "trim_sheet_sweep"
+        || type == "water_surface_primitive"
+        || type == "terrain_quad"
+        || type == "heightmap_patch"
         || type == "hexahedron"
         || type == "convex_hull"
         || type == "roof_gable"
@@ -800,7 +1599,79 @@ CompiledMesh BuildPrimitiveMesh(std::string_view type, const StructuralPrimitive
         return CreateFrustumMesh(options);
     }
     if (type == "geodesic_sphere") {
-        return CreateGeodesicSphereMesh();
+        return CreateGeodesicSphereMesh(options);
+    }
+    if (type == "superellipsoid") {
+        return CreateSuperellipsoidMesh(options);
+    }
+    if (type == "extrude_along_normal_primitive") {
+        return CreateExtrudeAlongNormalMesh(options);
+    }
+    if (type == "lattice_volume") {
+        return CreateLatticeVolumeMesh(options);
+    }
+    if (type == "stairs") {
+        return CreateStairsMesh(options);
+    }
+    if (type == "spiral_stairs") {
+        return CreateSpiralStairsMesh(options);
+    }
+    if (type == "tube") {
+        return CreateTubeMesh(options);
+    }
+    if (type == "torus") {
+        return CreateTorusMesh(options);
+    }
+    if (type == "corner") {
+        return CreateCornerMesh(options);
+    }
+    if (type == "half_pipe") {
+        return CreateArcChannelMesh(180.0f, options);
+    }
+    if (type == "quarter_pipe") {
+        return CreateArcChannelMesh(90.0f, options);
+    }
+    if (type == "pipe_elbow") {
+        return CreateTorusArcMesh(options, 90.0f);
+    }
+    if (type == "torus_slice") {
+        return CreateTorusArcMesh(options, 135.0f);
+    }
+    if (type == "spline_sweep") {
+        return CreateSplineSweepMesh(options);
+    }
+    if (type == "revolve") {
+        return CreateRevolveMesh(options);
+    }
+    if (type == "dome_vault") {
+        return CreateDomeVaultMesh(options);
+    }
+    if (type == "loft_primitive") {
+        return CreateLoftMesh(options);
+    }
+    if (type == "spline_ribbon") {
+        return CreateRibbonMesh(options);
+    }
+    if (type == "catenary_primitive") {
+        return CreateCableLikeMesh(options, true);
+    }
+    if (type == "cable_primitive") {
+        return CreateCableLikeMesh(options, false);
+    }
+    if (type == "thick_polygon_primitive") {
+        return CreateThickPolygonMesh(options);
+    }
+    if (type == "trim_sheet_sweep") {
+        return CreateTrimSheetSweepMesh(options);
+    }
+    if (type == "water_surface_primitive") {
+        return CreateWaterSurfaceMesh(options);
+    }
+    if (type == "terrain_quad") {
+        return CreateHeightfieldMesh(options, true);
+    }
+    if (type == "heightmap_patch") {
+        return CreateHeightfieldMesh(options, false);
     }
 
     const std::optional<ConvexSolid> solid = CreateConvexPrimitiveSolid(type, options);

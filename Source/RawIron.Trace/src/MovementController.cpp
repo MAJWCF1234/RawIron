@@ -202,7 +202,8 @@ std::optional<ri::math::Vec3> ProbeWallNormal(const TraceScene& traceScene,
                                               const ri::spatial::Aabb& bounds,
                                               const ri::math::Vec3& probeDir,
                                               float probeDistance,
-                                              const std::string& ignoreColliderId) {
+                                              const std::string& ignoreColliderId,
+                                              const MovementControllerOptions& options) {
     if (probeDistance <= 0.0f || ri::spatial::IsEmpty(bounds)) {
         return std::nullopt;
     }
@@ -214,7 +215,7 @@ std::optional<ri::math::Vec3> ProbeWallNormal(const TraceScene& traceScene,
     horizontalDir = ri::math::Normalize(horizontalDir);
     const ri::math::Vec3 center = ri::spatial::Center(bounds);
     const ri::math::Vec3 origin{center.x, bounds.min.y + ((bounds.max.y - bounds.min.y) * 0.55f), center.z};
-    const std::optional<TraceHit> hit = traceScene.TraceRay(
+    std::optional<TraceHit> hit = traceScene.TraceRay(
         origin,
         horizontalDir,
         probeDistance,
@@ -224,6 +225,13 @@ std::optional<ri::math::Vec3> ProbeWallNormal(const TraceScene& traceScene,
         });
     if (!hit.has_value()) {
         return std::nullopt;
+    }
+    if (options.refineStructuralTraceHit) {
+        if (const std::optional<TraceHit> refined =
+                options.refineStructuralTraceHit(*hit, origin, horizontalDir);
+            refined.has_value()) {
+            hit = refined;
+        }
     }
     ri::math::Vec3 n = hit->normal;
     if (ri::math::LengthSquared(n) < 1e-10f) {
@@ -377,7 +385,8 @@ MovementControllerResult SimulateMovementControllerStep(
                 result.state.body.bounds,
                 probeDir,
                 options.wallJumpProbeDistance,
-                options.kinematic.ignoreColliderId);
+                options.kinematic.ignoreColliderId,
+                options);
             wallNormal.has_value()) {
             const ri::math::Vec3 planarCarry{velocity.x, 0.0f, velocity.z};
             const ri::math::Vec3 awayImpulse = *wallNormal * options.wallJumpAwaySpeed;
@@ -433,6 +442,7 @@ MovementControllerResult SimulateMovementControllerStep(
     kinematic.gravity = options.gravity;
     kinematic.fallGravityMultiplier = options.fallGravityMultiplier;
     kinematic.maxFallSpeed = options.maxFallSpeed;
+    kinematic.maxStepUpHeight = options.maxStepUpHeight;
     kinematic.surfaceFriction = 1.0f;
     kinematic.rollingResistance = 1.0f;
     kinematic.linearDamping = 1.0f;

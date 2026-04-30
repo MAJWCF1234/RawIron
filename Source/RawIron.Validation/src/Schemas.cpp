@@ -129,6 +129,9 @@ RuntimeTuning ParseStoredRuntimeTuning(const RuntimeTuning& value) {
     SanitizeFiniteField(parsed.fallGravityMultiplier, hadFailure);
     SanitizeFiniteField(parsed.lowJumpGravityMultiplier, hadFailure);
     SanitizeFiniteField(parsed.maxFallSpeed, hadFailure);
+    SanitizeFiniteField(parsed.crouchSpeed, hadFailure);
+    SanitizeFiniteField(parsed.proneSpeed, hadFailure);
+    SanitizeFiniteField(parsed.maxStepHeight, hadFailure);
 
     if (hadFailure) {
         gMetrics.tuningParseFailures += 1;

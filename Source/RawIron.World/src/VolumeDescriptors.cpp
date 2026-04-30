@@ -53,7 +53,7 @@ float PositiveExtent(float value) {
 
 std::optional<ClipVolumeMode> ParseClipVolumeModeToken(std::string_view token) {
     const std::string normalized = NormalizeToken(token);
-    if (normalized == "physics") {
+    if (normalized == "physics" || normalized == "collision") {
         return ClipVolumeMode::Physics;
     }
     if (normalized == "ai") {
@@ -224,6 +224,25 @@ std::vector<ClipVolumeMode> ParseClipVolumeModes(const std::vector<std::string>&
     return parsed;
 }
 
+ClipInteractionModeResolveResult ResolveClipInteractionModes(const std::vector<std::string>& rawModes) {
+    ClipInteractionModeResolveResult out;
+    for (const std::string& rawMode : rawModes) {
+        const std::optional<ClipVolumeMode> mode = ParseClipVolumeModeToken(rawMode);
+        if (mode.has_value()) {
+            if (!Contains(out.modes, *mode)) {
+                out.modes.push_back(*mode);
+            }
+        } else if (!rawMode.empty()) {
+            out.unknownTokens.push_back(rawMode);
+        }
+    }
+    if (out.modes.empty()) {
+        out.modes.push_back(ClipVolumeMode::Physics);
+        out.usedDefault = true;
+    }
+    return out;
+}
+
 std::vector<CollisionChannel> ParseCollisionChannels(const std::vector<std::string>& rawChannels) {
     return ResolveCollisionChannelAuthoring(rawChannels).channels;
 }
@@ -385,6 +404,22 @@ RuntimeVolume CreateRuntimeVolume(const RuntimeVolumeSeed& data, const VolumeDef
     return volume;
 }
 
+AuthoringRuntimeVolumeRecord BuildAuthoringRuntimeVolumeRecord(const RuntimeVolumeSeed& data,
+                                                              const VolumeDefaults& defaults) {
+    const RuntimeVolume base = CreateRuntimeVolume(data, defaults);
+    AuthoringRuntimeVolumeRecord record{};
+    record.id = base.id;
+    record.type = base.type;
+    record.shape = base.shape;
+    record.position = base.position;
+    record.rotationRadians = data.rotationRadians;
+    record.size = base.size;
+    record.radius = base.radius;
+    record.height = base.height;
+    record.debugVisible = base.debugVisible;
+    return record;
+}
+
 FilteredCollisionVolume CreateFilteredCollisionVolume(const RuntimeVolumeSeed& data,
                                                       const std::vector<std::string>& rawChannels,
                                                       const VolumeDefaults& defaults) {
@@ -472,7 +507,7 @@ ClipRuntimeVolume CreateClipRuntimeVolume(const RuntimeVolumeSeed& data,
                                           const VolumeDefaults& defaults) {
     ClipRuntimeVolume volume{};
     static_cast<RuntimeVolume&>(volume) = CreateRuntimeVolume(data, defaults);
-    volume.modes = ParseClipVolumeModes(rawModes);
+    volume.modes = ResolveClipInteractionModes(rawModes).modes;
     volume.enabled = enabled;
     return volume;
 }
@@ -655,7 +690,12 @@ ClippingRuntimeVolume CreateClippingRuntimeVolume(const RuntimeVolumeSeed& data,
     if (modes.empty()) {
         modes.emplace_back("visibility");
     }
-    volume.modes = std::move(modes);
+    const ClipInteractionModeResolveResult resolved = ResolveClipInteractionModes(modes);
+    volume.modes.clear();
+    volume.modes.reserve(resolved.modes.size());
+    for (const ClipVolumeMode mode : resolved.modes) {
+        volume.modes.push_back(ToString(mode));
+    }
     volume.enabled = enabled;
     return volume;
 }

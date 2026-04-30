@@ -134,11 +134,31 @@ StructuralPrimitiveOptions BuildPrimitiveOptionsFromNode(const StructuralNode& n
     if (node.detail > 0) {
         options.detail = node.detail;
     }
+    if (node.steps > 0) {
+        options.steps = node.steps;
+    } else if (node.segments > 0) {
+        options.steps = node.segments;
+    }
+    if (node.cellsX > 0) {
+        options.cellsX = node.cellsX;
+    }
+    if (node.cellsY > 0) {
+        options.cellsY = node.cellsY;
+    }
+    if (node.cellsZ > 0) {
+        options.cellsZ = node.cellsZ;
+    }
     if (node.hemisphereSegments > 0) {
         options.hemisphereSegments = node.hemisphereSegments;
     }
     if (node.thickness > 0.0f) {
         options.thickness = node.thickness;
+    }
+    if (node.depth > 0.0f) {
+        options.depth = node.depth;
+    }
+    if (node.strutRadius > 0.0f) {
+        options.strutRadius = node.strutRadius;
     }
     if (node.topRadius > 0.0f) {
         options.topRadius = node.topRadius;
@@ -149,14 +169,33 @@ StructuralPrimitiveOptions BuildPrimitiveOptionsFromNode(const StructuralNode& n
     if (node.length > 0.0f) {
         options.length = node.length;
     }
+    if (node.exponentX > 0.0f) {
+        options.exponentX = node.exponentX;
+    }
+    if (node.exponentY > 0.0f) {
+        options.exponentY = node.exponentY;
+    }
+    if (node.exponentZ > 0.0f) {
+        options.exponentZ = node.exponentZ;
+    }
     if (node.spanDegrees > 0.0f) {
         options.spanDegrees = node.spanDegrees;
+    }
+    if (node.sweepDegrees > 0.0f) {
+        options.sweepDegrees = node.sweepDegrees;
+    }
+    if (node.startDegrees != 0.0f) {
+        options.startDegrees = node.startDegrees;
     }
     if (node.ridgeRatio > 0.0f) {
         options.ridgeRatio = node.ridgeRatio;
     }
+    options.centerColumn = node.centerColumn;
     if (!node.archStyle.empty()) {
         options.archStyle = node.archStyle;
+    }
+    if (!node.latticeStyle.empty()) {
+        options.latticeStyle = node.latticeStyle;
     }
     if (!node.points.empty()) {
         options.points = node.points;
@@ -1329,6 +1368,32 @@ std::uint64_t BuildStructuralCompileSignature(const std::vector<StructuralNode>&
         signature = HashCombine(signature, HashValue(node.scale.x));
         signature = HashCombine(signature, HashValue(node.scale.y));
         signature = HashCombine(signature, HashValue(node.scale.z));
+        signature = HashCombine(signature, HashValue(node.radialSegments));
+        signature = HashCombine(signature, HashValue(node.segments));
+        signature = HashCombine(signature, HashValue(node.steps));
+        signature = HashCombine(signature, HashValue(node.sides));
+        signature = HashCombine(signature, HashValue(node.detail));
+        signature = HashCombine(signature, HashValue(node.cellsX));
+        signature = HashCombine(signature, HashValue(node.cellsY));
+        signature = HashCombine(signature, HashValue(node.cellsZ));
+        signature = HashCombine(signature, HashValue(node.thickness));
+        signature = HashCombine(signature, HashValue(node.depth));
+        signature = HashCombine(signature, HashValue(node.strutRadius));
+        signature = HashCombine(signature, HashValue(node.exponentX));
+        signature = HashCombine(signature, HashValue(node.exponentY));
+        signature = HashCombine(signature, HashValue(node.exponentZ));
+        signature = HashCombine(signature, HashValue(node.spanDegrees));
+        signature = HashCombine(signature, HashValue(node.sweepDegrees));
+        signature = HashCombine(signature, HashValue(node.startDegrees));
+        signature = HashCombine(signature, HashValue(node.length));
+        signature = HashCombine(signature, HashValue(node.centerColumn));
+        signature = HashCombine(signature, HashValue(node.latticeStyle));
+        signature = HashCombine(signature, HashValue(node.points.size()));
+        for (const ri::math::Vec3& point : node.points) {
+            signature = HashCombine(signature, HashValue(point.x));
+            signature = HashCombine(signature, HashValue(point.y));
+            signature = HashCombine(signature, HashValue(point.z));
+        }
     }
     return signature;
 }

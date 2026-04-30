@@ -25,6 +25,6 @@ void AnimateEditorWorkspaceScene(std::string_view editorPreviewScene,
                                  double elapsedSeconds);
 
 void ConfigureEditorViewportForPreview(std::string_view editorPreviewScene,
-                                         ri::render::software::ScenePreviewOptions& options);
+                                       ri::render::software::ScenePreviewOptions& options);
 
 } // namespace ri::editor

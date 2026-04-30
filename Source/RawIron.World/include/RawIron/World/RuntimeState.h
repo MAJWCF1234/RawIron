@@ -8,12 +8,14 @@
 #include "RawIron/Structural/StructuralDeferredOperations.h"
 #include "RawIron/Structural/StructuralGraph.h"
 #include "RawIron/Validation/Schemas.h"
+#include "RawIron/World/EntityInputDispatchPipeline.h"
 #include "RawIron/World/InfoPanel.h"
 #include "RawIron/World/HelperActivitySummary.h"
 #include "RawIron/Logic/LogicTypes.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -45,6 +47,8 @@ struct RuntimeVolume {
     float radius = 0.5f;
     float height = 1.0f;
 };
+
+[[nodiscard]] ri::spatial::Aabb BuildRuntimeVolumeBounds(const RuntimeVolume& volume);
 
 struct PostProcessVolume : RuntimeVolume {
     ri::math::Vec3 tintColor{1.0f, 1.0f, 1.0f};
@@ -2199,6 +2203,14 @@ public:
                                                  std::string_view inputName,
                                                  const ri::logic::LogicContext& context);
 
+    /// Optional registration-based dispatch before built-in door/spawner/light routing.
+    void SetEntityInputPipeline(std::unique_ptr<EntityInputDispatchPipeline> pipeline);
+    /// Tag an actor id with a logical kind (`door`, `terminal`, custom) for \ref EntityInputDispatchPipeline.
+    void RegisterWorldActorKind(std::string actorId, std::string kind);
+    [[nodiscard]] std::optional<std::string> ResolveWorldActorKind(std::string_view actorId) const;
+
+    [[nodiscard]] bool SetLevelLightIntensity(std::string_view lightId, float intensity);
+
     [[nodiscard]] TriggerUpdateResult UpdateTriggerVolumesAt(
         const ri::math::Vec3& position,
         double elapsedSeconds,
@@ -2356,6 +2368,8 @@ private:
     std::vector<SafeLightRuntimeState> safeLights_;
     std::unordered_map<std::string, LogicDoorRuntimeState> logicDoorActors_;
     std::unordered_map<std::string, LogicSpawnerRuntimeState> logicSpawnerActors_;
+    std::unordered_map<std::string, std::string> worldActorKindById_;
+    std::unique_ptr<EntityInputDispatchPipeline> entityInputPipeline_;
     std::unordered_set<std::string> worldFlags_{};
     std::unordered_map<std::string, double> worldValues_{};
     double shakeUntil_ = 0.0;

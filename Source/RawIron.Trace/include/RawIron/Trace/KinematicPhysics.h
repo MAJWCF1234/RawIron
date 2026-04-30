@@ -29,6 +29,9 @@ struct KinematicPhysicsOptions {
     float bounceThreshold = 1.2f;
     float angularImpactScale = 0.1f;
     float groundClearance = 0.02f;
+    /// When > 0 and the body started grounded, try a bounded upward compose before slide when horizontal motion is
+    /// blocked by a steep obstacle (Quake / Source-style step climbing). 0 disables (default for props).
+    float maxStepUpHeight = 0.0f;
     float minVelocity = 0.01f;
     /// When greater than zero, `KinematicStepResult::impact` is not set until this many seconds pass since the last notify (proto `PhysicsObject` impact cooldown). 0 keeps every hit eligible.
     float impactNotifyCooldownSeconds = 0.0f;

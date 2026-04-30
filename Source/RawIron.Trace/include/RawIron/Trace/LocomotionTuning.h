@@ -22,7 +22,7 @@ struct LocomotionTuning {
     float fallGravityMultiplier = 1.4f;
     float lowJumpGravityMultiplier = 1.18f;
     float maxFallSpeed = 28.0f;
-    /// Authored step-up height (proto `maxStepHeight`); reserved until the C++ controller exposes it.
+    /// Authored max step-up height (meters). Mapped to `MovementControllerOptions::maxStepUpHeight` for live tuning.
     float maxStepHeight = 0.7f;
 };
 

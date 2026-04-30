@@ -27,6 +27,9 @@ constexpr Rule kRules[] = {
     {.key = "fallGravityMultiplier", .limits = {.min = 0.5, .max = 4.0, .defaultValue = 1.4}},
     {.key = "lowJumpGravityMultiplier", .limits = {.min = 0.5, .max = 4.0, .defaultValue = 1.18}},
     {.key = "maxFallSpeed", .limits = {.min = 1.0, .max = 50.0, .defaultValue = 28.0}},
+    {.key = "crouchSpeed", .limits = {.min = 0.2, .max = 10.0, .defaultValue = 2.5}},
+    {.key = "proneSpeed", .limits = {.min = 0.1, .max = 8.0, .defaultValue = 1.5}},
+    {.key = "maxStepHeight", .limits = {.min = 0.1, .max = 2.5, .defaultValue = 0.7}},
 };
 
 constexpr std::string_view kKeys[] = {
@@ -40,6 +43,9 @@ constexpr std::string_view kKeys[] = {
     "fallGravityMultiplier",
     "lowJumpGravityMultiplier",
     "maxFallSpeed",
+    "crouchSpeed",
+    "proneSpeed",
+    "maxStepHeight",
 };
 
 } // namespace

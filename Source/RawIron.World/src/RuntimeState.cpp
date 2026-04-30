@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <iomanip>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <string_view>
 #include <unordered_set>
@@ -527,40 +528,6 @@ std::uint64_t HashProceduralUvProjectionConfig(
     return hash;
 }
 
-ri::spatial::Aabb BuildRuntimeVolumeBounds(const RuntimeVolume& volume) {
-    switch (volume.shape) {
-    case VolumeShape::Box: {
-        const ri::math::Vec3 halfExtents{
-            std::max(0.001f, std::fabs(volume.size.x) * 0.5f),
-            std::max(0.001f, std::fabs(volume.size.y) * 0.5f),
-            std::max(0.001f, std::fabs(volume.size.z) * 0.5f),
-        };
-        return {
-            .min = volume.position - halfExtents,
-            .max = volume.position + halfExtents,
-        };
-    }
-    case VolumeShape::Cylinder: {
-        const float radius = std::max(0.001f, std::fabs(std::isfinite(volume.radius) ? volume.radius : 0.5f));
-        const float halfHeight = std::max(0.001f, std::fabs(std::isfinite(volume.height) ? volume.height : volume.size.y) * 0.5f);
-        const ri::math::Vec3 extents{radius, halfHeight, radius};
-        return {
-            .min = volume.position - extents,
-            .max = volume.position + extents,
-        };
-    }
-    case VolumeShape::Sphere:
-    default: {
-        const float radius = std::max(0.001f, std::fabs(std::isfinite(volume.radius) ? volume.radius : 0.5f));
-        const ri::math::Vec3 extents{radius, radius, radius};
-        return {
-            .min = volume.position - extents,
-            .max = volume.position + extents,
-        };
-    }
-    }
-}
-
 void EmitTriggerChangedEvent(ri::runtime::RuntimeEventBus* eventBus,
                              const std::string& volumeId,
                              std::string_view volumeType,
@@ -776,6 +743,40 @@ void UpdateTriggerFamily(std::vector<TVolume>& volumes,
 }
 
 } // namespace
+
+ri::spatial::Aabb BuildRuntimeVolumeBounds(const RuntimeVolume& volume) {
+    switch (volume.shape) {
+    case VolumeShape::Box: {
+        const ri::math::Vec3 halfExtents{
+            std::max(0.001f, std::fabs(volume.size.x) * 0.5f),
+            std::max(0.001f, std::fabs(volume.size.y) * 0.5f),
+            std::max(0.001f, std::fabs(volume.size.z) * 0.5f),
+        };
+        return {
+            .min = volume.position - halfExtents,
+            .max = volume.position + halfExtents,
+        };
+    }
+    case VolumeShape::Cylinder: {
+        const float radius = std::max(0.001f, std::fabs(std::isfinite(volume.radius) ? volume.radius : 0.5f));
+        const float halfHeight = std::max(0.001f, std::fabs(std::isfinite(volume.height) ? volume.height : volume.size.y) * 0.5f);
+        const ri::math::Vec3 extents{radius, halfHeight, radius};
+        return {
+            .min = volume.position - extents,
+            .max = volume.position + extents,
+        };
+    }
+    case VolumeShape::Sphere:
+    default: {
+        const float radius = std::max(0.001f, std::fabs(std::isfinite(volume.radius) ? volume.radius : 0.5f));
+        const ri::math::Vec3 extents{radius, radius, radius};
+        return {
+            .min = volume.position - extents,
+            .max = volume.position + extents,
+        };
+    }
+    }
+}
 
 void RuntimeEnvironmentService::SetPostProcessVolumes(std::vector<PostProcessVolume> volumes) {
     postProcessVolumes_ = std::move(volumes);
@@ -2337,6 +2338,7 @@ InteractionTargetState RuntimeEnvironmentService::ResolveInteractionTarget(const
             .actionLabel = options.actionLabel,
             .verb = std::string(verb),
             .targetLabel = std::string(targetLabel),
+            .fallbackLabel = {},
         });
         const InteractionPromptView promptView = prompt.BuildView();
 
@@ -2404,6 +2406,8 @@ bool RuntimeEnvironmentService::TryInteractWithProceduralDoor(std::string_view d
         if (!doorIt->accessFeedbackTag.empty()) {
             pendingDoorTransitions_.push_back(DoorTransitionRequest{
                 .doorId = doorIt->id,
+                .transitionLevel = {},
+                .endingTrigger = {},
                 .accessFeedbackTag = doorIt->accessFeedbackTag,
             });
         }
@@ -4191,22 +4195,34 @@ bool RuntimeEnvironmentService::ApplyGenericTriggerVolumeLogicInput(std::string_
 }
 
 void RuntimeEnvironmentService::RegisterLogicDoor(std::string id, LogicDoorRuntimeState initial) {
+    worldActorKindById_[id] = "door";
     logicDoorActors_[std::move(id)] = std::move(initial);
 }
 
 void RuntimeEnvironmentService::RegisterLogicSpawner(std::string id, LogicSpawnerRuntimeState initial) {
+    worldActorKindById_[id] = "spawner";
     logicSpawnerActors_[std::move(id)] = std::move(initial);
 }
 
 void RuntimeEnvironmentService::ClearLogicWorldActors() {
+    for (const auto& entry : logicDoorActors_) {
+        worldActorKindById_.erase(entry.first);
+    }
+    for (const auto& entry : logicSpawnerActors_) {
+        worldActorKindById_.erase(entry.first);
+    }
     logicDoorActors_.clear();
     logicSpawnerActors_.clear();
 }
 
 void RuntimeEnvironmentService::SetLevelSpawnerDefinitions(std::vector<LevelSpawnerDefinition> definitions) {
+    for (const LevelSpawnerDefinition& existing : levelSpawnerDefinitions_) {
+        worldActorKindById_.erase(existing.id);
+    }
     levelSpawnerDefinitions_ = std::move(definitions);
     logicSpawnerActors_.clear();
     for (const LevelSpawnerDefinition& definition : levelSpawnerDefinitions_) {
+        worldActorKindById_[definition.id] = "spawner";
         logicSpawnerActors_[definition.id] = LogicSpawnerRuntimeState{
             .activeSpawn = false,
             .enabled = definition.enabledByDefault,
@@ -4372,6 +4388,34 @@ bool RuntimeEnvironmentService::SetLevelLightEnabled(std::string_view lightId, b
     return true;
 }
 
+bool RuntimeEnvironmentService::SetLevelLightIntensity(std::string_view lightId, const float intensity) {
+    auto light = std::find_if(
+        safeLights_.begin(),
+        safeLights_.end(),
+        [lightId](const SafeLightRuntimeState& value) { return value.id == lightId; });
+    if (light == safeLights_.end()) {
+        return false;
+    }
+    light->intensity = intensity;
+    return true;
+}
+
+void RuntimeEnvironmentService::SetEntityInputPipeline(std::unique_ptr<EntityInputDispatchPipeline> pipeline) {
+    entityInputPipeline_ = std::move(pipeline);
+}
+
+void RuntimeEnvironmentService::RegisterWorldActorKind(std::string actorId, std::string kind) {
+    worldActorKindById_[std::move(actorId)] = std::move(kind);
+}
+
+std::optional<std::string> RuntimeEnvironmentService::ResolveWorldActorKind(const std::string_view actorId) const {
+    const auto found = worldActorKindById_.find(std::string(actorId));
+    if (found == worldActorKindById_.end()) {
+        return std::nullopt;
+    }
+    return found->second;
+}
+
 std::size_t RuntimeEnvironmentService::SetLevelLightGroupEnabled(std::string_view groupId, bool enabled) {
     std::size_t changed = 0;
     for (SafeLightRuntimeState& light : safeLights_) {
@@ -4473,6 +4517,13 @@ bool RuntimeEnvironmentService::ApplyWorldActorLogicInput(ri::logic::LogicGraph&
                                                           std::string_view actorId,
                                                           std::string_view inputName,
                                                           const ri::logic::LogicContext& context) {
+    if (entityInputPipeline_) {
+        if (const std::optional<std::string> kind = ResolveWorldActorKind(actorId); kind.has_value()) {
+            if (entityInputPipeline_->TryDispatch(*this, graph, *kind, actorId, inputName, context)) {
+                return true;
+            }
+        }
+    }
     if (ApplyGenericTriggerVolumeLogicInput(actorId, inputName)) {
         return true;
     }

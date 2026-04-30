@@ -53,14 +53,14 @@ inline Aabb ExpandByPoint(const Aabb& box, const ri::math::Vec3& point) {
     }
     return Aabb{
         .min = {
-            std::min(box.min.x, point.x),
-            std::min(box.min.y, point.y),
-            std::min(box.min.z, point.z),
+            (std::min)(box.min.x, point.x),
+            (std::min)(box.min.y, point.y),
+            (std::min)(box.min.z, point.z),
         },
         .max = {
-            std::max(box.max.x, point.x),
-            std::max(box.max.y, point.y),
-            std::max(box.max.z, point.z),
+            (std::max)(box.max.x, point.x),
+            (std::max)(box.max.y, point.y),
+            (std::max)(box.max.z, point.z),
         },
     };
 }
@@ -74,14 +74,14 @@ inline Aabb Union(const Aabb& lhs, const Aabb& rhs) {
     }
     return Aabb{
         .min = {
-            std::min(lhs.min.x, rhs.min.x),
-            std::min(lhs.min.y, rhs.min.y),
-            std::min(lhs.min.z, rhs.min.z),
+            (std::min)(lhs.min.x, rhs.min.x),
+            (std::min)(lhs.min.y, rhs.min.y),
+            (std::min)(lhs.min.z, rhs.min.z),
         },
         .max = {
-            std::max(lhs.max.x, rhs.max.x),
-            std::max(lhs.max.y, rhs.max.y),
-            std::max(lhs.max.z, rhs.max.z),
+            (std::max)(lhs.max.x, rhs.max.x),
+            (std::max)(lhs.max.y, rhs.max.y),
+            (std::max)(lhs.max.z, rhs.max.z),
         },
     };
 }
@@ -100,14 +100,15 @@ inline bool IsFinite(const Ray& ray) {
         && std::isfinite(ray.direction.x) && std::isfinite(ray.direction.y) && std::isfinite(ray.direction.z);
 }
 
-inline bool IntersectRayAabb(const Ray& ray, const Aabb& box, float far, float* outDistance = nullptr) {
-    if (!IsFinite(ray) || IsEmpty(box) || !std::isfinite(far) || far <= 0.0f || ri::math::LengthSquared(ray.direction) < 1e-20f) {
+inline bool IntersectRayAabb(const Ray& ray, const Aabb& box, float farDistance, float* outDistance = nullptr) {
+    if (!IsFinite(ray) || IsEmpty(box) || !std::isfinite(farDistance) || farDistance <= 0.0f
+        || ri::math::LengthSquared(ray.direction) < 1e-20f) {
         return false;
     }
 
     const ri::math::Vec3 direction = ri::math::Normalize(ray.direction);
     float tMin = 0.0f;
-    float tMax = far;
+    float tMax = farDistance;
 
     auto updateAxis = [&](float origin, float dir, float minValue, float maxValue) {
         if (std::fabs(dir) <= 1e-8f) {
@@ -119,8 +120,8 @@ inline bool IntersectRayAabb(const Ray& ray, const Aabb& box, float far, float* 
         if (t0 > t1) {
             std::swap(t0, t1);
         }
-        tMin = std::max(tMin, t0);
-        tMax = std::min(tMax, t1);
+        tMin = (std::max)(tMin, t0);
+        tMax = (std::min)(tMax, t1);
         return tMax >= tMin;
     };
 
@@ -133,7 +134,7 @@ inline bool IntersectRayAabb(const Ray& ray, const Aabb& box, float far, float* 
     if (outDistance != nullptr) {
         *outDistance = tMin;
     }
-    return tMin <= far;
+    return tMin <= farDistance;
 }
 
 inline Aabb BuildSegmentBounds(const ri::math::Vec3& start, const ri::math::Vec3& end) {

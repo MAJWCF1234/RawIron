@@ -47,6 +47,25 @@ struct VolumeDefaults {
     ri::math::Vec3 size{4.0f, 4.0f, 4.0f};
 };
 
+/// Normalized authoring/runtime payload for triggers, queries, and tooling (single shape/transform description).
+struct AuthoringRuntimeVolumeRecord {
+    std::string id;
+    std::string type;
+    VolumeShape shape = VolumeShape::Box;
+    ri::math::Vec3 position{};
+    std::optional<ri::math::Vec3> rotationRadians{};
+    ri::math::Vec3 size{1.0f, 1.0f, 1.0f};
+    float radius = 0.5f;
+    float height = 1.0f;
+    bool debugVisible = true;
+};
+
+struct ClipInteractionModeResolveResult {
+    std::vector<ClipVolumeMode> modes;
+    std::vector<std::string> unknownTokens;
+    bool usedDefault = false;
+};
+
 struct FilteredCollisionVolume : RuntimeVolume {
     std::vector<CollisionChannel> channels;
     std::vector<std::string> includeTags;
@@ -114,6 +133,8 @@ struct SafeZoneVolume : RuntimeVolume {
 [[nodiscard]] std::string ToString(TriggerTransitionKind kind);
 
 [[nodiscard]] std::vector<ClipVolumeMode> ParseClipVolumeModes(const std::vector<std::string>& rawModes);
+/// Same vocabulary as \ref ParseClipVolumeModes with unknown-token capture and explicit defaulting diagnostics.
+[[nodiscard]] ClipInteractionModeResolveResult ResolveClipInteractionModes(const std::vector<std::string>& rawModes);
 [[nodiscard]] std::vector<CollisionChannel> ParseCollisionChannels(const std::vector<std::string>& rawChannels);
 [[nodiscard]] std::vector<ConstraintAxis> ParseConstraintAxes(const std::vector<std::string>& rawAxes);
 [[nodiscard]] CollisionChannelResolveResult ResolveCollisionChannelAuthoring(
@@ -129,6 +150,8 @@ struct SafeZoneVolume : RuntimeVolume {
 
 [[nodiscard]] RuntimeVolume CreateRuntimeVolume(const RuntimeVolumeSeed& data,
                                                 const VolumeDefaults& defaults = {});
+[[nodiscard]] AuthoringRuntimeVolumeRecord BuildAuthoringRuntimeVolumeRecord(const RuntimeVolumeSeed& data,
+                                                                           const VolumeDefaults& defaults = {});
 [[nodiscard]] FilteredCollisionVolume CreateFilteredCollisionVolume(const RuntimeVolumeSeed& data,
                                                                    const std::vector<std::string>& rawChannels,
                                                                    const VolumeDefaults& defaults = {});

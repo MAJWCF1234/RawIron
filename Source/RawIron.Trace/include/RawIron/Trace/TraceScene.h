@@ -2,6 +2,8 @@
 
 #include "RawIron/Spatial/SpatialIndex.h"
 
+#include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -14,6 +16,10 @@ struct TraceCollider {
     ri::spatial::Aabb bounds;
     bool structural = true;
     bool dynamic = false;
+    /// Optional gameplay/sim tags (e.g. `dynamicCollider`, `pickup`, layer hints); broadphase ignores unless you filter.
+    std::vector<std::string> simulationTags{};
+    /// Opaque bitmask for game collision / simulation routing (filters live in game code).
+    std::uint32_t simulationFlags = 0U;
 };
 
 struct TraceOptions {
@@ -66,6 +72,15 @@ public:
     explicit TraceScene(std::vector<TraceCollider> colliders, ri::spatial::SpatialIndexOptions indexOptions = {});
 
     void SetColliders(std::vector<TraceCollider> colliders, ri::spatial::SpatialIndexOptions indexOptions = {});
+
+    /// Erases colliders matching `pred` and rebuilds static/structural broadphase. Use for streaming teardown
+    /// or when filter state is not expressible as a simple id set.
+    [[nodiscard]] std::size_t EraseCollidersIf(const std::function<bool(const TraceCollider&)>& shouldRemove,
+                                               ri::spatial::SpatialIndexOptions indexOptions = {});
+
+    /// Erases colliders by id; O(m) in `ids` with hash lookup, O(n) list scan. Rebuilds broadphase.
+    [[nodiscard]] std::size_t EraseCollidersWithIds(const std::vector<std::string_view>& ids,
+                                                    ri::spatial::SpatialIndexOptions indexOptions = {});
 
     /// In-place bounds update for colliders marked `dynamic` (skips BSP rebuild). Used for moving kinematic props.
     [[nodiscard]] bool TrySetDynamicColliderBounds(std::string_view id, const ri::spatial::Aabb& bounds);

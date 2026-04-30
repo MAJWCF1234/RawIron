@@ -12,6 +12,7 @@
 #include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
 #include "RawIron/Scene/Scene.h"
+#include "RawIron/Scene/SceneStructuralTraceFeed.h"
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Spatial/Aabb.h"
 #include "RawIron/Trace/MovementController.h"
@@ -1187,6 +1188,8 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         gameplay, "low_jump_gravity_multiplier", state.movementOptions.lowJumpGravityMultiplier, 1.0f, 4.0f);
     state.movementOptions.maxFallSpeed = ri::content::ScriptScalarOrClamped(
         gameplay, "max_fall_speed", state.movementOptions.maxFallSpeed, 4.0f, 120.0f);
+    state.movementOptions.refineStructuralTraceHit =
+        ri::scene::MakeStructuralMeshTraceRefiner(state.world.scene);
     state.authoredMovementOptions = state.movementOptions;
     state.movement.onGround = true;
     const ri::math::Vec3 defaultSpawnEye = state.world.scene.GetNode(state.world.playerRig).localTransform.position;

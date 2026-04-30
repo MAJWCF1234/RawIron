@@ -38,7 +38,7 @@ if (RAWIRON_ENABLE_STACKTRACE_DIAGNOSTICS)
       BACKWARD_HAS_DW=0
       BACKWARD_HAS_BACKTRACE=0
   )
-  if (MSVC)
+  if (WIN32)
     target_compile_definitions(RawIron.Core PRIVATE BACKWARD_HAS_DBGHELP=1)
     target_link_libraries(RawIron.Core PRIVATE dbghelp)
   endif()

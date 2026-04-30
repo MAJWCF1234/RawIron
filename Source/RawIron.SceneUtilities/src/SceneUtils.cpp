@@ -1,11 +1,13 @@
 #include "RawIron/Scene/SceneUtils.h"
 
 #include "RawIron/Math/Mat4.h"
+#include "RawIron/Spatial/Aabb.h"
 
 #include <array>
 #include <cmath>
 #include <limits>
 #include <string>
+#include <unordered_set>
 
 namespace ri::scene {
 
@@ -186,6 +188,71 @@ std::vector<int> CollectDescendantNodes(const Scene& scene, int nodeHandle) {
     return CollectNodeSubtree(scene, nodeHandle, false);
 }
 
+std::vector<int> CollectMeshHandlesInNodeSubtree(const Scene& scene, const int rootNode, const bool dedupeMeshHandles) {
+    std::vector<int> ordered;
+    if (!IsValidNodeHandle(scene, rootNode)) {
+        return ordered;
+    }
+    std::unordered_set<int> seen;
+    const std::vector<int> subtree = CollectNodeSubtree(scene, rootNode, true);
+    ordered.reserve(subtree.size());
+    for (const int nodeHandle : subtree) {
+        const int meshHandle = scene.GetNode(nodeHandle).mesh;
+        if (meshHandle == kInvalidHandle) {
+            continue;
+        }
+        if (dedupeMeshHandles) {
+            if (!seen.insert(meshHandle).second) {
+                continue;
+            }
+        }
+        ordered.push_back(meshHandle);
+    }
+    if (dedupeMeshHandles) {
+        std::sort(ordered.begin(), ordered.end());
+    }
+    return ordered;
+}
+
+std::vector<int> CollectMeshHandlesInNodeSubtreeAndBatches(const Scene& scene, const int rootNode, const bool dedupeMeshHandles) {
+    std::vector<int> ordered;
+    if (!IsValidNodeHandle(scene, rootNode)) {
+        return ordered;
+    }
+    std::unordered_set<int> seen;
+    const std::vector<int> subtree = CollectNodeSubtree(scene, rootNode, true);
+    std::unordered_set<int> subtreeNodes(subtree.begin(), subtree.end());
+    ordered.reserve(subtree.size());
+    for (const int nodeHandle : subtree) {
+        const int meshHandle = scene.GetNode(nodeHandle).mesh;
+        if (meshHandle == kInvalidHandle) {
+            continue;
+        }
+        if (dedupeMeshHandles) {
+            if (!seen.insert(meshHandle).second) {
+                continue;
+            }
+        }
+        ordered.push_back(meshHandle);
+    }
+    for (std::size_t batchIndex = 0; batchIndex < scene.MeshInstanceBatchCount(); ++batchIndex) {
+        const MeshInstanceBatch& batch = scene.GetMeshInstanceBatch(static_cast<int>(batchIndex));
+        if (batch.parent == kInvalidHandle || !subtreeNodes.contains(batch.parent) || batch.mesh == kInvalidHandle) {
+            continue;
+        }
+        if (dedupeMeshHandles) {
+            if (!seen.insert(batch.mesh).second) {
+                continue;
+            }
+        }
+        ordered.push_back(batch.mesh);
+    }
+    if (dedupeMeshHandles) {
+        std::sort(ordered.begin(), ordered.end());
+    }
+    return ordered;
+}
+
 std::vector<int> CollectRenderableNodes(const Scene& scene) {
     return scene.GetRenderableNodeHandles();
 }
@@ -292,6 +359,13 @@ std::optional<WorldBounds> ComputeNodeWorldBounds(const Scene& scene, int nodeHa
         return std::nullopt;
     }
     return bounds;
+}
+
+std::optional<ri::spatial::Aabb> TryComputeMeshNodeWorldAabb(const Scene& scene, const int nodeHandle) {
+    if (const std::optional<WorldBounds> bounds = ComputeNodeWorldBounds(scene, nodeHandle, false)) {
+        return ri::spatial::Aabb{.min = bounds->min, .max = bounds->max};
+    }
+    return std::nullopt;
 }
 
 std::optional<WorldBounds> ComputeCombinedWorldBounds(const Scene& scene,

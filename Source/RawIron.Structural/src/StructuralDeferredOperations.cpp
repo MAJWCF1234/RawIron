@@ -120,6 +120,11 @@ StructuralPrimitiveOptions BuildPrimitiveOptionsFromNode(const StructuralNode& n
     if (node.detail > 0) {
         options.detail = node.detail;
     }
+    if (node.steps > 0) {
+        options.steps = node.steps;
+    } else if (node.segments > 0) {
+        options.steps = node.segments;
+    }
     if (node.hemisphereSegments > 0) {
         options.hemisphereSegments = node.hemisphereSegments;
     }
@@ -138,9 +143,16 @@ StructuralPrimitiveOptions BuildPrimitiveOptionsFromNode(const StructuralNode& n
     if (node.spanDegrees > 0.0f) {
         options.spanDegrees = node.spanDegrees;
     }
+    if (node.sweepDegrees > 0.0f) {
+        options.sweepDegrees = node.sweepDegrees;
+    }
+    if (node.startDegrees != 0.0f) {
+        options.startDegrees = node.startDegrees;
+    }
     if (node.ridgeRatio > 0.0f) {
         options.ridgeRatio = node.ridgeRatio;
     }
+    options.centerColumn = node.centerColumn;
     if (!node.archStyle.empty()) {
         options.archStyle = node.archStyle;
     }

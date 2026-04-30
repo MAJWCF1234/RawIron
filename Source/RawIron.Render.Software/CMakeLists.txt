@@ -1,5 +1,6 @@
 add_library(RawIron.Render.Software
   src/PreviewTexture.cpp
+  src/RgbaImagePathCache.cpp
   src/ScenePreview.cpp
   src/SoftwarePreview.cpp
 )

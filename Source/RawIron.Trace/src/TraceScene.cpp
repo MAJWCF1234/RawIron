@@ -1,8 +1,10 @@
 #include "RawIron/Trace/TraceScene.h"
+#include "RawIron/Trace/SweptAabbContact.h"
 
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <functional>
 #include <unordered_set>
 
 namespace ri::trace {
@@ -18,83 +20,8 @@ ri::spatial::Aabb TranslateBox(const ri::spatial::Aabb& box, const ri::math::Vec
     };
 }
 
-ri::spatial::Aabb IntersectionBox(const ri::spatial::Aabb& lhs, const ri::spatial::Aabb& rhs) {
-    if (!ri::spatial::Intersects(lhs, rhs)) {
-        return ri::spatial::MakeEmptyAabb();
-    }
-    return ri::spatial::Aabb{
-        .min = {
-            std::max(lhs.min.x, rhs.min.x),
-            std::max(lhs.min.y, rhs.min.y),
-            std::max(lhs.min.z, rhs.min.z),
-        },
-        .max = {
-            std::min(lhs.max.x, rhs.max.x),
-            std::min(lhs.max.y, rhs.max.y),
-            std::min(lhs.max.z, rhs.max.z),
-        },
-    };
-}
-
-float ClampFloat(float value, float minValue, float maxValue) {
-    return std::max(minValue, std::min(maxValue, value));
-}
-
-std::optional<TraceHit> ComputeTraceBoxHit(const ri::spatial::Aabb& queryBox,
-                                           const TraceCollider& collider) {
-    const ri::spatial::Aabb intersection = IntersectionBox(queryBox, collider.bounds);
-    if (ri::spatial::IsEmpty(intersection)) {
-        return std::nullopt;
-    }
-
-    const ri::math::Vec3 size = ri::spatial::Size(intersection);
-    if (size.x <= 0.0f || size.y <= 0.0f || size.z <= 0.0f) {
-        return std::nullopt;
-    }
-
-    const ri::math::Vec3 queryCenter = ri::spatial::Center(queryBox);
-    const ri::math::Vec3 colliderCenter = ri::spatial::Center(collider.bounds);
-    const ri::math::Vec3 deltaCenter = queryCenter - colliderCenter;
-
-    char axis = 'x';
-    float penetration = size.x;
-    ri::math::Vec3 normal{(deltaCenter.x >= 0.0f ? 1.0f : -1.0f), 0.0f, 0.0f};
-
-    if (size.y < penetration) {
-        axis = 'y';
-        penetration = size.y;
-        normal = {0.0f, (deltaCenter.y >= 0.0f ? 1.0f : -1.0f), 0.0f};
-    }
-    if (size.z < penetration) {
-        axis = 'z';
-        penetration = size.z;
-        normal = {0.0f, 0.0f, (deltaCenter.z >= 0.0f ? 1.0f : -1.0f)};
-    }
-
-    ri::math::Vec3 point = queryCenter;
-    if (axis == 'x') {
-        point.x = normal.x > 0.0f ? collider.bounds.max.x : collider.bounds.min.x;
-        point.y = ClampFloat(queryCenter.y, collider.bounds.min.y, collider.bounds.max.y);
-        point.z = ClampFloat(queryCenter.z, collider.bounds.min.z, collider.bounds.max.z);
-    } else if (axis == 'y') {
-        point.y = normal.y > 0.0f ? collider.bounds.max.y : collider.bounds.min.y;
-        point.x = ClampFloat(queryCenter.x, collider.bounds.min.x, collider.bounds.max.x);
-        point.z = ClampFloat(queryCenter.z, collider.bounds.min.z, collider.bounds.max.z);
-    } else {
-        point.z = normal.z > 0.0f ? collider.bounds.max.z : collider.bounds.min.z;
-        point.x = ClampFloat(queryCenter.x, collider.bounds.min.x, collider.bounds.max.x);
-        point.y = ClampFloat(queryCenter.y, collider.bounds.min.y, collider.bounds.max.y);
-    }
-
-    return TraceHit{
-        .id = collider.id,
-        .bounds = collider.bounds,
-        .point = point,
-        .normal = normal,
-        .penetration = penetration,
-        .time = 0.0f,
-        .endBox = queryBox,
-    };
+std::optional<TraceHit> ComputeTraceBoxHit(const ri::spatial::Aabb& queryBox, const TraceCollider& collider) {
+    return ComputeAabbOverlapTraceHit(queryBox, collider.bounds, collider.id);
 }
 
 std::optional<TraceHit> ComputeRayHit(const ri::math::Vec3& origin,
@@ -165,91 +92,7 @@ std::optional<TraceHit> ComputeRayHit(const ri::math::Vec3& origin,
 std::optional<TraceHit> ComputeSweptBoxHit(const ri::spatial::Aabb& queryBox,
                                            const ri::math::Vec3& delta,
                                            const TraceCollider& collider) {
-    if (ri::spatial::Intersects(queryBox, collider.bounds)) {
-        std::optional<TraceHit> overlap = ComputeTraceBoxHit(queryBox, collider);
-        if (!overlap.has_value()) {
-            return std::nullopt;
-        }
-        overlap->time = 0.0f;
-        overlap->endBox = queryBox;
-        return overlap;
-    }
-
-    float entryTime = -std::numeric_limits<float>::infinity();
-    float exitTime = std::numeric_limits<float>::infinity();
-    char hitAxis = 'x';
-    float hitSign = 0.0f;
-
-    auto updateAxis = [&](char axis,
-                          float boxMin,
-                          float boxMax,
-                          float staticMin,
-                          float staticMax,
-                          float velocity) {
-        if (std::fabs(velocity) < 1e-8f) {
-            return !(boxMax <= staticMin || boxMin >= staticMax);
-        }
-
-        const float invVelocity = 1.0f / velocity;
-        float axisEntry = velocity > 0.0f
-            ? (staticMin - boxMax) * invVelocity
-            : (staticMax - boxMin) * invVelocity;
-        float axisExit = velocity > 0.0f
-            ? (staticMax - boxMin) * invVelocity
-            : (staticMin - boxMax) * invVelocity;
-        if (axisEntry > axisExit) {
-            std::swap(axisEntry, axisExit);
-        }
-
-        if (axisEntry > entryTime) {
-            entryTime = axisEntry;
-            hitAxis = axis;
-            hitSign = velocity > 0.0f ? -1.0f : 1.0f;
-        }
-        exitTime = std::min(exitTime, axisExit);
-        return entryTime <= exitTime;
-    };
-
-    if (!updateAxis('x', queryBox.min.x, queryBox.max.x, collider.bounds.min.x, collider.bounds.max.x, delta.x)
-        || !updateAxis('y', queryBox.min.y, queryBox.max.y, collider.bounds.min.y, collider.bounds.max.y, delta.y)
-        || !updateAxis('z', queryBox.min.z, queryBox.max.z, collider.bounds.min.z, collider.bounds.max.z, delta.z)) {
-        return std::nullopt;
-    }
-
-    if (entryTime < 0.0f || entryTime > 1.0f || exitTime < 0.0f) {
-        return std::nullopt;
-    }
-
-    const ri::spatial::Aabb endBox = TranslateBox(queryBox, delta * entryTime);
-    const ri::math::Vec3 movedCenter = ri::spatial::Center(endBox);
-    ri::math::Vec3 normal{};
-    ri::math::Vec3 point = movedCenter;
-    if (hitAxis == 'x') {
-        normal = {hitSign != 0.0f ? hitSign : 1.0f, 0.0f, 0.0f};
-        point.x = hitSign > 0.0f ? collider.bounds.max.x : collider.bounds.min.x;
-        point.y = ClampFloat(movedCenter.y, collider.bounds.min.y, collider.bounds.max.y);
-        point.z = ClampFloat(movedCenter.z, collider.bounds.min.z, collider.bounds.max.z);
-    } else if (hitAxis == 'y') {
-        normal = {0.0f, hitSign != 0.0f ? hitSign : 1.0f, 0.0f};
-        point.y = hitSign > 0.0f ? collider.bounds.max.y : collider.bounds.min.y;
-        point.x = ClampFloat(movedCenter.x, collider.bounds.min.x, collider.bounds.max.x);
-        point.z = ClampFloat(movedCenter.z, collider.bounds.min.z, collider.bounds.max.z);
-    } else {
-        normal = {0.0f, 0.0f, hitSign != 0.0f ? hitSign : 1.0f};
-        point.z = hitSign > 0.0f ? collider.bounds.max.z : collider.bounds.min.z;
-        point.x = ClampFloat(movedCenter.x, collider.bounds.min.x, collider.bounds.max.x);
-        point.y = ClampFloat(movedCenter.y, collider.bounds.min.y, collider.bounds.max.y);
-    }
-
-    return TraceHit{
-        .id = collider.id,
-        .bounds = collider.bounds,
-        .point = point,
-        .normal = normal,
-        .penetration = 0.0f,
-        .time = entryTime,
-        .endBox = endBox,
-    };
+    return ComputeSweptAabbTraceHit(queryBox, delta, collider.bounds, collider.id);
 }
 
 } // namespace
@@ -271,6 +114,38 @@ bool TraceScene::TrySetDynamicColliderBounds(std::string_view id, const ri::spat
         return true;
     }
     return false;
+}
+
+std::size_t TraceScene::EraseCollidersIf(const std::function<bool(const TraceCollider&)>& shouldRemove,
+                                         ri::spatial::SpatialIndexOptions indexOptions) {
+    std::vector<TraceCollider> kept;
+    kept.reserve(colliders_.size());
+    std::size_t removed = 0;
+    for (TraceCollider& collider : colliders_) {
+        if (shouldRemove(collider)) {
+            ++removed;
+            continue;
+        }
+        kept.push_back(std::move(collider));
+    }
+    SetColliders(std::move(kept), indexOptions);
+    return removed;
+}
+
+std::size_t TraceScene::EraseCollidersWithIds(const std::vector<std::string_view>& ids,
+                                              ri::spatial::SpatialIndexOptions indexOptions) {
+    std::unordered_set<std::string> wanted;
+    wanted.reserve(ids.size());
+    for (const std::string_view id : ids) {
+        if (!id.empty()) {
+            wanted.emplace(id);
+        }
+    }
+    if (wanted.empty()) {
+        return 0;
+    }
+    return EraseCollidersIf(
+        [&](const TraceCollider& c) { return wanted.find(c.id) != wanted.end(); }, std::move(indexOptions));
 }
 
 void TraceScene::SetColliders(std::vector<TraceCollider> colliders, ri::spatial::SpatialIndexOptions indexOptions) {

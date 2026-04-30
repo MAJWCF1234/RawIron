@@ -36,6 +36,9 @@ struct RuntimeTuning {
     std::optional<double> fallGravityMultiplier;
     std::optional<double> lowJumpGravityMultiplier;
     std::optional<double> maxFallSpeed;
+    std::optional<double> crouchSpeed;
+    std::optional<double> proneSpeed;
+    std::optional<double> maxStepHeight;
 };
 
 struct RuntimeCheckpointState {
