@@ -76,7 +76,7 @@ This is the shortest path toward a cohesive engine/tool ecosystem.
 - `RawIron.Render.Vulkan` owns the Windows interactive preview path and diagnostics.
 - `RawIron.Render.Software` owns deterministic headless preview snapshots.
 - `RawIron.SceneUtilities` owns Scene Kit helpers, import smoke paths, starter scenes, scripted camera review, and the ten-example milestone gate.
-- `RawIron.EditorPreview` and `RawIron.Editor.BundledGames` connect editor preview scenes to built-in game modules.
+- `Apps/RawIron.Editor` owns editor preview registration and bundled-game preview links through engine-facing seams.
 - `RawIron.Logic`, `RawIron.World`, `RawIron.Content`, and `RawIron.Structural` are now substantial native libraries rather than future placeholders.
 
 ## Companion Notes

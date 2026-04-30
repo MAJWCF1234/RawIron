@@ -14,7 +14,7 @@ RawIron treats the repository root as the active workspace root, wherever the de
 ## Top-Level Folders
 
 - `Apps`
-  Native executable hosts such as `RawIron.Player` and `RawIron.Editor`
+  Native executable hosts. App-specific code should stay inside `Apps/<AppName>/` except for root launchers and shared engine/build glue.
 - `Assets/Source`
   Imported source assets before cooking
 - `Assets/Cooked`
@@ -29,6 +29,7 @@ RawIron treats the repository root as the active workspace root, wherever the de
   Local engine projects and sandboxes created by tooling when needed
 - `Saved`
   Workspace-level logs, caches, and generated state
+  Editor sessions persist under `Saved/Editor/<project-or-scene-id>/` including transform state, authored-node sidecars, orbit camera state, and autosaves.
 - `Scripts`
   Helper scripts and automation
 - `Source`

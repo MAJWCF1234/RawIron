@@ -43,8 +43,6 @@ The active CMake source modules are:
 - `RawIron.Trace`: object/entity physics, kinematic physics, movement control, locomotion tuning, spatial query helpers, and trace scene metrics.
 - `RawIron.Validation`: schema registry, scalar/string/object/collection constraints, coercion, references, migration helpers, color parsing, ID format checks, and validation reports.
 - `RawIron.SceneUtilities`: Scene Kit helpers, model import dispatch, glTF/FBX/OBJ import support, animation clips, raycasts, scene state I/O, scripted camera review, starter workspace scenes, and Scene Kit milestone examples.
-- `RawIron.EditorPreview`: editor preview scene registry that can fall back to the shared starter scene or use bundled game previews.
-- `RawIron.Editor.BundledGames`: optional editor link layer for built-in game preview registration.
 - `RawIron.Render.Vulkan`: Vulkan bootstrap, preview presenter, native Scene Kit preview window path, command recording, frame submission, intent staging, and pipeline-state cache.
 - `RawIron.Render.Software`: deterministic software Scene Kit preview rendering and BMP output.
 - `RawIron.Structural`: structural graphs, convex clipping, primitive builders, compiler orchestration, boolean operators, aggregate hulls, array/symmetry expansion, detail modifiers, reconciler helpers, cutter volumes, and deferred-operation helpers.
@@ -57,7 +55,7 @@ The workspace now includes game/runtime targets in addition to the engine librar
 - `Games/LiminalHall`: `RawIron.Game.LiminalHall` plus `RawIron.LiminalGame`.
 - `Games/WildernessRuins`: `RawIron.Game.ForestRuins` plus `RawIron.ForestRuinsGame`.
 - `Apps/RawIron.Player`: starter runtime host.
-- `Apps/RawIron.Editor`: native editor shell with editor-preview registration.
+- `Apps/RawIron.Editor`: native editor shell with app-local preview registration and bundled-game preview wiring.
 - `Apps/RawIron.Preview`: Scene Kit preview host with software snapshot output and Vulkan interactive preview on Windows.
 - `Apps/RawIron.VisualShell`: keyboard-first native launch shell for previews, docs, diagnostics, and tests.
 - `Tools/ri_tool`: workspace, Scene Kit, Vulkan, post-process, scene-state, preview, and asset-standardization commands.
@@ -115,7 +113,7 @@ The source test binaries are much broader than the CTest count suggests: `RawIro
 ## Documentation Fixes From This Review
 
 - Removed active-library claims for `RawIron.SceneSamples`.
-- Updated the repository map to include current modules such as `RawIron.Logic`, `RawIron.DevInspector`, `RawIron.EditorPreview`, `RawIron.Editor.BundledGames`, `RawIron.Render.Vulkan`, and both game modules.
+- Updated the repository map to reflect the current app package model, including app-local editor preview wiring inside `Apps/RawIron.Editor`.
 - Updated workspace docs to describe `Projects/Sandbox` as created by `ri_tool --ensure-workspace`, not present in every checkout.
 - Updated testing docs from 14 to 17 generated CTest entries.
 - Updated Scene Kit/helper docs from five checks to the current ten-example gate.

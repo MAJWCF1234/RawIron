@@ -70,3 +70,6 @@ This is a temporary launch shell, not the final editor UI.
 Its job is to give RawIron a believable native front end while the larger editor, player, and rendering paths keep maturing.
 
 The shell preview panel and the preview window now use the Scene Kit cube scene instead of the earlier hardcoded-only cube bitmap path.
+
+The shell now follows the same app-package ownership rule as the other native apps: app-specific code lives under
+`Apps/RawIron.VisualShell/`, while shared engine systems stay in `Source/`.

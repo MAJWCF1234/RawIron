@@ -174,21 +174,6 @@ Scene Kit and utility layer:
 
 Note: `Source/RawIron.SceneSamples` is an empty legacy directory and is not an active CMake module. Starter scenes now live in `RawIron.SceneUtilities`.
 
-### `Source/RawIron.EditorPreview`
-
-Editor preview registry:
-
-- preview scene registration
-- fallback starter-scene construction
-- game-preview hook dispatch
-
-### `Source/RawIron.Editor.BundledGames`
-
-Optional editor game-preview link layer:
-
-- registers Liminal Hall previews when enabled
-- registers Forest Ruins previews when enabled
-
 ### `Source/RawIron.Render.Software`
 
 Deterministic software preview renderer:
@@ -244,6 +229,9 @@ Shared game runtime diagnostics drawing helpers.
 
 ## Applications
 
+Applications follow the same ownership principle as games: app-specific code belongs in `Apps/<AppName>/`, while
+shared engine infrastructure belongs in `Source/`. See [[Application Package Format]].
+
 ### `Apps/RawIron.Player`
 
 Starter runtime host:
@@ -258,6 +246,9 @@ Starter runtime host:
 Native editor shell:
 
 - shared host loop
+- editor-specific startup/composition
+- app-local preview scene registry
+- app-local bundled game preview registration
 - editor workspace view
 - preview scene registry integration
 - bundled game preview support when enabled

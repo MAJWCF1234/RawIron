@@ -181,14 +181,6 @@ Historical note:
 - `Source/RawIron.SceneSamples` exists only as an empty legacy directory right now.
 - Starter scene and sample behavior live in `RawIron.SceneUtilities` today.
 
-### `RawIron.EditorPreview`
-
-Owns editor preview scene registration:
-
-- fallback starter scene construction
-- game-preview hook dispatch
-- bundled-game preview integration surface
-
 ### `RawIron.Render.Software`
 
 Owns early engine-side software rendering helpers that are useful for previews, smoke tests, and deterministic image output before the full runtime renderer is mature:
