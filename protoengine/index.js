@@ -19,8 +19,7 @@ import {
     finiteVec3Components,
     finiteQuatComponents,
     finiteScaleComponents,
-    pointInsideAuthoringVolume,
-    stepYawToward
+    pointInsideAuthoringVolume
 } from './engine.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -29,19 +28,14 @@ THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 const DEFAULT_PLAYER_TUNING = Object.freeze({
     walkSpeed: 5.0,
-    sprintSpeed: 8.0,
-    crouchSpeed: 2.5,
-    proneSpeed: 1.5,
     gravity: 32.0,
-    jumpForce: 9.6,
     fallGravityMultiplier: 1.4,
-    lowJumpGravityMultiplier: 1.18,
     maxFallSpeed: 28.0,
     maxStepHeight: 0.7
 });
 
 /**
- * Player state and movement: position, velocity, stance (stand/crouch/prone), collision.
+ * Player state and movement: position, velocity, baseline locomotion, collision.
  * @param {PointerLockControls} controls - Pointer lock camera controls.
  * @param {AnomalousEchoGame} game - Game instance for collision and state.
  */
@@ -54,21 +48,16 @@ class Player {
         this.velocity = new THREE.Vector3();
         this.direction = new THREE.Vector3();
         this.stance = 'standing';
-        this.eyeHeights = { standing: 1.8, crouching: 1.2, prone: 0.6 };
-        this.hullHeights = { standing: 1.62, crouching: 1.02, prone: 0.4 };
-        this.hullRadius = { standing: 0.24, crouching: 0.26, prone: 0.3 };
+        this.eyeHeights = { standing: 1.8 };
+        this.hullHeights = { standing: 1.62 };
+        this.hullRadius = { standing: 0.24 };
         this.speeds = {
-            walk: DEFAULT_PLAYER_TUNING.walkSpeed,
-            sprint: DEFAULT_PLAYER_TUNING.sprintSpeed,
-            crouch: DEFAULT_PLAYER_TUNING.crouchSpeed,
-            prone: DEFAULT_PLAYER_TUNING.proneSpeed
+            walk: DEFAULT_PLAYER_TUNING.walkSpeed
         };
         this.onGround = false;
         this.targetHeight = this.eyeHeights.standing;
         this.gravity = DEFAULT_PLAYER_TUNING.gravity;
-        this.jumpForce = DEFAULT_PLAYER_TUNING.jumpForce;
         this.fallGravityMultiplier = DEFAULT_PLAYER_TUNING.fallGravityMultiplier;
-        this.lowJumpGravityMultiplier = DEFAULT_PLAYER_TUNING.lowJumpGravityMultiplier;
         this.maxFallSpeed = DEFAULT_PLAYER_TUNING.maxFallSpeed;
         this.maxStepHeight = DEFAULT_PLAYER_TUNING.maxStepHeight;
         this.groundSnapDistance = 0.14;
@@ -117,50 +106,13 @@ class Player {
         this._hullSampleBoxes = Array.from({ length: 7 }, () => new THREE.Box3());
         this._supportCheckBox = new THREE.Box3();
         this.lastGroundedAt = 0;
-        this.jumpHeldLastFrame = false;
-
-        this.baseFov = this.camera.fov;
-        this.bobTimer = 0;
         this.syncCameraToBody();
     }
 
-    applyTuning(tuning = {}) {
-        if (Number.isFinite(tuning.walkSpeed)) this.speeds.walk = tuning.walkSpeed;
-        if (Number.isFinite(tuning.sprintSpeed)) this.speeds.sprint = tuning.sprintSpeed;
-        if (Number.isFinite(tuning.crouchSpeed)) this.speeds.crouch = tuning.crouchSpeed;
-        if (Number.isFinite(tuning.proneSpeed)) this.speeds.prone = tuning.proneSpeed;
-        if (Number.isFinite(tuning.gravity)) this.gravity = tuning.gravity;
-        if (Number.isFinite(tuning.jumpForce)) this.jumpForce = tuning.jumpForce;
-        if (Number.isFinite(tuning.fallGravityMultiplier)) this.fallGravityMultiplier = tuning.fallGravityMultiplier;
-        if (Number.isFinite(tuning.lowJumpGravityMultiplier)) this.lowJumpGravityMultiplier = tuning.lowJumpGravityMultiplier;
-        if (Number.isFinite(tuning.maxFallSpeed)) this.maxFallSpeed = tuning.maxFallSpeed;
-        if (Number.isFinite(tuning.maxStepHeight)) this.maxStepHeight = tuning.maxStepHeight;
-    }
-
-    getTuningSnapshot() {
-        return {
-            walkSpeed: this.speeds.walk,
-            sprintSpeed: this.speeds.sprint,
-            crouchSpeed: this.speeds.crouch,
-            proneSpeed: this.speeds.prone,
-            gravity: this.gravity,
-            jumpForce: this.jumpForce,
-            fallGravityMultiplier: this.fallGravityMultiplier,
-            lowJumpGravityMultiplier: this.lowJumpGravityMultiplier,
-            maxFallSpeed: this.maxFallSpeed,
-            maxStepHeight: this.maxStepHeight
-        };
-    }
-
-    setStance(newStance) {
+    setStance() {
         const preservedFeet = this.feetPosition.clone();
-        const valid = newStance && Object.prototype.hasOwnProperty.call(this.eyeHeights, newStance);
-        if (!valid) {
-            this.stance = 'standing';
-        } else {
-            this.stance = newStance;
-        }
-        this.targetHeight = this.eyeHeights[this.stance];
+        this.stance = 'standing';
+        this.targetHeight = this.eyeHeights.standing;
         this.feetPosition.copy(preservedFeet);
         this.syncCameraToBody();
     }
@@ -182,10 +134,6 @@ class Player {
         this.camera.position.copy(this.feetPosition).add(this.eyeOffset);
     }
 
-    syncBodyToCamera() {
-        this.feetPosition.copy(this.camera.position).sub(this.eyeOffset.set(0, this.getCurrentEyeHeight(), 0));
-    }
-
     setFeetPosition(position) {
         if (!position) return;
         const { x, y, z } = position;
@@ -194,10 +142,7 @@ class Player {
         this.syncCameraToBody();
     }
 
-    getCurrentSpeed(isSprinting) {
-        if (isSprinting && this.stance === 'standing') return this.speeds.sprint;
-        if (this.stance === 'crouching') return this.speeds.crouch;
-        if (this.stance === 'prone') return this.speeds.prone;
+    getCurrentSpeed() {
         return this.speeds.walk;
     }
 
@@ -248,9 +193,7 @@ class Player {
         if (!basePosition) return false;
         const origin = basePosition.clone();
         if (this.tryResolveStuck(origin)) {
-            this.velocity.y = Math.max(this.velocity.y, this.jumpForce * 0.7);
-            this.onGround = false;
-            this.lastGroundedAt = -Infinity;
+            this.velocity.y = 0;
             this.syncCameraToBody();
             return true;
         }
@@ -282,9 +225,7 @@ class Player {
                 const hit = this.traceRoundedHullBox(candidate, this.withSupportSurfaceFilter({}, candidate.y, 0.28));
                 if (hit) continue;
                 this.setFeetPosition(candidate);
-                this.velocity.y = Math.max(this.velocity.y, this.jumpForce * 0.7);
-                this.onGround = false;
-                this.lastGroundedAt = -Infinity;
+                this.velocity.y = 0;
                 return true;
             }
         }
@@ -293,9 +234,7 @@ class Player {
         candidate.x += Math.max(step * 4, 1.6);
         candidate.y += Math.max(1.6, this.getCurrentHullHeight(), this.maxStepHeight + 1.0);
         this.setFeetPosition(candidate);
-        this.velocity.y = Math.max(this.velocity.y, this.jumpForce * 0.9);
-        this.onGround = false;
-        this.lastGroundedAt = -Infinity;
+        this.velocity.y = 0;
         return true;
     }
 
@@ -585,9 +524,8 @@ class Player {
                 ? this.game.getElapsedTime()
                 : performance.now() * 0.001;
             const allCollidables = this.game.collidableMeshes && Array.isArray(this.game.collidableMeshes) ? this.game.collidableMeshes : [];
-            const isMoving = moveState.forward || moveState.backward || moveState.left || moveState.right;
-            const jumpHeld = !!(moveState.jump || moveState.up);
-            this.targetHeight = this.eyeHeights[this.stance];
+            this.stance = 'standing';
+            this.targetHeight = this.eyeHeights.standing;
             if (this.checkCollision()) {
                 this.tryResolveStuck(this.feetPosition);
             }
@@ -595,21 +533,12 @@ class Player {
             const groundHit = this.updateGroundState(allCollidables);
             const volumeModifiers = this.game?.getPhysicsVolumeModifiersAt?.(this.camera.position) || {
                 gravityScale: 1,
-                jumpScale: 1,
                 drag: 0,
                 buoyancy: 0,
                 flow: this.tempVector.set(0, 0, 0),
                 activeVolumes: []
             };
-            const traversalLink = this.game?.getTraversalLinkAt?.(this.camera.position || this.feetPosition) || null;
-            const traversalActive = !!traversalLink;
-            const climbInput = traversalActive
-                ? ((jumpHeld || moveState.forward) ? 1 : 0) - ((moveState.down || moveState.backward) ? 1 : 0)
-                : 0;
-            if (traversalActive) {
-                this.onGround = false;
-                this.velocity.y = climbInput * traversalLink.climbSpeed;
-            } else if (this.onGround) {
+            if (this.onGround) {
                 this.lastGroundedAt = now;
                 this.velocity.y = Math.max(0, this.velocity.y);
                 if (groundHit?.point) {
@@ -617,23 +546,14 @@ class Player {
                     this.syncCameraToBody();
                 }
             } else {
-                const gravityMultiplier = this.velocity.y > 0
-                    ? (jumpHeld ? 1.0 : this.lowJumpGravityMultiplier)
-                    : this.fallGravityMultiplier;
                 const netGravityScale = THREE.MathUtils.clamp(volumeModifiers.gravityScale - volumeModifiers.buoyancy, -2, 4);
                 this.velocity.y = Math.max(
-                    this.velocity.y - (this.gravity * gravityMultiplier * netGravityScale * dt),
+                    this.velocity.y - (this.gravity * this.fallGravityMultiplier * netGravityScale * dt),
                     -this.maxFallSpeed
                 );
             }
 
-            if (!traversalActive && jumpHeld && !this.jumpHeldLastFrame && this.onGround) {
-                this.velocity.y = this.jumpForce * volumeModifiers.jumpScale;
-                this.onGround = false;
-                this.lastGroundedAt = -Infinity;
-            }
-
-            const currentSpeed = this.getCurrentSpeed(moveState.sprint) * (traversalActive ? 0.58 : 1);
+            const currentSpeed = this.getCurrentSpeed();
             this.direction.set(
                 Number(moveState.right) - Number(moveState.left),
                 0,
@@ -675,7 +595,7 @@ class Player {
                 targetVelocityX = this.surfaceMoveDirection.x * currentSpeed;
                 targetVelocityZ = this.surfaceMoveDirection.z * currentSpeed;
             }
-            const acceleration = traversalActive ? 18.0 : (this.onGround ? 26.0 : 10.0);
+            const acceleration = this.onGround ? 26.0 : 10.0;
             this.velocity.x += (targetVelocityX - this.velocity.x) * acceleration * dt;
             this.velocity.z += (targetVelocityZ - this.velocity.z) * acceleration * dt;
             if (volumeModifiers.flow?.lengthSq?.() > 0) {
@@ -735,37 +655,23 @@ class Player {
             }
 
             let postGroundHit = null;
-            if (!traversalActive && this.velocity.y <= 0) {
+            if (this.velocity.y <= 0) {
                 const stepDownDistance = wasGrounded ? this.maxStepHeight + this.groundSnapDistance : this.groundSnapDistance;
                 postGroundHit = this.applyStepDown(stepDownDistance);
             }
-            if (!postGroundHit && !traversalActive) {
+            if (!postGroundHit) {
                 postGroundHit = this.updateGroundState(allCollidables);
             }
             if (this.onGround && this.velocity.y <= 0 && postGroundHit?.point) {
                 this.feetPosition.y = postGroundHit.point.y + this.groundContactOffset;
                 this.syncCameraToBody();
                 this.lastGroundedAt = now;
-            } else if (traversalActive) {
-                this.onGround = false;
-                this.surfaceNormal.set(0, 1, 0);
             }
 
-            const speed = new THREE.Vector2(this.velocity.x, this.velocity.z).length();
-            const targetFov = this.baseFov + (speed * 1.5);
-            this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, dt * 5.0);
-            this.camera.updateProjectionMatrix();
-
-            if (this.onGround && speed > 0.5) {
-                this.bobTimer += dt * (speed * 1.2);
-                this.camera.rotation.z = Math.sin(this.bobTimer) * 0.002 * Math.min(speed, 10);
-            } else {
-                this.camera.rotation.z = THREE.MathUtils.lerp(this.camera.rotation.z, 0, dt * 10);
-            }
+            this.camera.rotation.z = 0;
             if (!Number.isFinite(this.velocity.x)) this.velocity.x = 0;
             if (!Number.isFinite(this.velocity.y)) this.velocity.y = 0;
             if (!Number.isFinite(this.velocity.z)) this.velocity.z = 0;
-            this.jumpHeldLastFrame = jumpHeld;
         }
     }
 }
@@ -789,7 +695,7 @@ export class AnomalousEchoGame {
         this.muted = params.get('mute') === '1';
         this.runtimeEvents = { emit() {} };
         this.keyBindings = { ...DEFAULT_KEYS };
-        this.gameState = { isPaused: true, isLoaded: false, isGameOver: false, invulnerableUntil: 0 };
+        this.gameState = { isPaused: true, isLoaded: false, isGameOver: false, missionCompleted: false, invulnerableUntil: 0 };
         this.loadedAssets = { textures: {}, models: {} };
         this.animationSources = {};
         this.clock = new THREE.Clock();
@@ -802,6 +708,11 @@ export class AnomalousEchoGame {
         this.currentLevelFilename = null;
         this.currentLevelData = null;
         this.hudDismissTimers = new Map();
+        this.animationProfileHydrationCache = new Map();
+        this._animationProfileHydrationInflight = new Map();
+        this._explicitTexturePromiseCache = new Map();
+        this._explicitModelTextures = new Map();
+        this._sharedTextureLoader = null;
         this._activeGuidanceHint = null;
         this.activeAudioEnvironmentState = null;
         this.currentShaderIntensityLevel = 'menu';
@@ -877,7 +788,7 @@ export class AnomalousEchoGame {
         this.controls = new PointerLockControls(this.camera, document.body); 
         this.player = new Player(this.controls, this); 
         this.scene.add(this.controls.object);
-        this.moveState = { forward: false, backward: false, left: false, right: false, sprint: false, up: false, down: false }; 
+        this.moveState = { forward: false, backward: false, left: false, right: false }; 
         this.collidableMeshes = []; 
         this.staticCollidableMeshes = [];
         this.structuralCollidableMeshes = [];
@@ -924,7 +835,7 @@ export class AnomalousEchoGame {
 
         this.controls.addEventListener('lock', () => this.handleLock()); 
         this.controls.addEventListener('unlock', () => this.handleUnlock());
-        
+
         this.setupInputListeners();
     }
 
@@ -950,7 +861,7 @@ export class AnomalousEchoGame {
         this.clearPendingGameplayEnter();
         try {
             if (!this.controls.isLocked && document.pointerLockElement !== this.controls.domElement) {
-                this.controls.lock();
+            this.controls.lock();
             }
         } catch (_) {}
         this._pendingGameplayEnterTimeout = window.setTimeout(() => {
@@ -978,9 +889,9 @@ export class AnomalousEchoGame {
         if (!this.gameState.isLoaded || this.gameState.isGameOver) return;
 
         this.ui.hud?.classList.remove('visible');
-        if (this.ui.pauseMenu) this.ui.pauseMenu.style.display = 'flex';
+            if (this.ui.pauseMenu) this.ui.pauseMenu.style.display = 'flex';
         this.gameState.isPaused = true; 
-
+        
         this.setShaderIntensity('menu'); 
         this.emitRuntimeEvent('stateChanged', { id: createRuntimeId('state'), key: 'isPaused', value: true, reason: 'unlock' });
     }
@@ -1008,8 +919,6 @@ export class AnomalousEchoGame {
         window.addEventListener('resize', this.resizeHandler);
         document.addEventListener('pointerlockerror', this.pointerLockErrorHandler, false);
         document.addEventListener('visibilitychange', this.visibilityChangeHandler, false);
-        this.wheelHandler = this.handleWheel.bind(this);
-        window.addEventListener('wheel', this.wheelHandler, { passive: false });
     }
 
     handleSystemKeys(e) {
@@ -1022,14 +931,8 @@ export class AnomalousEchoGame {
     }
 
     handleActionKeys(e) {
-        const keys = this.keyBindings;
-        if (e.code === keys.unstuck && !e.repeat) {
-            e.preventDefault();
-            const recovered = typeof this.player?.forceUnstuckRecovery === 'function'
-                ? this.player.forceUnstuckRecovery()
-                : false;
-            return;
-        }
+        void e;
+        return false;
     }
 
     handleMovementKeys(e, isKeyDown) {
@@ -1039,17 +942,6 @@ export class AnomalousEchoGame {
             case keys.backward: this.moveState.backward = isKeyDown; break;
             case keys.left: this.moveState.left = isKeyDown; break;
             case keys.right: this.moveState.right = isKeyDown; break;
-            case keys.sprint:
-            case 'ShiftRight': this.moveState.sprint = isKeyDown; break;
-            case keys.jump:
-                if (isKeyDown) {
-                    this.moveState.jump = true;
-                } else {
-                    this.moveState.jump = false;
-                }
-                break;
-            case keys.crouch: if (isKeyDown && !e.repeat) this.player.setStance('crouching'); break;
-            case keys.prone: if (isKeyDown && !e.repeat) this.player.setStance('prone'); break;
         }
     }
 
@@ -1061,12 +953,6 @@ export class AnomalousEchoGame {
                 if (this.controls.isLocked) this.controls.unlock();
             }
         }
-    }
-
-    handleWheel(event) {
-        if (!this.gameState.isLoaded || this.gameState.isGameOver) return;
-
-        if (!this.controls?.isLocked || this.gameState.isPaused) return;
     }
 
     handleKeyDown(e) {
@@ -1086,189 +972,6 @@ export class AnomalousEchoGame {
     }
 
     clearDebugHelpers() {}
-
-    createPhysicsPrimitiveFromData(data, position) {
-        const primitiveType = data.primitiveType || 'sphere';
-        let geometry;
-        switch (primitiveType) {
-            case 'sphere': {
-                const r = Number(data.radius);
-                geometry = new THREE.SphereGeometry(Number.isFinite(r) && r > 0 ? r : 0.55, 24, 16);
-                break;
-            }
-            case 'box': {
-                const sz = finiteVec3Components(data.size, [1, 1, 1]);
-                geometry = new THREE.BoxGeometry(
-                    Math.max(1e-4, Math.abs(sz[0])),
-                    Math.max(1e-4, Math.abs(sz[1])),
-                    Math.max(1e-4, Math.abs(sz[2]))
-                );
-                break;
-            }
-            default:
-                console.warn(`Unknown physics primitive "${primitiveType}"`);
-                return null;
-        }
-
-        const material = new THREE.MeshStandardMaterial({
-            color: data.color || 0xffffff,
-            emissive: new THREE.Color(data.emissiveColor || data.color || 0x000000),
-            emissiveIntensity: data.emissiveIntensity ?? 0.8,
-            metalness: data.metalness ?? 0.08,
-            roughness: data.roughnessFactor ?? 0.42
-        });
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.copy(position);
-        mesh.rotation.fromArray(finiteVec3Components(data.rotation, [0, 0, 0]));
-        mesh.scale.fromArray(finiteScaleComponents(data.scale, [1, 1, 1]));
-        mesh.name = data.name || data.id || 'Physics Primitive';
-        mesh.userData.dynamicCollider = true;
-        mesh.userData.isPhysicsProp = true;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-
-        if (data.glowLight !== false) {
-            const light = new THREE.PointLight(
-                new THREE.Color(data.lightColor || data.emissiveColor || data.color || '#88ddff'),
-                data.lightIntensity ?? 1.6,
-                data.lightDistance ?? 8,
-                2
-            );
-            light.position.set(0, 0.35, 0);
-            mesh.add(light);
-        }
-
-        return mesh;
-    }
-
-    buildPhysicsPropBounds(object, data = {}, targetBox = new THREE.Box3()) {
-        if (!object) return targetBox.makeEmpty();
-        if (Array.isArray(data.collisionBox) && data.collisionBox.length >= 3) {
-            const center = new THREE.Vector3();
-            const quaternion = new THREE.Quaternion();
-            const off = finiteVec3Components(data.collisionOffset, [0, 0, 0]);
-            const offset = new THREE.Vector3(off[0], off[1], off[2]);
-            const szBox = finiteVec3Components(data.collisionBox, [1, 1, 1]);
-            const size = new THREE.Vector3(
-                Math.max(1e-4, Math.abs(szBox[0])),
-                Math.max(1e-4, Math.abs(szBox[1])),
-                Math.max(1e-4, Math.abs(szBox[2]))
-            );
-            object.getWorldPosition(center);
-            object.getWorldQuaternion(quaternion);
-            offset.applyQuaternion(quaternion);
-            center.add(offset);
-            targetBox.setFromCenterAndSize(center, size);
-            return targetBox;
-        }
-        return targetBox.setFromObject(object);
-    }
-
-    registerDynamicObjectColliders(root) {
-        root?.traverse?.((child) => {
-            if (!child.isMesh) return;
-            child.userData.dynamicCollider = true;
-            this.registerCollidable(child);
-        });
-    }
-
-    unregisterDynamicObjectColliders(root) {
-        root?.traverse?.((child) => {
-            if (!child.isMesh || !child.userData?.dynamicCollider) return;
-            this.unregisterCollidable(child);
-        });
-    }
-
-    createBloodDecalAt(position, velocity, type = 'drag', options = {}) {
-        if (!position || !velocity) return null;
-        if (!Number.isFinite(position.x) || !Number.isFinite(position.y) || !Number.isFinite(position.z)) return null;
-        if (!Number.isFinite(velocity.x) || !Number.isFinite(velocity.y) || !Number.isFinite(velocity.z)) return null;
-        const id = `blood_decal_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-        const speed = velocity.length();
-        if (!Number.isFinite(speed)) return null;
-        if (type === 'splatter') {
-            const normal = velocity.clone();
-            if (normal.lengthSq() < 1e-10) normal.set(0, 1, 0);
-            else normal.normalize();
-            const plane = new THREE.Mesh(
-                new THREE.PlaneGeometry(1.2, 1.0),
-                this.createMaterialFromData({
-                    baseColorMapRef: 'blood_splatter_detail.png',
-                    decalPreset: 'blood',
-                    emissiveColor: '#220404',
-                    emissiveIntensity: 0.05
-                })
-            );
-            plane.position.copy(position).add(normal.clone().multiplyScalar(0.006));
-            plane.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal.clone().normalize());
-            plane.renderOrder = 20;
-            plane.name = id;
-            plane.castShadow = false;
-            plane.receiveShadow = false;
-            this.levelObjects.add(plane);
-            this.levelNodesById.set(id, plane);
-            return plane;
-        }
-
-        let surfaceNormal = null;
-        if (options.surfaceNormal instanceof THREE.Vector3) {
-            const sn = options.surfaceNormal.clone();
-            const snOk = Number.isFinite(sn.x) && Number.isFinite(sn.y) && Number.isFinite(sn.z) && sn.lengthSq() > 1e-12;
-            if (snOk) surfaceNormal = sn.normalize();
-        }
-        const wallAligned = surfaceNormal && Math.abs(surfaceNormal.y) < 0.35;
-        const direction = velocity.clone();
-        if (wallAligned) {
-            const projected = surfaceNormal.clone().multiplyScalar(direction.dot(surfaceNormal));
-            direction.sub(projected);
-        } else {
-            direction.y = 0;
-        }
-        if (direction.lengthSq() < 0.001) {
-            if (wallAligned) {
-                direction.set(0, -1, 0);
-            } else {
-                direction.set(0, 0, -1);
-            }
-        }
-        direction.normalize();
-        const length = THREE.MathUtils.clamp(1.4 + speed * 0.16, 1.4, 4.2);
-        const plane = new THREE.Mesh(
-            new THREE.PlaneGeometry(0.9, length),
-            this.createMaterialFromData({
-                baseColorMapRef: 'blood_drag_detail.png',
-                decalPreset: 'blood',
-                emissiveColor: '#220404',
-                emissiveIntensity: 0.06
-            })
-        );
-        if (wallAligned) {
-            const tangent = direction.clone().normalize();
-            let binormal = new THREE.Vector3().crossVectors(surfaceNormal, tangent);
-            if (binormal.lengthSq() < 1e-12) {
-                binormal.crossVectors(surfaceNormal, new THREE.Vector3(0, 1, 0));
-            }
-            if (binormal.lengthSq() < 1e-12) {
-                binormal.set(1, 0, 0);
-            } else {
-                binormal.normalize();
-            }
-            const basis = new THREE.Matrix4().makeBasis(binormal, tangent, surfaceNormal);
-            plane.quaternion.setFromRotationMatrix(basis);
-            plane.position.copy(position).add(surfaceNormal.clone().multiplyScalar(0.006));
-        } else {
-            const yaw = Math.atan2(direction.x, direction.z);
-            plane.position.set(position.x, position.y + 0.015, position.z);
-            plane.rotation.set(-Math.PI * 0.5, yaw, 0);
-        }
-        plane.renderOrder = 20;
-        plane.name = id;
-        plane.castShadow = false;
-        plane.receiveShadow = false;
-        this.levelObjects.add(plane);
-        this.levelNodesById.set(id, plane);
-        return plane;
-    }
 
     normalizeHumanoidBoneName(name) {
         if (!name) return '';
@@ -1384,11 +1087,21 @@ export class AnomalousEchoGame {
         if (modelConfig?.npcArchetype) {
             root.userData.npcArchetype = modelConfig.npcArchetype;
         }
+        if (modelConfig?.animationProfile) {
+            root.userData.animationProfile = String(modelConfig.animationProfile);
+        }
         root.userData.importTransform = {
             position: root.position.toArray(),
             quaternion: root.quaternion.toArray(),
             scale: root.scale.toArray()
         };
+        if (embeddedAnimationClips.length > 0) {
+            const profileName = String(root.userData.animationProfile || 'hazmat_survivor');
+            const profileData = this.getAnimationProfile(profileName);
+            const clipMap = this.buildAnimationClipMapFromAnimations(embeddedAnimationClips, profileData);
+            this.cacheHumanoidAnimationProfile(root, profileName, clipMap, profileData);
+            this.applyResolvedAnimationLibraryToRoot(root, { profileName, clipMap, profileData });
+        }
         return root;
     }
 
@@ -1402,10 +1115,65 @@ export class AnomalousEchoGame {
         return Object.keys(clonedClipMap).length > 0 ? clonedClipMap : null;
     }
 
-    applyAuthoredScale(object, scaleData) {
-        if (!object) return;
-        const authoredScale = finiteScaleComponents(scaleData, [1, 1, 1]);
-        object.scale.multiply(this._toObject.set(authoredScale[0], authoredScale[1], authoredScale[2]));
+    getHumanoidAnimationCacheOwner(root) {
+        if (!root) return null;
+        return root.userData?.sourceModelRef || root;
+    }
+
+    cacheHumanoidAnimationProfile(root, profileName, clipMap, profileData = null) {
+        const owner = this.getHumanoidAnimationCacheOwner(root);
+        if (!owner) return false;
+        owner.userData ||= {};
+        owner.userData.humanoidAnimationCache ||= {};
+        owner.userData.humanoidAnimationCache.profiles ||= {};
+        const cacheKey = String(profileName || owner.userData.animationProfile || 'hazmat_survivor');
+        const clonedClipMap = this.cloneAnimationClipMap(clipMap);
+        owner.userData.humanoidAnimationCache.profiles[cacheKey] = {
+            profileName: cacheKey,
+            clipMap: clonedClipMap || {},
+            profileData: profileData ? JSON.parse(JSON.stringify(profileData)) : null
+        };
+        return true;
+    }
+
+    restoreHumanoidAnimationProfile(root, profileName = '') {
+        const owner = this.getHumanoidAnimationCacheOwner(root);
+        const resolvedProfileName = String(profileName || owner?.userData?.animationProfile || 'hazmat_survivor');
+        const defaults = this.getAnimationProfile(resolvedProfileName);
+        const cachedProfile = owner?.userData?.humanoidAnimationCache?.profiles?.[resolvedProfileName] || null;
+        const restoredClipMap = this.cloneAnimationClipMap(cachedProfile?.clipMap);
+        const restoredProfileData = cachedProfile?.profileData
+            ? JSON.parse(JSON.stringify(cachedProfile.profileData))
+            : JSON.parse(JSON.stringify(defaults));
+        return {
+            profileName: resolvedProfileName,
+            clipMap: restoredClipMap || {},
+            profileData: restoredProfileData
+        };
+    }
+
+    applyResolvedAnimationLibraryToRoot(root, resolvedLibrary = null) {
+        if (!root || !resolvedLibrary || typeof resolvedLibrary !== 'object') return false;
+        const profileName = String(resolvedLibrary.profileName || root.userData?.animationProfile || 'hazmat_survivor');
+        const clipMap = {};
+        const sourceClipMap = this.cloneAnimationClipMap(resolvedLibrary.clipMap) || {};
+        for (const [alias, clip] of Object.entries(sourceClipMap)) {
+            const sanitizedClip = this.sanitizeRetargetedAnimationClip(clip);
+            if (sanitizedClip instanceof THREE.AnimationClip) {
+                clipMap[alias] = sanitizedClip;
+            }
+        }
+        const profileData = resolvedLibrary.profileData
+            ? JSON.parse(JSON.stringify(resolvedLibrary.profileData))
+            : JSON.parse(JSON.stringify(this.getAnimationProfile(profileName)));
+        root.userData ||= {};
+        root.userData.animationClips = clipMap;
+        root.userData.animationProfile = profileName;
+        root.userData.animationProfileData = profileData;
+        root.animations = Object.values(clipMap)
+            .filter((clip) => clip instanceof THREE.AnimationClip)
+            .map((clip) => clip.clone());
+        return true;
     }
 
     applyAuthoredPlacement(object, positionData, rotationData = null, scaleData = null) {
@@ -1435,45 +1203,6 @@ export class AnomalousEchoGame {
         object.scale.fromArray(finalScale);
     }
 
-    getHumanoidAnimationCacheOwner(root) {
-        return root?.userData?.sourceModelRef || root;
-    }
-
-    getCachedHumanoidAnimationLibrary(root, profileName) {
-        const owner = this.getHumanoidAnimationCacheOwner(root);
-        const cache = owner?.userData?.humanoidAnimationCache;
-        const entry = cache?.[profileName];
-        if (!entry || typeof entry !== 'object') return null;
-        const clipMap = this.cloneAnimationClipMap(entry.clipMap);
-        if (!clipMap) return null;
-        return {
-            clipMap,
-            animationProfileData: entry.animationProfileData
-                ? JSON.parse(JSON.stringify(entry.animationProfileData))
-                : this.getAnimationProfile(profileName)
-        };
-    }
-
-    storeCachedHumanoidAnimationLibrary(root, profileName, clipMap, animationProfileData) {
-        const owner = this.getHumanoidAnimationCacheOwner(root);
-        if (!owner?.userData) return;
-        owner.userData.humanoidAnimationCache ||= {};
-        owner.userData.humanoidAnimationCache[profileName] = {
-            clipMap: this.cloneAnimationClipMap(clipMap),
-            animationProfileData: JSON.parse(JSON.stringify(animationProfileData))
-        };
-    }
-
-    applyHumanoidAnimationLibrary(root, profileName, clipMap, animationProfileData) {
-        root.userData.animationClips = clipMap;
-        root.userData.animationProfile = profileName;
-        root.userData.animationProfileData = animationProfileData;
-        root.animations = Object.values(clipMap)
-            .filter((clip) => clip instanceof THREE.AnimationClip)
-            .map((clip) => clip.clone());
-        return root;
-    }
-
     cloneLoadedModel(sourceModel) {
         const instance = sourceModel.clone(true);
         instance.userData.sourceModelRef = sourceModel;
@@ -1492,19 +1221,14 @@ export class AnomalousEchoGame {
         if (!sourceModel?.userData?.animationProfile && Array.isArray(sourceModel?.animations) && sourceModel.animations.length > 0) {
             instance.animations = sourceModel.animations.map((clip) => clip?.clone ? clip.clone() : clip);
         }
-        const clonedClipMap = this.cloneAnimationClipMap(sourceModel?.userData?.animationClips);
-        if (clonedClipMap) {
-            instance.userData.animationClips = clonedClipMap;
-            instance.animations = Object.values(clonedClipMap)
-                .filter((clip) => clip instanceof THREE.AnimationClip)
-                .map((clip) => clip.clone());
+        let restoredLibrary = this.restoreHumanoidAnimationProfile(sourceModel, sourceModel?.userData?.animationProfile);
+        if (!restoredLibrary || Object.keys(restoredLibrary.clipMap || {}).length === 0) {
+            restoredLibrary = this.buildResolvedHumanoidLibraryForTarget(
+                sourceModel,
+                sourceModel?.userData?.animationProfile || 'hazmat_survivor'
+            );
         }
-        if (sourceModel?.userData?.animationProfile) {
-            instance.userData.animationProfile = sourceModel.userData.animationProfile;
-        }
-        if (sourceModel?.userData?.animationProfileData) {
-            instance.userData.animationProfileData = JSON.parse(JSON.stringify(sourceModel.userData.animationProfileData));
-        }
+        this.applyResolvedAnimationLibraryToRoot(instance, restoredLibrary);
         if (sourceModel?.userData?.npcArchetype) {
             instance.userData.npcArchetype = sourceModel.userData.npcArchetype;
         }
@@ -1530,63 +1254,6 @@ export class AnomalousEchoGame {
         return skinnedMesh;
     }
 
-    getMixamoToAnimationLibraryMap() {
-        return {
-            'mixamorig:Hips': 'pelvis',
-            'mixamorig:Spine': 'spine_01',
-            'mixamorig:Spine1': 'spine_02',
-            'mixamorig:Spine2': 'spine_03',
-            'mixamorig:Neck': 'neck_01',
-            'mixamorig:Head': 'Head',
-            'mixamorig:LeftShoulder': 'clavicle_l',
-            'mixamorig:LeftArm': 'upperarm_l',
-            'mixamorig:LeftForeArm': 'lowerarm_l',
-            'mixamorig:LeftHand': 'hand_l',
-            'mixamorig:LeftHandThumb1': 'thumb_01_l',
-            'mixamorig:LeftHandThumb2': 'thumb_02_l',
-            'mixamorig:LeftHandThumb3': 'thumb_03_l',
-            'mixamorig:LeftHandIndex1': 'index_01_l',
-            'mixamorig:LeftHandIndex2': 'index_02_l',
-            'mixamorig:LeftHandIndex3': 'index_03_l',
-            'mixamorig:LeftHandMiddle1': 'middle_01_l',
-            'mixamorig:LeftHandMiddle2': 'middle_02_l',
-            'mixamorig:LeftHandMiddle3': 'middle_03_l',
-            'mixamorig:LeftHandRing1': 'ring_01_l',
-            'mixamorig:LeftHandRing2': 'ring_02_l',
-            'mixamorig:LeftHandRing3': 'ring_03_l',
-            'mixamorig:LeftHandPinky1': 'pinky_01_l',
-            'mixamorig:LeftHandPinky2': 'pinky_02_l',
-            'mixamorig:LeftHandPinky3': 'pinky_03_l',
-            'mixamorig:RightShoulder': 'clavicle_r',
-            'mixamorig:RightArm': 'upperarm_r',
-            'mixamorig:RightForeArm': 'lowerarm_r',
-            'mixamorig:RightHand': 'hand_r',
-            'mixamorig:RightHandThumb1': 'thumb_01_r',
-            'mixamorig:RightHandThumb2': 'thumb_02_r',
-            'mixamorig:RightHandThumb3': 'thumb_03_r',
-            'mixamorig:RightHandIndex1': 'index_01_r',
-            'mixamorig:RightHandIndex2': 'index_02_r',
-            'mixamorig:RightHandIndex3': 'index_03_r',
-            'mixamorig:RightHandMiddle1': 'middle_01_r',
-            'mixamorig:RightHandMiddle2': 'middle_02_r',
-            'mixamorig:RightHandMiddle3': 'middle_03_r',
-            'mixamorig:RightHandRing1': 'ring_01_r',
-            'mixamorig:RightHandRing2': 'ring_02_r',
-            'mixamorig:RightHandRing3': 'ring_03_r',
-            'mixamorig:RightHandPinky1': 'pinky_01_r',
-            'mixamorig:RightHandPinky2': 'pinky_02_r',
-            'mixamorig:RightHandPinky3': 'pinky_03_r',
-            'mixamorig:LeftUpLeg': 'thigh_l',
-            'mixamorig:LeftLeg': 'calf_l',
-            'mixamorig:LeftFoot': 'foot_l',
-            'mixamorig:LeftToeBase': 'ball_l',
-            'mixamorig:RightUpLeg': 'thigh_r',
-            'mixamorig:RightLeg': 'calf_r',
-            'mixamorig:RightFoot': 'foot_r',
-            'mixamorig:RightToeBase': 'ball_r'
-        };
-    }
-
     buildHumanoidBoneAliasLookup(root) {
         const lookup = new Map();
         if (!root) return lookup;
@@ -1609,19 +1276,134 @@ export class AnomalousEchoGame {
         return lookup;
     }
 
-    createHumanoidRetargetNameMap(sourceRoot, targetRoot) {
+    getMixamoToCanonicalBoneNameTable() {
+        return {
+            mixamorighips: 'hips',
+            mixamorigspine: 'spine',
+            mixamorigspine1: 'spine1',
+            mixamorigspine2: 'spine2',
+            mixamorigneck: 'neck',
+            mixamorighead: 'head',
+            mixamorigleftshoulder: 'leftshoulder',
+            mixamorigleftarm: 'leftarm',
+            mixamorigleftforearm: 'leftforearm',
+            mixamoriglefthand: 'lefthand',
+            mixamorigrightshoulder: 'rightshoulder',
+            mixamorigrightarm: 'rightarm',
+            mixamorigrightforearm: 'rightforearm',
+            mixamorigrighthand: 'righthand',
+            mixamorigleftupleg: 'leftupleg',
+            mixamorigleftleg: 'leftleg',
+            mixamorigleftfoot: 'leftfoot',
+            mixamoriglefttoebase: 'lefttoebase',
+            mixamorigrightupleg: 'rightupleg',
+            mixamorigrightleg: 'rightleg',
+            mixamorigrightfoot: 'rightfoot',
+            mixamorigrighttoebase: 'righttoebase'
+        };
+    }
+
+    buildCrossRigRetargetNameMap(sourceRoot, targetRoot) {
         const sourceLookup = this.buildHumanoidBoneAliasLookup(sourceRoot);
         const targetLookup = this.buildHumanoidBoneAliasLookup(targetRoot);
-        const names = {};
-        for (const [normalizedAlias, sourceBoneName] of sourceLookup.entries()) {
-            const targetBoneName = targetLookup.get(normalizedAlias);
-            if (!targetBoneName) continue;
-            names[sourceBoneName] = targetBoneName;
+        const map = {};
+        if (sourceLookup.size === 0 || targetLookup.size === 0) return map;
+        for (const [alias, sourceBoneName] of sourceLookup.entries()) {
+            if (!targetLookup.has(alias)) continue;
+            map[sourceBoneName] = targetLookup.get(alias);
         }
-        if (Object.keys(names).length === 0) {
-            return this.getMixamoToAnimationLibraryMap();
+        if (Object.keys(map).length > 0) return map;
+        const fallbackTable = this.getMixamoToCanonicalBoneNameTable();
+        for (const [sourceMixamoName, canonicalAlias] of Object.entries(fallbackTable)) {
+            const sourceBoneName = sourceLookup.get(sourceMixamoName);
+            const targetBoneName = targetLookup.get(this.normalizeHumanoidBoneName(canonicalAlias));
+            if (sourceBoneName && targetBoneName) {
+                map[sourceBoneName] = targetBoneName;
+            }
         }
-        return names;
+        return map;
+    }
+
+    retargetTrackByNameMap(track, sourceBoneToTargetBone = {}) {
+        if (!track || typeof track.name !== 'string') return track?.clone ? track.clone() : track;
+        const cloned = track.clone ? track.clone() : track;
+        if (!sourceBoneToTargetBone || Object.keys(sourceBoneToTargetBone).length === 0) return cloned;
+        const dotIndex = cloned.name.indexOf('.');
+        if (dotIndex <= 0) return cloned;
+        const sourceBone = cloned.name.slice(0, dotIndex);
+        const suffix = cloned.name.slice(dotIndex);
+        const targetBone = sourceBoneToTargetBone[sourceBone];
+        if (targetBone && targetBone !== sourceBone) {
+            cloned.name = `${targetBone}${suffix}`;
+        }
+        return cloned;
+    }
+
+    retargetClipWithNameMap(clip, sourceBoneToTargetBone = {}) {
+        if (!(clip instanceof THREE.AnimationClip)) return null;
+        const retargeted = clip.clone();
+        retargeted.tracks = (retargeted.tracks || []).map((track) => this.retargetTrackByNameMap(track, sourceBoneToTargetBone));
+        retargeted.resetDuration();
+        return this.sanitizeRetargetedAnimationClip(retargeted);
+    }
+
+    buildResolvedHumanoidLibraryForTarget(targetRoot, profileName = 'hazmat_survivor') {
+        if (!targetRoot) {
+            return {
+                profileName: String(profileName || 'hazmat_survivor'),
+                clipMap: {},
+                profileData: JSON.parse(JSON.stringify(this.getAnimationProfile(profileName || 'hazmat_survivor')))
+            };
+        }
+        const restored = this.restoreHumanoidAnimationProfile(targetRoot, profileName);
+        if (Object.keys(restored.clipMap || {}).length > 0) {
+            this.emitRuntimeEvent('animationLibraryCache', {
+                id: createRuntimeId('animcache'),
+                result: 'hit',
+                profileName: restored.profileName,
+                clipCount: Object.keys(restored.clipMap || {}).length
+            });
+            return restored;
+        }
+        this.emitRuntimeEvent('animationLibraryCache', {
+            id: createRuntimeId('animcache'),
+            result: 'miss',
+            profileName: String(profileName || 'hazmat_survivor')
+        });
+        const sources = this.getHumanoidAnimationSources(profileName);
+        if (!Array.isArray(sources) || sources.length === 0) return restored;
+        const source = sources[0];
+        const sourceRigRoot = source?.skinnedMesh || source?.root;
+        const targetRigRoot = this.getPrimarySkinnedMesh(targetRoot) || targetRoot;
+        const sourceLookup = this.buildHumanoidBoneAliasLookup(sourceRigRoot);
+        const targetLookup = this.buildHumanoidBoneAliasLookup(targetRigRoot);
+        const aliasIntersectionCount = Array.from(sourceLookup.keys()).filter((key) => targetLookup.has(key)).length;
+        const sourceBoneToTargetBone = this.buildCrossRigRetargetNameMap(sourceRigRoot, targetRigRoot);
+        const retargetMode = aliasIntersectionCount > 0 ? 'alias-intersection' : 'mixamo-fallback';
+        const clipMap = {};
+        for (const [alias, clip] of Object.entries(source?.clipMap || {})) {
+            const retargeted = this.retargetClipWithNameMap(clip, sourceBoneToTargetBone);
+            if (retargeted instanceof THREE.AnimationClip) {
+                clipMap[alias] = retargeted;
+            }
+        }
+        const resolvedProfileData = JSON.parse(JSON.stringify(source?.profileData || this.getAnimationProfile(profileName)));
+        this.cacheHumanoidAnimationProfile(targetRoot, profileName, clipMap, resolvedProfileData);
+        this.emitRuntimeEvent('animationRetargetMapBuilt', {
+            id: createRuntimeId('animretarget'),
+            mode: retargetMode,
+            profileName: String(profileName || source?.profileName || 'hazmat_survivor'),
+            sourceBones: sourceLookup.size,
+            targetBones: targetLookup.size,
+            aliasIntersection: aliasIntersectionCount,
+            mappedBones: Object.keys(sourceBoneToTargetBone).length,
+            clipCount: Object.keys(clipMap).length
+        });
+        return {
+            profileName: String(profileName || source?.profileName || 'hazmat_survivor'),
+            clipMap,
+            profileData: resolvedProfileData
+        };
     }
 
     getAnimationProfile(profileName = 'hazmat_survivor') {
@@ -1756,23 +1538,6 @@ export class AnomalousEchoGame {
         return profiles[profileName] || profiles.hazmat_survivor;
     }
 
-    sanitizeRetargetedClip(clip, profileName = '') {
-        if (!clip?.tracks?.length) return clip;
-        const normalizedProfile = String(profileName || '').toLowerCase();
-        const filteredTracks = clip.tracks.filter((track) => {
-            const trackName = String(track?.name || '');
-            if (/(^|[.\]])Armature\d*\.(position|quaternion|scale)$/i.test(trackName)) return false;
-            if (/^(light_hazmat_suit|heavy_hazmat_suit|Character_Monster(?:_\d+)?|Character_[^.\]]+)\.(position|quaternion|scale)$/i.test(trackName)) return false;
-            if (/\.scale$/i.test(trackName)) return false;
-            return true;
-        });
-        if (filteredTracks.length === clip.tracks.length) return clip;
-        const sanitizedClip = clip.clone();
-        sanitizedClip.tracks = filteredTracks;
-        sanitizedClip.resetDuration();
-        return sanitizedClip;
-    }
-
     sanitizeSourceAnimationClip(clip) {
         if (!(clip instanceof THREE.AnimationClip) || !Array.isArray(clip.tracks) || clip.tracks.length === 0) return clip;
         const filteredTracks = clip.tracks.filter((track) => {
@@ -1786,6 +1551,35 @@ export class AnomalousEchoGame {
         sanitizedClip.tracks = filteredTracks;
         sanitizedClip.resetDuration();
         return sanitizedClip;
+    }
+
+    sanitizeRetargetedAnimationClip(clip) {
+        if (!(clip instanceof THREE.AnimationClip)) return null;
+        const cloned = clip.clone();
+        const tracks = Array.isArray(cloned.tracks) ? cloned.tracks : [];
+        const trackCountBefore = tracks.length;
+        const filteredTracks = tracks.filter((track) => {
+            const trackName = String(track?.name || '');
+            if (/(^|[.\]])Armature(\.|\[|$)/i.test(trackName)) return false;
+            if (/(^|[.\]])(helper|weapon|prop|socket|ik|twist|end)([\d_\-]|$)/i.test(trackName) && /\.scale$/i.test(trackName)) {
+                return false;
+            }
+            if (/(^|[.\]])(root|hips|pelvis)\.scale$/i.test(trackName)) return false;
+            return true;
+        });
+        cloned.tracks = filteredTracks;
+        cloned.resetDuration();
+        const droppedTracks = Math.max(0, trackCountBefore - filteredTracks.length);
+        if (droppedTracks > 0) {
+            this.emitRuntimeEvent('animationRetargetSanitized', {
+                id: createRuntimeId('animsanitize'),
+                clipName: cloned.name || clip.name || 'unnamed',
+                beforeTracks: trackCountBefore,
+                afterTracks: filteredTracks.length,
+                droppedTracks
+            });
+        }
+        return cloned;
     }
 
     buildAnimationClipMapFromAnimations(animations = [], animationProfile = {}) {
@@ -1829,35 +1623,65 @@ export class AnomalousEchoGame {
         return clipMap;
     }
 
-    resolveNpcArchetype(spawnerData = {}, modelName = '', animationProfile = '') {
-        if (spawnerData?.npcArchetype) return String(spawnerData.npcArchetype);
-        if (spawnerData?.archetype) return String(spawnerData.archetype);
-        const source = `${modelName || ''} ${animationProfile || ''}`.toLowerCase();
-        if (/(doctor|medic|medical)/.test(source)) return 'doctor';
-        if (/firefighter/.test(source)) return 'firefighter';
-        if (/(police|officer|guard|security)/.test(source)) return 'police';
-        if (/(hazmat|hm)/.test(source)) return 'hazmat';
+    getHumanoidAnimationSources(profileName = 'hazmat_survivor') {
+        const requested = String(profileName || 'hazmat_survivor');
+        const libraries = Array.isArray(this.animationSources?.humanoidLibraries)
+            ? this.animationSources.humanoidLibraries
+            : [];
+        const profileMatches = libraries
+            .filter((entry) => String(entry?.profileName || 'hazmat_survivor') === requested)
+            .sort((a, b) => (Number(b?.priority || 0) - Number(a?.priority || 0)));
+        if (profileMatches.length > 0) {
+            return profileMatches;
+        }
+        const fallback = libraries
+            .filter((entry) => String(entry?.profileName || '') === 'hazmat_survivor')
+            .sort((a, b) => (Number(b?.priority || 0) - Number(a?.priority || 0)));
+        if (fallback.length > 0) return fallback;
+        if (this.animationSources?.humanoidStandard) return [this.animationSources.humanoidStandard];
+        return [];
+    }
+
+    resolveNpcArchetype(spawnData = {}, modelName = '', sourceArchetype = '') {
+        const explicit = spawnData?.npcArchetype || spawnData?.archetype || sourceArchetype;
+        if (explicit && String(explicit).trim().length > 0) {
+            return String(explicit).trim().toLowerCase();
+        }
+        const hint = `${spawnData?.name || ''} ${spawnData?.id || ''} ${modelName || ''}`.toLowerCase();
+        if (/(doctor|medic|surgeon|nurse|medical)/.test(hint)) return 'doctor';
+        if (/(firefighter|fireman|rescue|ems)/.test(hint)) return 'firefighter';
+        if (/(police|officer|cop|security|guard)/.test(hint)) return 'police';
+        if (/(hazmat|radiation|containment)/.test(hint)) return 'hazmat';
+        if (/(soldier|military|marine)/.test(hint)) return 'soldier';
         return 'civilian';
     }
 
-    resolveNpcAnimationProfile(spawnerData = {}, modelName = '', sourceProfile = '') {
-        void spawnerData;
-        void modelName;
-        void sourceProfile;
-        return '';
+    resolveNpcAnimationProfile(spawnData = {}, modelName = '', sourceProfile = '') {
+        const explicit = spawnData?.animationProfile || sourceProfile;
+        if (explicit && String(explicit).trim().length > 0) {
+            return String(explicit).trim();
+        }
+        const archetype = this.resolveNpcArchetype(spawnData, modelName, spawnData?.npcArchetype);
+        const equipment = `${spawnData?.equipment || ''} ${spawnData?.loadout || ''}`.toLowerCase();
+        const injury = String(spawnData?.injuryState || spawnData?.woundState || '').toLowerCase();
+        const threat = String(spawnData?.threatLevel || spawnData?.alertState || '').toLowerCase();
+        if (archetype === 'doctor') return 'doctor_survivor';
+        if (archetype === 'firefighter') return 'firefighter_survivor';
+        if (archetype === 'police' || /rifle|shotgun|pistol|swat/.test(equipment)) return 'police_survivor';
+        if (archetype === 'hazmat') return 'hazmat_survivor';
+        if (injury.includes('critical') || threat.includes('high')) return 'civilian_survivor';
+        return 'civilian_survivor';
     }
 
     getCharacterPreferredAction(controller, requestedAction = '', fallbackAction = 'idle') {
         if (!controller?.actions) return fallbackAction;
-        const requestedActions = Array.isArray(requestedAction) ? requestedAction : [requestedAction];
-        const fallbackActions = Array.isArray(fallbackAction) ? fallbackAction : [fallbackAction];
-        const candidateActions = [...requestedActions, ...fallbackActions, 'idle'].filter(Boolean);
-        for (const candidate of candidateActions) {
-            if (controller.actions[candidate]) return candidate;
+        const requested = Array.isArray(requestedAction) ? requestedAction : [requestedAction];
+        const fallback = Array.isArray(fallbackAction) ? fallbackAction : [fallbackAction];
+        const ordered = [...requested, ...fallback, 'idle', 'alert'].filter(Boolean);
+        for (const name of ordered) {
+            if (controller.actions[name]) return name;
         }
-        if (controller.actions.idle) return 'idle';
-        const firstAvailable = Object.keys(controller.actions)[0];
-        return firstAvailable || (Array.isArray(fallbackAction) ? fallbackAction[0] : fallbackAction);
+        return Object.keys(controller.actions)[0] || (Array.isArray(fallbackAction) ? fallbackAction[0] : fallbackAction);
     }
 
     playCharacterAnimationAction(controller, requestedAction, options = {}) {
@@ -1866,115 +1690,39 @@ export class AnomalousEchoGame {
         const nextAction = controller.actions[actionName];
         if (!nextAction) return null;
         const fadeDuration = Number.isFinite(options.fadeDuration) ? Math.max(0, options.fadeDuration) : 0.2;
-        const previousAction = controller.currentAction ? controller.actions[controller.currentAction] : null;
+        const previousActionName = controller.currentAction;
+        const previousAction = previousActionName ? controller.actions[previousActionName] : null;
         if (previousAction && previousAction !== nextAction) {
             previousAction.fadeOut(fadeDuration);
         }
         nextAction.reset();
         nextAction.enabled = true;
         nextAction.setEffectiveWeight(1);
-        nextAction.setEffectiveTimeScale(1);
+        nextAction.setEffectiveTimeScale(Number.isFinite(options.timeScale) ? options.timeScale : 1);
         nextAction.fadeIn(options.immediate ? 0 : fadeDuration);
         nextAction.play();
         controller.currentAction = actionName;
         this.emitRuntimeEvent('animationActionAssigned', {
             id: controller.id || createRuntimeId('animctrl'),
-            action: actionName
+            action: actionName,
+            previousAction: previousActionName || null,
+            fadeDuration,
+            deterministic: true
         });
         return nextAction;
     }
 
-    registerHumanoidAnimationSource(name, object, profileName = 'hazmat_survivor', priority = 0) {
-        const sourceMesh = this.getPrimarySkinnedMesh(object);
-        if (!sourceMesh) return false;
-        const animationProfile = this.getAnimationProfile(profileName);
-        const clipMap = this.buildAnimationClipMapFromAnimations(object.animations || [], animationProfile);
-        const aliasLookup = this.buildHumanoidBoneAliasLookup(sourceMesh);
-        const sourceData = {
-            name,
-            profileName,
-            priority,
-            root: object,
-            skinnedMesh: sourceMesh,
-            clips: object.animations || [],
-            clipMap,
-            aliasLookup
-        };
-        this.animationSources.humanoidLibraries ||= [];
-        this.animationSources.humanoidLibraries = this.animationSources.humanoidLibraries.filter((entry) => entry.name !== name);
-        this.animationSources.humanoidLibraries.push(sourceData);
-        if (!this.animationSources.humanoidStandard) {
-            this.animationSources.humanoidStandard = sourceData;
-        }
-        return true;
-    }
-
-    getHumanoidAnimationSources(profileName = 'hazmat_survivor') {
-        if (Array.isArray(this.animationSources.humanoidLibraries) && this.animationSources.humanoidLibraries.length > 0) {
-            const filtered = this.animationSources.humanoidLibraries
-                .filter((entry) => (entry.profileName || 'hazmat_survivor') === profileName)
-                .sort((a, b) => (b.priority || 0) - (a.priority || 0));
-            if (filtered.length > 0) return filtered;
-        }
-        if (profileName === 'hazmat_survivor' && this.animationSources.humanoidStandard) {
-            return [this.animationSources.humanoidStandard];
-        }
-        return [];
-    }
-
-    getProfileAnimationLibraryDefinitions() {
-        return GameAssets.animationLibraryProfiles || {};
-    }
-
-    loadAnimationLibrarySource(definition = {}) {
-        if (!definition?.name || !definition?.path || !this.animationLibraryLoader) {
-            return Promise.resolve(false);
-        }
-        return new Promise((resolve) => {
-            const finishWithObject = (object) => {
-                if (definition.clipAlias && Array.isArray(object?.animations) && object.animations.length > 0) {
-                    object.animations = object.animations.map((clip, index) => {
-                        const nextClip = this.sanitizeSourceAnimationClip(clip)?.clone?.() || clip?.clone?.() || clip;
-                        if (index === 0 && nextClip) nextClip.name = definition.clipAlias;
-                        return nextClip;
-                    });
-                }
-                resolve(this.registerHumanoidAnimationSource(definition.name, object, definition.profileName, definition.priority || 0));
-            };
-            this.animationLibraryLoader.load(
-                definition.path,
-                finishWithObject,
-                undefined,
-                (error) => {
-                    console.warn(`Failed to load humanoid animation library "${definition.name}".`, error);
-                    resolve(false);
-                }
-            );
-        });
-    }
-
-    async ensureAnimationProfilesLoaded(profileNames = []) {
-        const requestedProfiles = Array.isArray(profileNames) && profileNames.length > 0
-            ? [...new Set(profileNames.filter(Boolean))]
-            : ['hazmat_survivor'];
-        const definitionsByProfile = this.getProfileAnimationLibraryDefinitions();
-        const results = {};
-        for (const profileName of requestedProfiles) {
-            const definitions = Array.isArray(definitionsByProfile?.[profileName]) ? definitionsByProfile[profileName] : [];
-            if (definitions.length === 0) {
-                results[profileName] = false;
-                continue;
-            }
-            const loadResults = await Promise.all(definitions.map((definition) => this.loadAnimationLibrarySource(definition)));
-            results[profileName] = loadResults.some(Boolean);
-            this.emitRuntimeEvent('animationSourcesLoaded', {
-                id: createRuntimeId('animsrc'),
-                profileName,
-                requested: definitions.length,
-                loaded: loadResults.filter(Boolean).length
+    attachHumanoidLibraryToRig(root, profileName = 'hazmat_survivor') {
+        const resolved = this.buildResolvedHumanoidLibraryForTarget(root, profileName);
+        const ok = this.applyResolvedAnimationLibraryToRoot(root, resolved);
+        if (ok) {
+            this.emitRuntimeEvent('animationLibraryAttached', {
+                id: createRuntimeId('animattach'),
+                profileName: resolved.profileName,
+                clipCount: Object.keys(resolved.clipMap || {}).length
             });
         }
-        return results;
+        return ok ? resolved : null;
     }
 
     resolveExternalAssetUrl(url) {
@@ -1997,16 +1745,49 @@ export class AnomalousEchoGame {
         return url;
     }
 
-    attachHumanoidAnimationLibrary(root, profileName = 'hazmat_survivor') {
-        void profileName;
-        return root;
-    }
-
     createCharacterAnimationController(instance, preferredAction = 'idle', trackGlobally = true) {
-        void instance;
-        void preferredAction;
-        void trackGlobally;
-        return null;
+        if (!instance) return null;
+        const resolvedProfile = String(instance.userData?.animationProfile || 'hazmat_survivor');
+        let clipMap = this.cloneAnimationClipMap(instance.userData?.animationClips);
+        if (!clipMap || Object.keys(clipMap).length === 0) {
+            const resolvedLibrary = this.buildResolvedHumanoidLibraryForTarget(instance, resolvedProfile);
+            this.applyResolvedAnimationLibraryToRoot(instance, resolvedLibrary);
+            clipMap = this.cloneAnimationClipMap(instance.userData?.animationClips);
+        }
+        if (!clipMap || Object.keys(clipMap).length === 0) return null;
+        const mixer = new THREE.AnimationMixer(instance);
+        const actions = {};
+        for (const [alias, clip] of Object.entries(clipMap)) {
+            if (!(clip instanceof THREE.AnimationClip)) continue;
+            actions[alias] = mixer.clipAction(clip);
+        }
+        if (Object.keys(actions).length === 0) return null;
+        const controller = {
+            id: createRuntimeId('animctrl'),
+            root: instance,
+            mixer,
+            actions,
+            currentAction: null,
+            animationProfile: resolvedProfile,
+            animationProfileData: JSON.parse(JSON.stringify(
+                instance.userData?.animationProfileData || this.getAnimationProfile(resolvedProfile)
+            )),
+            update: (deltaSeconds) => {
+                if (Number.isFinite(deltaSeconds) && deltaSeconds > 0) {
+                    mixer.update(deltaSeconds);
+                }
+            }
+        };
+        this.playCharacterAnimationAction(controller, preferredAction || 'idle', {
+            fallbackAction: ['idle', 'alert'],
+            immediate: true,
+            fadeDuration: 0
+        });
+        if (trackGlobally) {
+            this.characterControllers ||= [];
+            this.characterControllers.push(controller);
+        }
+        return controller;
     }
 
     loadExternalModelAsset(modelName, modelConfig) {
@@ -2074,36 +1855,6 @@ export class AnomalousEchoGame {
         return object;
     }
 
-    ensureExplicitModelTexture(texturePath) {
-        if (!texturePath) return Promise.resolve(null);
-        this._explicitModelTextures ||= new Map();
-        this._explicitModelTexturePromises ||= new Map();
-        if (this._explicitModelTextures.has(texturePath)) {
-            return Promise.resolve(this._explicitModelTextures.get(texturePath));
-        }
-        if (this._explicitModelTexturePromises.has(texturePath)) {
-            return this._explicitModelTexturePromises.get(texturePath);
-        }
-        const texturePromise = new Promise((resolve, reject) => {
-            new THREE.TextureLoader().load(
-                texturePath,
-                (texture) => {
-                    texture.colorSpace = THREE.SRGBColorSpace;
-                    this._explicitModelTextures.set(texturePath, texture);
-                    this._explicitModelTexturePromises.delete(texturePath);
-                    resolve(texture);
-                },
-                undefined,
-                (error) => {
-                    this._explicitModelTexturePromises.delete(texturePath);
-                    reject(error);
-                }
-            );
-        });
-        this._explicitModelTexturePromises.set(texturePath, texturePromise);
-        return texturePromise;
-    }
-
     async loadModelAsset(modelName) {
         const externalModel = GameAssets.externalModels?.[modelName];
         if (externalModel) {
@@ -2158,7 +1909,7 @@ export class AnomalousEchoGame {
 
             this.animate();
 
-            await this.autoLaunchDevMode();
+                await this.autoLaunchDevMode();
         };
 
         const explicitTextureManifest = GameAssets.textureManifest || {};
@@ -2241,37 +1992,6 @@ export class AnomalousEchoGame {
         }
     }
 
-    completeGame(title = 'ECHO STABILIZED', text = 'You reached the surviving staff and sealed the breach.') {
-        this.gameState.isGameOver = true;
-        this.gameState.isPaused = true;
-        this.emitRuntimeEvent('gameflowCompleted', { id: createRuntimeId('gameflow'), title, text });
-        this.levelTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
-        this.levelIntervals.forEach(intervalId => clearInterval(intervalId));
-        this.levelTimeouts = [];
-        this.levelIntervals = [];
-        this.stopLoopingAudio('music');
-        this.stopLoopingAudio('chase');
-        this.controls.unlock();
-        if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
-
-        const titleEl = document.getElementById('game-over-title');
-        const textEl = document.getElementById('game-over-copy');
-        const promptEl = document.getElementById('game-over-prompt');
-        if (titleEl) titleEl.textContent = title;
-        if (textEl) textEl.textContent = text;
-        if (promptEl) promptEl.textContent = '[ CLICK TO RESTART ]';
-
-        this.ui.hud?.classList.remove('visible');
-        this.ui.pauseMenu && (this.ui.pauseMenu.style.display = 'none');
-        this.ui.startMenu && (this.ui.startMenu.style.display = 'none');
-        this.ui.gameOverScreen && (this.ui.gameOverScreen.style.display = 'flex');
-        this.setShaderIntensity('high');
-        if (titleEl && typeof titleEl.focus === 'function') {
-            titleEl.setAttribute('tabindex', '-1');
-            titleEl.focus();
-        }
-    }
-
     onWindowResize() {
         const w = window.innerWidth;
         const h = window.innerHeight;
@@ -2283,24 +2003,6 @@ export class AnomalousEchoGame {
         this.renderer.setSize(w, h);
         this.composer?.setPixelRatio?.(dpr);
         this.composer?.setSize?.(w, h);
-    }
-
-    clearHudDismissTimer(channel) {
-        if (!this.hudDismissTimers) return;
-        const existing = this.hudDismissTimers.get(channel);
-        if (existing != null) {
-            clearTimeout(existing);
-            this.hudDismissTimers.delete(channel);
-        }
-    }
-
-    scheduleHudDismiss(channel, duration, callback) {
-        this.clearHudDismissTimer(channel);
-        const id = window.setTimeout(() => {
-            this.hudDismissTimers?.delete(channel);
-            callback?.();
-        }, duration);
-        this.hudDismissTimers?.set(channel, id);
     }
 
     stopLoopingAudio(channel) {
@@ -2323,21 +2025,6 @@ export class AnomalousEchoGame {
             this.staticCollidableMeshes.push(mesh);
             if (mesh.userData.structuralCollider !== false) this.structuralCollidableMeshes.push(mesh);
         }
-    }
-
-    unregisterCollidable(mesh) {
-        if (!mesh) return;
-        const remove = (arr) => {
-            const index = arr.indexOf(mesh);
-            if (index >= 0) arr.splice(index, 1);
-        };
-        const wasStatic = this.staticCollidableMeshes.includes(mesh);
-        remove(this.collidableMeshes);
-        remove(this.dynamicCollidableMeshes);
-        remove(this.staticCollidableMeshes);
-        remove(this.structuralCollidableMeshes);
-        this.releaseMeshBVH(mesh);
-        if (wasStatic) this.rebuildSpatialIndices();
     }
 
     rebuildSpatialIndices() {
@@ -2403,94 +2090,6 @@ export class AnomalousEchoGame {
             mesh.userData.bvhEnabled = false;
             return false;
         }
-    }
-
-    releaseMeshBVH(mesh) {
-        if (!mesh?.isMesh || !mesh.userData?.bvhEnabled) return;
-        mesh.userData.bvhEnabled = false;
-        this.bvhMeshCount = Math.max(0, this.bvhMeshCount - 1);
-    }
-
-    refineTraceHitSurface(object, queryBox, fallbackPoint, fallbackNormal) {
-        if (!object || !queryBox || !fallbackPoint || !fallbackNormal) return null;
-        if (!object.isObject3D) return null;
-        if (!Number.isFinite(fallbackNormal.x) || !Number.isFinite(fallbackNormal.y) || !Number.isFinite(fallbackNormal.z)) return null;
-        if (fallbackNormal.lengthSq() < 1e-10) return null;
-
-        queryBox.getSize(this._traceSize);
-        const probeDistance = THREE.MathUtils.clamp(this._traceSize.length() * 0.35 + 0.18, 0.18, 1.4);
-        this._traceProbeDirection.copy(fallbackNormal).normalize().multiplyScalar(-1);
-        this._traceProbeOrigin.copy(fallbackPoint).addScaledVector(fallbackNormal, probeDistance);
-        this._traceRaycaster.set(this._traceProbeOrigin, this._traceProbeDirection);
-        this._traceRaycaster.far = probeDistance * 2.2;
-
-        const intersects = this._traceRaycaster.intersectObject(object, true);
-        for (const hit of intersects) {
-            if (!hit?.face?.normal || !hit.point) continue;
-            const worldNormal = hit.face.normal.clone()
-                .applyNormalMatrix(this._traceNormalMatrix.getNormalMatrix(hit.object.matrixWorld));
-            if (!Number.isFinite(worldNormal.x) || !Number.isFinite(worldNormal.y) || !Number.isFinite(worldNormal.z)) continue;
-            if (worldNormal.lengthSq() < 1e-10) continue;
-            worldNormal.normalize();
-            if (worldNormal.dot(fallbackNormal) < 0.1) continue;
-            return {
-                point: hit.point.clone(),
-                normal: worldNormal
-            };
-        }
-
-        return null;
-    }
-
-    computeTraceBoxHit(queryBox, candidateBox, object) {
-        this._traceIntersection.copy(queryBox).intersect(candidateBox);
-        const size = this._traceIntersection.max.clone().sub(this._traceIntersection.min);
-        if (size.x <= 0 || size.y <= 0 || size.z <= 0 || !Number.isFinite(size.x) || !Number.isFinite(size.y) || !Number.isFinite(size.z)) {
-            return null;
-        }
-
-        queryBox.getCenter(this._traceCenterA);
-        candidateBox.getCenter(this._traceCenterB);
-        this._traceDelta.subVectors(this._traceCenterA, this._traceCenterB);
-
-        let axis = 'x';
-        let penetration = size.x;
-        this._traceNormal.set(Math.sign(this._traceDelta.x) || 1, 0, 0);
-        if (size.y < penetration) {
-            axis = 'y';
-            penetration = size.y;
-            this._traceNormal.set(0, Math.sign(this._traceDelta.y) || 1, 0);
-        }
-        if (size.z < penetration) {
-            axis = 'z';
-            penetration = size.z;
-            this._traceNormal.set(0, 0, Math.sign(this._traceDelta.z) || 1);
-        }
-
-        this._tracePoint.copy(this._traceCenterA);
-        if (axis === 'x') {
-            this._tracePoint.x = this._traceNormal.x > 0 ? candidateBox.max.x : candidateBox.min.x;
-            this._tracePoint.y = THREE.MathUtils.clamp(this._traceCenterA.y, candidateBox.min.y, candidateBox.max.y);
-            this._tracePoint.z = THREE.MathUtils.clamp(this._traceCenterA.z, candidateBox.min.z, candidateBox.max.z);
-        } else if (axis === 'y') {
-            this._tracePoint.y = this._traceNormal.y > 0 ? candidateBox.max.y : candidateBox.min.y;
-            this._tracePoint.x = THREE.MathUtils.clamp(this._traceCenterA.x, candidateBox.min.x, candidateBox.max.x);
-            this._tracePoint.z = THREE.MathUtils.clamp(this._traceCenterA.z, candidateBox.min.z, candidateBox.max.z);
-        } else {
-            this._tracePoint.z = this._traceNormal.z > 0 ? candidateBox.max.z : candidateBox.min.z;
-            this._tracePoint.x = THREE.MathUtils.clamp(this._traceCenterA.x, candidateBox.min.x, candidateBox.max.x);
-            this._tracePoint.y = THREE.MathUtils.clamp(this._traceCenterA.y, candidateBox.min.y, candidateBox.max.y);
-        }
-
-        const refined = this.refineTraceHitSurface(object, queryBox, this._tracePoint, this._traceNormal);
-
-        return {
-            object,
-            box: candidateBox.clone(),
-            point: refined?.point || this._tracePoint.clone(),
-            normal: refined?.normal || this._traceNormal.clone(),
-            penetration
-        };
     }
 
     traceBox(queryBox, options = {}) {
@@ -2585,7 +2184,7 @@ export class AnomalousEchoGame {
         for (const sampleBox of sampleBoxes) {
             const hit = this.traceBox(sampleBox, options);
             if (hit) return hit;
-        }
+            }
         return null;
     }
 
@@ -2853,21 +2452,21 @@ export class AnomalousEchoGame {
     }
 
     async loadLevelFromFile(levelFilename) {
-        const response = await fetch('./' + levelFilename);
-        if (!response.ok) throw new Error(`Network response was not ok. Status: ${response.status}`);
-        const text = await response.text();
-        let rawLevelData;
-        try {
-            rawLevelData = JSON.parse(text);
-        } catch {
-            throw new Error(STRINGS.msg.levelJsonParse);
-        }
-        if (!rawLevelData || typeof rawLevelData !== 'object' || Array.isArray(rawLevelData)) {
-            throw new Error(STRINGS.msg.levelNotObject);
-        }
+            const response = await fetch('./' + levelFilename);
+            if (!response.ok) throw new Error(`Network response was not ok. Status: ${response.status}`);
+            const text = await response.text();
+            let rawLevelData;
+            try {
+                rawLevelData = JSON.parse(text);
+            } catch {
+                throw new Error(STRINGS.msg.levelJsonParse);
+            }
+            if (!rawLevelData || typeof rawLevelData !== 'object' || Array.isArray(rawLevelData)) {
+                throw new Error(STRINGS.msg.levelNotObject);
+            }
         const expandedLevelData = rawLevelData;
-        const validationError = this.validateLevelData(expandedLevelData, levelFilename);
-        if (validationError) throw new Error(validationError);
+            const validationError = this.validateLevelData(expandedLevelData, levelFilename);
+            if (validationError) throw new Error(validationError);
         const structuralCompilerSettings = expandedLevelData?.settings?.structuralCompiler || {};
         const levelData = {
             ...expandedLevelData,
@@ -2938,54 +2537,6 @@ export class AnomalousEchoGame {
         this.showLevelNameToast(levelData.levelName || levelFilename);
     }
 
-    dispatchBuiltinEntityInput(targetId, inputName, parameter, context = {}) {
-        const normalizedInput = String(inputName || '').toLowerCase();
-        switch (normalizedInput) {
-            case 'enable':
-            case 'turnon': {
-                return this.setLevelNodeEnabled(targetId, true);
-            }
-            case 'disable':
-            case 'turnoff': {
-                return this.setLevelNodeEnabled(targetId, false);
-            }
-            case 'toggle': {
-                const node = this.getLevelNode(targetId);
-                if (node) {
-                    return this.setLevelNodeEnabled(targetId, !node.visible);
-                }
-                return false;
-            }
-            case 'setemissive':
-                return this.setNodeEmissiveIntensity(targetId, Number(parameter) || 1);
-            case 'canceltimer':
-                return false;
-            case 'trigger': {
-                const node = this.getLevelNode(targetId);
-                if (node?.userData?.onInteract && typeof node.userData.onInteract === 'function') {
-                    try {
-                        node.userData.onInteract(node);
-                        return true;
-                    } catch (err) {
-                        console.warn('Builtin entity input trigger interact failed', err);
-                        return false;
-                    }
-                }
-                return false;
-            }
-            default:
-                return false;
-        }
-    }
-
-    dispatchEntityInput(targetId, inputName, parameter, context = {}) {
-        void targetId;
-        void inputName;
-        void parameter;
-        void context;
-        return false;
-    }
-
     showLevelNameToast(levelName) {
         void levelName;
     }
@@ -3010,93 +2561,6 @@ export class AnomalousEchoGame {
         return null;
     }
 
-    
-
-    getLevelNode(id) {
-        if (!id) return null;
-        return this.levelNodesById.get(id) || null;
-    }
-
-    getLevelNodeRuntimeObjects(node) {
-        if (!node) return [];
-        const objects = [];
-        node.traverse?.((child) => {
-            objects.push(child);
-        });
-        if (objects.length === 0) objects.push(node);
-        return objects;
-    }
-
-    setLevelNodeEnabled(nodeId, enabled) {
-        const node = this.getLevelNode(nodeId);
-        if (!node) return false;
-        const runtimeObjects = this.getLevelNodeRuntimeObjects(node);
-        let needsSpatialRebuild = false;
-        runtimeObjects.forEach((object) => {
-            object.visible = enabled;
-
-            if (!enabled) {
-                if (this.collidableMeshes.includes(object)) {
-                    object.userData._ioWasCollidable = true;
-                    this.unregisterCollidable(object);
-                    if (!object.userData.dynamicCollider) needsSpatialRebuild = true;
-                }
-                return;
-            }
-
-            if (object.userData?._ioWasCollidable && !this.collidableMeshes.includes(object)) {
-                this.registerCollidable(object);
-                if (!object.userData.dynamicCollider) needsSpatialRebuild = true;
-            }
-        });
-        if (needsSpatialRebuild) {
-            this.rebuildSpatialIndices();
-        }
-        return true;
-    }
-
-    setNodeEmissiveIntensity(nodeId, intensity) {
-        const node = this.getLevelNode(nodeId);
-        if (!node) return false;
-        const applyToMaterial = (material) => {
-            if (!material || !('emissiveIntensity' in material)) return;
-            material.emissiveIntensity = intensity;
-        };
-        if (node.isMesh) {
-            if (Array.isArray(node.material)) node.material.forEach(applyToMaterial);
-            else applyToMaterial(node.material);
-            return true;
-        }
-        node.traverse?.((child) => {
-            if (!child.isMesh) return;
-            if (Array.isArray(child.material)) child.material.forEach(applyToMaterial);
-            else applyToMaterial(child.material);
-        });
-        return true;
-    }
-
-    createDoorMaterial(textureKey, options = {}) {
-        const params = {
-            color: options.color ?? 0xffffff,
-            roughness: options.roughness ?? 0.82,
-            metalness: options.metalness ?? 0.72
-        };
-        const baseTexture = textureKey ? this.loadedAssets.textures[textureKey] : null;
-        if (baseTexture) {
-            params.map = baseTexture.clone();
-            params.map.wrapS = THREE.RepeatWrapping;
-            params.map.wrapT = THREE.RepeatWrapping;
-            const repeat = finiteVec2Components(options.repeat, [1, 1]);
-            params.map.repeat.set(repeat[0], repeat[1]);
-        }
-        if (options.emissive) {
-            params.emissive = new THREE.Color(options.emissive);
-            params.emissiveIntensity = options.emissiveIntensity ?? 1;
-            if (params.map) params.emissiveMap = params.map;
-        }
-        return new THREE.MeshStandardMaterial(params);
-    }
-
     isPlayerInsideTriggerVolume(volume) {
         const playerPos = this.player?.camera?.position;
         return this.isPointInsideVolume(playerPos, volume);
@@ -3109,7 +2573,6 @@ export class AnomalousEchoGame {
     getPhysicsVolumeModifiersAt(position) {
         const modifiers = {
             gravityScale: 1,
-            jumpScale: 1,
             drag: 0,
             buoyancy: 0,
             flow: new THREE.Vector3(),
@@ -3122,7 +2585,6 @@ export class AnomalousEchoGame {
         modifiers.drag = THREE.MathUtils.clamp(modifiers.drag, 0, 8);
         modifiers.buoyancy = THREE.MathUtils.clamp(modifiers.buoyancy, 0, 3);
         modifiers.gravityScale = THREE.MathUtils.clamp(modifiers.gravityScale, -2, 4);
-        modifiers.jumpScale = THREE.MathUtils.clamp(modifiers.jumpScale, 0, 4);
         return modifiers;
     }
 
@@ -3261,154 +2723,7 @@ export class AnomalousEchoGame {
 
     getStructuralPrimitiveType(data) {
         if (!data || typeof data !== 'object') return null;
-        if (data.type === 'terrain_quad') return 'heightmap_patch';
         return typeof data.type === 'string' ? data.type.toLowerCase() : null;
-    }
-
-    parsePrimitiveProfilePoints(points, fallback = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]) {
-        const source = Array.isArray(points) && points.length >= 3 ? points : fallback;
-        return source.map((point) => new THREE.Vector2(
-            clampFiniteNumber(point?.[0], 0, -2, 2),
-            clampFiniteNumber(point?.[1], 0, -2, 2)
-        ));
-    }
-
-    getPrimitiveProfilePreset(profileType = 'square', segments = 24) {
-        const normalized = typeof profileType === 'string' ? profileType.toLowerCase() : 'square';
-        if (normalized === 'circle') {
-            return this.samplePrimitiveArcPoints(0, 0, 0.5, 0, Math.PI * 2, Math.max(segments, 8)).slice(0, -1);
-        }
-        if (normalized === 'triangle') {
-            return [
-                new THREE.Vector2(0, 0.58),
-                new THREE.Vector2(-0.5, -0.32),
-                new THREE.Vector2(0.5, -0.32)
-            ];
-        }
-        return this.parsePrimitiveProfilePoints(null);
-    }
-
-    resamplePrimitiveProfileLoop(points, targetCount) {
-        const source = Array.isArray(points) ? points.filter(Boolean) : [];
-        const safeCount = Math.max(3, clampFiniteInteger(targetCount, Math.max(3, source.length), 3, 96));
-        if (source.length === 0) return this.getPrimitiveProfilePreset('square', safeCount);
-        if (source.length === safeCount) return source.map((point) => point.clone());
-        if (source.length === 1) {
-            return Array.from({ length: safeCount }, () => source[0].clone());
-        }
-
-        const lengths = [];
-        let perimeter = 0;
-        for (let index = 0; index < source.length; index += 1) {
-            const nextIndex = (index + 1) % source.length;
-            const segmentLength = source[index].distanceTo(source[nextIndex]);
-            perimeter += segmentLength;
-            lengths.push(segmentLength);
-        }
-        if (perimeter <= 1e-6) {
-            return Array.from({ length: safeCount }, (_, index) => source[index % source.length].clone());
-        }
-
-        const result = [];
-        for (let sampleIndex = 0; sampleIndex < safeCount; sampleIndex += 1) {
-            const targetDistance = (sampleIndex / safeCount) * perimeter;
-            let walked = 0;
-            for (let edgeIndex = 0; edgeIndex < source.length; edgeIndex += 1) {
-                const edgeLength = lengths[edgeIndex];
-                const nextWalk = walked + edgeLength;
-                if (targetDistance <= nextWalk || edgeIndex === source.length - 1) {
-                    const nextIndex = (edgeIndex + 1) % source.length;
-                    const edgeT = edgeLength <= 1e-6 ? 0 : (targetDistance - walked) / edgeLength;
-                    result.push(source[edgeIndex].clone().lerp(source[nextIndex], THREE.MathUtils.clamp(edgeT, 0, 1)));
-                    break;
-                }
-                walked = nextWalk;
-            }
-        }
-        return result;
-    }
-
-    getLoftInterpolationValue(t, curve = 'linear') {
-        const normalized = typeof curve === 'string' ? curve.toLowerCase() : 'linear';
-        const clamped = THREE.MathUtils.clamp(t, 0, 1);
-        switch (normalized) {
-            case 'ease_in':
-            case 'easein':
-                return clamped * clamped;
-            case 'ease_out':
-            case 'easeout':
-                return 1 - Math.pow(1 - clamped, 2);
-            case 'smoothstep':
-            case 'ease_in_out':
-            case 'easeinout':
-                return clamped * clamped * (3 - (2 * clamped));
-            default:
-                return clamped;
-        }
-    }
-
-    buildLoftPrimitiveGeometryFromProfiles(profileA, profileB, {
-        curve = 'linear',
-        sections = 12,
-        distance = 1
-    } = {}) {
-        const targetCount = Math.max(3, profileA.length, profileB.length);
-        const loopA = this.resamplePrimitiveProfileLoop(profileA, targetCount);
-        const loopB = this.resamplePrimitiveProfileLoop(profileB, targetCount);
-        const safeSections = Math.max(1, clampFiniteInteger(sections, 12, 1, 64));
-        const depth = clampFiniteNumber(distance, 1, 0.05, 4);
-        const positions = [];
-        const indices = [];
-
-        for (let sectionIndex = 0; sectionIndex <= safeSections; sectionIndex += 1) {
-            const t = safeSections === 0 ? 0 : sectionIndex / safeSections;
-            const shapedT = this.getLoftInterpolationValue(t, curve);
-            const z = (-depth * 0.5) + (depth * t);
-            for (let pointIndex = 0; pointIndex < targetCount; pointIndex += 1) {
-                const point = loopA[pointIndex].clone().lerp(loopB[pointIndex], shapedT);
-                positions.push(point.x, point.y, z);
-            }
-        }
-
-        for (let sectionIndex = 0; sectionIndex < safeSections; sectionIndex += 1) {
-            const ringStart = sectionIndex * targetCount;
-            const nextRingStart = (sectionIndex + 1) * targetCount;
-            for (let pointIndex = 0; pointIndex < targetCount; pointIndex += 1) {
-                const nextPoint = (pointIndex + 1) % targetCount;
-                const a = ringStart + pointIndex;
-                const b = ringStart + nextPoint;
-                const c = nextRingStart + pointIndex;
-                const d = nextRingStart + nextPoint;
-                indices.push(a, b, d, a, d, c);
-            }
-        }
-
-        const startCenterIndex = positions.length / 3;
-        positions.push(
-            loopA.reduce((sum, point) => sum + point.x, 0) / loopA.length,
-            loopA.reduce((sum, point) => sum + point.y, 0) / loopA.length,
-            -depth * 0.5
-        );
-        const endCenterIndex = positions.length / 3;
-        positions.push(
-            loopB.reduce((sum, point) => sum + point.x, 0) / loopB.length,
-            loopB.reduce((sum, point) => sum + point.y, 0) / loopB.length,
-            depth * 0.5
-        );
-
-        for (let pointIndex = 0; pointIndex < targetCount; pointIndex += 1) {
-            const nextPoint = (pointIndex + 1) % targetCount;
-            indices.push(startCenterIndex, nextPoint, pointIndex);
-            const endOffset = safeSections * targetCount;
-            indices.push(endCenterIndex, endOffset + pointIndex, endOffset + nextPoint);
-        }
-
-        const geometry = new THREE.BufferGeometry();
-        geometry.setIndex(indices);
-        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-        geometry.computeVertexNormals();
-        geometry.center();
-        return geometry;
     }
 
     createConvexHullPrimitiveGeometry(data) {
@@ -3431,32 +2746,6 @@ export class AnomalousEchoGame {
         const radius = clampFiniteNumber(data?.bevelRadius ?? data?.radius, 0.08, 0.01, 0.45);
         const segments = clampFiniteInteger(data?.bevelSegments ?? data?.segments, 4, 1, 12);
         return new RoundedBoxGeometry(1, 1, 1, segments, radius);
-    }
-
-    signedPow(value, exponent) {
-        return Math.sign(value) * Math.pow(Math.abs(value), exponent);
-    }
-
-    createSuperellipsoidPrimitiveGeometry(data) {
-        const widthSegments = clampFiniteInteger(data?.segments ?? data?.widthSegments, 24, 6, 96);
-        const heightSegments = clampFiniteInteger(data?.heightSegments ?? Math.max(8, Math.round(widthSegments * 0.6)), 16, 4, 64);
-        const geometry = new THREE.SphereGeometry(0.5, widthSegments, heightSegments);
-        const exponent1 = clampFiniteNumber(data?.exponent1, 0.55, 0.1, 8);
-        const exponent2 = clampFiniteNumber(data?.exponent2, 0.55, 0.1, 8);
-        const position = geometry.getAttribute('position');
-        for (let index = 0; index < position.count; index += 1) {
-            const x = position.getX(index) / 0.5;
-            const y = position.getY(index) / 0.5;
-            const z = position.getZ(index) / 0.5;
-            position.setXYZ(
-                index,
-                this.signedPow(x, exponent1) * 0.5,
-                this.signedPow(y, exponent2) * 0.5,
-                this.signedPow(z, exponent1) * 0.5
-            );
-        }
-        geometry.computeVertexNormals();
-        return geometry;
     }
 
     mergeStructuralPrimitiveGeometryParts(parts, fallbackFactory = () => new THREE.BoxGeometry(1, 1, 1)) {
@@ -3515,11 +2804,6 @@ export class AnomalousEchoGame {
     createCylinderPrimitiveGeometry(data) {
         const radialSegments = clampFiniteInteger(data?.radialSegments, 16, 6, 48);
         return new THREE.CylinderGeometry(0.5, 0.5, 1, radialSegments, 1, false);
-    }
-
-    createGeodesicSpherePrimitiveGeometry(data) {
-        const detail = clampFiniteInteger(data?.detail ?? data?.segments, 2, 0, 6);
-        return new THREE.IcosahedronGeometry(0.5, detail);
     }
 
     samplePrimitiveArcPoints(centerX, centerY, radius, startAngle, endAngle, segments) {
@@ -3678,25 +2962,6 @@ export class AnomalousEchoGame {
         return new THREE.CylinderGeometry(0, 0.5, 1, sides, 1, false);
     }
 
-    createTubePrimitiveGeometry(data) {
-        const segments = clampFiniteInteger(data?.segments ?? data?.radialSegments, 18, 6, 64);
-        const outerRadius = clampFiniteNumber(data?.outerRadius, 0.5, 0.08, 0.5);
-        const innerRadius = clampFiniteNumber(
-            data?.innerRadius,
-            Math.max(0.04, outerRadius - clampFiniteNumber(data?.thickness, 0.14, 0.02, 0.35)),
-            0.02,
-            Math.max(0.03, outerRadius - 0.02)
-        );
-        const outerLoop = this.samplePrimitiveArcPoints(0, 0, outerRadius, 0, Math.PI * 2, segments * 2);
-        const innerLoop = this.samplePrimitiveArcPoints(0, 0, innerRadius, 0, Math.PI * 2, segments * 2).reverse();
-        const shape = this.createShapeFromPointLoop(outerLoop);
-        shape.holes.push(this.createPathFromPointLoop(innerLoop));
-        return this.createExtrudedStructuralShapeGeometry(shape, {
-            curveSegments: segments,
-            rotateX: -Math.PI / 2
-        });
-    }
-
     createCapsulePrimitiveGeometry(data) {
         const radialSegments = clampFiniteInteger(data?.radialSegments, 12, 4, 48);
         const capSegments = clampFiniteInteger(data?.segments, 6, 2, 24);
@@ -3710,17 +2975,6 @@ export class AnomalousEchoGame {
         const topRadius = clampFiniteNumber(data?.topRadius ?? data?.radiusTop, 0.18, 0, 0.5);
         const bottomRadius = clampFiniteNumber(data?.bottomRadius ?? data?.radiusBottom, 0.5, 0, 0.5);
         return new THREE.CylinderGeometry(topRadius, bottomRadius, 1, radialSegments, 1, false);
-    }
-
-    createTorusPrimitiveGeometry(data) {
-        const tubularSegments = clampFiniteInteger(data?.segments, 24, 3, 96);
-        const radialSegments = clampFiniteInteger(data?.radialSegments, 12, 3, 48);
-        const outerRadius = clampFiniteNumber(data?.outerRadius, 0.5, 0.12, 0.8);
-        const innerRadius = clampFiniteNumber(data?.innerRadius, 0.22, 0.02, Math.max(0.03, outerRadius - 0.04));
-        const majorRadius = Math.max(0.05, (outerRadius + innerRadius) * 0.5);
-        const tubeRadius = Math.max(0.02, (outerRadius - innerRadius) * 0.5);
-        const arc = THREE.MathUtils.degToRad(clampFiniteNumber(data?.arcDegrees ?? data?.spanDegrees, 360, 1, 360));
-        return new THREE.TorusGeometry(majorRadius, tubeRadius, radialSegments, tubularSegments, arc);
     }
 
     createShapeFromProfileData(data) {
@@ -3811,88 +3065,6 @@ export class AnomalousEchoGame {
             spline: this.buildCatenaryPathPoints(data),
             profileShape: data?.crossSectionProfile || data?.profileShape || data?.profileType || 'circle'
         });
-    }
-
-    createExtrudeAlongNormalPrimitiveGeometry(data) {
-        const shape = Array.isArray(data?.profilePoints) && data.profilePoints.length >= 3
-            ? this.createShapeFromProfileData({
-                ...data,
-                profileType: 'polygon'
-            })
-            : this.createShapeFromProfileData({
-                ...data,
-                profileType: data?.profileType || data?.crossSectionProfile || 'square'
-            });
-        return this.createExtrudedStructuralShapeGeometry(shape, {
-            depth: clampFiniteNumber(data?.distance ?? data?.depth ?? data?.width ?? data?.thickness, 1, 0.05, 8),
-            curveSegments: clampFiniteInteger(data?.segments ?? data?.tessellationFactor, 12, 1, 64)
-        });
-    }
-
-    createLatticeVolumePrimitiveGeometry(data) {
-        const cellSize = clampFiniteNumber(data?.cellSize, 0.25, 0.08, 1);
-        const cellsPerAxis = Math.max(1, Math.round(1 / cellSize));
-        const patternType = typeof data?.patternType === 'string' ? data.patternType.toLowerCase() : 'x_brace';
-        const thickness = clampFiniteNumber(data?.strutThickness ?? data?.thickness, 0.06, 0.01, 0.25);
-        const coords = Array.from({ length: cellsPerAxis + 1 }, (_, index) => -0.5 + ((index / cellsPerAxis) * 1));
-        const partGeometries = [];
-        const segmentKeys = new Set();
-        const addSegment = (start, end) => {
-            const keyParts = [start, end].map((point) => `${point.x.toFixed(4)},${point.y.toFixed(4)},${point.z.toFixed(4)}`).sort();
-            const key = keyParts.join('|');
-            if (segmentKeys.has(key)) return;
-            segmentKeys.add(key);
-            const beam = this.createBeamGeometryBetweenPoints(start, end, thickness);
-            if (beam) partGeometries.push(beam);
-        };
-        for (let ix = 0; ix < cellsPerAxis; ix += 1) {
-            for (let iy = 0; iy < cellsPerAxis; iy += 1) {
-                for (let iz = 0; iz < cellsPerAxis; iz += 1) {
-                    const x0 = coords[ix];
-                    const x1 = coords[ix + 1];
-                    const y0 = coords[iy];
-                    const y1 = coords[iy + 1];
-                    const z0 = coords[iz];
-                    const z1 = coords[iz + 1];
-                    const corners = {
-                        a: new THREE.Vector3(x0, y0, z0),
-                        b: new THREE.Vector3(x1, y0, z0),
-                        c: new THREE.Vector3(x1, y1, z0),
-                        d: new THREE.Vector3(x0, y1, z0),
-                        e: new THREE.Vector3(x0, y0, z1),
-                        f: new THREE.Vector3(x1, y0, z1),
-                        g: new THREE.Vector3(x1, y1, z1),
-                        h: new THREE.Vector3(x0, y1, z1)
-                    };
-                    [[corners.a, corners.b], [corners.b, corners.c], [corners.c, corners.d], [corners.d, corners.a],
-                     [corners.e, corners.f], [corners.f, corners.g], [corners.g, corners.h], [corners.h, corners.e],
-                     [corners.a, corners.e], [corners.b, corners.f], [corners.c, corners.g], [corners.d, corners.h]]
-                        .forEach(([start, end]) => addSegment(start, end));
-                    if (patternType === 'octet_truss') {
-                        const center = new THREE.Vector3((x0 + x1) * 0.5, (y0 + y1) * 0.5, (z0 + z1) * 0.5);
-                        Object.values(corners).forEach((corner) => addSegment(center, corner));
-                    } else if (patternType === 'k_brace') {
-                        const midLeft = new THREE.Vector3(x0, (y0 + y1) * 0.5, (z0 + z1) * 0.5);
-                        const midRight = new THREE.Vector3(x1, (y0 + y1) * 0.5, (z0 + z1) * 0.5);
-                        const midFront = new THREE.Vector3((x0 + x1) * 0.5, (y0 + y1) * 0.5, z1);
-                        addSegment(corners.a, midLeft);
-                        addSegment(corners.d, midLeft);
-                        addSegment(corners.b, midRight);
-                        addSegment(corners.c, midRight);
-                        addSegment(corners.e, midFront);
-                        addSegment(corners.f, midFront);
-                    } else {
-                        addSegment(corners.a, corners.c);
-                        addSegment(corners.b, corners.d);
-                        addSegment(corners.e, corners.g);
-                        addSegment(corners.f, corners.h);
-                        addSegment(corners.a, corners.g);
-                        addSegment(corners.b, corners.h);
-                    }
-                }
-            }
-        }
-        return this.mergeStructuralPrimitiveGeometryParts(partGeometries);
     }
 
     createVoronoiFracturePrimitiveGeometry(data) {
@@ -4136,79 +3308,6 @@ export class AnomalousEchoGame {
         return geometry;
     }
 
-    createMiteredCornerPrimitiveGeometry(data) {
-        const thickness = clampFiniteNumber(data?.thickness, 0.24, 0.08, 0.46);
-        const horizontal = new THREE.BoxGeometry(1, 1, thickness);
-        horizontal.translate(0, 0, -0.5 + (thickness * 0.5));
-        const vertical = new THREE.BoxGeometry(thickness, 1, 1);
-        vertical.translate(-0.5 + (thickness * 0.5), 0, 0);
-        return this.mergeStructuralPrimitiveGeometryParts([horizontal, vertical]);
-    }
-
-    createRoundedCornerPrimitiveGeometry(data) {
-        const segments = clampFiniteInteger(data?.segments, 12, 3, 64);
-        const outerRadius = clampFiniteNumber(data?.outerRadius, 1, 0.2, 1);
-        const innerRadius = clampFiniteNumber(
-            data?.innerRadius,
-            Math.max(0.05, outerRadius - clampFiniteNumber(data?.thickness, 0.24, 0.04, 0.45)),
-            0.02,
-            Math.max(0.03, outerRadius - 0.02)
-        );
-        const outerArc = this.samplePrimitiveArcPoints(-0.5, -0.5, outerRadius, 0, Math.PI * 0.5, segments);
-        const innerArc = this.samplePrimitiveArcPoints(-0.5, -0.5, innerRadius, Math.PI * 0.5, 0, segments);
-        const loop = [...outerArc, ...innerArc];
-        const shape = this.createShapeFromPointLoop(loop);
-        return this.createExtrudedStructuralShapeGeometry(shape, {
-            curveSegments: segments,
-            rotateX: -Math.PI / 2
-        });
-    }
-
-    createCornerPrimitiveGeometry(data) {
-        const style = typeof data?.cornerStyle === 'string' ? data.cornerStyle.toLowerCase() : 'mitered';
-        return style === 'rounded'
-            ? this.createRoundedCornerPrimitiveGeometry(data)
-            : this.createMiteredCornerPrimitiveGeometry(data);
-    }
-
-    buildSpiralStairsPrimitivePartGeometries(data) {
-        const steps = clampFiniteInteger(data?.steps, 12, 3, 96);
-        const innerRadius = clampFiniteNumber(data?.innerRadius, 0.18, 0.02, 0.75);
-        const outerRadius = clampFiniteNumber(data?.outerRadius, 0.5, Math.max(innerRadius + 0.04, 0.06), 1.25);
-        const clockwise = data?.clockwise === true;
-        const arcDegrees = clampFiniteNumber(data?.arcDegrees ?? data?.spanDegrees, 270, 15, 1080);
-        const totalRadians = THREE.MathUtils.degToRad(clockwise ? -arcDegrees : arcDegrees);
-        const startRadians = THREE.MathUtils.degToRad(clampFiniteNumber(data?.startDegrees, -135, -1080, 1080));
-        const stepRadians = totalRadians / steps;
-        const midRadius = (innerRadius + outerRadius) * 0.5;
-        const radialThickness = Math.max(0.04, outerRadius - innerRadius);
-        const riseHeight = 1 / steps;
-        const treadDepth = Math.max(0.08, Math.abs(stepRadians) * midRadius);
-        const parts = [];
-
-        for (let index = 0; index < steps; index += 1) {
-            const height = (index + 1) * riseHeight;
-            const angle = startRadians + ((index + 0.5) * stepRadians);
-            const geometry = new THREE.BoxGeometry(radialThickness, height, treadDepth);
-            geometry.translate(0, -0.5 + (height * 0.5), 0);
-            geometry.rotateY(-angle);
-            geometry.translate(Math.cos(angle) * midRadius, 0, Math.sin(angle) * midRadius);
-            parts.push(geometry);
-        }
-
-        if (data?.centerColumn !== false) {
-            const columnRadius = Math.max(0.04, innerRadius * 0.85);
-            const column = new THREE.CylinderGeometry(columnRadius, columnRadius, 1, clampFiniteInteger(data?.radialSegments, 12, 6, 32), 1, false);
-            parts.push(column);
-        }
-
-        return parts;
-    }
-
-    createSpiralStairsPrimitiveGeometry(data) {
-        return this.mergeStructuralPrimitiveGeometryParts(this.buildSpiralStairsPrimitivePartGeometries(data));
-    }
-
     createGableRoofPrimitiveGeometry() {
         const shape = new THREE.Shape();
         shape.moveTo(-0.5, -0.5);
@@ -4249,28 +3348,6 @@ export class AnomalousEchoGame {
         return resolvedType === 'hipped_roof'
             ? this.createHippedRoofPrimitiveGeometry(data)
             : this.createGableRoofPrimitiveGeometry(data);
-    }
-
-    buildStairsPrimitivePartGeometries(data) {
-        const steps = clampFiniteInteger(data?.steps, 6, 2, 32);
-        const parts = [];
-        for (let index = 0; index < steps; index += 1) {
-            const height = (index + 1) / steps;
-            const depth = 1 / steps;
-            const geometry = new THREE.BoxGeometry(1, height, depth);
-            geometry.translate(
-                0,
-                -0.5 + (height * 0.5),
-                -0.5 + (index * depth) + (depth * 0.5)
-            );
-            parts.push(geometry);
-        }
-        return parts;
-    }
-
-    createStairsPrimitiveGeometry(data) {
-        const parts = this.buildStairsPrimitivePartGeometries(data);
-        return this.mergeStructuralPrimitiveGeometryParts(parts);
     }
 
     buildHollowBoxPrimitivePartGeometries(data) {
@@ -4342,10 +3419,6 @@ export class AnomalousEchoGame {
 
     createCompositeStructuralPrimitiveColliderGeometries(data) {
         switch (data?.type) {
-            case 'stairs':
-                return this.buildStairsPrimitivePartGeometries(data);
-            case 'spiral_stairs':
-                return this.buildSpiralStairsPrimitivePartGeometries(data);
             case 'hollow_box':
                 return this.buildHollowBoxPrimitivePartGeometries(data);
             default:
@@ -4482,30 +3555,14 @@ export class AnomalousEchoGame {
             case 'cone':
             case 'pyramid':
                 return this.createConePrimitiveGeometry(data);
-            case 'tube':
-                return this.createTubePrimitiveGeometry(data);
             case 'hexahedron':
                 return this.createHexahedronPrimitiveGeometry(data);
-            case 'catenary_primitive':
-                return this.createCatenaryPrimitiveGeometry(data);
             case 'convex_hull':
                 return this.createConvexHullPrimitiveGeometry(data);
             case 'capsule':
                 return this.createCapsulePrimitiveGeometry(data);
             case 'frustum':
                 return this.createFrustumPrimitiveGeometry(data);
-            case 'torus':
-                return this.createTorusPrimitiveGeometry(data);
-            case 'displacement':
-            case 'heightmap_patch':
-            case 'terrain_quad':
-                return this.createDisplacementPrimitiveGeometry(data);
-            case 'corner':
-                return this.createCornerPrimitiveGeometry(data);
-            case 'stairs':
-                return this.createStairsPrimitiveGeometry(data);
-            case 'spiral_stairs':
-                return this.createSpiralStairsPrimitiveGeometry(data);
             case 'hollow_box':
                 return this.createHollowBoxPrimitiveGeometry(data);
             case 'roof_gable':
@@ -4572,90 +3629,6 @@ export class AnomalousEchoGame {
             group.add(mesh);
         });
         return group;
-    }
-
-    getClipVolumeModes(data = {}) {
-        const rawModes = Array.isArray(data.clipModes)
-            ? data.clipModes
-            : (data.clipMode != null ? [data.clipMode] : []);
-        const parsed = rawModes
-            .map((mode) => String(mode).toLowerCase())
-            .filter((mode) => mode === 'physics' || mode === 'ai' || mode === 'visibility');
-        return parsed.length > 0 ? [...new Set(parsed)] : ['physics'];
-    }
-
-    collectTargetNodeMeshes(ids = []) {
-        if (!Array.isArray(ids) || ids.length === 0) return [];
-        const seen = new Set();
-        const targets = [];
-        ids.forEach((id) => {
-            const node = this.levelNodesById.get(id);
-            if (!node) return;
-            const pushMesh = (mesh) => {
-                if (!mesh?.isMesh || seen.has(mesh)) return;
-                seen.add(mesh);
-                targets.push(mesh);
-            };
-            if (node.isMesh) {
-                pushMesh(node);
-                return;
-            }
-            node.traverse?.((child) => pushMesh(child));
-        });
-        return targets;
-    }
-
-    createRenderablePrimitiveMesh(data, options = {}) {
-        const geometry = this.createStructuralPrimitiveGeometryFromData(data);
-        if (!geometry) return null;
-        this.levelGeometries.push(geometry);
-        const primaryMaterialData = data.materials && data.materials[0] != null
-            ? this.normalizeMaterialData(data.materials[0], data)
-            : null;
-        const material = primaryMaterialData
-            ? this.createMaterialFromData(primaryMaterialData)
-            : new THREE.MeshStandardMaterial({ color: options.fallbackColor || 0xcc00cc });
-        const mesh = new THREE.Mesh(geometry, material);
-        if (!data.compiledWorldSpace) {
-            mesh.position.fromArray(finiteVec3Components(data.position, [0, 0, 0]));
-            mesh.rotation.fromArray(finiteVec3Components(data.rotation, [0, 0, 0]));
-            mesh.scale.fromArray(finiteScaleComponents(data.scale, [1, 1, 1]));
-        }
-        mesh.name = data.name || data.id || createRuntimeId('primitive');
-        mesh.castShadow = options.castShadow !== false;
-        mesh.receiveShadow = options.receiveShadow !== false;
-        return mesh;
-    }
-
-    createAliasedPrimitiveData(data = {}, fallbackType = 'box') {
-        const primitiveType = typeof data.primitiveType === 'string' ? data.primitiveType.toLowerCase() : fallbackType;
-        return {
-            ...data,
-            type: primitiveType
-        };
-    }
-
-    createRuntimeBoxVolume(data = {}, defaults = {}) {
-        const position = new THREE.Vector3(...finiteVec3Components(data?.position, [0, 0, 0]));
-        const sizeValues = finiteVec3Components(data?.size ?? data?.scale, defaults.size || [4, 4, 4]);
-        return {
-            id: data.id || createRuntimeId(defaults.runtimeId || 'volume'),
-            type: defaults.type || data.type || 'volume',
-            shape: data.shape === 'cylinder' ? 'cylinder' : (data.shape === 'sphere' ? 'sphere' : 'box'),
-            position,
-            size: new THREE.Vector3(Math.abs(sizeValues[0]), Math.abs(sizeValues[1]), Math.abs(sizeValues[2])),
-            radius: Math.max(0.25, Number.isFinite(Number(data.radius)) ? Number(data.radius) : Math.max(Math.abs(sizeValues[0]), Math.abs(sizeValues[2])) * 0.5),
-            height: Math.max(0.25, Math.abs(sizeValues[1] || 2)),
-            helper: null
-        };
-    }
-
-    registerShrinkwrapModifierPrimitive(data) {
-        void data;
-    }
-
-    buildRuntimePrimitiveMesh(data, fallbackType = 'box', options = {}) {
-        return this.createRenderablePrimitiveMesh(this.createAliasedPrimitiveData(data, fallbackType), options);
     }
 
     createGeometryFromData(data) {
@@ -4752,6 +3725,17 @@ export class AnomalousEchoGame {
         const instance = this.cloneLoadedModel(sourceModel);
         this.applyAuthoredPlacement(instance, data.position, data.rotation, data.scale);
         instance.name = data.name || data.id;
+        const archetype = this.resolveNpcArchetype(data, data.modelName, sourceModel.userData?.npcArchetype || '');
+        instance.userData.npcArchetype = archetype;
+        const profileName = this.resolveNpcAnimationProfile(
+            data,
+            data.modelName,
+            data.animationProfile || instance.userData?.animationProfile || sourceModel.userData?.animationProfile || ''
+        );
+        const resolvedLibrary = this.attachHumanoidLibraryToRig(instance, profileName);
+        if (Object.keys(instance.userData?.animationClips || {}).length > 0) {
+            this.createCharacterAnimationController(instance, data.preferredAction || 'idle', true);
+        }
         const blocksPlayer = data.isCollider === true;
 
         instance.traverse(child => {
@@ -4960,7 +3944,14 @@ export class AnomalousEchoGame {
     }
 
     updateCharacterAnimationControllers(delta) {
-        void delta;
+        if (!Array.isArray(this.characterControllers) || this.characterControllers.length === 0) return;
+        const nextControllers = [];
+        for (const controller of this.characterControllers) {
+            if (!controller?.root || !controller?.mixer) continue;
+            controller.update?.(delta);
+            nextControllers.push(controller);
+        }
+        this.characterControllers = nextControllers;
     }
 
     stepFrame(delta, forcedElapsedTime = null) {
@@ -4975,7 +3966,7 @@ export class AnomalousEchoGame {
 
             if (!this.gameState.isPaused) {
 
-                this.player.update(delta, this.moveState);
+                    this.player.update(delta, this.moveState);
                 this.updateEnvironmentalVolumes();
                 this.updateCharacterAnimationControllers(delta);
                 this.updateSoundscape(delta);
@@ -5014,23 +4005,6 @@ export class AnomalousEchoGame {
         this.updateTriggerVolumes();
     }
 
-    turnObjectTowardsDirection(object, direction, delta, turnSpeed = Math.PI * 2.1) {
-        if (!object || !direction || direction.lengthSq() < 1e-8) return 1;
-        const desiredYaw = Math.atan2(direction.x, direction.z);
-        const currentYaw = Number.isFinite(object.rotation?.y) ? object.rotation.y : 0;
-        const maxStep = Math.max(0.001, (Number.isFinite(turnSpeed) ? turnSpeed : Math.PI * 2.1) * delta);
-        const { newYaw, alignment } = stepYawToward(currentYaw, desiredYaw, maxStep);
-        object.rotation.y = newYaw;
-        return alignment;
-    }
-
-    getTurnLimitedSpeedFactor(alignment, minFactor = 0.06, fullSpeedThreshold = 0.84) {
-        const safeMin = THREE.MathUtils.clamp(minFactor, 0, 1);
-        const safeThreshold = THREE.MathUtils.clamp(fullSpeedThreshold, 0.05, 1);
-        const factor = THREE.MathUtils.mapLinear(alignment, -0.2, safeThreshold, safeMin, 1);
-        return THREE.MathUtils.clamp(factor, safeMin, 1);
-    }
-
      cleanup() {
         this.flickerIntervals.forEach((id) => clearInterval(id));
         this.flickerIntervals = [];
@@ -5061,10 +4035,6 @@ export class AnomalousEchoGame {
         window.removeEventListener('resize', this.resizeHandler);
         document.removeEventListener('visibilitychange', this.visibilityChangeHandler, false);
         document.removeEventListener('pointerlockerror', this.pointerLockErrorHandler, false);
-        if (this.wheelHandler) {
-            window.removeEventListener('wheel', this.wheelHandler);
-            this.wheelHandler = null;
-        }
         if (this.animationFrameId) {
             cancelAnimationFrame(this.animationFrameId);
             this.animationFrameId = null;

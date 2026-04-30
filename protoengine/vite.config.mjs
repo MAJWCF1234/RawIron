@@ -157,7 +157,6 @@ export default defineConfig({
           manualChunks(id) {
             if (id.includes('node_modules/three/build/')) return 'three-core';
             if (id.includes('node_modules/three/examples/')) return 'three-extras';
-            if (id.includes('/assetLoader.js') || id.includes('/constants.js')) return 'game-data';
             if (id.includes('/engine.js') || id.includes('/spatialIndex.js')) {
               return 'game-systems';
             }

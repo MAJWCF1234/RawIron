@@ -54,12 +54,7 @@ export const DEFAULT_KEYS = {
     forward: 'KeyW',
     backward: 'KeyS',
     left: 'KeyA',
-    right: 'KeyD',
-    sprint: 'ShiftLeft',
-    jump: 'Space',
-    unstuck: 'KeyR',
-    crouch: 'KeyC',
-    prone: 'KeyZ'
+    right: 'KeyD'
 };
 
 /**
