@@ -28,7 +28,7 @@ The phrase **bare metal** remains useful as positioning, mood, and technical att
 ## Product Family
 
 - **RawIron**: engine/platform umbrella
-- **RawIron Editor**: temporary editor label until a final tool name is chosen
+- **RawIron Editor**: current editor product label
 - **RawIron Player**: standalone runtime/game executable
 - **RawIron Tools**: importers, cookers, packers, and support utilities
 

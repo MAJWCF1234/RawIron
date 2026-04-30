@@ -79,7 +79,7 @@ This is the shortest path toward the Source-like feeling RawIron is after.
 
 ## Current Native Loop Split
 
-Today, `RawIron.Core` already owns a small host/bootstrap loop.
+Today, `RawIron.Core` already owns a small host loop.
 
 The long-term split should look more like this:
 
@@ -95,7 +95,7 @@ The current native loop is also now less wasteful by default than the earlier sc
 - frame-by-frame loop logging is opt-in instead of always-on
 - player and editor hosts now log the first frame by default instead of spamming every frame
 
-That keeps the bootstrap hosts useful for tests and diagnostics without behaving like runaway debug scripts at idle.
+That keeps the executable hosts useful for tests and diagnostics without behaving like runaway debug scripts at idle.
 
 ## Verification Hooks Today
 

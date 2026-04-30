@@ -76,7 +76,7 @@ Call it **once** during setup: it replaces the graph’s output handler and inpu
 - Bus events such as `triggerChanged` describe **volume overlap** transitions.
 - `entityIo` describes **logic graph activations** (routes, ports, payloads).
 
-A pressure plate may emit `triggerChanged` when stepped on **and** later show `entityIo` when the relay→door chain runs; both are complementary.
+A pressure plate may emit `triggerChanged` when stepped on **and** then show `entityIo` when the relay→door chain runs; both are complementary.
 
 ## Tests and source references
 

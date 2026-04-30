@@ -102,7 +102,7 @@ RawIron should preserve that idea in native form:
 - room-local status readouts
 - helper bays that make state visible without opening a terminal first
 
-That is a good engine habit, not a temporary prototype trick.
+That is a good engine habit, not a prototype-only trick.
 
 ## Current Rule Of Thumb
 

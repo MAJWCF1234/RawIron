@@ -14,7 +14,7 @@ This note is the current engine-state snapshot for the Obsidian vault. It reflec
 
 ## Summary
 
-RawIron is now a native C++20 engine workspace with a meaningful engine-service stack, two game modules, native hosts, a preview path, tooling, and a growing test suite. The older docs were still partly describing an earlier bootstrap: some pages mentioned a separate `RawIron.SceneSamples` library, a fixed local `Projects/Sandbox`, a smaller test suite, and placeholder-only tooling. Those are no longer accurate.
+RawIron is now a native C++20 engine workspace with a meaningful engine-service stack, two game modules, native hosts, a preview path, tooling, and a growing test suite. Older docs still described an earlier startup scaffold: some pages mentioned a separate `RawIron.SceneSamples` library, a fixed local `Projects/Sandbox`, a smaller test suite, and placeholder-only tooling. Those are no longer accurate.
 
 The engine is currently best described as:
 
@@ -43,7 +43,7 @@ The active CMake source modules are:
 - `RawIron.Trace`: object/entity physics, kinematic physics, movement control, locomotion tuning, spatial query helpers, and trace scene metrics.
 - `RawIron.Validation`: schema registry, scalar/string/object/collection constraints, coercion, references, migration helpers, color parsing, ID format checks, and validation reports.
 - `RawIron.SceneUtilities`: Scene Kit helpers, model import dispatch, glTF/FBX/OBJ import support, animation clips, raycasts, scene state I/O, scripted camera review, starter workspace scenes, and Scene Kit milestone examples.
-- `RawIron.Render.Vulkan`: Vulkan bootstrap, preview presenter, native Scene Kit preview window path, command recording, frame submission, intent staging, and pipeline-state cache.
+- `RawIron.Render.Vulkan`: Vulkan initialization, preview presenter, native Scene Kit preview window path, command recording, frame submission, intent staging, and pipeline-state cache.
 - `RawIron.Render.Software`: deterministic software Scene Kit preview rendering and BMP output.
 - `RawIron.Structural`: structural graphs, convex clipping, primitive builders, compiler orchestration, boolean operators, aggregate hulls, array/symmetry expansion, detail modifiers, reconciler helpers, cutter volumes, and deferred-operation helpers.
 

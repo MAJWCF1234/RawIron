@@ -75,7 +75,7 @@ Current shared trace helpers:
 - slide movement
 - ground probing
 
-That matters because movement, tools, and later gameplay systems can now ask the same world questions.
+That matters because movement, tools, and gameplay systems can ask the same world questions.
 
 ### `RawIron.World`
 

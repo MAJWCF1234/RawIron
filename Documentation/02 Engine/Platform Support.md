@@ -45,7 +45,7 @@ Current direction:
 
 - core engine systems are in native C++
 - Vulkan is the first renderer backend
-- Windows has the most verified bootstrap coverage today
+- Windows has the most verified runtime coverage today
 - Linux is a planned desktop target, not an afterthought
 
 ## Current Native Seams
@@ -58,7 +58,7 @@ Platform-sensitive behavior should live in places like:
 
 - platform layer
 - renderer backend integration
-- executable host bootstraps
+- executable host startup paths
 - build and packaging scripts
 
 ## Vulkan And Linux
@@ -67,8 +67,8 @@ The Vulkan backend should remain desktop-portable.
 
 Current state:
 
-- Windows surface bootstrap is live
-- Linux loader/bootstrap compatibility is being kept in view
+- Windows surface initialization is live
+- Linux loader/surface compatibility is in active scope
 - full Linux window/surface integration should land through the future shared desktop platform layer instead of one-off hacks
 
 That keeps Linux support honest without pretending the engine is already fully shippable there.
@@ -97,6 +97,6 @@ When adding a new subsystem, ask:
 
 - does this belong in portable engine code
 - does this belong behind a desktop platform seam
-- or is this a Windows-only temporary bootstrap that needs to stay contained
+- or is this a Windows-only startup path that needs to stay contained
 
-If we keep answering that honestly, Linux support stays natural instead of becoming a painful rescue later.
+If we keep answering that honestly, Linux support stays natural instead of becoming a painful rescue effort.

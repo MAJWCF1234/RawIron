@@ -17,7 +17,6 @@ This folder is the working documentation vault for **RawIron**.
 ## Core Notes
 
 - [[01 Brand/RawIron|Brand and Product Identity]]
-- [[01 Brand/Trademark Notes|Preliminary Trademark Notes]]
 - [[02 Engine/00 Engine Home|Engine Handbook]]
 - [[02 Engine/Current Engine Review|Current Engine Review]]
 - [[02 Engine/Engine Vision|Engine Vision]]

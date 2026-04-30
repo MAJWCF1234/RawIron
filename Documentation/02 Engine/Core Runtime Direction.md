@@ -22,7 +22,7 @@ Starting strengths:
 
 ## Early Priorities
 
-- host loop and runtime bootstrap
+- host loop and runtime startup
 - filesystem and path conventions
 - logging and console output
 - asset import and cooked-runtime separation

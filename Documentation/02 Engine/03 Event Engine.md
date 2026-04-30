@@ -140,7 +140,7 @@ The next big value is connecting more ported runtime systems to the event core a
 - world services
 - editor services
 - asset/runtime loading hooks
-- later rendering and audio-facing action handlers
+- rendering and audio-facing action handlers
 
 ## Related Notes
 

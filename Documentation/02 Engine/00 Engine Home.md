@@ -68,7 +68,7 @@ The native engine already has real C++ landing zones for the first major prototy
 - `RawIron.SceneUtilities`: Scene Kit helpers, importers, starter scenes, scripted camera review, scene state I/O, and the ten-example milestone gate
 - `RawIron.DevInspector`: optional snapshot/diagnostic side channel
 - `RawIron.Render.Software`: deterministic preview snapshots
-- `RawIron.Render.Vulkan`: Vulkan bootstrap, command/presentation path, and native preview window support
+- `RawIron.Render.Vulkan`: Vulkan initialization, command/presentation path, and native preview window support
 
 App-owned editor preview registration now lives in `Apps/RawIron.Editor` rather than a shared engine module.
 

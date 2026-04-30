@@ -50,7 +50,7 @@ On Windows, this reports:
 - Vulkan SDK root
 - resolved Vulkan runtime library path
 - Vulkan instance API version
-- surface bootstrap status
+- surface initialization status
 - validation-layer availability
 - enumerated instance extensions
 - enumerated instance layers

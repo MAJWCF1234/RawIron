@@ -191,7 +191,7 @@ Owns early engine-side software rendering helpers that are useful for previews, 
 
 ### `RawIron.Render.Vulkan`
 
-Owns Vulkan bootstrap and native preview presentation:
+Owns Vulkan initialization and native preview presentation:
 
 - loader/runtime diagnostics
 - instance extension/layer/device summaries

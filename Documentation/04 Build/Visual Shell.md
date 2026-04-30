@@ -7,7 +7,7 @@ tags:
 
 # Visual Shell
 
-`RawIron.VisualShell` is the temporary native front door for the current workspace.
+`RawIron.VisualShell` is the native front door for the current workspace.
 
 It exists to make the engine feel launchable and self-hosted even before the full editor is ready.
 
@@ -65,7 +65,7 @@ Repository-root launchers:
 
 ## Notes
 
-This is a temporary launch shell, not the final editor UI.
+This is a launch shell, not the editor UI.
 
 Its job is to give RawIron a believable native front end while the larger editor, player, and rendering paths keep maturing.
 

@@ -23,7 +23,7 @@ It should own the rules for:
 - applying creator-facing runtime policies like inventory visibility
 - rejecting invalid recursive content graphs
 
-That is engine behavior, not temporary tooling behavior.
+That is engine behavior, not tooling-only behavior.
 
 ## Creator Runtime Policy
 
@@ -107,7 +107,7 @@ Current examples:
 - bad vec components fall back to safe values
 - zero-length quaternions fall back to identity
 - unusable scale values get clamped back to sane bounds
-- invalid numbers do not silently poison later transform work
+- invalid numbers do not silently poison downstream transform work
 
 ## Why This Matters
 
@@ -177,7 +177,7 @@ The newer native physics-helper bridge extends that same rule to movement-affect
 - conveyor and wind flow
 - radial push and pull fields
 
-That is another real engine seam, not a temporary app concern.
+That is another real engine seam, not an app-side concern.
 
 ## Current Boundary
 

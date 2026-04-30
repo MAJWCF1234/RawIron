@@ -186,7 +186,7 @@ Deterministic software preview renderer:
 
 Vulkan preview/render backend foundation:
 
-- platform/bootstrap diagnostics
+- platform/startup diagnostics
 - native Scene Kit preview window path on Windows
 - software-upload fallback presenter
 - command buffer/list/recorder helpers

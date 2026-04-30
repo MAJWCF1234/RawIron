@@ -49,7 +49,7 @@ The engine should not expose Vulkan directly as the engine architecture.
 Preferred separation:
 
 - render frontend: engine-facing scene/material/mesh/resource API
-- render backend: Vulkan first, other backends later if needed
+- render backend: Vulkan first, with backend seams kept ready for additional implementations
 - presentation policy: native post-process preset catalog and stack composition owned above the backend
 
 This keeps the engine from becoming "a Vulkan wrapper" instead of a real platform.

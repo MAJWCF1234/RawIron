@@ -84,9 +84,9 @@ It provides a stable way to showcase a scene or subsystem during development wit
 
 Because the sequence can cross triggers, streaming regions, and visibility boundaries, it can help expose issues in culling, loading, collision, and transition logic.
 
-## Relationship to Future Raw Iron Systems
+## Relationship to Raw Iron Systems
 
-In the long term, Raw Iron may replace or expand this kind of feature with more formal systems such as:
+Raw Iron keeps this feature scoped and compatible with formal systems such as:
 
 - headless runtime test runners
 - replay playback systems
@@ -94,7 +94,7 @@ In the long term, Raw Iron may replace or expand this kind of feature with more 
 - scripted validation harnesses
 - capture-oriented camera sequencing tools
 
-For that reason, the Automated Review / Scripted Camera Sequence should be viewed as a useful development feature with clear boundaries, not as a permanent substitute for broader automation infrastructure.
+The Automated Review / Scripted Camera Sequence is a development feature with clear boundaries, not a substitute for broader automation infrastructure.
 
 ## Design Considerations
 
@@ -104,7 +104,7 @@ Because this feature is development-oriented, it should remain:
 - isolated from shipping gameplay code
 - easy to enable or disable
 - clearly separated from normal input and player control paths
-- structured so it can later be replaced by more formal review or test systems
+- structured to stay replaceable by formal review or test systems
 
 Keeping this boundary clean will prevent it from turning into engine-level “fake player” logic that becomes hard to maintain over time.
 
@@ -137,7 +137,7 @@ Top-level optional **`"loop": true`** mirrors `ScriptedCameraSequence::SetLoopPl
 
 While the sequence **`IsActive()`**, **`AnimateStarterSceneOrbitPreview`** is skipped; crate/beacon animation still runs via **`AnimateStarterSceneProps`**. With loop playback enabled, **`Completed()`** stays false until **`Stop()`**; orbit idle motion resumes once playback stops and the scripted player is inactive.
 
-This stays **outside** formal replay, headless CI drivers, and shipping gameplay logic—replaceable later by richer automation stacks.
+This stays **outside** formal replay, headless CI drivers, and shipping gameplay logic.
 
 ## Related Notes
 
