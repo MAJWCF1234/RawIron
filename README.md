@@ -50,7 +50,15 @@ cmake --build --preset build-dev-msvc
 ctest --test-dir .\build\dev-msvc --output-on-failure -V
 ```
 
-Useful tooling commands after a successful build:
+If the repository lives on a removable or non-NTFS volume and MSVC fails with filesystem errors (locked intermediates, corrupt PDBs, “invalid argument” copies into `build\`), use the preset that keeps the CMake binary directory on your profile drive instead:
+
+```powershell
+cmake --preset dev-msvc-localappdata
+cmake --build --preset build-dev-msvc-localappdata
+ctest --test-dir "$env:LOCALAPPDATA\RawIron\cmake-build\dev-msvc" -C RelWithDebInfo --output-on-failure -V
+```
+
+Useful tooling commands after a successful build (same `.\build\dev-msvc\...` paths with `dev-msvc`; use `%LOCALAPPDATA%\RawIron\cmake-build\dev-msvc\...` when you built with `dev-msvc-localappdata`):
 
 ```powershell
 .\build\dev-msvc\Tools\ri_tool\ri_tool.exe --workspace

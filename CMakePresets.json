@@ -31,6 +31,12 @@
       }
     },
     {
+      "name": "dev-msvc-localappdata",
+      "inherits": "dev-msvc",
+      "displayName": "Development (MSVC, binary dir under %LOCALAPPDATA%)",
+      "binaryDir": "$env{LOCALAPPDATA}/RawIron/cmake-build/dev-msvc"
+    },
+    {
       "name": "dev-clang",
       "inherits": "dev-base",
       "displayName": "Development (Clang)",
@@ -62,6 +68,11 @@
     {
       "name": "build-dev-msvc",
       "configurePreset": "dev-msvc",
+      "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "build-dev-msvc-localappdata",
+      "configurePreset": "dev-msvc-localappdata",
       "configuration": "RelWithDebInfo"
     },
     {
