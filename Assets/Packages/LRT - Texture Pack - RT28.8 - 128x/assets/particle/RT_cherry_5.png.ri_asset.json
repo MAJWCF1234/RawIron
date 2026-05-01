@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "particle_rt_cherry_5",
+  "type": "texture",
+  "displayName": "RT_cherry_5",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/RT_cherry_5.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "particle_rt_cherry_5_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/RT_cherry_5.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_route_merge",
+  "type": "mesh",
+  "displayName": "route_merge",
+  "sourcePath": "Assets/Source/LogicKit/glb/route_merge.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_route_merge_source",
+      "path": "Assets/Source/LogicKit/glb/route_merge.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

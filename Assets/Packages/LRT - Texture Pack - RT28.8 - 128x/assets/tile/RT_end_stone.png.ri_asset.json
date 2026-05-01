@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_end_stone",
+  "type": "texture",
+  "displayName": "RT_end_stone",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_end_stone.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_end_stone_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_end_stone.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

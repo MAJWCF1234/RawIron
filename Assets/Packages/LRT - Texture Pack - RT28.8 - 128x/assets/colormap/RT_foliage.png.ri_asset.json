@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "colormap_rt_foliage",
+  "type": "texture",
+  "displayName": "RT_foliage",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/colormap/RT_foliage.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "colormap_rt_foliage_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/colormap/RT_foliage.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

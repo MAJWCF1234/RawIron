@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_route_demux_r512_screen_boot",
+  "type": "texture",
+  "displayName": "screen_boot",
+  "sourcePath": "Assets/Source/LogicKit/textures/route_demux/r512/screen_boot.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_route_demux_r512_screen_boot_source",
+      "path": "Assets/Source/LogicKit/textures/route_demux/r512/screen_boot.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

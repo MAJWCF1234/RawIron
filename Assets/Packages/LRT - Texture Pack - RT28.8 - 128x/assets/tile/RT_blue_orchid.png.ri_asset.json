@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_blue_orchid",
+  "type": "texture",
+  "displayName": "RT_blue_orchid",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_blue_orchid.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_blue_orchid_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_blue_orchid.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

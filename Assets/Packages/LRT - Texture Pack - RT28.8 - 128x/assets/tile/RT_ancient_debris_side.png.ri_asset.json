@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_ancient_debris_side",
+  "type": "texture",
+  "displayName": "RT_ancient_debris_side",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_ancient_debris_side.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_ancient_debris_side_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_ancient_debris_side.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

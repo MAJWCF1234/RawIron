@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_wheat_stage4",
+  "type": "texture",
+  "displayName": "RT_wheat_stage4",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_wheat_stage4.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_wheat_stage4_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_wheat_stage4.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

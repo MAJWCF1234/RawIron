@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_mem_counter",
+  "type": "mesh",
+  "displayName": "mem_counter",
+  "sourcePath": "Assets/Source/LogicKit/glb/mem_counter.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_mem_counter_source",
+      "path": "Assets/Source/LogicKit/glb/mem_counter.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

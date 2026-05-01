@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_calibrated_sculk_sensor_top_e",
+  "type": "texture",
+  "displayName": "RT_calibrated_sculk_sensor_top_e",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_calibrated_sculk_sensor_top_e.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_calibrated_sculk_sensor_top_e_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_calibrated_sculk_sensor_top_e.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

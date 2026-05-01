@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_trial_spawner_top_ejecting_reward_ominous_s",
+  "type": "texture",
+  "displayName": "RT_trial_spawner_top_ejecting_reward_ominous_s",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_trial_spawner_top_ejecting_reward_ominous_s.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_trial_spawner_top_ejecting_reward_ominous_s_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_trial_spawner_top_ejecting_reward_ominous_s.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

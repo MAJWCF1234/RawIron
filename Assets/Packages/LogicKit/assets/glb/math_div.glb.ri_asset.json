@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_math_div",
+  "type": "mesh",
+  "displayName": "math_div",
+  "sourcePath": "Assets/Source/LogicKit/glb/math_div.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_math_div_source",
+      "path": "Assets/Source/LogicKit/glb/math_div.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

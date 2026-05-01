@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_blackstone_s",
+  "type": "texture",
+  "displayName": "RT_blackstone_s",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_blackstone_s.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_blackstone_s_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_blackstone_s.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ctm_rt_glass_clear_1",
+  "type": "texture",
+  "displayName": "RT_glass_clear_1",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/ctm/RT_glass_clear_1.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ctm_rt_glass_clear_1_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/ctm/RT_glass_clear_1.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

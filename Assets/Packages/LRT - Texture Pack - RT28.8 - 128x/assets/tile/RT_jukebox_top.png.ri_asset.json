@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_jukebox_top",
+  "type": "texture",
+  "displayName": "RT_jukebox_top",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_jukebox_top.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_jukebox_top_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_jukebox_top.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

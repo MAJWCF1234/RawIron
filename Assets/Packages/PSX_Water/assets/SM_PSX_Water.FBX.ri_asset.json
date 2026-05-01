@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "sm_psx_water_fbx",
+  "type": "mesh",
+  "displayName": "SM_PSX_Water",
+  "sourcePath": "Assets/Source/PSX_Water/SM_PSX_Water.FBX",
+  "references": [
+    {
+      "kind": "source",
+      "id": "sm_psx_water_fbx_source",
+      "path": "Assets/Source/PSX_Water/SM_PSX_Water.FBX"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

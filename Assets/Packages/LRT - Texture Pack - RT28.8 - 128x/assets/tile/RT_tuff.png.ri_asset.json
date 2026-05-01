@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_tuff",
+  "type": "texture",
+  "displayName": "RT_tuff",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_tuff.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_tuff_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_tuff.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

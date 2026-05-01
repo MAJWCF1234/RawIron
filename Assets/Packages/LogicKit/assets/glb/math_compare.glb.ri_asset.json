@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_math_compare",
+  "type": "mesh",
+  "displayName": "math_compare",
+  "sourcePath": "Assets/Source/LogicKit/glb/math_compare.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_math_compare_source",
+      "path": "Assets/Source/LogicKit/glb/math_compare.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

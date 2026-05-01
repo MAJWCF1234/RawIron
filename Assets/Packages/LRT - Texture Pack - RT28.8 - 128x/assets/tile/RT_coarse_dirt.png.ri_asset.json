@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_coarse_dirt",
+  "type": "texture",
+  "displayName": "RT_coarse_dirt",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_coarse_dirt.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_coarse_dirt_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_coarse_dirt.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

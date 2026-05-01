@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_trial_spawner_side_inactive",
+  "type": "texture",
+  "displayName": "RT_trial_spawner_side_inactive",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_trial_spawner_side_inactive.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_trial_spawner_side_inactive_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_trial_spawner_side_inactive.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

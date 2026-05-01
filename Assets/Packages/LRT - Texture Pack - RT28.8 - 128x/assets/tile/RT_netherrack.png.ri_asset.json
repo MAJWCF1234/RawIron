@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_netherrack",
+  "type": "texture",
+  "displayName": "RT_netherrack",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_netherrack.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_netherrack_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_netherrack.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

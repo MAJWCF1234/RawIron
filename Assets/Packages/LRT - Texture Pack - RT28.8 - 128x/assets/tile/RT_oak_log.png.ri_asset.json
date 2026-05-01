@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_oak_log",
+  "type": "texture",
+  "displayName": "RT_oak_log",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_oak_log.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_oak_log_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_oak_log.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

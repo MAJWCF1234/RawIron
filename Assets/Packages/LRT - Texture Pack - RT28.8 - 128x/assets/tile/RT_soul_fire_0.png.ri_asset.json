@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_soul_fire_0",
+  "type": "texture",
+  "displayName": "RT_soul_fire_0",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_soul_fire_0.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_soul_fire_0_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_soul_fire_0.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

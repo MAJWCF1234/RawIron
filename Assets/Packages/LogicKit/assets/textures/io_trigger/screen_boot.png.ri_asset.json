@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_io_trigger_screen_boot",
+  "type": "texture",
+  "displayName": "screen_boot",
+  "sourcePath": "Assets/Source/LogicKit/textures/io_trigger/screen_boot.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_io_trigger_screen_boot_source",
+      "path": "Assets/Source/LogicKit/textures/io_trigger/screen_boot.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_sense_tag",
+  "type": "mesh",
+  "displayName": "sense_tag",
+  "sourcePath": "Assets/Source/LogicKit/glb/sense_tag.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_sense_tag_source",
+      "path": "Assets/Source/LogicKit/glb/sense_tag.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

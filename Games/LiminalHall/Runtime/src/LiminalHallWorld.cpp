@@ -129,7 +129,7 @@ std::vector<std::string> BuildImportedWaterAnimationFrames() {
 
 [[nodiscard]] std::vector<std::string> ResolvePsxWaterAnimationFrames(const fs::path& gameRoot) {
     const fs::path workspaceRoot = ri::content::DetectWorkspaceRoot(gameRoot);
-    const fs::path waterDir = workspaceRoot / "Assets" / "Source" / "PSX_Water";
+    const fs::path waterDir = workspaceRoot / "Assets" / "Packages" / "PSX_Water";
     const fs::path texturesRoot = workspaceRoot / "Assets" / "Textures";
     if (!fs::is_directory(waterDir) || !fs::is_directory(texturesRoot)) {
         return BuildImportedWaterAnimationFrames();
@@ -164,7 +164,7 @@ std::vector<std::string> BuildImportedWaterAnimationFrames() {
     for (const fs::path& filePath : files) {
         fs::path relative = fs::relative(filePath, texturesRoot, relativeError);
         if (relativeError) {
-            relative = fs::path("..") / "Source" / "PSX_Water" / filePath.filename();
+            relative = fs::path("..") / "Packages" / "PSX_Water" / filePath.filename();
         }
         relativeFrames.push_back(relative.generic_string());
     }
@@ -345,7 +345,7 @@ namespace fs = std::filesystem;
 using namespace ri::scene;
 
 /// Maps engine logic node kinds (used by `LogicGraph` / port schema) to LogicKit manifest `id` values that ship
-/// with `Assets/Source/LogicKit/glb/*.glb` meshes.
+/// with `Assets/Packages/LogicKit/glb/*.glb` meshes.
 [[nodiscard]] const char* LogicDemoEngineKindToKitVisualId(const std::string_view logicKind) {
     if (logicKind == "logic_trigger_detector") {
         return "io_trigger";
@@ -428,7 +428,7 @@ void RemapMaterialsUsedByGltfSubtree(ri::scene::Scene& scene,
                 tex = relative.generic_string();
                 return;
             }
-            tex = (fs::path("..") / "Source" / "LogicKit" / fs::path(tex)).lexically_normal().generic_string();
+            tex = (fs::path("..") / "Packages" / "LogicKit" / fs::path(tex)).lexically_normal().generic_string();
         };
         fixTexturePath(mat.baseColorTexture);
         fixTexturePath(mat.emissiveTexture);
@@ -746,7 +746,7 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
         .max = portalPos + ri::math::Vec3{1.0f, 1.5f, 0.8f},
     };
 
-    // Author LogicKit manifest (repo `Assets/Source/LogicKit`) drives port names and extra node kinds when present.
+    // Packaged LogicKit manifest (repo `Assets/Packages/LogicKit`) drives port names and extra node kinds when present.
     static std::unique_ptr<ri::logic::LogicKitManifest> s_logicKitManifest;
     static bool s_logicKitLoadAttempted = false;
     if (!s_logicKitLoadAttempted) {

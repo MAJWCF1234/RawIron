@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_destroy_stage_2",
+  "type": "texture",
+  "displayName": "RT_destroy_stage_2",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_destroy_stage_2.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_destroy_stage_2_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_destroy_stage_2.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

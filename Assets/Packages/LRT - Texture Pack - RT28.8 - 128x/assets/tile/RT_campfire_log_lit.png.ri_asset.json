@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_campfire_log_lit",
+  "type": "texture",
+  "displayName": "RT_campfire_log_lit",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_campfire_log_lit.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_campfire_log_lit_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_campfire_log_lit.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_azure_bluet",
+  "type": "texture",
+  "displayName": "RT_azure_bluet",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_azure_bluet.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_azure_bluet_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_azure_bluet.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_hay_block_side",
+  "type": "texture",
+  "displayName": "RT_hay_block_side",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_hay_block_side.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_hay_block_side_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_hay_block_side.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

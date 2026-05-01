@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_spawner",
+  "type": "texture",
+  "displayName": "RT_spawner",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_spawner.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_spawner_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_spawner.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

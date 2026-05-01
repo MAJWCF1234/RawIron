@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_glowstone_s",
+  "type": "texture",
+  "displayName": "RT_glowstone_s",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_glowstone_s.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_glowstone_s_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_glowstone_s.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

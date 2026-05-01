@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_warped_roots_pot",
+  "type": "texture",
+  "displayName": "RT_warped_roots_pot",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_warped_roots_pot.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_warped_roots_pot_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_warped_roots_pot.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

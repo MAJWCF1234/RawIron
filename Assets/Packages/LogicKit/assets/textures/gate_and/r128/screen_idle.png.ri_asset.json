@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_gate_and_r128_screen_idle",
+  "type": "texture",
+  "displayName": "screen_idle",
+  "sourcePath": "Assets/Source/LogicKit/textures/gate_and/r128/screen_idle.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_gate_and_r128_screen_idle_source",
+      "path": "Assets/Source/LogicKit/textures/gate_and/r128/screen_idle.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

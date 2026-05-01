@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "particle_rt_splash_2",
+  "type": "texture",
+  "displayName": "RT_splash_2",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/RT_splash_2.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "particle_rt_splash_2_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/RT_splash_2.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

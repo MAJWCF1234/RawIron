@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_dispenser_front_vertical",
+  "type": "texture",
+  "displayName": "RT_dispenser_front_vertical",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_dispenser_front_vertical.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_dispenser_front_vertical_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_dispenser_front_vertical.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

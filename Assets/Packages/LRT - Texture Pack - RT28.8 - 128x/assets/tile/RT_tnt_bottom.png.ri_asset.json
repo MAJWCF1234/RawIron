@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_tnt_bottom",
+  "type": "texture",
+  "displayName": "RT_tnt_bottom",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_tnt_bottom.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_tnt_bottom_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_tnt_bottom.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

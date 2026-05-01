@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ctm_rt_all_cut_copper_1_n",
+  "type": "texture",
+  "displayName": "RT_all_cut_copper_1_n",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/ctm/RT_all_cut_copper_1_n.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ctm_rt_all_cut_copper_1_n_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/ctm/RT_all_cut_copper_1_n.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

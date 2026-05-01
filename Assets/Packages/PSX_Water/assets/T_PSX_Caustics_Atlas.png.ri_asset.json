@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "t_psx_caustics_atlas_png",
+  "type": "texture",
+  "displayName": "T_PSX_Caustics_Atlas",
+  "sourcePath": "Assets/Source/PSX_Water/T_PSX_Caustics_Atlas.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "t_psx_caustics_atlas_png_source",
+      "path": "Assets/Source/PSX_Water/T_PSX_Caustics_Atlas.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

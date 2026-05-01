@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_route_demux_r128_screen_ok",
+  "type": "texture",
+  "displayName": "screen_ok",
+  "sourcePath": "Assets/Source/LogicKit/textures/route_demux/r128/screen_ok.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_route_demux_r128_screen_ok_source",
+      "path": "Assets/Source/LogicKit/textures/route_demux/r128/screen_ok.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

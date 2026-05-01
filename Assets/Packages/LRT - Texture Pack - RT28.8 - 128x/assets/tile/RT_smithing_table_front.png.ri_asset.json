@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_smithing_table_front",
+  "type": "texture",
+  "displayName": "RT_smithing_table_front",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_smithing_table_front.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_smithing_table_front_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_smithing_table_front.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

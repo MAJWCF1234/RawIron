@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "item_rt_ender_pearl_s",
+  "type": "texture",
+  "displayName": "RT_ender_pearl_s",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/RT_ender_pearl_s.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "item_rt_ender_pearl_s_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/RT_ender_pearl_s.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

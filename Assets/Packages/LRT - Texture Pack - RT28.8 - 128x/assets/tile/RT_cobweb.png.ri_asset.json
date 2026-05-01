@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_cobweb",
+  "type": "texture",
+  "displayName": "RT_cobweb",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_cobweb.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_cobweb_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_cobweb.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

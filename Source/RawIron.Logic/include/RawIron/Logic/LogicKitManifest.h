@@ -12,8 +12,8 @@
 
 namespace ri::logic {
 
-/// Repo-relative path to the author LogicKit manifest (`kitVersion`, `nodes[]`, screen tables).
-inline constexpr std::string_view kLogicKitNodesJsonRelative = "Assets/Source/LogicKit/logic_kit_nodes.json";
+/// Repo-relative path to the packaged LogicKit manifest (`kitVersion`, `nodes[]`, screen tables).
+inline constexpr std::string_view kLogicKitNodesJsonRelative = "Assets/Packages/LogicKit/logic_kit_nodes.json";
 
 struct LogicKitScreenTextureProfile {
     std::string key;

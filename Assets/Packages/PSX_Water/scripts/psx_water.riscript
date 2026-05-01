@@ -1,0 +1,30 @@
+# RawIron reconstructed script
+# source: Assets/Source/PSX_Water
+# status: generated-review-required
+
+script "psx_water" {
+  source_engine = "unreal"
+  source_assets = [
+    "M_PSX_Water.uasset",
+    "SM_PSX_Water.FBX",
+    "SM_PSX_Water.uasset",
+    "T_PSX_Caustics_Atlas.png",
+    "T_PSX_Caustics_Atlas.uasset"
+  ]
+
+  material "psx_water" {
+    shading = "unlit"
+    base_texture = "T_PSX_Caustics_Atlas.png"
+    mesh = "SM_PSX_Water.FBX"
+    pixel_snap = true
+    affine_warp_hint = true
+  }
+
+  animation "caustics_atlas" {
+    texture = "T_PSX_Caustics_Atlas.png"
+    frames = 147
+    frame_prefix = "ri_psx_water_anim_"
+    frame_rate = 12
+    loop = true
+  }
+}

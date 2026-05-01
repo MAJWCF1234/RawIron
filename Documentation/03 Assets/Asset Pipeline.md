@@ -36,10 +36,14 @@ Implemented today:
 - `ri_tool --formats` reports `.ri_asset.json` as the current standard asset document.
 - `ri_tool --asset-standardize <source-path>` writes one standardized document.
 - `ri_tool --asset-standardize-dir <source-dir>` batch-writes standardized documents.
+- `ri_tool --asset-package-build <source-dir>` converts a source tree into an exploded staging folder and writes a ZIP-compatible `.ripak` package.
+- `ri_tool --asset-package-validate <file.ripak-or-package-dir-or-manifest>` verifies the internal package manifest against package-local asset documents.
+- `ri_tool --asset-package-import <file.ripak-or-package-dir-or-manifest>` mounts a third-party package under a project `Packages/` folder.
+- `ri_tool --asset-package-install <file.ripak-or-package-dir-or-manifest>` installs package contents into project-owned standard folders.
 - Outputs default under `Assets/Cooked/Standardized`.
 - Supported standardization inputs currently include Unity-style `.asset`, `.spm`, `.fbx`, `.obj`, `.gltf`, `.glb`, common image formats, common audio formats, `.mat`, and `.unity`.
 
-This is the pipeline's metadata and normalization stage, not the final cooked binary runtime package.
+This is the pipeline's metadata, normalization, and package-manifest stage, not the final packed binary runtime payload.
 
 ## Why This Matters
 
@@ -56,6 +60,8 @@ This is the pipeline's metadata and normalization stage, not the final cooked bi
   Reads foreign file formats
 - **Canonical asset layer**
   Normalized engine-owned representation; `.ri_asset.json` is the current implemented document shape
+- **Package layer**
+  ZIP-compatible `.ripak` package containing `package.ri_package.json`, package-local asset documents, standard media payloads, and RawIron-owned authored files such as `.riscript`; packages can be mounted like resource packs or installed into project-owned content folders
 - **Cooker layer**
   Produces runtime-ready binaries per platform and build target; still a next layer beyond current standardization output
 - **Runtime loader**
@@ -80,3 +86,4 @@ That is why the pipeline must be a first-class subsystem from the start.
 
 - [[Asset Extraction Inventory]] — generated manifest for archive discovery, extraction status, and unpacked outputs (tooling and validation, not runtime gameplay).
 - [[Declarative Model Definition]] — data-driven model composition interchange for parts, transforms, materials, and tags.
+- [[RawIron Package Format]] — package manifest contract for validated converted content.

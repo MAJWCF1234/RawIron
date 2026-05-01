@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "environment_rt_moon_phases",
+  "type": "texture",
+  "displayName": "RT_moon_phases",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/environment/RT_moon_phases.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "environment_rt_moon_phases_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/environment/RT_moon_phases.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

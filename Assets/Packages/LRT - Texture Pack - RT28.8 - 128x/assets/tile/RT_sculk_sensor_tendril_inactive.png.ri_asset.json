@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_sculk_sensor_tendril_inactive",
+  "type": "texture",
+  "displayName": "RT_sculk_sensor_tendril_inactive",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_sculk_sensor_tendril_inactive.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_sculk_sensor_tendril_inactive_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_sculk_sensor_tendril_inactive.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

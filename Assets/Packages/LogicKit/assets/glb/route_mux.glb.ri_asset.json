@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_route_mux",
+  "type": "mesh",
+  "displayName": "route_mux",
+  "sourcePath": "Assets/Source/LogicKit/glb/route_mux.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_route_mux_source",
+      "path": "Assets/Source/LogicKit/glb/route_mux.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

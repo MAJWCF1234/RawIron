@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_flow_random",
+  "type": "mesh",
+  "displayName": "flow_random",
+  "sourcePath": "Assets/Source/LogicKit/glb/flow_random.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_flow_random_source",
+      "path": "Assets/Source/LogicKit/glb/flow_random.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_sense_axis_screen_warn",
+  "type": "texture",
+  "displayName": "screen_warn",
+  "sourcePath": "Assets/Source/LogicKit/textures/sense_axis/screen_warn.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_sense_axis_screen_warn_source",
+      "path": "Assets/Source/LogicKit/textures/sense_axis/screen_warn.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

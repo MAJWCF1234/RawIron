@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_ice",
+  "type": "texture",
+  "displayName": "RT_ice",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_ice.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_ice_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_ice.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

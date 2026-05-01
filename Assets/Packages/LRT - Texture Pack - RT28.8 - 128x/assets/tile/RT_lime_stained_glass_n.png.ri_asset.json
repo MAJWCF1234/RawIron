@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_lime_stained_glass_n",
+  "type": "texture",
+  "displayName": "RT_lime_stained_glass_n",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_lime_stained_glass_n.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_lime_stained_glass_n_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_lime_stained_glass_n.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

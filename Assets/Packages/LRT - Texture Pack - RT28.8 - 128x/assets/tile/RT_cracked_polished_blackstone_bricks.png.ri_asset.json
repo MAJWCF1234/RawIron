@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_cracked_polished_blackstone_bricks",
+  "type": "texture",
+  "displayName": "RT_cracked_polished_blackstone_bricks",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_cracked_polished_blackstone_bricks.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_cracked_polished_blackstone_bricks_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_cracked_polished_blackstone_bricks.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

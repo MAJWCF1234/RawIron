@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_spruce_trapdoor_s",
+  "type": "texture",
+  "displayName": "RT_spruce_trapdoor_s",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_spruce_trapdoor_s.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_spruce_trapdoor_s_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_spruce_trapdoor_s.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

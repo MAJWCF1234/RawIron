@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_gate_nand",
+  "type": "mesh",
+  "displayName": "gate_nand",
+  "sourcePath": "Assets/Source/LogicKit/glb/gate_nand.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_gate_nand_source",
+      "path": "Assets/Source/LogicKit/glb/gate_nand.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

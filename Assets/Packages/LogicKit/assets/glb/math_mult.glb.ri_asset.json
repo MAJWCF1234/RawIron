@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_math_mult",
+  "type": "mesh",
+  "displayName": "math_mult",
+  "sourcePath": "Assets/Source/LogicKit/glb/math_mult.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_math_mult_source",
+      "path": "Assets/Source/LogicKit/glb/math_mult.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

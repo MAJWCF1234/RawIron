@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_bush",
+  "type": "texture",
+  "displayName": "RT_bush",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_bush.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_bush_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_bush.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

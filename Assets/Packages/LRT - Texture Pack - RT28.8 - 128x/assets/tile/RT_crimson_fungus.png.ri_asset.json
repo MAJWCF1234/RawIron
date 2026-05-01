@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_crimson_fungus",
+  "type": "texture",
+  "displayName": "RT_crimson_fungus",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_crimson_fungus.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_crimson_fungus_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_crimson_fungus.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

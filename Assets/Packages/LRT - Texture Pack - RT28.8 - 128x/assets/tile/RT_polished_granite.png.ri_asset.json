@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_polished_granite",
+  "type": "texture",
+  "displayName": "RT_polished_granite",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_polished_granite.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_polished_granite_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_polished_granite.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

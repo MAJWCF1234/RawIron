@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_bamboo_stalk",
+  "type": "texture",
+  "displayName": "RT_bamboo_stalk",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_bamboo_stalk.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_bamboo_stalk_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_bamboo_stalk.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_soul_soil",
+  "type": "texture",
+  "displayName": "RT_soul_soil",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_soul_soil.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_soul_soil_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_soul_soil.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

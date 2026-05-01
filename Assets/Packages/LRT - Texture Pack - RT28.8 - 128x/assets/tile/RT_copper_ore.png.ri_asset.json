@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_copper_ore",
+  "type": "texture",
+  "displayName": "RT_copper_ore",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_copper_ore.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_copper_ore_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_copper_ore.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

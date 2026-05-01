@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_gate_not",
+  "type": "mesh",
+  "displayName": "gate_not",
+  "sourcePath": "Assets/Source/LogicKit/glb/gate_not.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_gate_not_source",
+      "path": "Assets/Source/LogicKit/glb/gate_not.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

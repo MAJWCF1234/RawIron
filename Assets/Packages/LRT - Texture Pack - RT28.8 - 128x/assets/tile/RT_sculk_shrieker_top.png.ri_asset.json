@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_sculk_shrieker_top",
+  "type": "texture",
+  "displayName": "RT_sculk_shrieker_top",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_sculk_shrieker_top.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_sculk_shrieker_top_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_sculk_shrieker_top.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

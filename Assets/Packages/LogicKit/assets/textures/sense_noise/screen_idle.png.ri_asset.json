@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_sense_noise_screen_idle",
+  "type": "texture",
+  "displayName": "screen_idle",
+  "sourcePath": "Assets/Source/LogicKit/textures/sense_noise/screen_idle.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_sense_noise_screen_idle_source",
+      "path": "Assets/Source/LogicKit/textures/sense_noise/screen_idle.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

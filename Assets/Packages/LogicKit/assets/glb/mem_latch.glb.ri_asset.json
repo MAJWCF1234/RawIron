@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_mem_latch",
+  "type": "mesh",
+  "displayName": "mem_latch",
+  "sourcePath": "Assets/Source/LogicKit/glb/mem_latch.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_mem_latch_source",
+      "path": "Assets/Source/LogicKit/glb/mem_latch.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

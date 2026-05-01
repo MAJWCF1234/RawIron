@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_seagrass",
+  "type": "texture",
+  "displayName": "RT_seagrass",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_seagrass.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_seagrass_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_seagrass.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_time_delay",
+  "type": "mesh",
+  "displayName": "time_delay",
+  "sourcePath": "Assets/Source/LogicKit/glb/time_delay.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_time_delay_source",
+      "path": "Assets/Source/LogicKit/glb/time_delay.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

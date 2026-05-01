@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_polished_tuff",
+  "type": "texture",
+  "displayName": "RT_polished_tuff",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_polished_tuff.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_polished_tuff_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_polished_tuff.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

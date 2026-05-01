@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_white_tulip",
+  "type": "texture",
+  "displayName": "RT_white_tulip",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_white_tulip.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_white_tulip_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_white_tulip.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_glow_item_frame",
+  "type": "texture",
+  "displayName": "RT_glow_item_frame",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_glow_item_frame.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_glow_item_frame_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_glow_item_frame.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

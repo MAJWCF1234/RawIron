@@ -53,6 +53,8 @@
 #include "RawIron/World/HeadlessVerification.h"
 #include "RawIron/World/PickupFeedbackState.h"
 #include "RawIron/Content/DeclarativeModelDefinition.h"
+#include "RawIron/Content/AssetDocument.h"
+#include "RawIron/Content/AssetPackageManifest.h"
 #include "RawIron/Content/Pipeline/AssetExtractionInventory.h"
 #include "RawIron/World/PlayerVitality.h"
 #include "RawIron/World/PresentationState.h"
@@ -6912,6 +6914,93 @@ void TestPipelineArtifacts() {
         ri::content::pipeline::FindArchiveInventoryEntry(inventory, "pack_a");
     Expect(foundUpdated != nullptr && foundUpdated->signature == "sha256:updated" && !foundUpdated->extractedOutputCurrent,
            "Inventory upsert helper should replace existing entries by identifier");
+
+    ri::content::AssetDocument assetDocument{};
+    assetDocument.id = "crate";
+    assetDocument.type = "mesh";
+    assetDocument.displayName = "Crate";
+    assetDocument.sourcePath = "Assets/Source/Crate.fbx";
+    fs::create_directories(root / "package" / "assets");
+    Expect(ri::content::SaveAssetDocument(root / "package" / "assets" / "crate.fbx.ri_asset.json", assetDocument),
+           "Package fixture should write a standardized asset document");
+
+    ri::content::AssetPackageManifest package = ri::content::BuildAssetPackageManifest(
+        root / "package",
+        "crate_pack",
+        "Crate Pack",
+        "Assets/Source/CratePack",
+        "2026-04-18T12:34:56Z");
+    Expect(package.assets.size() == 1U && package.assets[0].id == "crate",
+           "Package build should discover standardized asset documents");
+    package.packageKind = "resource-pack";
+    package.packageVersion = "1.0.0";
+    package.installScope = "either";
+    package.mountPoint = "Packages/crate_pack";
+    package.tags = {"crate", "test"};
+    package.dependencies.push_back(ri::content::AssetPackageDependency{
+        .packageId = "base_materials",
+        .versionRequirement = ">=1.0.0",
+        .optional = true,
+    });
+    package.conflicts = {"legacy_crate_pack"};
+    package.assets[0].installPath = "assets/props/crate.fbx.ri_asset.json";
+    const std::string packageJson = ri::content::SerializeAssetPackageManifest(package);
+    const auto parsedPackage = ri::content::ParseAssetPackageManifest(packageJson);
+    Expect(parsedPackage.has_value() && parsedPackage->packageId == "crate_pack"
+               && parsedPackage->packageKind == "resource-pack"
+               && parsedPackage->dependencies.size() == 1U
+               && parsedPackage->assets[0].installPath == "assets/props/crate.fbx.ri_asset.json",
+           "Package manifest JSON should preserve portable package metadata");
+    const ri::content::AssetPackageValidationReport validPackage =
+        ri::content::ValidateAssetPackageManifest(package, root / "package");
+    Expect(validPackage.valid && validPackage.issues.empty(),
+           "Package validation should accept matching assets, sizes, signatures, and source paths");
+
+    ri::content::AssetPackageManifest duplicatePackage = package;
+    duplicatePackage.assets.push_back(package.assets.front());
+    const ri::content::AssetPackageValidationReport duplicateReport =
+        ri::content::ValidateAssetPackageManifest(duplicatePackage, root / "package");
+    Expect(!duplicateReport.valid,
+           "Package validation should reject duplicate asset ids and paths");
+
+    ri::content::AssetPackageManifest unsafePackage = package;
+    unsafePackage.assets.front().path = "../crate.fbx.ri_asset.json";
+    const ri::content::AssetPackageValidationReport unsafeReport =
+        ri::content::ValidateAssetPackageManifest(unsafePackage, root / "package");
+    Expect(!unsafeReport.valid,
+           "Package validation should reject paths that escape the package root");
+
+    ri::content::AssetPackageManifest badInstallPackage = package;
+    badInstallPackage.assets.front().installPath = "../scripts/bad.ri_asset.json";
+    const ri::content::AssetPackageValidationReport badInstallReport =
+        ri::content::ValidateAssetPackageManifest(badInstallPackage, root / "package");
+    Expect(!badInstallReport.valid,
+           "Package validation should reject install paths that escape the project root");
+
+    ri::content::AssetPackageManifest selfDependencyPackage = package;
+    selfDependencyPackage.dependencies.push_back(ri::content::AssetPackageDependency{.packageId = "crate_pack"});
+    const ri::content::AssetPackageValidationReport selfDependencyReport =
+        ri::content::ValidateAssetPackageManifest(selfDependencyPackage, root / "package");
+    Expect(!selfDependencyReport.valid,
+           "Package validation should reject packages that depend on themselves");
+
+    Expect(ri::content::SaveAssetPackageManifest(root / "package" / "package.ri_package.json", package),
+           "Package save helper should persist JSON");
+    const auto loadedPackage = ri::content::LoadAssetPackageManifest(root / "package" / "package.ri_package.json");
+    Expect(loadedPackage.has_value() && loadedPackage->assets.size() == package.assets.size(),
+           "Package load helper should reload saved package manifests");
+    fs::create_directories(root / "game" / "Packages" / "crate_pack");
+    Expect(ri::content::SaveAssetPackageManifest(root / "game" / "Packages" / "crate_pack" / "package.ri_package.json", package),
+           "Package fixture should write a mounted package manifest");
+    const std::vector<fs::path> packagePaths = ri::content::FindAssetPackageManifestPaths(root / "game");
+    Expect(packagePaths.size() == 1U,
+           "Package discovery should find one manifest placed under a project Packages folder; found "
+               + std::to_string(packagePaths.size()));
+    const std::vector<ri::content::InstalledAssetPackage> installedPackages =
+        ri::content::DiscoverInstalledAssetPackages(root / "game");
+    Expect(installedPackages.size() == 1U
+               && ri::content::FindInstalledAssetPackage(installedPackages, "crate_pack") != nullptr,
+           "Package discovery should load and index installed package manifests by package id");
 
     fs::remove_all(root, errorCode);
 }

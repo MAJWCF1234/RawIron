@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_cocoa",
+  "type": "texture",
+  "displayName": "RT_cocoa",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_cocoa.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_cocoa_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_cocoa.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

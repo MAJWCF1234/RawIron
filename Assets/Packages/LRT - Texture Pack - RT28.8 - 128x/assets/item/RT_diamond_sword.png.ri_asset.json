@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "item_rt_diamond_sword",
+  "type": "texture",
+  "displayName": "RT_diamond_sword",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/RT_diamond_sword.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "item_rt_diamond_sword_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/RT_diamond_sword.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

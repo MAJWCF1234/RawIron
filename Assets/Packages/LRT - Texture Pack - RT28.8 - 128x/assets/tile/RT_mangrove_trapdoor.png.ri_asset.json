@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_mangrove_trapdoor",
+  "type": "texture",
+  "displayName": "RT_mangrove_trapdoor",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_mangrove_trapdoor.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_mangrove_trapdoor_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_mangrove_trapdoor.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

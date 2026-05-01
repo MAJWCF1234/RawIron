@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_respawn_anchor_side0",
+  "type": "texture",
+  "displayName": "RT_respawn_anchor_side0",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_respawn_anchor_side0.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_respawn_anchor_side0_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_respawn_anchor_side0.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

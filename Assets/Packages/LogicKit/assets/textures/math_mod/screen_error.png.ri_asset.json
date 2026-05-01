@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_math_mod_screen_error",
+  "type": "texture",
+  "displayName": "screen_error",
+  "sourcePath": "Assets/Source/LogicKit/textures/math_mod/screen_error.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_math_mod_screen_error_source",
+      "path": "Assets/Source/LogicKit/textures/math_mod/screen_error.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

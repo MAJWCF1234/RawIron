@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_sense_prox",
+  "type": "mesh",
+  "displayName": "sense_prox",
+  "sourcePath": "Assets/Source/LogicKit/glb/sense_prox.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_sense_prox_source",
+      "path": "Assets/Source/LogicKit/glb/sense_prox.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

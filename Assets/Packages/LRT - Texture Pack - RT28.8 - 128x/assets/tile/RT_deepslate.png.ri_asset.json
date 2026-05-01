@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_deepslate",
+  "type": "texture",
+  "displayName": "RT_deepslate",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_deepslate.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_deepslate_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_deepslate.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

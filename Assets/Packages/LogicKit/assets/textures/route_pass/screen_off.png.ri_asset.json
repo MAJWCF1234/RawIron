@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_route_pass_screen_off",
+  "type": "texture",
+  "displayName": "screen_off",
+  "sourcePath": "Assets/Source/LogicKit/textures/route_pass/screen_off.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_route_pass_screen_off_source",
+      "path": "Assets/Source/LogicKit/textures/route_pass/screen_off.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

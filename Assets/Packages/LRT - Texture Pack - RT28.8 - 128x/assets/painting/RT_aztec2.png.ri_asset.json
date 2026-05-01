@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "painting_rt_aztec2",
+  "type": "texture",
+  "displayName": "RT_aztec2",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_aztec2.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "painting_rt_aztec2_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_aztec2.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

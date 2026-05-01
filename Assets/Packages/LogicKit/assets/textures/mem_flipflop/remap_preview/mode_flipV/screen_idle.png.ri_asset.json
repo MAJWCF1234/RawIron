@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_mem_flipflop_remap_preview_mode_flipv_screen_idle",
+  "type": "texture",
+  "displayName": "screen_idle",
+  "sourcePath": "Assets/Source/LogicKit/textures/mem_flipflop/remap_preview/mode_flipV/screen_idle.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_mem_flipflop_remap_preview_mode_flipv_screen_idle_source",
+      "path": "Assets/Source/LogicKit/textures/mem_flipflop/remap_preview/mode_flipV/screen_idle.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

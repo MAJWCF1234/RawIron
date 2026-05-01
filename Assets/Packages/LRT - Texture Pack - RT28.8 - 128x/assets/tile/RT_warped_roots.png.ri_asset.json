@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_warped_roots",
+  "type": "texture",
+  "displayName": "RT_warped_roots",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_warped_roots.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_warped_roots_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_warped_roots.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

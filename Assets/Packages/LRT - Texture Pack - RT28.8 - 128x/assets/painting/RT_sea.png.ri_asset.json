@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "painting_rt_sea",
+  "type": "texture",
+  "displayName": "RT_sea",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_sea.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "painting_rt_sea_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_sea.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

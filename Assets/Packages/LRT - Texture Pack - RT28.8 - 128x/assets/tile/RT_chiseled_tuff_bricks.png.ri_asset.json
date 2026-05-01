@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_chiseled_tuff_bricks",
+  "type": "texture",
+  "displayName": "RT_chiseled_tuff_bricks",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_chiseled_tuff_bricks.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_chiseled_tuff_bricks_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_chiseled_tuff_bricks.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

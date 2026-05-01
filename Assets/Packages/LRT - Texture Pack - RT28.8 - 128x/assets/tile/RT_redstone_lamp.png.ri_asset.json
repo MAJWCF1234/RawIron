@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_redstone_lamp",
+  "type": "texture",
+  "displayName": "RT_redstone_lamp",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_redstone_lamp.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_redstone_lamp_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_redstone_lamp.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

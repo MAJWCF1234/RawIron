@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_gate_xor",
+  "type": "mesh",
+  "displayName": "gate_xor",
+  "sourcePath": "Assets/Source/LogicKit/glb/gate_xor.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_gate_xor_source",
+      "path": "Assets/Source/LogicKit/glb/gate_xor.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_suspicious_gravel_0",
+  "type": "texture",
+  "displayName": "RT_suspicious_gravel_0",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_suspicious_gravel_0.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_suspicious_gravel_0_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_suspicious_gravel_0.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

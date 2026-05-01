@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_granite",
+  "type": "texture",
+  "displayName": "RT_granite",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_granite.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_granite_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_granite.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

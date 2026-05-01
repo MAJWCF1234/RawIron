@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "item_rt_diamond_hoe_n",
+  "type": "texture",
+  "displayName": "RT_diamond_hoe_n",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/RT_diamond_hoe_n.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "item_rt_diamond_hoe_n_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/RT_diamond_hoe_n.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

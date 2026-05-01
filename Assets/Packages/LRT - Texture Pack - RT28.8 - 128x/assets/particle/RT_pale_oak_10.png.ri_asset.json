@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "particle_rt_pale_oak_10",
+  "type": "texture",
+  "displayName": "RT_pale_oak_10",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/RT_pale_oak_10.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "particle_rt_pale_oak_10_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/RT_pale_oak_10.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

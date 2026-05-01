@@ -1,5 +1,6 @@
 #include "RawIron/Core/CommandLine.h"
 #include "RawIron/Content/AssetDocument.h"
+#include "RawIron/Content/AssetPackageManifest.h"
 #include "RawIron/Core/Detail/JsonScan.h"
 #include "RawIron/Core/Log.h"
 #include "RawIron/Core/Version.h"
@@ -16,7 +17,9 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
+#include <ctime>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -281,6 +284,20 @@ std::string ToLowerAscii(std::string value) {
     return value;
 }
 
+std::string CurrentUtcTimestamp() {
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t nowTime = std::chrono::system_clock::to_time_t(now);
+    std::tm utc{};
+#if defined(_WIN32)
+    gmtime_s(&utc, &nowTime);
+#else
+    gmtime_r(&nowTime, &utc);
+#endif
+    std::ostringstream stream;
+    stream << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+    return stream.str();
+}
+
 std::string SanitizeAssetId(std::string_view raw) {
     std::string id;
     id.reserve(raw.size());
@@ -422,6 +439,19 @@ std::optional<UnityMeshAssetSummary> TryParseUnityMeshAsset(const fs::path& sour
 
 std::string InferAssetTypeFromExtension(const fs::path& sourcePath) {
     const std::string extension = ToLowerAscii(sourcePath.extension().string());
+    const std::string stem = ToLowerAscii(sourcePath.stem().string());
+    if (extension == ".uasset") {
+        if (stem.rfind("m_", 0) == 0) {
+            return "material";
+        }
+        if (stem.rfind("sm_", 0) == 0 || stem.rfind("sk_", 0) == 0) {
+            return "mesh";
+        }
+        if (stem.rfind("t_", 0) == 0 || stem.find("texture") != std::string::npos) {
+            return "texture";
+        }
+        return "unreal-asset";
+    }
     if (extension == ".fbx" || extension == ".obj" || extension == ".gltf" || extension == ".glb"
         || extension == ".asset" || extension == ".spm") {
         return "mesh";
@@ -436,8 +466,25 @@ std::string InferAssetTypeFromExtension(const fs::path& sourcePath) {
     if (extension == ".mat") {
         return "material";
     }
+    if (extension == ".riscript" || extension == ".lua" || extension == ".cs" || extension == ".js"
+        || extension == ".boo") {
+        return "script";
+    }
+    if (extension == ".prefab") {
+        return "prefab";
+    }
+    if (extension == ".anim" || extension == ".controller" || extension == ".overridecontroller") {
+        return "animation";
+    }
+    if (extension == ".shader" || extension == ".hlsl" || extension == ".glsl") {
+        return "shader";
+    }
     if (extension == ".unity" || extension == ".scene" || extension == ".ri_scene") {
         return "scene";
+    }
+    if (extension == ".zip" || extension == ".ripak" || extension == ".unitypackage" || extension == ".tar"
+        || extension == ".gz" || extension == ".7z") {
+        return "archive";
     }
     return "generic";
 }
@@ -461,6 +508,37 @@ std::string BuildUnityMeshPayloadJson(const UnityMeshAssetSummary& meshSummary) 
     }
     payload << "}";
     return payload.str();
+}
+
+std::string BuildForeignScriptPayloadJson(const fs::path& sourcePath) {
+    std::ostringstream payload;
+    payload << "{";
+    payload << "\"sourceFormat\":\"" << json_scan::EscapeJsonString(ToLowerAscii(sourcePath.extension().string())) << "\",";
+    payload << "\"reconstructedFormat\":\"riscript\",";
+    payload << "\"reconstructionStatus\":\"generated-review-required\"";
+    payload << "}";
+    return payload.str();
+}
+
+bool IsForeignScriptExtension(const std::string& extension) {
+    return extension == ".cs" || extension == ".lua" || extension == ".js" || extension == ".boo";
+}
+
+std::string ReconstructRiscriptFromForeignScript(const fs::path& sourcePath,
+                                                 const std::string_view assetId,
+                                                 const std::string_view sourceRelativePath) {
+    std::ostringstream script;
+    script << "# RawIron reconstructed script\n";
+    script << "# source: " << sourceRelativePath << "\n";
+    script << "# asset: " << assetId << "\n";
+    script << "# status: generated-review-required\n\n";
+    script << "script \"" << assetId << "\" {\n";
+    script << "  source_format = \"" << ToLowerAscii(sourcePath.extension().string()) << "\"\n";
+    script << "  source_path = \"" << sourceRelativePath << "\"\n";
+    script << "  lifecycle = [\"awake\", \"start\", \"update\", \"fixed_update\", \"late_update\"]\n";
+    script << "  reconstruction = \"metadata_stub\"\n";
+    script << "}\n";
+    return script.str();
 }
 
 std::optional<fs::path> TryRelativeToRoot(const fs::path& absolutePath, const fs::path& root) {
@@ -495,6 +573,11 @@ ri::content::AssetDocument BuildStandardAssetDocument(const fs::path& sourcePath
         } else {
             document.payloadJson = "{\"sourceFormat\":\"unity-asset\"}";
         }
+    } else if (extension == ".uasset") {
+        document.payloadJson = "{\"sourceFormat\":\"unreal-uasset\",\"conversionStatus\":\"metadata-only\"}";
+    } else if (extension == ".cs" || extension == ".lua" || extension == ".js" || extension == ".boo") {
+        document.type = "script";
+        document.payloadJson = BuildForeignScriptPayloadJson(normalizedSource);
     } else {
         document.payloadJson = "{\"sourceFormat\":\"native\"}";
     }
@@ -512,8 +595,149 @@ bool ShouldStandardizeExtension(const fs::path& path) {
     return extension == ".asset" || extension == ".spm" || extension == ".fbx" || extension == ".obj"
         || extension == ".gltf" || extension == ".glb" || extension == ".png" || extension == ".jpg"
         || extension == ".jpeg" || extension == ".tga" || extension == ".bmp" || extension == ".hdr"
-        || extension == ".wav" || extension == ".ogg" || extension == ".mp3" || extension == ".flac"
-        || extension == ".mat" || extension == ".unity";
+        || extension == ".tif" || extension == ".tiff" || extension == ".wav" || extension == ".ogg"
+        || extension == ".mp3" || extension == ".flac" || extension == ".mat" || extension == ".unity"
+        || extension == ".uasset" || extension == ".riscript" || extension == ".lua" || extension == ".cs"
+        || extension == ".js" || extension == ".boo" || extension == ".prefab"
+        || extension == ".anim" || extension == ".controller" || extension == ".overridecontroller"
+        || extension == ".shader" || extension == ".hlsl" || extension == ".glsl";
+}
+
+int StandardizeAssetDirectoryToOutput(const WorkspaceLayout& workspace,
+                                      const fs::path& sourceDirectory,
+                                      const fs::path& outputDirectory) {
+    fs::create_directories(outputDirectory);
+
+    int convertedCount = 0;
+    for (const fs::directory_entry& entry : fs::recursive_directory_iterator(sourceDirectory)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        const fs::path sourcePath = entry.path();
+        if (!ShouldStandardizeExtension(sourcePath)) {
+            continue;
+        }
+
+        const std::optional<fs::path> relativePath = TryRelativeToRoot(sourcePath, sourceDirectory);
+        const fs::path outputPath = relativePath.has_value()
+            ? (outputDirectory / relativePath->generic_string()).replace_extension(relativePath->extension().string() + ".ri_asset.json")
+            : (outputDirectory / (sourcePath.filename().string() + ".ri_asset.json"));
+        EnsureParentDirectoryExists(outputPath);
+
+        ri::content::AssetDocument document = BuildStandardAssetDocument(sourcePath, workspace);
+        if (relativePath.has_value()) {
+            document.id = SanitizeAssetId(relativePath->generic_string());
+            if (!document.references.empty()) {
+                document.references.front().id = document.id + "_source";
+            }
+
+            const std::string extension = ToLowerAscii(sourcePath.extension().string());
+            if (IsForeignScriptExtension(extension)) {
+                fs::path scriptOutputPath = outputDirectory.parent_path() / "scripts" / relativePath->generic_string();
+                scriptOutputPath.replace_extension(".riscript");
+                EnsureParentDirectoryExists(scriptOutputPath);
+                const std::string sourceRelative = relativePath->generic_string();
+                if (!json_scan::WriteTextFile(
+                        scriptOutputPath,
+                        ReconstructRiscriptFromForeignScript(sourcePath, document.id, sourceRelative))) {
+                    throw std::runtime_error("Failed to write reconstructed RawIron script: " + scriptOutputPath.string());
+                }
+                document.references.push_back(ri::content::AssetReference{
+                    .kind = "reconstructed-script",
+                    .id = document.id + "_riscript",
+                    .path = TryRelativeToRoot(scriptOutputPath, outputDirectory.parent_path())
+                                .value_or(scriptOutputPath)
+                                .generic_string(),
+                });
+            }
+        }
+        if (ri::content::SaveAssetDocument(outputPath, document)) {
+            ++convertedCount;
+        }
+    }
+    return convertedCount;
+}
+
+fs::path ResolvePackageManifestPath(const fs::path& packagePath) {
+    if (fs::is_directory(packagePath)) {
+        return packagePath / "package.ri_package.json";
+    }
+    return packagePath;
+}
+
+bool IsRipakArchivePath(const fs::path& path) {
+    const std::string extension = ToLowerAscii(path.extension().string());
+    return extension == ".ripak" || extension == ".zip";
+}
+
+std::string QuotePowerShellLiteral(const fs::path& path) {
+    std::string text = path.string();
+    std::string quoted = "'";
+    for (const char ch : text) {
+        if (ch == '\'') {
+            quoted += "''";
+        } else {
+            quoted += ch;
+        }
+    }
+    quoted += "'";
+    return quoted;
+}
+
+void RunPowerShellArchiveCommand(const std::string& script, const std::string& action) {
+    const std::string command = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"" + script + "\"";
+    const int result = std::system(command.c_str());
+    if (result != 0) {
+        throw std::runtime_error("PowerShell archive " + action + " failed.");
+    }
+}
+
+fs::path UniquePackageTempDirectory(const std::string_view prefix, const fs::path& packagePath) {
+    const auto tick = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    return fs::temp_directory_path() / "RawIronRipak" /
+        (std::string(prefix) + "_" + SanitizeAssetId(packagePath.stem().string()) + "_" + std::to_string(tick));
+}
+
+fs::path ExtractRipakArchiveToTemp(const fs::path& archivePath) {
+    const fs::path absoluteArchive = fs::weakly_canonical(archivePath);
+    const fs::path extractRoot = UniquePackageTempDirectory("extract", absoluteArchive);
+    const fs::path zipScratch = extractRoot.parent_path() / (extractRoot.filename().string() + ".zip");
+    fs::create_directories(extractRoot.parent_path());
+
+    std::error_code ec{};
+    fs::copy_file(absoluteArchive, zipScratch, fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        throw std::runtime_error("Failed to stage .ripak archive for extraction: " + ec.message());
+    }
+
+    const std::string script =
+        "if (Test-Path -LiteralPath " + QuotePowerShellLiteral(extractRoot) + ") { Remove-Item -LiteralPath "
+        + QuotePowerShellLiteral(extractRoot) + " -Recurse -Force }; "
+        + "New-Item -ItemType Directory -Force -Path " + QuotePowerShellLiteral(extractRoot) + " | Out-Null; "
+        + "Expand-Archive -LiteralPath " + QuotePowerShellLiteral(zipScratch)
+        + " -DestinationPath " + QuotePowerShellLiteral(extractRoot) + " -Force; "
+        + "Remove-Item -LiteralPath " + QuotePowerShellLiteral(zipScratch) + " -Force";
+    RunPowerShellArchiveCommand(script, "extract");
+    return extractRoot;
+}
+
+void WriteRipakArchiveFromDirectory(const fs::path& packageDirectory, const fs::path& archivePath) {
+    const fs::path absolutePackageDirectory = fs::weakly_canonical(packageDirectory);
+    const fs::path absoluteArchivePath = fs::absolute(archivePath).lexically_normal();
+    fs::create_directories(absoluteArchivePath.parent_path());
+    const fs::path zipScratch = absoluteArchivePath.parent_path() / (absoluteArchivePath.stem().string() + ".zip");
+
+    const std::string script =
+        "if (Test-Path -LiteralPath " + QuotePowerShellLiteral(zipScratch) + ") { Remove-Item -LiteralPath "
+        + QuotePowerShellLiteral(zipScratch) + " -Force }; "
+        + "if (Test-Path -LiteralPath " + QuotePowerShellLiteral(absoluteArchivePath) + ") { Remove-Item -LiteralPath "
+        + QuotePowerShellLiteral(absoluteArchivePath) + " -Force }; "
+        + "Get-ChildItem -LiteralPath " + QuotePowerShellLiteral(absolutePackageDirectory)
+        + " | Compress-Archive -DestinationPath " + QuotePowerShellLiteral(zipScratch) + " -Force; "
+        + "Move-Item -LiteralPath " + QuotePowerShellLiteral(zipScratch)
+        + " -Destination " + QuotePowerShellLiteral(absoluteArchivePath) + " -Force";
+    RunPowerShellArchiveCommand(script, "create");
 }
 
 void StandardizeSingleAsset(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
@@ -556,34 +780,246 @@ void StandardizeAssetDirectory(const WorkspaceLayout& workspace, const ri::core:
     if (const auto outputArg = commandLine.GetValue("--output-dir"); outputArg.has_value() && !outputArg->empty()) {
         outputDirectory = fs::path(*outputArg);
     }
-    fs::create_directories(outputDirectory);
-
-    int convertedCount = 0;
-    for (const fs::directory_entry& entry : fs::recursive_directory_iterator(sourceDirectory)) {
-        if (!entry.is_regular_file()) {
-            continue;
-        }
-        const fs::path sourcePath = entry.path();
-        if (!ShouldStandardizeExtension(sourcePath)) {
-            continue;
-        }
-
-        const std::optional<fs::path> relativePath = TryRelativeToRoot(sourcePath, sourceDirectory);
-        const fs::path outputPath = relativePath.has_value()
-            ? (outputDirectory / relativePath->generic_string()).replace_extension(relativePath->extension().string() + ".ri_asset.json")
-            : (outputDirectory / (sourcePath.filename().string() + ".ri_asset.json"));
-        EnsureParentDirectoryExists(outputPath);
-
-        const ri::content::AssetDocument document = BuildStandardAssetDocument(sourcePath, workspace);
-        if (ri::content::SaveAssetDocument(outputPath, document)) {
-            ++convertedCount;
-        }
-    }
+    const int convertedCount = StandardizeAssetDirectoryToOutput(workspace, sourceDirectory, outputDirectory);
 
     ri::core::LogInfo("Standardized asset batch complete.");
     ri::core::LogInfo("  Source directory: " + sourceDirectory.string());
     ri::core::LogInfo("  Output directory: " + outputDirectory.string());
     ri::core::LogInfo("  Converted: " + std::to_string(convertedCount));
+}
+
+void BuildAssetPackage(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto directoryArg = commandLine.GetValue("--asset-package-build");
+    if (!directoryArg.has_value() || directoryArg->empty()) {
+        throw std::runtime_error("Missing --asset-package-build <source-dir>.");
+    }
+    const fs::path sourceDirectory = fs::weakly_canonical(fs::path(*directoryArg));
+    if (!fs::is_directory(sourceDirectory)) {
+        throw std::runtime_error("Not a directory: " + sourceDirectory.string());
+    }
+
+    const std::string packageId = SanitizeAssetId(sourceDirectory.filename().string());
+    fs::path archivePath = workspace.assetsCooked / "Packages" / (packageId + ".ripak");
+    fs::path packageDirectory = workspace.assetsCooked / "Packages" / packageId;
+    if (const auto outputArg = commandLine.GetValue("--output-dir"); outputArg.has_value() && !outputArg->empty()) {
+        const fs::path outputPath = fs::path(*outputArg);
+        if (IsRipakArchivePath(outputPath)) {
+            archivePath = outputPath;
+            packageDirectory = UniquePackageTempDirectory("build", outputPath);
+        } else {
+            packageDirectory = outputPath;
+            archivePath = packageDirectory;
+            archivePath += ".ripak";
+        }
+    }
+    const fs::path assetDirectory = packageDirectory / "assets";
+    const int convertedCount = StandardizeAssetDirectoryToOutput(workspace, sourceDirectory, assetDirectory);
+
+    const std::optional<fs::path> relativeSource = TryRelativeToRoot(sourceDirectory, workspace.root);
+    ri::content::AssetPackageManifest manifest = ri::content::BuildAssetPackageManifest(
+        packageDirectory,
+        packageId,
+        sourceDirectory.filename().string(),
+        relativeSource.has_value() ? relativeSource->generic_string() : sourceDirectory.generic_string(),
+        CurrentUtcTimestamp());
+
+    fs::path manifestPath = packageDirectory / "package.ri_package.json";
+    if (const auto packageArg = commandLine.GetValue("--package"); packageArg.has_value() && !packageArg->empty()) {
+        const fs::path packagePath = fs::path(*packageArg);
+        if (IsRipakArchivePath(packagePath)) {
+            archivePath = packagePath;
+        } else {
+            manifestPath = packagePath;
+        }
+    }
+    EnsureParentDirectoryExists(manifestPath);
+    if (!ri::content::SaveAssetPackageManifest(manifestPath, manifest)) {
+        throw std::runtime_error("Failed to write RawIron package manifest: " + manifestPath.string());
+    }
+
+    const fs::path validationRoot = manifestPath.parent_path();
+    const ri::content::AssetPackageValidationReport report =
+        ri::content::ValidateAssetPackageManifest(manifest, validationRoot);
+    if (!report.valid) {
+        for (const std::string& issue : report.issues) {
+            ri::core::LogInfo("  Issue: " + issue);
+        }
+        throw std::runtime_error("RawIron package validation failed after build.");
+    }
+
+    ri::core::LogInfo("RawIron asset package built.");
+    ri::core::LogInfo("  Source directory: " + sourceDirectory.string());
+    ri::core::LogInfo("  Package directory: " + packageDirectory.string());
+    ri::core::LogInfo("  Manifest: " + manifestPath.string());
+    ri::core::LogInfo("  Converted: " + std::to_string(convertedCount));
+    ri::core::LogInfo("  Packaged assets: " + std::to_string(manifest.assets.size()));
+
+    WriteRipakArchiveFromDirectory(packageDirectory, archivePath);
+    ri::core::LogInfo("  Archive: " + archivePath.string());
+}
+
+void ValidateAssetPackage(const ri::core::CommandLine& commandLine) {
+    const auto packageArg = commandLine.GetValue("--asset-package-validate");
+    if (!packageArg.has_value() || packageArg->empty()) {
+        throw std::runtime_error("Missing --asset-package-validate <package-dir-or-manifest>.");
+    }
+    const fs::path packageRoot = IsRipakArchivePath(fs::path(*packageArg))
+        ? ExtractRipakArchiveToTemp(fs::path(*packageArg))
+        : fs::path(*packageArg);
+    const fs::path manifestPath = ResolvePackageManifestPath(packageRoot);
+    const std::optional<ri::content::AssetPackageManifest> manifest =
+        ri::content::LoadAssetPackageManifest(manifestPath);
+    if (!manifest.has_value()) {
+        throw std::runtime_error("Failed to load RawIron package manifest: " + manifestPath.string());
+    }
+
+    const ri::content::AssetPackageValidationReport report =
+        ri::content::ValidateAssetPackageManifest(*manifest, manifestPath.parent_path());
+    if (!report.valid) {
+        ri::core::LogInfo("RawIron asset package validation failed.");
+        for (const std::string& issue : report.issues) {
+            ri::core::LogInfo("  Issue: " + issue);
+        }
+        throw std::runtime_error("RawIron asset package validation failed.");
+    }
+
+    ri::core::LogInfo("RawIron asset package validated.");
+    ri::core::LogInfo("  Manifest: " + manifestPath.string());
+    ri::core::LogInfo("  Package: " + manifest->packageId);
+    ri::core::LogInfo("  Assets: " + std::to_string(manifest->assets.size()));
+}
+
+fs::path ResolveProjectRootOption(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    if (const auto projectArg = commandLine.GetValue("--project"); projectArg.has_value() && !projectArg->empty()) {
+        return fs::weakly_canonical(fs::path(*projectArg));
+    }
+    return workspace.root;
+}
+
+std::optional<ri::content::InstalledAssetPackage> LoadValidatedPackageForInstall(const fs::path& packageArg) {
+    const fs::path packageRoot = IsRipakArchivePath(packageArg)
+        ? ExtractRipakArchiveToTemp(packageArg)
+        : packageArg;
+    const fs::path manifestPath = ResolvePackageManifestPath(packageRoot);
+    const std::optional<ri::content::AssetPackageManifest> manifest =
+        ri::content::LoadAssetPackageManifest(manifestPath);
+    if (!manifest.has_value()) {
+        return std::nullopt;
+    }
+
+    ri::content::InstalledAssetPackage package{};
+    package.manifestPath = manifestPath;
+    package.packageRoot = manifestPath.parent_path();
+    package.manifest = *manifest;
+    package.validation = ri::content::ValidateAssetPackageManifest(package.manifest, package.packageRoot);
+    return package;
+}
+
+void CopyFileChecked(const fs::path& source, const fs::path& destination) {
+    EnsureParentDirectoryExists(destination);
+    std::error_code ec{};
+    fs::copy_file(source, destination, fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        throw std::runtime_error("Failed to copy " + source.string() + " to " + destination.string() + ": " + ec.message());
+    }
+}
+
+fs::path DefaultProjectInstallPath(const ri::content::AssetPackageManifest& manifest,
+                                   const ri::content::AssetPackageEntry& asset) {
+    fs::path relativeAssetPath = fs::path(asset.path).lexically_normal();
+    if (!relativeAssetPath.empty() && *relativeAssetPath.begin() == "assets") {
+        relativeAssetPath = relativeAssetPath.lexically_relative("assets");
+    }
+
+    const std::string type = ToLowerAscii(asset.type);
+    if (type == "script" || type == "behavior") {
+        return fs::path("scripts") / "packages" / manifest.packageId / relativeAssetPath;
+    }
+    if (type == "scene") {
+        return fs::path("levels") / "packages" / manifest.packageId / relativeAssetPath;
+    }
+    return fs::path("assets") / "packages" / manifest.packageId / relativeAssetPath;
+}
+
+void ImportAssetPackage(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto packageArg = commandLine.GetValue("--asset-package-import");
+    if (!packageArg.has_value() || packageArg->empty()) {
+        throw std::runtime_error("Missing --asset-package-import <package-dir-or-manifest>.");
+    }
+    std::optional<ri::content::InstalledAssetPackage> package =
+        LoadValidatedPackageForInstall(fs::path(*packageArg));
+    if (!package.has_value()) {
+        throw std::runtime_error("Failed to load RawIron package: " + *packageArg);
+    }
+    if (!package->validation.valid) {
+        for (const std::string& issue : package->validation.issues) {
+            ri::core::LogInfo("  Issue: " + issue);
+        }
+        throw std::runtime_error("RawIron package validation failed; import aborted.");
+    }
+    if (package->manifest.installScope == "project") {
+        throw std::runtime_error("Package installScope is project-only; use --asset-package-install.");
+    }
+
+    const fs::path projectRoot = ResolveProjectRootOption(workspace, commandLine);
+    fs::path targetRoot = projectRoot / "Packages" / package->manifest.packageId;
+    if (const auto outputArg = commandLine.GetValue("--output-dir"); outputArg.has_value() && !outputArg->empty()) {
+        targetRoot = fs::path(*outputArg);
+    }
+    fs::create_directories(targetRoot);
+
+    for (const ri::content::AssetPackageEntry& asset : package->manifest.assets) {
+        CopyFileChecked(package->packageRoot / fs::path(asset.path), targetRoot / fs::path(asset.path));
+    }
+    CopyFileChecked(package->manifestPath, targetRoot / "package.ri_package.json");
+
+    ri::core::LogInfo("RawIron package imported as mounted package.");
+    ri::core::LogInfo("  Project root: " + projectRoot.string());
+    ri::core::LogInfo("  Package: " + package->manifest.packageId);
+    ri::core::LogInfo("  Mounted at: " + targetRoot.string());
+    ri::core::LogInfo("  Assets: " + std::to_string(package->manifest.assets.size()));
+}
+
+void InstallAssetPackage(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto packageArg = commandLine.GetValue("--asset-package-install");
+    if (!packageArg.has_value() || packageArg->empty()) {
+        throw std::runtime_error("Missing --asset-package-install <package-dir-or-manifest>.");
+    }
+    std::optional<ri::content::InstalledAssetPackage> package =
+        LoadValidatedPackageForInstall(fs::path(*packageArg));
+    if (!package.has_value()) {
+        throw std::runtime_error("Failed to load RawIron package: " + *packageArg);
+    }
+    if (!package->validation.valid) {
+        for (const std::string& issue : package->validation.issues) {
+            ri::core::LogInfo("  Issue: " + issue);
+        }
+        throw std::runtime_error("RawIron package validation failed; install aborted.");
+    }
+    if (package->manifest.installScope == "mounted") {
+        throw std::runtime_error("Package installScope is mounted-only; use --asset-package-import.");
+    }
+
+    const fs::path projectRoot = ResolveProjectRootOption(workspace, commandLine);
+    int copiedCount = 0;
+    for (const ri::content::AssetPackageEntry& asset : package->manifest.assets) {
+        const fs::path source = package->packageRoot / fs::path(asset.path);
+        const fs::path relativeDestination = asset.installPath.empty()
+            ? DefaultProjectInstallPath(package->manifest, asset)
+            : fs::path(asset.installPath);
+        CopyFileChecked(source, projectRoot / relativeDestination);
+        ++copiedCount;
+    }
+
+    const fs::path receiptPath = projectRoot / "assets" / "package_receipts" /
+        (package->manifest.packageId + ".ri_package.json");
+    CopyFileChecked(package->manifestPath, receiptPath);
+
+    ri::core::LogInfo("RawIron package installed into project.");
+    ri::core::LogInfo("  Project root: " + projectRoot.string());
+    ri::core::LogInfo("  Package: " + package->manifest.packageId);
+    ri::core::LogInfo("  Installed assets: " + std::to_string(copiedCount));
+    ri::core::LogInfo("  Receipt: " + receiptPath.string());
 }
 
 int ParsePositiveIntOption(const ri::core::CommandLine& commandLine,
@@ -884,6 +1320,9 @@ int main(int argc, char** argv) {
         if (commandLine.HasFlag("--formats")) {
             ri::core::LogInfo("RawIron standard asset format:");
             ri::core::LogInfo("  .ri_asset.json  (single unified document for mesh/material/texture/audio/scene/behavior)");
+            ri::core::LogInfo("  .ri_package.json  (portable asset/resource package manifest)");
+            ri::core::LogInfo("  .ripak  (ZIP-compatible RawIron package archive containing package.ri_package.json)");
+            ri::core::LogInfo("  .riscript  (RawIron-owned Lua-like scripting language for behavior/config/tests)");
             ri::core::LogInfo("Legacy/experimental aliases:");
             ri::core::LogInfo("  .ri_model .ri_mesh .ri_scene .ri_mat .ri_tex .ri_audio .ri_meshc");
             return 0;
@@ -896,6 +1335,26 @@ int main(int argc, char** argv) {
 
         if (commandLine.GetValue("--asset-standardize-dir").has_value()) {
             StandardizeAssetDirectory(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.GetValue("--asset-package-build").has_value()) {
+            BuildAssetPackage(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.GetValue("--asset-package-validate").has_value()) {
+            ValidateAssetPackage(commandLine);
+            return 0;
+        }
+
+        if (commandLine.GetValue("--asset-package-import").has_value()) {
+            ImportAssetPackage(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.GetValue("--asset-package-install").has_value()) {
+            InstallAssetPackage(workspace, commandLine);
             return 0;
         }
 
@@ -971,6 +1430,10 @@ int main(int argc, char** argv) {
         ri::core::LogInfo("  ri_tool --load-scene-state [--state-file <path>]");
         ri::core::LogInfo("  ri_tool --asset-standardize <source-path> [--output <file.ri_asset.json>]");
         ri::core::LogInfo("  ri_tool --asset-standardize-dir <source-dir> [--output-dir <directory>]");
+        ri::core::LogInfo("  ri_tool --asset-package-build <source-dir> [--output-dir <package-dir-or-file.ripak>] [--package <file.ripak-or-manifest>]");
+        ri::core::LogInfo("  ri_tool --asset-package-validate <file.ripak-or-package-dir-or-manifest>");
+        ri::core::LogInfo("  ri_tool --asset-package-import <file.ripak-or-package-dir-or-manifest> [--project <project-root>] [--output-dir <mounted-package-dir>]");
+        ri::core::LogInfo("  ri_tool --asset-package-install <file.ripak-or-package-dir-or-manifest> [--project <project-root>]");
         return 0;
     } catch (const std::exception& exception) {
         ri::core::LogSection("ri_tool Failure");

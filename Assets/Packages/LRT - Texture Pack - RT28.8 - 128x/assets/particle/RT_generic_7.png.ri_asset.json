@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "particle_rt_generic_7",
+  "type": "texture",
+  "displayName": "RT_generic_7",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/RT_generic_7.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "particle_rt_generic_7_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/RT_generic_7.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

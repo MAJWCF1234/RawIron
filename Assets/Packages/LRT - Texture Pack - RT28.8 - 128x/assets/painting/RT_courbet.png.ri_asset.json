@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "painting_rt_courbet",
+  "type": "texture",
+  "displayName": "RT_courbet",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_courbet.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "painting_rt_courbet_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_courbet.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

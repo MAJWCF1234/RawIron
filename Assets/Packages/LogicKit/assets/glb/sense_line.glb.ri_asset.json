@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_sense_line",
+  "type": "mesh",
+  "displayName": "sense_line",
+  "sourcePath": "Assets/Source/LogicKit/glb/sense_line.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_sense_line_source",
+      "path": "Assets/Source/LogicKit/glb/sense_line.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

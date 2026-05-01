@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_book7",
+  "type": "texture",
+  "displayName": "RT_book7",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_book7.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_book7_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_book7.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_pale_oak_leaves",
+  "type": "texture",
+  "displayName": "RT_pale_oak_leaves",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_pale_oak_leaves.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_pale_oak_leaves_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_pale_oak_leaves.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

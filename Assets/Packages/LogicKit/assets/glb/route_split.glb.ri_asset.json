@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_route_split",
+  "type": "mesh",
+  "displayName": "route_split",
+  "sourcePath": "Assets/Source/LogicKit/glb/route_split.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_route_split_source",
+      "path": "Assets/Source/LogicKit/glb/route_split.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

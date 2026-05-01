@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_big_dripleaf_stem",
+  "type": "texture",
+  "displayName": "RT_big_dripleaf_stem",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_big_dripleaf_stem.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_big_dripleaf_stem_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_big_dripleaf_stem.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

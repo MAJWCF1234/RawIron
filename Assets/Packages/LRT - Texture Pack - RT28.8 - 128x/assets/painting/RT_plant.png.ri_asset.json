@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "painting_rt_plant",
+  "type": "texture",
+  "displayName": "RT_plant",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_plant.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "painting_rt_plant_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_plant.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

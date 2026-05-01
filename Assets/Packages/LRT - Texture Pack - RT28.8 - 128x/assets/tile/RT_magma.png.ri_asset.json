@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_magma",
+  "type": "texture",
+  "displayName": "RT_magma",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_magma.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_magma_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_magma.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_wet_sponge",
+  "type": "texture",
+  "displayName": "RT_wet_sponge",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_wet_sponge.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_wet_sponge_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_wet_sponge.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

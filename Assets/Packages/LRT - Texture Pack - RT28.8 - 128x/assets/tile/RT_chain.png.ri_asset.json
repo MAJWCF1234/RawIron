@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_chain",
+  "type": "texture",
+  "displayName": "RT_chain",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_chain.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_chain_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_chain.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

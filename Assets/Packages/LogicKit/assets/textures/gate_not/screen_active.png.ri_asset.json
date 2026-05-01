@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_gate_not_screen_active",
+  "type": "texture",
+  "displayName": "screen_active",
+  "sourcePath": "Assets/Source/LogicKit/textures/gate_not/screen_active.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_gate_not_screen_active_source",
+      "path": "Assets/Source/LogicKit/textures/gate_not/screen_active.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "painting_rt_skeleton",
+  "type": "texture",
+  "displayName": "RT_skeleton",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_skeleton.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "painting_rt_skeleton_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_skeleton.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

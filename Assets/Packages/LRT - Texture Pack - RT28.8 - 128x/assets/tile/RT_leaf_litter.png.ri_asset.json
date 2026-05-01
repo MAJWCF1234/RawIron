@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_leaf_litter",
+  "type": "texture",
+  "displayName": "RT_leaf_litter",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_leaf_litter.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_leaf_litter_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_leaf_litter.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

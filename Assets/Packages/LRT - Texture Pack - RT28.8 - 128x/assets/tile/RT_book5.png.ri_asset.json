@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_book5",
+  "type": "texture",
+  "displayName": "RT_book5",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_book5.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_book5_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_book5.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

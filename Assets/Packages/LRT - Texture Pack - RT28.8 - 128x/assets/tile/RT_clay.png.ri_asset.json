@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_clay",
+  "type": "texture",
+  "displayName": "RT_clay",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_clay.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_clay_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_clay.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

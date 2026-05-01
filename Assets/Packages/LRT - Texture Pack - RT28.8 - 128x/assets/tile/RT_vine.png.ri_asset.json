@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_vine",
+  "type": "texture",
+  "displayName": "RT_vine",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_vine.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_vine_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_vine.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

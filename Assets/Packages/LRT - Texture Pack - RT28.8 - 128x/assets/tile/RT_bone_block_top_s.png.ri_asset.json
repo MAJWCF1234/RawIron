@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_bone_block_top_s",
+  "type": "texture",
+  "displayName": "RT_bone_block_top_s",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_bone_block_top_s.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_bone_block_top_s_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_bone_block_top_s.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

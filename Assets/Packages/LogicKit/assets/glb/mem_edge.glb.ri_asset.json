@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_mem_edge",
+  "type": "mesh",
+  "displayName": "mem_edge",
+  "sourcePath": "Assets/Source/LogicKit/glb/mem_edge.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_mem_edge_source",
+      "path": "Assets/Source/LogicKit/glb/mem_edge.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

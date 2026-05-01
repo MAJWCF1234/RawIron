@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_math_min_r128_screen_pulse",
+  "type": "texture",
+  "displayName": "screen_pulse",
+  "sourcePath": "Assets/Source/LogicKit/textures/math_min/r128/screen_pulse.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_math_min_r128_screen_pulse_source",
+      "path": "Assets/Source/LogicKit/textures/math_min/r128/screen_pulse.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

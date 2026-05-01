@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_oak_trapdoor",
+  "type": "texture",
+  "displayName": "RT_oak_trapdoor",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_oak_trapdoor.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_oak_trapdoor_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_oak_trapdoor.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

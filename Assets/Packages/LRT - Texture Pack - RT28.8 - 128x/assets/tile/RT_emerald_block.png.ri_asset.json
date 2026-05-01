@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_emerald_block",
+  "type": "texture",
+  "displayName": "RT_emerald_block",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_emerald_block.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_emerald_block_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_emerald_block.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

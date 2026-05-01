@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_piston_top_sticky",
+  "type": "texture",
+  "displayName": "RT_piston_top_sticky",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_piston_top_sticky.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_piston_top_sticky_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_piston_top_sticky.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

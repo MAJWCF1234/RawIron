@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_cave_vines_plant_lit",
+  "type": "texture",
+  "displayName": "RT_cave_vines_plant_lit",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_cave_vines_plant_lit.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_cave_vines_plant_lit_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_cave_vines_plant_lit.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

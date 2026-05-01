@@ -4,11 +4,11 @@
  *
  * Usage: npm install && node export-logic-kit.mjs
  * Output:
- *   ../../Assets/Source/LogicKit/glb/<node_id>.glb
- *   ../../Assets/Source/LogicKit/textures/<node_id>/screen_<state>.png  (256² canonical)
- *   ../../Assets/Source/LogicKit/textures/<node_id>/r128/ and /r512/ screen_<state>.png
- *   ../../Assets/Source/LogicKit/textures/<node_id>/remap_preview/mode_<m>/screen_idle.png
- *   ../../Assets/Source/LogicKit/logic_kit_nodes.json
+ *   ../../Assets/Packages/LogicKit/glb/<node_id>.glb
+ *   ../../Assets/Packages/LogicKit/textures/<node_id>/screen_<state>.png  (256² canonical)
+ *   ../../Assets/Packages/LogicKit/textures/<node_id>/r128/ and /r512/ screen_<state>.png
+ *   ../../Assets/Packages/LogicKit/textures/<node_id>/remap_preview/mode_<m>/screen_idle.png
+ *   ../../Assets/Packages/LogicKit/logic_kit_nodes.json
  */
 
 import fs from "node:fs";
@@ -610,7 +610,7 @@ function buildNodeMesh(node, screenTextureIdle) {
 }
 
 async function main() {
-  const kitRoot = path.resolve(__dirname, "../../Assets/Source/LogicKit");
+  const kitRoot = path.resolve(__dirname, "../../Assets/Packages/LogicKit");
   const outDir = path.join(kitRoot, "glb");
   const texRoot = path.join(kitRoot, "textures");
   fs.mkdirSync(outDir, { recursive: true });

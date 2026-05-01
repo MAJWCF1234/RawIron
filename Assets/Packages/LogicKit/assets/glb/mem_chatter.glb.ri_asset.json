@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_mem_chatter",
+  "type": "mesh",
+  "displayName": "mem_chatter",
+  "sourcePath": "Assets/Source/LogicKit/glb/mem_chatter.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_mem_chatter_source",
+      "path": "Assets/Source/LogicKit/glb/mem_chatter.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

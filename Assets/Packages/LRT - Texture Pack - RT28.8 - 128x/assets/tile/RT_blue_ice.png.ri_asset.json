@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_blue_ice",
+  "type": "texture",
+  "displayName": "RT_blue_ice",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_blue_ice.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_blue_ice_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_blue_ice.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

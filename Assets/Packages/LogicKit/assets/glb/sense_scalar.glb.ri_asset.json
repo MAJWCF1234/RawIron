@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_sense_scalar",
+  "type": "mesh",
+  "displayName": "sense_scalar",
+  "sourcePath": "Assets/Source/LogicKit/glb/sense_scalar.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_sense_scalar_source",
+      "path": "Assets/Source/LogicKit/glb/sense_scalar.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

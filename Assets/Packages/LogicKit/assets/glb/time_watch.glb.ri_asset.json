@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_time_watch",
+  "type": "mesh",
+  "displayName": "time_watch",
+  "sourcePath": "Assets/Source/LogicKit/glb/time_watch.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_time_watch_source",
+      "path": "Assets/Source/LogicKit/glb/time_watch.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

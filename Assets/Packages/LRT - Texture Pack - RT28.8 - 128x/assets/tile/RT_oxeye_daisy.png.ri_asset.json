@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_oxeye_daisy",
+  "type": "texture",
+  "displayName": "RT_oxeye_daisy",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_oxeye_daisy.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_oxeye_daisy_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_oxeye_daisy.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

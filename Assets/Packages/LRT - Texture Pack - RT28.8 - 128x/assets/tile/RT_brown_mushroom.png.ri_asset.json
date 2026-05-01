@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_brown_mushroom",
+  "type": "texture",
+  "displayName": "RT_brown_mushroom",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_brown_mushroom.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_brown_mushroom_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_brown_mushroom.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

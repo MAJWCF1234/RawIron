@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_rooted_dirt_n",
+  "type": "texture",
+  "displayName": "RT_rooted_dirt_n",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_rooted_dirt_n.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_rooted_dirt_n_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_rooted_dirt_n.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_tube_coral",
+  "type": "texture",
+  "displayName": "RT_tube_coral",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_tube_coral.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_tube_coral_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_tube_coral.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

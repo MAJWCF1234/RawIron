@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_lily_pad_flower",
+  "type": "texture",
+  "displayName": "RT_lily_pad_flower",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_lily_pad_flower.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_lily_pad_flower_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_lily_pad_flower.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

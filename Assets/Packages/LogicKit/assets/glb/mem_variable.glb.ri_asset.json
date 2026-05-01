@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_mem_variable",
+  "type": "mesh",
+  "displayName": "mem_variable",
+  "sourcePath": "Assets/Source/LogicKit/glb/mem_variable.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_mem_variable_source",
+      "path": "Assets/Source/LogicKit/glb/mem_variable.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_polished_diorite",
+  "type": "texture",
+  "displayName": "RT_polished_diorite",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_polished_diorite.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_polished_diorite_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_polished_diorite.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

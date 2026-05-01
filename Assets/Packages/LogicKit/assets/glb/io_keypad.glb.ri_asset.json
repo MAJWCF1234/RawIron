@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_io_keypad",
+  "type": "mesh",
+  "displayName": "io_keypad",
+  "sourcePath": "Assets/Source/LogicKit/glb/io_keypad.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_io_keypad_source",
+      "path": "Assets/Source/LogicKit/glb/io_keypad.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

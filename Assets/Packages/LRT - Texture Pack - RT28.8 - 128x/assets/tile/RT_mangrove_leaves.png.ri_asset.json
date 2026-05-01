@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_mangrove_leaves",
+  "type": "texture",
+  "displayName": "RT_mangrove_leaves",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_mangrove_leaves.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_mangrove_leaves_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_mangrove_leaves.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

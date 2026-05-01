@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "environment_rt_sun",
+  "type": "texture",
+  "displayName": "RT_sun",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/environment/RT_sun.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "environment_rt_sun_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/environment/RT_sun.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

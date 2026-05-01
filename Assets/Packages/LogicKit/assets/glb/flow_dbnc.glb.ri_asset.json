@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_flow_dbnc",
+  "type": "mesh",
+  "displayName": "flow_dbnc",
+  "sourcePath": "Assets/Source/LogicKit/glb/flow_dbnc.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_flow_dbnc_source",
+      "path": "Assets/Source/LogicKit/glb/flow_dbnc.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

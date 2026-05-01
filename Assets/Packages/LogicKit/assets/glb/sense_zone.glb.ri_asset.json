@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_sense_zone",
+  "type": "mesh",
+  "displayName": "sense_zone",
+  "sourcePath": "Assets/Source/LogicKit/glb/sense_zone.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_sense_zone_source",
+      "path": "Assets/Source/LogicKit/glb/sense_zone.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

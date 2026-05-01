@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_furnace_front_on",
+  "type": "texture",
+  "displayName": "RT_furnace_front_on",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_furnace_front_on.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_furnace_front_on_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_furnace_front_on.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_grass",
+  "type": "texture",
+  "displayName": "RT_grass",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_grass.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_grass_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_grass.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

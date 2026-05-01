@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_soul_lantern_s",
+  "type": "texture",
+  "displayName": "RT_soul_lantern_s",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_soul_lantern_s.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_soul_lantern_s_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_soul_lantern_s.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

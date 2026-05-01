@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_scaffolding",
+  "type": "texture",
+  "displayName": "RT_scaffolding",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_scaffolding.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_scaffolding_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_scaffolding.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

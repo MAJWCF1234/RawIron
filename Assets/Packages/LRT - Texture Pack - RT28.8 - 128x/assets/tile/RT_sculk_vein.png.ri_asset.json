@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_sculk_vein",
+  "type": "texture",
+  "displayName": "RT_sculk_vein",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_sculk_vein.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_sculk_vein_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_sculk_vein.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

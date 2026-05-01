@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_spruce_log",
+  "type": "texture",
+  "displayName": "RT_spruce_log",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_spruce_log.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_spruce_log_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_spruce_log.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

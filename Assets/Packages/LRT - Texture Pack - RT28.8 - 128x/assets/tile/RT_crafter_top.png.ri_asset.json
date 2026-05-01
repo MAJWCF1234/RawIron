@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_crafter_top",
+  "type": "texture",
+  "displayName": "RT_crafter_top",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_crafter_top.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_crafter_top_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_crafter_top.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

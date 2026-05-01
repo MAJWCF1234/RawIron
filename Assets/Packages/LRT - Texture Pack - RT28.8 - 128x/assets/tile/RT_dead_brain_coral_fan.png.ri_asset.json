@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_dead_brain_coral_fan",
+  "type": "texture",
+  "displayName": "RT_dead_brain_coral_fan",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_dead_brain_coral_fan.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_dead_brain_coral_fan_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_dead_brain_coral_fan.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

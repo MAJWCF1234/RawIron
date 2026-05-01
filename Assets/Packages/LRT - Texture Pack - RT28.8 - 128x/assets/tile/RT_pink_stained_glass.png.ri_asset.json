@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_pink_stained_glass",
+  "type": "texture",
+  "displayName": "RT_pink_stained_glass",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_pink_stained_glass.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_pink_stained_glass_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_pink_stained_glass.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

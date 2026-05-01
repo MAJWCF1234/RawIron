@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_cauldron_inner",
+  "type": "texture",
+  "displayName": "RT_cauldron_inner",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_cauldron_inner.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_cauldron_inner_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_cauldron_inner.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

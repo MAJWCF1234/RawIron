@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_observer_back",
+  "type": "texture",
+  "displayName": "RT_observer_back",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_observer_back.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_observer_back_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_observer_back.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

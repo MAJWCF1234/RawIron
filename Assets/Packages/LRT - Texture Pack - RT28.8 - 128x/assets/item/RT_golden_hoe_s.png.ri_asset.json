@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "item_rt_golden_hoe_s",
+  "type": "texture",
+  "displayName": "RT_golden_hoe_s",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/RT_golden_hoe_s.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "item_rt_golden_hoe_s_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/RT_golden_hoe_s.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

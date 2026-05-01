@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_sea_pickle",
+  "type": "texture",
+  "displayName": "RT_sea_pickle",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_sea_pickle.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_sea_pickle_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_sea_pickle.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

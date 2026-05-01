@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_lectern",
+  "type": "texture",
+  "displayName": "RT_lectern",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_lectern.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_lectern_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_lectern.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

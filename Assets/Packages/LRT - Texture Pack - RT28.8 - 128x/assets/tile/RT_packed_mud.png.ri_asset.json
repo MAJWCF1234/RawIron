@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_packed_mud",
+  "type": "texture",
+  "displayName": "RT_packed_mud",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_packed_mud.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_packed_mud_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_packed_mud.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

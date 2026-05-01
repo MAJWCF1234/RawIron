@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_route_pass",
+  "type": "mesh",
+  "displayName": "route_pass",
+  "sourcePath": "Assets/Source/LogicKit/glb/route_pass.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_route_pass_source",
+      "path": "Assets/Source/LogicKit/glb/route_pass.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_route_tee",
+  "type": "mesh",
+  "displayName": "route_tee",
+  "sourcePath": "Assets/Source/LogicKit/glb/route_tee.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_route_tee_source",
+      "path": "Assets/Source/LogicKit/glb/route_tee.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_barrel_top_open",
+  "type": "texture",
+  "displayName": "RT_barrel_top_open",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_barrel_top_open.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_barrel_top_open_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_barrel_top_open.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

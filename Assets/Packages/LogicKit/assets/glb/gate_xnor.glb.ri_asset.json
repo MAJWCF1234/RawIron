@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_gate_xnor",
+  "type": "mesh",
+  "displayName": "gate_xnor",
+  "sourcePath": "Assets/Source/LogicKit/glb/gate_xnor.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_gate_xnor_source",
+      "path": "Assets/Source/LogicKit/glb/gate_xnor.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

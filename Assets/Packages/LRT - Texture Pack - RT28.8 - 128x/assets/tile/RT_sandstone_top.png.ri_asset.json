@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_sandstone_top",
+  "type": "texture",
+  "displayName": "RT_sandstone_top",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_sandstone_top.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_sandstone_top_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_sandstone_top.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

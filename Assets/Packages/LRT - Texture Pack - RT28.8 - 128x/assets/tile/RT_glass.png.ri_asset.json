@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_glass",
+  "type": "texture",
+  "displayName": "RT_glass",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_glass.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_glass_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_glass.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

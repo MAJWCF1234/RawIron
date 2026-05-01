@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_kelp_plant",
+  "type": "texture",
+  "displayName": "RT_kelp_plant",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_kelp_plant.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_kelp_plant_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_kelp_plant.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

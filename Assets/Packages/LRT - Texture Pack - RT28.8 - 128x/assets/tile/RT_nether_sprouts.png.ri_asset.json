@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_nether_sprouts",
+  "type": "texture",
+  "displayName": "RT_nether_sprouts",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_nether_sprouts.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_nether_sprouts_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_nether_sprouts.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

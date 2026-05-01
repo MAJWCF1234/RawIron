@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_io_audio",
+  "type": "mesh",
+  "displayName": "io_audio",
+  "sourcePath": "Assets/Source/LogicKit/glb/io_audio.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_io_audio_source",
+      "path": "Assets/Source/LogicKit/glb/io_audio.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

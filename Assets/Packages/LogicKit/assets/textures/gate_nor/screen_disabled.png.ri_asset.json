@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_gate_nor_screen_disabled",
+  "type": "texture",
+  "displayName": "screen_disabled",
+  "sourcePath": "Assets/Source/LogicKit/textures/gate_nor/screen_disabled.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_gate_nor_screen_disabled_source",
+      "path": "Assets/Source/LogicKit/textures/gate_nor/screen_disabled.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

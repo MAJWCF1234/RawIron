@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_sculk_catalyst_bottom",
+  "type": "texture",
+  "displayName": "RT_sculk_catalyst_bottom",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_sculk_catalyst_bottom.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_sculk_catalyst_bottom_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_sculk_catalyst_bottom.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

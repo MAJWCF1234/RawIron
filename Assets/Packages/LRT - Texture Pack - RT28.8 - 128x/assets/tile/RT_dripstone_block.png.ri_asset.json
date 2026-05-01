@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_dripstone_block",
+  "type": "texture",
+  "displayName": "RT_dripstone_block",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_dripstone_block.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_dripstone_block_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_dripstone_block.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

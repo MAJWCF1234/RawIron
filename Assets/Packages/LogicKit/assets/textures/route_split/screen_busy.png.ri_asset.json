@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_route_split_screen_busy",
+  "type": "texture",
+  "displayName": "screen_busy",
+  "sourcePath": "Assets/Source/LogicKit/textures/route_split/screen_busy.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_route_split_screen_busy_source",
+      "path": "Assets/Source/LogicKit/textures/route_split/screen_busy.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

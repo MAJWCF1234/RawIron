@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_grass_block_side_overlay",
+  "type": "texture",
+  "displayName": "RT_grass_block_side_overlay",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_grass_block_side_overlay.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_grass_block_side_overlay_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_grass_block_side_overlay.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

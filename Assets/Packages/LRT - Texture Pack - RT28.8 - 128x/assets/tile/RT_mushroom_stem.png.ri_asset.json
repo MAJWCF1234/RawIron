@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_mushroom_stem",
+  "type": "texture",
+  "displayName": "RT_mushroom_stem",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_mushroom_stem.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_mushroom_stem_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_mushroom_stem.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

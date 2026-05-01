@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_activator",
+  "type": "texture",
+  "displayName": "RT_activator",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_activator.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_activator_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_activator.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

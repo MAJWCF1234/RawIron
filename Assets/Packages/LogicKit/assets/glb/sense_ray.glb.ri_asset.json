@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_sense_ray",
+  "type": "mesh",
+  "displayName": "sense_ray",
+  "sourcePath": "Assets/Source/LogicKit/glb/sense_ray.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_sense_ray_source",
+      "path": "Assets/Source/LogicKit/glb/sense_ray.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

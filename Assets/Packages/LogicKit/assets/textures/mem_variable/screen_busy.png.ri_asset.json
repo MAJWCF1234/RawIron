@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_mem_variable_screen_busy",
+  "type": "texture",
+  "displayName": "screen_busy",
+  "sourcePath": "Assets/Source/LogicKit/textures/mem_variable/screen_busy.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_mem_variable_screen_busy_source",
+      "path": "Assets/Source/LogicKit/textures/mem_variable/screen_busy.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

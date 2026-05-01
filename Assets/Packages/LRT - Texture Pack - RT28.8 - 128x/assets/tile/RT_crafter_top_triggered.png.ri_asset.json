@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_crafter_top_triggered",
+  "type": "texture",
+  "displayName": "RT_crafter_top_triggered",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_crafter_top_triggered.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_crafter_top_triggered_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_crafter_top_triggered.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

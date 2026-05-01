@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_azalea_top",
+  "type": "texture",
+  "displayName": "RT_azalea_top",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_azalea_top.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_azalea_top_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_azalea_top.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_flow_oneshot_r128_screen_pulse",
+  "type": "texture",
+  "displayName": "screen_pulse",
+  "sourcePath": "Assets/Source/LogicKit/textures/flow_oneshot/r128/screen_pulse.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_flow_oneshot_r128_screen_pulse_source",
+      "path": "Assets/Source/LogicKit/textures/flow_oneshot/r128/screen_pulse.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

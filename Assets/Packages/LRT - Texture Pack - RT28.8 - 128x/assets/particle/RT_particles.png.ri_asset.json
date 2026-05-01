@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "particle_rt_particles",
+  "type": "texture",
+  "displayName": "RT_particles",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/RT_particles.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "particle_rt_particles_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/RT_particles.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

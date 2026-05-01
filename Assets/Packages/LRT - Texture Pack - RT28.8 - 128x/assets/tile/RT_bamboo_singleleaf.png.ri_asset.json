@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_bamboo_singleleaf",
+  "type": "texture",
+  "displayName": "RT_bamboo_singleleaf",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_bamboo_singleleaf.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_bamboo_singleleaf_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_bamboo_singleleaf.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

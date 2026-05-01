@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_chiseled_red_sandstone",
+  "type": "texture",
+  "displayName": "RT_chiseled_red_sandstone",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_chiseled_red_sandstone.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_chiseled_red_sandstone_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_chiseled_red_sandstone.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

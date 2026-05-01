@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "painting_rt_back",
+  "type": "texture",
+  "displayName": "RT_back",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_back.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "painting_rt_back_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_back.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

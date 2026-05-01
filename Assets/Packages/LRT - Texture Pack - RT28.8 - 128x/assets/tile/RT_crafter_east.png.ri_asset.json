@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_crafter_east",
+  "type": "texture",
+  "displayName": "RT_crafter_east",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_crafter_east.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_crafter_east_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_crafter_east.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

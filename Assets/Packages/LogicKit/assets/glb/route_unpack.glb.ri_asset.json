@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_route_unpack",
+  "type": "mesh",
+  "displayName": "route_unpack",
+  "sourcePath": "Assets/Source/LogicKit/glb/route_unpack.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_route_unpack_source",
+      "path": "Assets/Source/LogicKit/glb/route_unpack.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

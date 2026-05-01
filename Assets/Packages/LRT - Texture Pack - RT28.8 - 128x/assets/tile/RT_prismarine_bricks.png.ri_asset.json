@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_prismarine_bricks",
+  "type": "texture",
+  "displayName": "RT_prismarine_bricks",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_prismarine_bricks.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_prismarine_bricks_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_prismarine_bricks.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

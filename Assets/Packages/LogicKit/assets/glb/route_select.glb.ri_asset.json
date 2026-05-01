@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_route_select",
+  "type": "mesh",
+  "displayName": "route_select",
+  "sourcePath": "Assets/Source/LogicKit/glb/route_select.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_route_select_source",
+      "path": "Assets/Source/LogicKit/glb/route_select.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

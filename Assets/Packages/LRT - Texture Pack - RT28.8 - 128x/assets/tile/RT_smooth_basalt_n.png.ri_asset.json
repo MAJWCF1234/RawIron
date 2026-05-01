@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_smooth_basalt_n",
+  "type": "texture",
+  "displayName": "RT_smooth_basalt_n",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_smooth_basalt_n.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_smooth_basalt_n_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_smooth_basalt_n.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

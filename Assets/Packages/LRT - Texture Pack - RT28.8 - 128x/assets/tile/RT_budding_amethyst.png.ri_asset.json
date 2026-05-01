@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_budding_amethyst",
+  "type": "texture",
+  "displayName": "RT_budding_amethyst",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_budding_amethyst.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_budding_amethyst_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_budding_amethyst.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

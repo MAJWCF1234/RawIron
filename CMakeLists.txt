@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.24)
 project(RawIron VERSION 0.1.0 LANGUAGES CXX C)
 
 include("${CMAKE_SOURCE_DIR}/cmake/BundleEngineTextures.cmake")
+include("${CMAKE_SOURCE_DIR}/cmake/RawIronApp.cmake")
 include(CMakeDependentOption)
 
 set(CMAKE_CXX_STANDARD 20)

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_hopper_top",
+  "type": "texture",
+  "displayName": "RT_hopper_top",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_hopper_top.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_hopper_top_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_hopper_top.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

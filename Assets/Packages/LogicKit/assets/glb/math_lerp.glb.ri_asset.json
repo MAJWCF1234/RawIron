@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_math_lerp",
+  "type": "mesh",
+  "displayName": "math_lerp",
+  "sourcePath": "Assets/Source/LogicKit/glb/math_lerp.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_math_lerp_source",
+      "path": "Assets/Source/LogicKit/glb/math_lerp.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

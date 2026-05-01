@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_acacia_leaves",
+  "type": "texture",
+  "displayName": "RT_acacia_leaves",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_acacia_leaves.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_acacia_leaves_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_acacia_leaves.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

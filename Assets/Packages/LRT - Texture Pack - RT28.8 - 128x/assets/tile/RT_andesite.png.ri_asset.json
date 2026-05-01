@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_andesite",
+  "type": "texture",
+  "displayName": "RT_andesite",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_andesite.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_andesite_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_andesite.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

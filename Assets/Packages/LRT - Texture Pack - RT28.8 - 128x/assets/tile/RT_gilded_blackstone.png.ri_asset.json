@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_gilded_blackstone",
+  "type": "texture",
+  "displayName": "RT_gilded_blackstone",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_gilded_blackstone.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_gilded_blackstone_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_gilded_blackstone.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

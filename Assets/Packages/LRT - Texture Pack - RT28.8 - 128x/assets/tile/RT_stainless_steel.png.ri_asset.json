@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_stainless_steel",
+  "type": "texture",
+  "displayName": "RT_stainless_steel",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_stainless_steel.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_stainless_steel_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_stainless_steel.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

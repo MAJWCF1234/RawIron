@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_mem_ram_array",
+  "type": "mesh",
+  "displayName": "mem_ram_array",
+  "sourcePath": "Assets/Source/LogicKit/glb/mem_ram_array.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_mem_ram_array_source",
+      "path": "Assets/Source/LogicKit/glb/mem_ram_array.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

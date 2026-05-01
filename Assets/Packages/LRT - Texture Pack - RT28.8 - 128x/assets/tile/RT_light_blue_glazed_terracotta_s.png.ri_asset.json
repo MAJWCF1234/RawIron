@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_light_blue_glazed_terracotta_s",
+  "type": "texture",
+  "displayName": "RT_light_blue_glazed_terracotta_s",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_light_blue_glazed_terracotta_s.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_light_blue_glazed_terracotta_s_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_light_blue_glazed_terracotta_s.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "painting_rt_bomb",
+  "type": "texture",
+  "displayName": "RT_bomb",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_bomb.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "painting_rt_bomb_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_bomb.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

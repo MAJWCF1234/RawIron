@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_gate_nor",
+  "type": "mesh",
+  "displayName": "gate_nor",
+  "sourcePath": "Assets/Source/LogicKit/glb/gate_nor.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_gate_nor_source",
+      "path": "Assets/Source/LogicKit/glb/gate_nor.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

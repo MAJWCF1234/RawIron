@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_math_div_screen_warn",
+  "type": "texture",
+  "displayName": "screen_warn",
+  "sourcePath": "Assets/Source/LogicKit/textures/math_div/screen_warn.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_math_div_screen_warn_source",
+      "path": "Assets/Source/LogicKit/textures/math_div/screen_warn.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

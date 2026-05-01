@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_cornflower",
+  "type": "texture",
+  "displayName": "RT_cornflower",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_cornflower.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_cornflower_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_cornflower.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

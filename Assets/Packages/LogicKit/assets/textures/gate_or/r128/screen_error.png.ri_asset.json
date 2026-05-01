@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_gate_or_r128_screen_error",
+  "type": "texture",
+  "displayName": "screen_error",
+  "sourcePath": "Assets/Source/LogicKit/textures/gate_or/r128/screen_error.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_gate_or_r128_screen_error_source",
+      "path": "Assets/Source/LogicKit/textures/gate_or/r128/screen_error.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

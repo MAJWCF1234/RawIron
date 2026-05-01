@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_math_add_r128_screen_off",
+  "type": "texture",
+  "displayName": "screen_off",
+  "sourcePath": "Assets/Source/LogicKit/textures/math_add/r128/screen_off.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_math_add_r128_screen_off_source",
+      "path": "Assets/Source/LogicKit/textures/math_add/r128/screen_off.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

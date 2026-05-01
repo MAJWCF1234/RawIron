@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "painting_rt_pool",
+  "type": "texture",
+  "displayName": "RT_pool",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_pool.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "painting_rt_pool_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/painting/RT_pool.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

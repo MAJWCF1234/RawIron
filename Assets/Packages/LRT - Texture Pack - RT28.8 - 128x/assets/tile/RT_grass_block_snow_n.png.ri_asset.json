@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_grass_block_snow_n",
+  "type": "texture",
+  "displayName": "RT_grass_block_snow_n",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_grass_block_snow_n.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_grass_block_snow_n_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_grass_block_snow_n.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

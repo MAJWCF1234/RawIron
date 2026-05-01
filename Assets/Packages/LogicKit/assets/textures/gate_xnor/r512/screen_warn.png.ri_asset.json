@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_gate_xnor_r512_screen_warn",
+  "type": "texture",
+  "displayName": "screen_warn",
+  "sourcePath": "Assets/Source/LogicKit/textures/gate_xnor/r512/screen_warn.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_gate_xnor_r512_screen_warn_source",
+      "path": "Assets/Source/LogicKit/textures/gate_xnor/r512/screen_warn.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

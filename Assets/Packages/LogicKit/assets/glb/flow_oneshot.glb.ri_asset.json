@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "glb_flow_oneshot",
+  "type": "mesh",
+  "displayName": "flow_oneshot",
+  "sourcePath": "Assets/Source/LogicKit/glb/flow_oneshot.glb",
+  "references": [
+    {
+      "kind": "source",
+      "id": "glb_flow_oneshot_source",
+      "path": "Assets/Source/LogicKit/glb/flow_oneshot.glb"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

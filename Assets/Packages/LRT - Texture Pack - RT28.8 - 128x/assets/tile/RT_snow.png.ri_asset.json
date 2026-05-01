@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_snow",
+  "type": "texture",
+  "displayName": "RT_snow",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_snow.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_snow_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_snow.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

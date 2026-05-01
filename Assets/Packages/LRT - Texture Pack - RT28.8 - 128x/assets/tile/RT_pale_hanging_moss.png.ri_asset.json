@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_pale_hanging_moss",
+  "type": "texture",
+  "displayName": "RT_pale_hanging_moss",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_pale_hanging_moss.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_pale_hanging_moss_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_pale_hanging_moss.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

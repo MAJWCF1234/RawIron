@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_iron_bars",
+  "type": "texture",
+  "displayName": "RT_iron_bars",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_iron_bars.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_iron_bars_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_iron_bars.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

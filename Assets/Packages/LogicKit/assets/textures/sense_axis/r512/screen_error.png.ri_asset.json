@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_sense_axis_r512_screen_error",
+  "type": "texture",
+  "displayName": "screen_error",
+  "sourcePath": "Assets/Source/LogicKit/textures/sense_axis/r512/screen_error.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_sense_axis_r512_screen_error_source",
+      "path": "Assets/Source/LogicKit/textures/sense_axis/r512/screen_error.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

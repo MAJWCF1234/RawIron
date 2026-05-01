@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "m_psx_water_uasset",
+  "type": "material",
+  "displayName": "M_PSX_Water",
+  "sourcePath": "Assets/Source/PSX_Water/M_PSX_Water.uasset",
+  "references": [
+    {
+      "kind": "source",
+      "id": "m_psx_water_uasset_source",
+      "path": "Assets/Source/PSX_Water/M_PSX_Water.uasset"
+    }
+  ],
+  "payload": {"sourceFormat":"unreal-uasset","conversionStatus":"metadata-only"}
+}

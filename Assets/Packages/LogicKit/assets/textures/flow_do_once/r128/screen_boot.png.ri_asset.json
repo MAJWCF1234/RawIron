@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "textures_flow_do_once_r128_screen_boot",
+  "type": "texture",
+  "displayName": "screen_boot",
+  "sourcePath": "Assets/Source/LogicKit/textures/flow_do_once/r128/screen_boot.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "textures_flow_do_once_r128_screen_boot_source",
+      "path": "Assets/Source/LogicKit/textures/flow_do_once/r128/screen_boot.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

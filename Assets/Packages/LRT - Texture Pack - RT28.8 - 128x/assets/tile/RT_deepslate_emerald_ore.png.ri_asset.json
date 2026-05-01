@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_deepslate_emerald_ore",
+  "type": "texture",
+  "displayName": "RT_deepslate_emerald_ore",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_deepslate_emerald_ore.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_deepslate_emerald_ore_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_deepslate_emerald_ore.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

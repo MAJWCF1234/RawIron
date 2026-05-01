@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_nether_portal",
+  "type": "texture",
+  "displayName": "RT_nether_portal",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_nether_portal.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_nether_portal_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_nether_portal.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

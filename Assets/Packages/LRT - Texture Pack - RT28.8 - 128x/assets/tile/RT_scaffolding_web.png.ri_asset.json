@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt_scaffolding_web",
+  "type": "texture",
+  "displayName": "RT_scaffolding_web",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_scaffolding_web.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt_scaffolding_web_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/RT_scaffolding_web.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

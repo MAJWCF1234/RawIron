@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "item_rt_diamond_shovel",
+  "type": "texture",
+  "displayName": "RT_diamond_shovel",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/RT_diamond_shovel.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "item_rt_diamond_shovel_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/RT_diamond_shovel.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "ctm_rt_all_stripped_logs_1_s",
+  "type": "texture",
+  "displayName": "RT_all_stripped_logs_1_s",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/ctm/RT_all_stripped_logs_1_s.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "ctm_rt_all_stripped_logs_1_s_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/ctm/RT_all_stripped_logs_1_s.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,5 +1,6 @@
 add_library(RawIron.Content
   src/AssetDocument.cpp
+  src/AssetPackageManifest.cpp
   src/DeclarativeModelDefinition.cpp
   src/EngineAssets.cpp
   src/GameManifest.cpp
