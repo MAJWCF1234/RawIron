@@ -24,3 +24,9 @@ Tools/**/node_modules/
 Assets/Source/**/*.csproj
 Assets/Source/**/*.sln
 .git.corrupt.*/
+
+# Authoring sources (large); exported textures stay in-tree
+**/*.psd
+
+# .ripak is reproducible from exploded Assets/Packages/<id>/; avoid duplicate blobs in git
+Assets/Packages/*.ripak
