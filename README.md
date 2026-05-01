@@ -38,7 +38,7 @@ The engine is currently Windows-first, with Linux kept in the build and architec
 - `Tests`: native test targets
 - `Documentation`: Obsidian-friendly engine documentation
 - `Assets/Cooked`: runtime-ready and standardized asset output
-- `Assets/Source`: local source-asset workspace, intentionally excluded from GitHub because raw art drops can be large
+- `Assets/Source`: local source-asset workspace (often large drops; track only what you intend to share)
 
 ## Build
 
@@ -57,6 +57,8 @@ cmake --preset dev-msvc-localappdata
 cmake --build --preset build-dev-msvc-localappdata
 ctest --test-dir "$env:LOCALAPPDATA\RawIron\cmake-build\dev-msvc" -C RelWithDebInfo --output-on-failure -V
 ```
+
+If `git push` fails reading `.git/objects/pack` on your workspace drive, run `Scripts/Git-PushViaBundle.ps1 -Confirm` (bundle → clone under `%TEMP%` → push). It does not modify `Assets/` or other source trees.
 
 Useful tooling commands after a successful build (same `.\build\dev-msvc\...` paths with `dev-msvc`; use `%LOCALAPPDATA%\RawIron\cmake-build\dev-msvc\...` when you built with `dev-msvc-localappdata`):
 
