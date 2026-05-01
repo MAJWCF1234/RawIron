@@ -79,8 +79,10 @@ ctest --test-dir build/dev-linux-clang --output-on-failure -V
 
 ## Applications
 
+- App packages follow the same ownership rule as games: app-specific code belongs in `Apps/<AppName>/`, while
+  shared engine code belongs in `Source/`.
 - `RawIron.Player`: starter runtime host
-- `RawIron.Editor`: native editor shell
+- `RawIron.Editor`: native editor shell with persistent authored scene state, resource browsing, and in-editor export/play flow
 - `RawIron.Preview`: Scene Kit preview window and headless snapshot host
 - `RawIron.VisualShell`: keyboard-first launch surface for previews, diagnostics, tests, and documentation
 - `RawIron.LiminalGame`: Liminal Hall game host
