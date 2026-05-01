@@ -26,5 +26,5 @@ rawiron_bundle_engine_textures(RawIron.Core.Tests)
 
 add_test(
   NAME RawIron.Core.Tests
-  COMMAND RawIron.Core.Tests
+  COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_SOURCE_DIR} $<TARGET_FILE:RawIron.Core.Tests>
 )

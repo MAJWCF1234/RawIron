@@ -491,7 +491,7 @@ SceneKitMilestoneResult EvaluateGltfLoader(const ExampleDescriptor& descriptor,
                                            const SceneKitMilestoneOptions& options,
                                            const SceneKitMilestoneCallbacks& callbacks) {
     DemoRig rig = BuildBaseDemoRig("SceneKitGltfLoader", false);
-    const std::filesystem::path gltfPath = options.assetRoot / "scenekit_triangle.gltf";
+    const std::filesystem::path gltfPath = options.assetRoot / "models" / "scenekit_triangle.gltf";
 
     std::string loadError;
     const int modelNode = AddGltfModelNode(

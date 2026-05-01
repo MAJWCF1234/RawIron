@@ -2216,7 +2216,7 @@ void TestAddGltfModelNodeAppliesTransform() {
 
 void TestFbxImportScene() {
     namespace fs = std::filesystem;
-    const fs::path path = FindWorkspaceRoot() / "Assets" / "Source" / "scenekit_cube_ascii.fbx";
+    const fs::path path = FindWorkspaceRoot() / "Assets" / "Source" / "models" / "scenekit_cube_ascii.fbx";
 
     ri::scene::Scene scene("FbxImport");
     std::string err;
@@ -2238,7 +2238,7 @@ void TestFbxImportScene() {
 
 void TestAddFbxModelNodeAppliesTransform() {
     namespace fs = std::filesystem;
-    const fs::path path = FindWorkspaceRoot() / "Assets" / "Source" / "scenekit_cube_ascii.fbx";
+    const fs::path path = FindWorkspaceRoot() / "Assets" / "Source" / "models" / "scenekit_cube_ascii.fbx";
 
     ri::scene::Scene scene("FbxModelNode");
     std::string err;
@@ -2372,7 +2372,7 @@ void TestAddModelNodeDispatchesByExtension() {
             R"("buffers":[{"byteLength":44,"uri":"data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAABAAIAAAA="}]})";
     }
 
-    const fs::path fbxPath = FindWorkspaceRoot() / "Assets" / "Source" / "scenekit_cube_ascii.fbx";
+    const fs::path fbxPath = FindWorkspaceRoot() / "Assets" / "Source" / "models" / "scenekit_cube_ascii.fbx";
 
     {
         ri::scene::Scene scene("DispatchObj");
