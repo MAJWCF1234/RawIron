@@ -1,21 +1,18 @@
 # RawIron reconstructed script
-# source: Assets/Source/PSX_Water
-# status: generated-review-required
+# source: package-owned RawIron mesh/material/texture assets
+# status: rawiron-native
 
 script "psx_water" {
-  source_engine = "unreal"
-  source_assets = [
-    "M_PSX_Water.uasset",
-    "SM_PSX_Water.FBX",
-    "SM_PSX_Water.uasset",
-    "T_PSX_Caustics_Atlas.png",
-    "T_PSX_Caustics_Atlas.uasset"
-  ]
+  package = "psx_water"
 
   material "psx_water" {
     shading = "unlit"
     base_texture = "T_PSX_Caustics_Atlas.png"
-    mesh = "SM_PSX_Water.FBX"
+    emissive_texture = "T_PSX_Caustics_Atlas.png"
+    opacity_texture = "T_PSX_Caustics_Atlas.png"
+    mesh = "models/psx_water_surface.ri_model.json"
+    blend = "translucent"
+    sampler = "nearest"
     pixel_snap = true
     affine_warp_hint = true
   }
@@ -23,8 +20,17 @@ script "psx_water" {
   animation "caustics_atlas" {
     texture = "T_PSX_Caustics_Atlas.png"
     frames = 147
-    frame_prefix = "ri_psx_water_anim_"
+    columns = 7
+    rows = 21
     frame_rate = 12
+    phase_parameter = "Animation Phase (0-1)"
     loop = true
+  }
+
+  behavior "water_surface" {
+    on_update {
+      set_material_scalar("psx_water", "Animation Phase (0-1)", fract(time_seconds() * 12 / 147))
+      set_material_texture_frame("psx_water", "caustics_atlas", floor(fract(time_seconds() * 12 / 147) * 147))
+    }
   }
 }

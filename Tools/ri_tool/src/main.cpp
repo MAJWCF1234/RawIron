@@ -452,7 +452,7 @@ std::string InferAssetTypeFromExtension(const fs::path& sourcePath) {
         }
         return "unreal-asset";
     }
-    if (extension == ".fbx" || extension == ".obj" || extension == ".gltf" || extension == ".glb"
+    if (extension == ".fbx" || extension == ".obj" || extension == ".gltf" || extension == ".glb" || extension == ".blend"
         || extension == ".asset" || extension == ".spm") {
         return "mesh";
     }
@@ -520,6 +520,67 @@ std::string BuildForeignScriptPayloadJson(const fs::path& sourcePath) {
     return payload.str();
 }
 
+std::vector<std::string> ExtractPrintableTokensFromBinary(const fs::path& sourcePath,
+                                                          const std::size_t maxTokens) {
+    std::ifstream input(sourcePath, std::ios::binary);
+    if (!input) {
+        return {};
+    }
+
+    std::vector<std::string> tokens;
+    std::string current;
+    char ch = '\0';
+    while (input.get(ch)) {
+        const unsigned char uc = static_cast<unsigned char>(ch);
+        if (uc >= 32U && uc <= 126U) {
+            current.push_back(static_cast<char>(uc));
+            continue;
+        }
+        if (current.size() >= 4U
+            && std::find(tokens.begin(), tokens.end(), current) == tokens.end()) {
+            tokens.push_back(current);
+            if (tokens.size() >= maxTokens) {
+                break;
+            }
+        }
+        current.clear();
+    }
+    if (tokens.size() < maxTokens && current.size() >= 4U
+        && std::find(tokens.begin(), tokens.end(), current) == tokens.end()) {
+        tokens.push_back(current);
+    }
+    return tokens;
+}
+
+std::string BuildStringArrayJson(const std::vector<std::string>& values) {
+    std::ostringstream json;
+    json << "[";
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index != 0U) {
+            json << ",";
+        }
+        json << "\"" << json_scan::EscapeJsonString(values[index]) << "\"";
+    }
+    json << "]";
+    return json.str();
+}
+
+std::string BuildUnrealAssetPayloadJson(const fs::path& sourcePath) {
+    const std::vector<std::string> tokens = ExtractPrintableTokensFromBinary(sourcePath, 80U);
+    std::ostringstream payload;
+    payload << "{";
+    payload << "\"sourceFormat\":\"unreal-uasset\",";
+    payload << "\"conversionStatus\":\"metadata-extracted-reconstruct-required\",";
+    payload << "\"tokens\":" << BuildStringArrayJson(tokens);
+    payload << "}";
+    return payload.str();
+}
+
+std::string BuildBlenderAssetPayloadJson() {
+    return "{\"sourceFormat\":\"blender-blend\",\"conversionStatus\":\"authoring-source-export-required\","
+           "\"preferredExports\":[\"gltf\",\"glb\",\"fbx\"],\"runtimePolicy\":\"do-not-ship-authoring-container\"}";
+}
+
 bool IsForeignScriptExtension(const std::string& extension) {
     return extension == ".cs" || extension == ".lua" || extension == ".js" || extension == ".boo";
 }
@@ -574,7 +635,9 @@ ri::content::AssetDocument BuildStandardAssetDocument(const fs::path& sourcePath
             document.payloadJson = "{\"sourceFormat\":\"unity-asset\"}";
         }
     } else if (extension == ".uasset") {
-        document.payloadJson = "{\"sourceFormat\":\"unreal-uasset\",\"conversionStatus\":\"metadata-only\"}";
+        document.payloadJson = BuildUnrealAssetPayloadJson(normalizedSource);
+    } else if (extension == ".blend") {
+        document.payloadJson = BuildBlenderAssetPayloadJson();
     } else if (extension == ".cs" || extension == ".lua" || extension == ".js" || extension == ".boo") {
         document.type = "script";
         document.payloadJson = BuildForeignScriptPayloadJson(normalizedSource);
@@ -593,11 +656,11 @@ fs::path DefaultStandardizedOutputPath(const WorkspaceLayout& workspace, const f
 bool ShouldStandardizeExtension(const fs::path& path) {
     const std::string extension = ToLowerAscii(path.extension().string());
     return extension == ".asset" || extension == ".spm" || extension == ".fbx" || extension == ".obj"
-        || extension == ".gltf" || extension == ".glb" || extension == ".png" || extension == ".jpg"
+        || extension == ".gltf" || extension == ".glb" || extension == ".blend" || extension == ".png" || extension == ".jpg"
         || extension == ".jpeg" || extension == ".tga" || extension == ".bmp" || extension == ".hdr"
         || extension == ".tif" || extension == ".tiff" || extension == ".wav" || extension == ".ogg"
         || extension == ".mp3" || extension == ".flac" || extension == ".mat" || extension == ".unity"
-        || extension == ".uasset" || extension == ".riscript" || extension == ".lua" || extension == ".cs"
+        || extension == ".riscript" || extension == ".lua" || extension == ".cs"
         || extension == ".js" || extension == ".boo" || extension == ".prefab"
         || extension == ".anim" || extension == ".controller" || extension == ".overridecontroller"
         || extension == ".shader" || extension == ".hlsl" || extension == ".glsl";
@@ -1323,6 +1386,8 @@ int main(int argc, char** argv) {
             ri::core::LogInfo("  .ri_package.json  (portable asset/resource package manifest)");
             ri::core::LogInfo("  .ripak  (ZIP-compatible RawIron package archive containing package.ri_package.json)");
             ri::core::LogInfo("  .riscript  (RawIron-owned Lua-like scripting language for behavior/config/tests)");
+            ri::core::LogInfo("Third-party authoring/import inputs:");
+            ri::core::LogInfo("  .blend  (Blender authoring source; export/rebuild into RawIron mesh/material outputs before shipping)");
             ri::core::LogInfo("Legacy/experimental aliases:");
             ri::core::LogInfo("  .ri_model .ri_mesh .ri_scene .ri_mat .ri_tex .ri_audio .ri_meshc");
             return 0;

@@ -1,0 +1,24 @@
+{
+  "formatVersion": 1,
+  "id": "psx_water_surface_model",
+  "type": "model",
+  "displayName": "PSX Water Surface Model",
+  "sourcePath": "Assets/Packages/PSX_Water/models/psx_water_surface.ri_model.json",
+  "references": [
+    {
+      "kind": "model",
+      "id": "psx_water_surface_model_source",
+      "path": "models/psx_water_surface.ri_model.json"
+    },
+    {
+      "kind": "material",
+      "id": "psx_water_material",
+      "path": "materials/psx_water.ri_material.json"
+    }
+  ],
+  "payload": {
+    "sourceFormat": "rawiron-model",
+    "primitive": "custom",
+    "uvs": "reconstructed"
+  }
+}

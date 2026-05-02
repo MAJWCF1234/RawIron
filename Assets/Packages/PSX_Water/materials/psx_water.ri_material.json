@@ -1,0 +1,33 @@
+{
+  "formatVersion": 1,
+  "materialId": "psx_water",
+  "displayName": "PSX Water",
+  "sourceAssets": [
+    "T_PSX_Caustics_Atlas.png",
+    "models/psx_water_surface.ri_model.json"
+  ],
+  "surface": {
+    "blendMode": "translucent",
+    "shadingModel": "unlit",
+    "baseColorTexture": "../T_PSX_Caustics_Atlas.png",
+    "emissiveTexture": "../T_PSX_Caustics_Atlas.png",
+    "opacityTexture": "../T_PSX_Caustics_Atlas.png",
+    "sampler": "nearest"
+  },
+  "animation": {
+    "kind": "atlas",
+    "frameCount": 147,
+    "columns": 7,
+    "rows": 21,
+    "phaseParameter": "Animation Phase (0-1)",
+    "loop": true
+  },
+  "reconstruction": {
+    "status": "generated-review-required",
+    "basis": [
+      "foreign material token scan",
+      "native RawIron surface model",
+      "portable PNG caustics atlas"
+    ]
+  }
+}

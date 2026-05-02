@@ -40,6 +40,10 @@ Inside a `.ripak`, RawIron uses structured manifest files and engine-owned asset
 
 `package.ri_package.json` is not the package by itself. It is the manifest inside the `.ripak` container or inside the exploded package work directory.
 
+Foreign engine containers such as Unreal `.uasset` are conversion inputs only. A finished RawIron package should contain RawIron descriptors plus portable media, not copied engine-private containers.
+
+Blender `.blend` files are also authoring inputs. Import tooling can catalog them, but finished packages should contain exported/interpreted RawIron model/material outputs or standard interchange payloads rather than requiring Blender at runtime.
+
 `.ri_asset.json` is the current standardized asset descriptor used during import/cook. It can point at standard media payloads such as images, audio, and material data, or at RawIron-owned formats such as `.riscript` and future custom model/scene files.
 
 Current tooling writes the exploded package directory and manifest first, validates it, then creates the `.ripak`. The exploded folder remains useful for debugging and editor staging; the `.ripak` is the thing users share, mount, import, and install.

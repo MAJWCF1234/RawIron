@@ -46,6 +46,11 @@ struct ClipVertex {
     ri::math::Vec2 uv{};
 };
 
+struct TextureSample {
+    ri::math::Vec3 color{1.0f, 1.0f, 1.0f};
+    float alpha = 1.0f;
+};
+
 struct ResolvedLight {
     ri::scene::LightType type = ri::scene::LightType::Directional;
     ri::math::Vec3 position{0.0f, 0.0f, 0.0f};
@@ -440,7 +445,7 @@ ri::math::Vec3 ShadeFace(const ri::math::Vec3& baseColor,
     return ClampColor(MultiplyColor(baseColor, lightAccumulator) + specularAccumulator);
 }
 
-ri::math::Vec3 SampleTexturePixelWrapped(const RgbaImage& tex, int x, int y) {
+TextureSample SampleTexturePixelWrapped(const RgbaImage& tex, int x, int y) {
     x = x % tex.width;
     y = y % tex.height;
     if (x < 0) {
@@ -451,14 +456,55 @@ ri::math::Vec3 SampleTexturePixelWrapped(const RgbaImage& tex, int x, int y) {
     }
     const std::size_t o =
         (static_cast<std::size_t>(y) * static_cast<std::size_t>(tex.width) + static_cast<std::size_t>(x)) * 4U;
-    return ri::math::Vec3{
-        static_cast<float>(tex.rgba[o + 0U]) / 255.0f,
-        static_cast<float>(tex.rgba[o + 1U]) / 255.0f,
-        static_cast<float>(tex.rgba[o + 2U]) / 255.0f,
+    return TextureSample{
+        .color = ri::math::Vec3{
+            static_cast<float>(tex.rgba[o + 0U]) / 255.0f,
+            static_cast<float>(tex.rgba[o + 1U]) / 255.0f,
+            static_cast<float>(tex.rgba[o + 2U]) / 255.0f,
+        },
+        .alpha = static_cast<float>(tex.rgba[o + 3U]) / 255.0f,
     };
 }
 
-ri::math::Vec3 SampleTextureRepeat(const RgbaImage& tex, float u, float v, bool pointSample) {
+ri::math::Vec2 ApplyTextureAtlasFrame(const ri::scene::Material& material,
+                                      const ScenePreviewOptions& options,
+                                      float u,
+                                      float v) {
+    const int columns = std::max(1, material.baseColorTextureAtlasColumns);
+    const int rows = std::max(1, material.baseColorTextureAtlasRows);
+    const int frameCapacity = columns * rows;
+    const int frameCount = material.baseColorTextureAtlasFrameCount > 0
+        ? std::min(material.baseColorTextureAtlasFrameCount, frameCapacity)
+        : frameCapacity;
+    if (columns <= 1 && rows <= 1) {
+        return ri::math::Vec2{u, v};
+    }
+
+    int frame = 0;
+    if (frameCount > 1 && material.baseColorTextureAtlasFramesPerSecond > 0.0f) {
+        const double cursor =
+            std::floor(std::max(0.0, options.animationTimeSeconds) * material.baseColorTextureAtlasFramesPerSecond);
+        frame = static_cast<int>(static_cast<long long>(cursor) % static_cast<long long>(frameCount));
+    }
+    const int column = frame % columns;
+    const int row = frame / columns;
+    const float localU = u - std::floor(u);
+    const float localV = v - std::floor(v);
+    return ri::math::Vec2{
+        (static_cast<float>(column) + localU) / static_cast<float>(columns),
+        (static_cast<float>(row) + localV) / static_cast<float>(rows),
+    };
+}
+
+TextureSample SampleTextureRepeat(const RgbaImage& tex,
+                                  const ri::scene::Material& material,
+                                  const ScenePreviewOptions& options,
+                                  float u,
+                                  float v,
+                                  bool pointSample) {
+    const ri::math::Vec2 atlasUv = ApplyTextureAtlasFrame(material, options, u, v);
+    u = atlasUv.x;
+    v = atlasUv.y;
     u = u - std::floor(u);
     v = v - std::floor(v);
     const float fx = u * static_cast<float>(tex.width - 1);
@@ -476,13 +522,18 @@ ri::math::Vec3 SampleTextureRepeat(const RgbaImage& tex, float u, float v, bool 
     const float tx = fx - static_cast<float>(x0);
     const float ty = fy - static_cast<float>(y0);
 
-    const ri::math::Vec3 c00 = SampleTexturePixelWrapped(tex, x0, y0);
-    const ri::math::Vec3 c10 = SampleTexturePixelWrapped(tex, x1, y0);
-    const ri::math::Vec3 c01 = SampleTexturePixelWrapped(tex, x0, y1);
-    const ri::math::Vec3 c11 = SampleTexturePixelWrapped(tex, x1, y1);
-    const ri::math::Vec3 cx0 = ri::math::Lerp(c00, c10, tx);
-    const ri::math::Vec3 cx1 = ri::math::Lerp(c01, c11, tx);
-    return ClampColor(ri::math::Lerp(cx0, cx1, ty));
+    const TextureSample c00 = SampleTexturePixelWrapped(tex, x0, y0);
+    const TextureSample c10 = SampleTexturePixelWrapped(tex, x1, y0);
+    const TextureSample c01 = SampleTexturePixelWrapped(tex, x0, y1);
+    const TextureSample c11 = SampleTexturePixelWrapped(tex, x1, y1);
+    const ri::math::Vec3 cx0 = ri::math::Lerp(c00.color, c10.color, tx);
+    const ri::math::Vec3 cx1 = ri::math::Lerp(c01.color, c11.color, tx);
+    const float ax0 = c00.alpha + ((c10.alpha - c00.alpha) * tx);
+    const float ax1 = c01.alpha + ((c11.alpha - c01.alpha) * tx);
+    return TextureSample{
+        .color = ClampColor(ri::math::Lerp(cx0, cx1, ty)),
+        .alpha = Clamp01(ax0 + ((ax1 - ax0) * ty)),
+    };
 }
 
 void RasterizeTriangleProjected(SoftwareImage& image,
@@ -491,6 +542,7 @@ void RasterizeTriangleProjected(SoftwareImage& image,
                                 const ScreenVertex& screenA,
                                 const ScreenVertex& screenB,
                                 const ScreenVertex& screenC,
+                                const ri::scene::Material& material,
                                 const ri::math::Vec3& modulate,
                                 const RgbaImage* texture,
                                 const CameraBasis& camera) {
@@ -569,15 +621,16 @@ void RasterizeTriangleProjected(SoftwareImage& image,
                 v = (w0 * screenA.uv.y * invZa + w1 * screenB.uv.y * invZb + w2 * screenC.uv.y * invZc) / wInvZ;
             }
 
-            ri::math::Vec3 albedo{1.0f, 1.0f, 1.0f};
+            TextureSample sample{};
             if (texture != nullptr && texture->Valid()) {
                 const bool samplePoint = options.pointSampleTextures
                     || (options.adaptiveTextureSampling && depth >= options.adaptivePointSampleStartDepth);
-                albedo = SampleTextureRepeat(*texture, u, v, samplePoint);
+                sample = SampleTextureRepeat(*texture, material, options, u, v, samplePoint);
             }
-            const ri::math::Vec3 shaded = MultiplyColor(modulate, albedo);
+            const ri::math::Vec3 shaded = MultiplyColor(modulate, sample.color);
             const float fogFactor = Clamp01((depth - 3.0f) / 14.0f);
-            ri::math::Vec3 out = ClampColor(ri::math::Lerp(shaded, options.fogColor, fogFactor * fogFactor * 0.72f));
+            ri::math::Vec3 out = ClampColor(shaded + material.emissiveColor);
+            out = ClampColor(ri::math::Lerp(out, options.fogColor, fogFactor * fogFactor * 0.72f));
             const bool texturedSample = texture != nullptr && texture->Valid();
             if (options.orderedDither && !texturedSample) {
                 const float nudge = DitherNudge(x, y);
@@ -585,6 +638,15 @@ void RasterizeTriangleProjected(SoftwareImage& image,
                 out = ClampColor(out + ri::math::Vec3{nudge * step, nudge * step, nudge * step});
             }
             const std::size_t colorOffset = pixelIndex * 3U;
+            const float alpha = Clamp01(material.opacity * sample.alpha);
+            if (material.transparent || alpha < 0.999f) {
+                const ri::math::Vec3 destination{
+                    static_cast<float>(image.pixels[colorOffset + 0U]) / 255.0f,
+                    static_cast<float>(image.pixels[colorOffset + 1U]) / 255.0f,
+                    static_cast<float>(image.pixels[colorOffset + 2U]) / 255.0f,
+                };
+                out = ClampColor(ri::math::Lerp(destination, out, alpha));
+            }
             image.pixels[colorOffset + 0U] = ToByte(out.x);
             image.pixels[colorOffset + 1U] = ToByte(out.y);
             image.pixels[colorOffset + 2U] = ToByte(out.z);
@@ -641,6 +703,7 @@ void RasterizeTriangleClipped(SoftwareImage& image,
                               const ClipVertex& va,
                               const ClipVertex& vb,
                               const ClipVertex& vc,
+                              const ri::scene::Material& material,
                               const ri::math::Vec3& modulate,
                               const RgbaImage* texture) {
     constexpr float kNearDepth = 0.05f;
@@ -697,7 +760,7 @@ void RasterizeTriangleClipped(SoftwareImage& image,
         const ScreenVertex sa = ProjectPoint(a.p, a.uv, options.width, options.height, camera.focalLength, camera.aspectRatio);
         const ScreenVertex sb = ProjectPoint(b.p, b.uv, options.width, options.height, camera.focalLength, camera.aspectRatio);
         const ScreenVertex sc = ProjectPoint(c.p, c.uv, options.width, options.height, camera.focalLength, camera.aspectRatio);
-        RasterizeTriangleProjected(image, depthBuffer, options, sa, sb, sc, modulate, texture, camera);
+        RasterizeTriangleProjected(image, depthBuffer, options, sa, sb, sc, material, modulate, texture, camera);
     }
 }
 
@@ -799,9 +862,9 @@ void DrawPrimitiveNode(SoftwareImage& image,
             options);
 
         RasterizeTriangleClipped(
-            image, depthBuffer, options, camera, clipVerts[0], clipVerts[1], clipVerts[2], modulate, texture);
+            image, depthBuffer, options, camera, clipVerts[0], clipVerts[1], clipVerts[2], material, modulate, texture);
         RasterizeTriangleClipped(
-            image, depthBuffer, options, camera, clipVerts[0], clipVerts[2], clipVerts[3], modulate, texture);
+            image, depthBuffer, options, camera, clipVerts[0], clipVerts[2], clipVerts[3], material, modulate, texture);
     };
 
     const auto drawTriangleWorld = [&](const ri::math::Vec3& localA,
@@ -845,7 +908,7 @@ void DrawPrimitiveNode(SoftwareImage& image,
             camera,
             lights,
             options);
-        RasterizeTriangleClipped(image, depthBuffer, options, camera, ca, cb, cc, modulate, texture);
+        RasterizeTriangleClipped(image, depthBuffer, options, camera, ca, cb, cc, material, modulate, texture);
     };
 
     switch (mesh.primitive) {

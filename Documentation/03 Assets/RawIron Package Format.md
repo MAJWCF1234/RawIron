@@ -12,13 +12,14 @@ tags:
 
 RawIron packages are the engine-owned handoff point between foreign source drops and runtime-ready content.
 
-Unity packages, Unity project folders, loose FBX/OBJ/glTF drops, texture packs, and audio packs should be treated as import sources. After conversion, RawIron tooling should produce a `.ripak` file: a ZIP-compatible archive with a RawIron extension, similar in spirit to Minecraft `.mcworld`.
+Unity packages, Unreal asset folders, loose FBX/OBJ/glTF/Blender drops, texture packs, and audio packs should be treated as import sources. After conversion, RawIron tooling should produce a `.ripak` file: a ZIP-compatible archive with a RawIron extension, similar in spirit to Minecraft `.mcworld`.
 
 This gives the project a clean rule:
 
 - source formats are allowed at the import boundary
 - RawIron `.ripak` files are the canonical portable handoff
 - runtime systems should depend on RawIron-owned outputs, not Unity project state
+- foreign engine containers are conversion inputs, not distributable package payloads
 
 ## Package Container
 
@@ -77,6 +78,8 @@ The current `.ripak` internal shape is:
 The `assets/` tree preserves the source-relative layout where practical. Each file is a standardized `.ri_asset.json` descriptor. Images, sounds, and other standard media payloads can remain standard files inside the archive when the runtime/toolchain can consume them directly. RawIron-owned authored behavior uses `.riscript`, and future custom model/scene/runtime formats should live alongside the descriptors.
 
 Foreign scripts must not remain the runtime authority. Unity `.cs`, UnityScript `.js`, Boo `.boo`, or Lua-like source from third-party packs can be retained as provenance, but the package should also contain a reconstructed RawIron script under `scripts/`. Early reconstruction may be a review-required `.riscript` stub that records lifecycle hooks and source identity; complete reconstruction should translate behavior into RawIron's own scripting vocabulary.
+
+Foreign engine containers must not ship inside a finished `.ripak`. Files such as Unreal `.uasset` and Unity-only cache state can be cracked open during conversion to recover names, object paths, material settings, graph intent, and import references, but the package output should be RawIron-owned descriptors plus portable payloads such as FBX, glTF, PNG, WAV, and OGG. When a container cannot be reconstructed from local metadata, the importer can escalate to that engine's command-line/export tools, then package only the exported portable data and reconstructed RawIron files.
 
 Tools may also use the same shape as an exploded staging directory:
 
@@ -256,6 +259,28 @@ For Unity-derived content, RawIron package conversion should preserve enough inf
 - validation that every converted output is present and accounted for
 
 Unity `Library/`, `.vs/`, generated project files, and other tool caches are not package inputs. They should stay ignored or be removed before package build.
+
+## Unreal Conversion Role
+
+Unreal should also stay at the importer boundary.
+
+For Unreal-derived content, RawIron conversion should:
+
+- detect Unreal package files by extension and package tag
+- extract object names, import paths, class names, material parameter labels, texture settings, and engine version tokens where possible
+- use portable companion payloads such as FBX meshes and PNG textures as the package media
+- reconstruct RawIron material documents, scene/entity descriptors, and `.riscript` behavior from the recovered metadata
+- reconstruct native model surfaces when imported meshes lack the UVs or runtime shape needed by the original material
+- map material graph concepts such as flipbook atlas animation, scalar phase parameters, nearest sampling, unlit shading, translucency, emissive output, and opacity into RawIron material/script fields
+- mark partially inferred outputs as `generated-review-required`
+- exclude `.uasset`, `.umap`, `DerivedDataCache/`, `Intermediate/`, `Saved/`, and Unreal project/build residue from the finished `.ripak`
+- escalate to Unreal commandlets or headless editor export only when local token/name-table extraction is not enough
+
+The goal is not to disguise provenance. The goal is that a RawIron package looks and behaves like RawIron content, with foreign engine files used only as licensed source material during conversion.
+
+## Blender Conversion Role
+
+Blender `.blend` files are third-party authoring sources. RawIron tooling should classify them as mesh/model import inputs, preserve them only at the source/import boundary, and convert them into RawIron-owned model/material/texture descriptors or standard interchange payloads during packaging. Runtime packages should not require Blender to be installed.
 
 ## Cleanup Rule
 

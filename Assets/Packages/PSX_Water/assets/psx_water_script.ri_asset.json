@@ -1,0 +1,25 @@
+{
+  "formatVersion": 1,
+  "id": "psx_water_script",
+  "type": "script",
+  "displayName": "PSX Water Script",
+  "sourcePath": "Assets/Packages/PSX_Water/scripts/psx_water.riscript",
+  "references": [
+    {
+      "kind": "script",
+      "id": "psx_water_script_source",
+      "path": "scripts/psx_water.riscript"
+    },
+    {
+      "kind": "material",
+      "id": "psx_water_material",
+      "path": "materials/psx_water.ri_material.json"
+    }
+  ],
+  "payload": {
+    "sourceFormat": "riscript",
+    "role": "material-animation",
+    "entry": "water_surface",
+    "status": "rawiron-native"
+  }
+}

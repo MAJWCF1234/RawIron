@@ -25,3 +25,6 @@ Assets/Source/**/*.csproj
 Assets/Source/**/*.sln
 .git.corrupt.*/
 
+# Local scratch captures (do not commit)
+Saved/TestScratch/
+

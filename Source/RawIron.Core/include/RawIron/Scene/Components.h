@@ -40,6 +40,11 @@ struct Material {
     /// Optional explicit animation frames under the same texture root.
     std::vector<std::string> baseColorTextureFrames{};
     float baseColorTextureFramesPerSecond = 0.0f;
+    /// Optional flipbook atlas encoded inside `baseColorTexture`.
+    int baseColorTextureAtlasColumns = 1;
+    int baseColorTextureAtlasRows = 1;
+    int baseColorTextureAtlasFrameCount = 0;
+    float baseColorTextureAtlasFramesPerSecond = 0.0f;
     ri::math::Vec2 textureTiling{1.0f, 1.0f};
     ri::math::Vec3 emissiveColor{0.0f, 0.0f, 0.0f};
     float metallic = 0.0f;

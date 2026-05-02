@@ -1,0 +1,31 @@
+{
+  "formatVersion": 1,
+  "id": "psx_water_material",
+  "type": "material",
+  "displayName": "PSX Water Material",
+  "sourcePath": "Assets/Packages/PSX_Water/materials/psx_water.ri_material.json",
+  "references": [
+    {
+      "kind": "material",
+      "id": "psx_water_material_source",
+      "path": "materials/psx_water.ri_material.json"
+    },
+    {
+      "kind": "texture",
+      "id": "psx_water_caustics",
+      "path": "T_PSX_Caustics_Atlas.png"
+    }
+  ],
+  "payload": {
+    "sourceFormat": "rawiron-material",
+    "blendMode": "translucent",
+    "shadingModel": "unlit",
+    "sampler": "nearest",
+    "atlas": {
+      "frameCount": 147,
+      "columns": 7,
+      "rows": 21,
+      "framesPerSecond": 12
+    }
+  }
+}

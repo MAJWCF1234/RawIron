@@ -1,4 +1,6 @@
 #include "RawIron/Core/ActionBindings.h"
+#include "RawIron/Content/AssetDocument.h"
+#include "RawIron/Content/AssetPackageManifest.h"
 #include "RawIron/Core/InputLabelFormat.h"
 #include "RawIron/Core/ContentPresentation.h"
 #include "RawIron/Core/CommandLine.h"
@@ -106,6 +108,25 @@ bool ImageHasContrast(const ri::render::software::SoftwareImage& image) {
         maximum = std::max(maximum, value);
     }
     return static_cast<int>(maximum) - static_cast<int>(minimum) >= 18;
+}
+
+bool ImagesDiffer(const ri::render::software::SoftwareImage& lhs,
+                  const ri::render::software::SoftwareImage& rhs,
+                  int minimumDifferentChannels = 64) {
+    if (lhs.width != rhs.width || lhs.height != rhs.height || lhs.pixels.size() != rhs.pixels.size()) {
+        return true;
+    }
+
+    int different = 0;
+    for (std::size_t index = 0; index < lhs.pixels.size(); ++index) {
+        if (std::abs(static_cast<int>(lhs.pixels[index]) - static_cast<int>(rhs.pixels[index])) > 3) {
+            ++different;
+            if (different >= minimumDifferentChannels) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 void Expect(bool condition, const std::string& message) {
@@ -2236,6 +2257,143 @@ void TestFbxImportScene() {
     Expect(Contains(description, "Cube"), "Describe should include imported FBX node names");
 }
 
+void TestPsxWaterPackageNativeSceneProof() {
+    namespace fs = std::filesystem;
+    const fs::path packageRoot = FindWorkspaceRoot() / "Assets" / "Packages" / "PSX_Water";
+    const fs::path manifestPath = packageRoot / "package.ri_package.json";
+    const fs::path texturePath = packageRoot / "T_PSX_Caustics_Atlas.png";
+    const fs::path nativeModelPath = packageRoot / "models" / "psx_water_surface.ri_model.json";
+    const fs::path materialPath = packageRoot / "materials" / "psx_water.ri_material.json";
+    const fs::path scriptPath = packageRoot / "scripts" / "psx_water.riscript";
+
+    const std::optional<ri::content::AssetPackageManifest> manifest =
+        ri::content::LoadAssetPackageManifest(manifestPath);
+    Expect(manifest.has_value(), "PSX water package manifest should load");
+    Expect(ri::content::ValidateAssetPackageManifest(*manifest, packageRoot).valid,
+           "PSX water package manifest should validate");
+    Expect(manifest->assets.size() >= 4U, "PSX water package should list texture, model, material, and script assets");
+
+    bool foundTexture = false;
+    bool foundModel = false;
+    bool foundMaterial = false;
+    bool foundScript = false;
+    for (const ri::content::AssetPackageEntry& asset : manifest->assets) {
+        foundTexture = foundTexture || (asset.id == "t_psx_caustics_atlas_png" && asset.type == "texture");
+        foundModel = foundModel || (asset.id == "psx_water_surface_model" && asset.type == "model");
+        foundMaterial = foundMaterial || (asset.id == "psx_water_material" && asset.type == "material");
+        foundScript = foundScript || (asset.id == "psx_water_script" && asset.type == "script");
+    }
+    Expect(foundTexture && foundModel && foundMaterial && foundScript,
+           "PSX water package should expose every reconstructed RawIron asset as a manifest entry");
+    Expect(fs::exists(texturePath), "PSX water package should include a portable caustics texture");
+
+    const std::string materialJson = ri::core::detail::ReadTextFile(materialPath);
+    const std::string scriptText = ri::core::detail::ReadTextFile(scriptPath);
+    Expect(Contains(materialJson, "\"blendMode\": \"translucent\""), "Native material should preserve translucent blending");
+    Expect(Contains(materialJson, "\"shadingModel\": \"unlit\""), "Native material should preserve unlit shading");
+    Expect(Contains(materialJson, "\"frameCount\": 147"), "Native material should preserve flipbook frame count");
+    Expect(Contains(ri::core::detail::ReadTextFile(nativeModelPath), "\"primitive\": \"custom\""),
+           "Native model should provide a reconstructed custom water mesh");
+    Expect(Contains(ri::core::detail::ReadTextFile(nativeModelPath), "\"uv\""),
+           "Native model should provide reconstructed UVs for atlas sampling");
+    Expect(Contains(scriptText, "set_material_texture_frame"),
+           "Native script should drive the flipbook atlas frame");
+
+    ri::scene::Scene scene("PSXWaterEmptyScene");
+    const int root = scene.CreateNode("World");
+    const int cameraNode = scene.CreateNode("Camera", root);
+    const int lightNode = scene.CreateNode("FillLight", root);
+    const int camera = scene.AddCamera(ri::scene::Camera{
+        .name = "ProofCamera",
+        .projection = ri::scene::ProjectionType::Perspective,
+        .fieldOfViewDegrees = 55.0f,
+        .nearClip = 0.1f,
+        .farClip = 100.0f,
+    });
+    scene.AttachCamera(cameraNode, camera);
+    scene.GetNode(cameraNode).localTransform.position = ri::math::Vec3{0.0f, 1.0f, -3.5f};
+
+    const int light = scene.AddLight(ri::scene::Light{
+        .name = "SoftFill",
+        .type = ri::scene::LightType::Directional,
+        .intensity = 1.5f,
+    });
+    scene.AttachLight(lightNode, light);
+    scene.GetNode(lightNode).localTransform.rotationDegrees = ri::math::Vec3{-50.0f, 15.0f, 0.0f};
+
+    const int waterMaterial = scene.AddMaterial(ri::scene::Material{
+        .name = "psx_water",
+        .shadingModel = ri::scene::ShadingModel::Unlit,
+        .baseColor = ri::math::Vec3{0.72f, 0.92f, 1.0f},
+        .baseColorTexture = "T_PSX_Caustics_Atlas.png",
+        .baseColorTextureAtlasColumns = 7,
+        .baseColorTextureAtlasRows = 21,
+        .baseColorTextureAtlasFrameCount = 147,
+        .baseColorTextureAtlasFramesPerSecond = 12.0f,
+        .emissiveColor = ri::math::Vec3{0.18f, 0.32f, 0.42f},
+        .opacity = 0.88f,
+        .doubleSided = true,
+        .transparent = true,
+        .emissiveTexture = "T_PSX_Caustics_Atlas.png",
+        .opacityTexture = "T_PSX_Caustics_Atlas.png",
+    });
+
+    const int nativeWaterMesh = scene.AddMesh(ri::scene::Mesh{
+        .name = "psx_water_surface",
+        .primitive = ri::scene::PrimitiveType::Custom,
+        .vertexCount = 4,
+        .indexCount = 6,
+        .positions =
+            {
+                ri::math::Vec3{-1.0f, -1.0f, 0.0f},
+                ri::math::Vec3{1.0f, -1.0f, 0.0f},
+                ri::math::Vec3{1.0f, 1.0f, 0.0f},
+                ri::math::Vec3{-1.0f, 1.0f, 0.0f},
+            },
+        .texCoords =
+            {
+                ri::math::Vec2{0.0f, 1.0f},
+                ri::math::Vec2{1.0f, 1.0f},
+                ri::math::Vec2{1.0f, 0.0f},
+                ri::math::Vec2{0.0f, 0.0f},
+            },
+        .indices = {0, 1, 2, 0, 2, 3},
+    });
+    const int nativeWaterNode = scene.CreateNode("PSXWaterNativeSurface", root);
+    scene.GetNode(nativeWaterNode).localTransform.position = ri::math::Vec3{0.0f, 0.0f, 3.6f};
+    scene.GetNode(nativeWaterNode).localTransform.scale = ri::math::Vec3{2.5f, 2.5f, 2.5f};
+    scene.AttachMesh(nativeWaterNode, nativeWaterMesh, waterMaterial);
+
+    Expect(scene.MeshCount() == 1U, "PSX water scene should contain the reconstructed native surface model");
+
+    ri::render::software::ScenePreviewOptions options{};
+    options.width = 320;
+    options.height = 240;
+    options.textureRoot = packageRoot;
+    options.clearTop = ri::math::Vec3{0.0f, 0.0f, 0.0f};
+    options.clearBottom = ri::math::Vec3{0.0f, 0.0f, 0.0f};
+    options.fogColor = ri::math::Vec3{0.0f, 0.0f, 0.0f};
+    options.pointSampleTextures = true;
+    options.orderedDither = false;
+    options.animationTimeSeconds = 0.0;
+    const ri::render::software::SoftwareImage firstFrame =
+        ri::render::software::RenderScenePreview(scene, cameraNode, options);
+    Expect(ImageHasContrast(firstFrame), "PSX water proof scene should render visible water");
+
+    options.animationTimeSeconds = 1.0;
+    const ri::render::software::SoftwareImage secondFrame =
+        ri::render::software::RenderScenePreview(scene, cameraNode, options);
+    Expect(ImagesDiffer(firstFrame, secondFrame),
+           "PSX water proof scene should advance atlas frames through native material animation");
+
+    const fs::path scratchDir = FindWorkspaceRoot() / "Saved" / "TestScratch";
+    fs::create_directories(scratchDir);
+    Expect(ri::render::software::SaveBmp(firstFrame, (scratchDir / "psx_water_native_scene_frame0.bmp").string()),
+           "PSX water proof should write a first-frame BMP preview");
+    Expect(ri::render::software::SaveBmp(secondFrame, (scratchDir / "psx_water_native_scene_frame1.bmp").string()),
+           "PSX water proof should write an animated-frame BMP preview");
+}
+
 void TestAddFbxModelNodeAppliesTransform() {
     namespace fs = std::filesystem;
     const fs::path path = FindWorkspaceRoot() / "Assets" / "Source" / "models" / "scenekit_cube_ascii.fbx";
@@ -3520,6 +3678,7 @@ const ri::test::TestCase kCoreTests[] = {
     {"TestGltfSparsePositionImport", TestGltfSparsePositionImport},
     {"TestAddGltfModelNodeAppliesTransform", TestAddGltfModelNodeAppliesTransform},
     {"TestFbxImportScene", TestFbxImportScene},
+    {"TestPsxWaterPackageNativeSceneProof", TestPsxWaterPackageNativeSceneProof},
     {"TestAddFbxModelNodeAppliesTransform", TestAddFbxModelNodeAppliesTransform},
     {"TestWavefrontObjMeshUsesLibraryImporter", TestWavefrontObjMeshUsesLibraryImporter},
     {"TestAddWavefrontObjNodePreservesCustomMaterialOptions", TestAddWavefrontObjNodePreservesCustomMaterialOptions},
