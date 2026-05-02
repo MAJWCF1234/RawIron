@@ -129,6 +129,13 @@ try {
 
     Write-Host "Splitting into parts -> $OutputDir ..."
     Split-FileIntoParts -SourcePath $zipPath -OutputDirectory $OutputDir -ChunkSize $MaxPartBytes -PartBasenames $partNames
+    foreach ($pn in $partNames) {
+        $pp = Join-Path $OutputDir $pn
+        if (-not (Test-Path -LiteralPath $pp)) {
+            [System.IO.File]::WriteAllBytes($pp, [byte[]]::new(0))
+            Write-Host "(placeholder) created empty $pn — installer joins all listed parts"
+        }
+    }
 
     $iu = Join-Path $OutputDir 'Installer_upload'
     Write-Host "Copying Installer (outside big zip) -> $iu"
