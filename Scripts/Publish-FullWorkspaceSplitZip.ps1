@@ -129,12 +129,34 @@ try {
 
     Write-Host "Splitting into parts -> $OutputDir ..."
     Split-FileIntoParts -SourcePath $zipPath -OutputDirectory $OutputDir -ChunkSize $MaxPartBytes -PartBasenames $partNames
-    foreach ($pn in $partNames) {
-        $pp = Join-Path $OutputDir $pn
-        if (-not (Test-Path -LiteralPath $pp)) {
-            [System.IO.File]::WriteAllBytes($pp, [byte[]]::new(0))
-            Write-Host "(placeholder) created empty $pn — installer joins all listed parts"
+
+    # GitHub rejects 0-byte release assets. If part03 is missing or empty, move the last byte of part02 into part03
+    # (concatenation part01||part02||part03 is unchanged; SHA256 of joined zip unchanged).
+    $p2path = Join-Path $OutputDir $partNames[1]
+    $p3path = Join-Path $OutputDir $partNames[2]
+    $p3len = 0L
+    if (Test-Path -LiteralPath $p3path) { $p3len = (Get-Item -LiteralPath $p3path).Length }
+    if ($p3len -eq 0 -and (Test-Path -LiteralPath $p2path)) {
+        $len2 = (Get-Item -LiteralPath $p2path).Length
+        if ($len2 -lt 1) { throw 'Cannot emit part03: part02 is empty.' }
+        $fs = [System.IO.File]::OpenRead($p2path)
+        try {
+            $null = $fs.Seek(-1, [System.IO.SeekOrigin]::End)
+            $one = New-Object byte[] 1
+            [void]$fs.Read($one, 0, 1)
         }
+        finally {
+            $fs.Dispose()
+        }
+        $rw = [System.IO.File]::Open($p2path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite)
+        try {
+            $rw.SetLength($len2 - 1)
+        }
+        finally {
+            $rw.Dispose()
+        }
+        [System.IO.File]::WriteAllBytes($p3path, $one)
+        Write-Host 'Adjusted part03 for GitHub (non-zero): moved last byte from part02; joined ZIP hash unchanged.'
     }
 
     $iu = Join-Path $OutputDir 'Installer_upload'
