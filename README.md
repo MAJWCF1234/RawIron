@@ -68,7 +68,7 @@ That mirrors `%LOCALAPPDATA%\RawIron\cmake-build\dev-msvc` → `.\build\dev-msvc
 
 If `git push` fails reading `.git/objects/pack` on your workspace drive, run `Scripts/Git-PushViaBundle.ps1 -Confirm` (bundle → clone under `%TEMP%` → push). Otherwise clone the repo to a local NTFS path and push from there.
 
-Maintainers: split full-workspace ZIPs for GitHub Releases are built with `Scripts/Publish-FullWorkspaceSplitZip.ps1 -OutputDir <path>` (writes `RawIron_full_release_with_builds.zip.part01`–`.part03` and `Installer_upload\`; update `Installer/RawIron.FullWorkspace.Installer.ps1` `ReleaseTag` / `ExpectedSha256` from script output).
+Maintainers: split full-workspace ZIPs for GitHub Releases are built with `Scripts/Publish-FullWorkspaceSplitZip.ps1 -OutputDir <path>` (writes `RawIron_full_release_with_builds.zip.part01`–`.part03` and `Installer_upload\`; update `Installer/RawIron.FullWorkspace.Installer.ps1` `ReleaseTag` / `ExpectedSha256` from script output). If you **force-move** that Git tag, GitHub may mark the matching release as **draft** until you publish it again (UI or REST `draft: false`). Attach ZIP parts with `curl` to the release `upload_url` or drag-and-drop on the release page.
 
 To install a published **split full-workspace** release from GitHub (download parts, join, verify, extract), run `Installer/RawIron.FullWorkspace.Installer.cmd` for the graphical wizard, or `powershell -STA -File Installer/RawIron.FullWorkspace.Installer.ps1 -NoGui` for automation.
 
