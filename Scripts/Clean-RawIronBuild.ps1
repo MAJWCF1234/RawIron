@@ -1,17 +1,22 @@
 # Removes reproducible CMake output only: <repo>/build (see .gitignore) and optional root compile_commands.json.
-# Optionally removes %LOCALAPPDATA%\RawIron\cmake-build (output of dev-msvc-localappdata) — still NOT any Assets/.
+# Optionally removes %LOCALAPPDATA%\RawIron\cmake-build (output of dev-msvc-localappdata); still NOT any Assets/.
 # NEVER deletes Assets/, Games/, Saved/, ThirdParty/, or other source/paid content — only CMake build trees.
 # Regenerate with: cmake --preset dev-msvc (or your preset), then optionally copy compile_commands.json for clangd.
 
 param(
     [Parameter()]
-    [string] $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path,
+    [string] $RepoRoot,
 
     [Parameter(HelpMessage = 'Also remove %LOCALAPPDATA%\RawIron\cmake-build (MSVC preset dev-msvc-localappdata output).')]
     [switch] $IncludeProfileCMakeBuild
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $RepoRoot) {
+    $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+    $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $scriptDir '..')).Path
+}
 
 function Remove-RobustTree {
     param([string]$LiteralPath)

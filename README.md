@@ -58,6 +58,14 @@ cmake --build --preset build-dev-msvc-localappdata
 ctest --test-dir "$env:LOCALAPPDATA\RawIron\cmake-build\dev-msvc" -C RelWithDebInfo --output-on-failure -V
 ```
 
+**Portable folder (USB, zip, moving machines):** Prefer `cmake --preset dev-msvc` so all outputs stay under **`<RawIron>\build\dev-msvc`**. That way the whole repository directory is self-contained (sources + local build; `build\` is gitignored but still travels when you copy the folder). If you had to use `dev-msvc-localappdata`, sync the profile build back into the repo before archiving:
+
+```powershell
+.\Scripts\Sync-ProfileBuildToRepo.ps1
+```
+
+That mirrors `%LOCALAPPDATA%\RawIron\cmake-build\dev-msvc` → `.\build\dev-msvc` so executables and staged DLLs live next to your tree again.
+
 If `git push` fails reading `.git/objects/pack` on your workspace drive, run `Scripts/Git-PushViaBundle.ps1 -Confirm` (bundle → clone under `%TEMP%` → push). It does not modify `Assets/` or other source trees.
 
 To install a published **split full-workspace** release from GitHub (download parts, join, verify, extract), run `Installer/RawIron.FullWorkspace.Installer.cmd` for the graphical wizard, or `powershell -STA -File Installer/RawIron.FullWorkspace.Installer.ps1 -NoGui` for automation.
