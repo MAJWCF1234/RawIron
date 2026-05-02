@@ -42,7 +42,6 @@ function safeCopyDirectory(sourceDir, targetDir) {
 }
 
 function copyRuntimeSupportFiles() {
-  const fileEntries = ['dev_level.json'];
   const dirEntries = ['models', 'subprojects'];
 
   return {
@@ -50,15 +49,6 @@ function copyRuntimeSupportFiles() {
     closeBundle() {
       const rootDir = __dirname;
       const distDir = path.resolve(rootDir, 'dist');
-
-      for (const relativeFile of fileEntries) {
-        const sourcePath = path.resolve(rootDir, relativeFile);
-        const targetPath = path.resolve(distDir, relativeFile);
-        if (!fs.existsSync(sourcePath)) continue;
-        fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-        fs.copyFileSync(sourcePath, targetPath);
-      }
-
       for (const relativeDir of dirEntries) {
         const sourcePath = path.resolve(rootDir, relativeDir);
         const targetPath = path.resolve(distDir, relativeDir);
@@ -79,7 +69,6 @@ function prepareRuntimeOutDir() {
       const cleanupTargets = [
         path.resolve(distDir, 'assets'),
         path.resolve(distDir, 'index.html'),
-        path.resolve(distDir, 'dev_level.json'),
         path.resolve(distDir, 'audio')
       ];
       cleanupTargets.forEach((targetPath) => {

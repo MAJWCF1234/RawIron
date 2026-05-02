@@ -15,6 +15,14 @@ struct GameManifest {
     std::string format;
     std::string type;
     std::string entry;
+    /// Required runtime core contract identifier (expected: `rawiron-runtime-v1`).
+    std::string runtimeContract;
+    /// Engine/game runtime module target or package identity mounted by the host.
+    std::string runtimeModule;
+    /// Runtime host model used to drive lifecycle (expected: `RuntimeCore`).
+    std::string runtimeHost;
+    /// Baseline runtime services this game expects from RawIron.Runtime.
+    std::vector<std::string> runtimeServices;
     /// Human-readable game content version (for editor/runtime display), e.g. `1.3.7`.
     std::string version;
     /// Primary creator/team label shown in tooling UX.
@@ -48,5 +56,4 @@ struct GameManifest {
                                                          std::string_view relativeUtf8);
 
 } // namespace ri::content
-
 

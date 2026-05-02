@@ -12,6 +12,7 @@
 #include "RawIron/Editor/PreviewSceneRegistry.h"
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Runtime/ExperiencePresets.h"
+#include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Scene/Components.h"
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Scene/PrimitivesCsvIO.h"
@@ -5725,12 +5726,42 @@ int main(int argc, char** argv) {
         const bool forceHeadless = commandLine.HasFlag("--headless") || commandLine.HasFlag("--cli-editor");
         const bool forceGui = commandLine.HasFlag("--editor-ui");
         if (!forceHeadless && (forceGui || !hasFrameBudgetArg)) {
+            ri::runtime::RuntimeCore runtime(
+                ri::runtime::RuntimeIdentity{
+                    .id = "rawiron.editor",
+                    .displayName = "RawIron.Editor",
+                    .mode = "editor",
+                    .instanceId = {},
+                },
+                ri::runtime::DetectRuntimePaths());
+            if (!runtime.Startup(commandLine)) {
+                return 1;
+            }
+            (void)runtime.Frame(ri::core::FrameContext{
+                .frameIndex = 0,
+                .deltaSeconds = 0.0,
+                .elapsedSeconds = 0.0,
+                .realtimeSeconds = 0.0,
+                .realDeltaSeconds = 0.0,
+            });
             RawIronEditorWindow window(commandLine);
-            return window.Run(GetModuleHandleW(nullptr));
+            const int result = window.Run(GetModuleHandleW(nullptr));
+            runtime.Shutdown();
+            return result;
         }
 #endif
 
         EditorHost host;
+        ri::runtime::RuntimeCore runtime(
+            ri::runtime::RuntimeIdentity{
+                .id = "rawiron.editor",
+                .displayName = "RawIron.Editor",
+                .mode = "editor",
+                .instanceId = {},
+            },
+            ri::runtime::DetectRuntimePaths());
+        runtime.AddModule(std::make_unique<ri::runtime::RuntimeHostModule>(host));
+        ri::runtime::RuntimeHostAdapter runtimeHost(runtime);
 
         ri::core::MainLoopOptions options;
         options.maxFrames = commandLine.GetIntOr("--frames", hasFrameBudgetArg ? 4 : 0);
@@ -5738,7 +5769,7 @@ int main(int argc, char** argv) {
         options.verboseFrames = commandLine.HasFlag("--verbose-frames");
         options.paceToFixedDelta = !commandLine.HasFlag("--unpaced");
 
-        return ri::core::RunMainLoop(host, commandLine, options);
+        return ri::core::RunMainLoop(runtimeHost, commandLine, options);
     } catch (const std::exception&) {
         ri::core::LogCurrentExceptionWithStackTrace("Editor Failure");
         return 1;

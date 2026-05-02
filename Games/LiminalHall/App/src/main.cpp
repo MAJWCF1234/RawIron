@@ -58,6 +58,11 @@ int main(int argc, char** argv) {
         ri::core::LogInfo("  --checkpoint-slot=<id>      Checkpoint slot id (default: autosave)");
         ri::core::LogInfo("  --resume-query=<query>      URL-style query string (?startFromCheckpoint=1&checkpointSlot=...)");
         ri::core::LogInfo("  --checkpoint-storage-root=<path>  Override Saved/Checkpoints root directory");
+        ri::core::LogInfo("  --headless                  Run RuntimeCore-backed software headless validation");
+        ri::core::LogInfo("  --headless-frames=<n>       Headless validation frames (default 240)");
+        ri::core::LogInfo("  --headless-output=<path>    Optional BMP output path for headless validation");
+        ri::core::LogInfo("  --no-autoplay               Disable headless autoplay input");
+        ri::core::LogInfo("  --software-low-spec         Use the old-system software renderer profile");
         ri::core::LogInfo("  --bench                     Headless CPU software-render speed test (Liminal Hall scene)");
         ri::core::LogInfo("  --bench-frames=<n>          Timed frames for --bench (default 90, max 600)");
         return 0;
@@ -156,7 +161,14 @@ int main(int argc, char** argv) {
             static_cast<std::uint32_t>(std::clamp(benchFramesRaw, 10, 600));
         std::string report;
         if (!ri::games::liminal::RunLiminalHallSoftwareRenderBenchmark(
-                options.workspaceRoot, benchWidth, benchHeight, 8U, benchTimed, &report, &error)) {
+                options.workspaceRoot,
+                benchWidth,
+                benchHeight,
+                8U,
+                benchTimed,
+                commandLine.HasFlag("--software-low-spec"),
+                &report,
+                &error)) {
             if (!error.empty()) {
                 ri::core::LogSection("Benchmark failure");
                 ri::core::LogInfo(error);
@@ -168,9 +180,24 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (headless) {
-        ri::core::LogSection("Liminal Game Failure");
-        ri::core::LogInfo("Headless software capture has been retired. Standalone is Vulkan-native only.");
-        return 1;
+        ri::games::liminal::HeadlessCaptureOptions headlessOptions{};
+        headlessOptions.standalone = options;
+        headlessOptions.standalone.captureMouse = false;
+        headlessOptions.frames = std::clamp(commandLine.GetIntOr("--headless-frames", headlessOptions.frames), 1, 3600);
+        headlessOptions.autoplay = !commandLine.HasFlag("--no-autoplay");
+        headlessOptions.softwareLowSpec = commandLine.HasFlag("--software-low-spec");
+        if (const auto output = commandLine.GetValue("--headless-output");
+            output.has_value() && !output->empty()) {
+            headlessOptions.outputPath = std::filesystem::path(*output);
+        }
+        if (!ri::games::liminal::RunHeadlessCapture(headlessOptions, &error)) {
+            if (!error.empty()) {
+                ri::core::LogSection("Liminal Game Failure");
+                ri::core::LogInfo(error);
+            }
+            return 1;
+        }
+        return 0;
     }
     if (!ri::games::liminal::RunStandalone(options, &error)) {
         if (!error.empty()) {

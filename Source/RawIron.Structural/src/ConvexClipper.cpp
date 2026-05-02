@@ -321,4 +321,46 @@ CompiledMesh BuildCompiledMeshFromConvexSolid(const ConvexSolid& solid) {
     return mesh;
 }
 
+CompiledMesh MergeCompiledMeshes(const std::vector<CompiledMesh>& meshes) {
+    CompiledMesh out{};
+    std::size_t totalPositions = 0;
+    std::size_t totalTriangles = 0;
+    for (const CompiledMesh& part : meshes) {
+        if (part.positions.size() != part.normals.size()) {
+            continue;
+        }
+        if (part.positions.size() < 3 || (part.positions.size() % 3) != 0) {
+            continue;
+        }
+        totalPositions += part.positions.size();
+        totalTriangles += part.triangleCount;
+    }
+    if (totalPositions == 0) {
+        return out;
+    }
+    out.positions.reserve(totalPositions);
+    out.normals.reserve(totalPositions);
+    for (const CompiledMesh& part : meshes) {
+        if (part.positions.size() != part.normals.size()) continue;
+        if (part.positions.size() < 3 || (part.positions.size() % 3) != 0) continue;
+        out.positions.insert(out.positions.end(), part.positions.begin(), part.positions.end());
+        out.normals.insert(out.normals.end(), part.normals.begin(), part.normals.end());
+        if (!part.hasBounds) continue;
+        if (!out.hasBounds) {
+            out.boundsMin = part.boundsMin;
+            out.boundsMax = part.boundsMax;
+            out.hasBounds = true;
+        } else {
+            out.boundsMin.x = std::min(out.boundsMin.x, part.boundsMin.x);
+            out.boundsMin.y = std::min(out.boundsMin.y, part.boundsMin.y);
+            out.boundsMin.z = std::min(out.boundsMin.z, part.boundsMin.z);
+            out.boundsMax.x = std::max(out.boundsMax.x, part.boundsMax.x);
+            out.boundsMax.y = std::max(out.boundsMax.y, part.boundsMax.y);
+            out.boundsMax.z = std::max(out.boundsMax.z, part.boundsMax.z);
+        }
+    }
+    out.triangleCount = totalTriangles;
+    return out;
+}
+
 } // namespace ri::structural

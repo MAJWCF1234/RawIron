@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
+#include <string_view>
 
 namespace ri::trace {
 
@@ -68,5 +70,25 @@ struct DecalSpawnBudget {
                                                                                 float minHalfLength,
                                                                                 float maxHalfLength,
                                                                                 float surfaceOffset = 0.004f) noexcept;
+
+/// Authoring-time decal preset → material/shader routing hints (browser `decalPreset` parity for native UI).
+struct DecalAuthoringMaterialHints {
+    float alphaTest = 0.12f;
+    float metalness = 0.5f;
+    float roughness = 0.8f;
+    float emissiveIntensity = 0.0f;
+    /// Texture tile rate in repeats per meter for the U/V axes; 0 disables auto-scaling so authoring
+    /// keeps any explicit `uvScale`. Tooling derives final `uvScale` as `round(scaleAxis * perMeter)`.
+    float uvScalePerMeterU = 0.0f;
+    float uvScalePerMeterV = 0.0f;
+    bool transparent = true;
+    bool depthWrite = false;
+};
+
+/// Returns hints for known presets (`blood`, `cable`, `hazard`); empty optional if unknown.
+[[nodiscard]] std::optional<DecalAuthoringMaterialHints> ResolveAuthoringDecalPreset(std::string_view preset) noexcept;
+
+/// Stable list of preset ids exposed by `ResolveAuthoringDecalPreset` (deterministic order).
+[[nodiscard]] std::span<const std::string_view> ListAuthoringDecalPresetIds() noexcept;
 
 } // namespace ri::trace

@@ -58,4 +58,14 @@ MovementControllerOptions ToMovementControllerOptions(const LocomotionTuning& tu
     return options;
 }
 
+MovementControllerOptions FpSandboxMovementOptions() noexcept {
+    MovementControllerOptions options = ToMovementControllerOptions(DefaultLocomotionTuning());
+    options.simulateStamina = false;
+    options.airAcceleration = 18.0f;
+    options.groundAcceleration = 70.0f;
+    options.airTurnResponsiveness = 0.42f;
+    options.projectMovementOntoGroundNormal = true;
+    return options;
+}
+
 } // namespace ri::trace

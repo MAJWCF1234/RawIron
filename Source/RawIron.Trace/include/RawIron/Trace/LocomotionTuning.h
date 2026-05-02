@@ -52,4 +52,8 @@ void ApplyLocomotionTuningPatch(LocomotionTuning& base, const LocomotionTuningPa
 /// convention of allowing at least sprint-class horizontal speed while airborne.
 [[nodiscard]] MovementControllerOptions ToMovementControllerOptions(const LocomotionTuning& tuning) noexcept;
 
+/// First-person **sandbox** defaults: `DefaultLocomotionTuning` + stamina loop off (web prototype has no drain)
+/// and air control aligned for editor / mechtest style play. Use as a base; games can still override per-channel.
+[[nodiscard]] MovementControllerOptions FpSandboxMovementOptions() noexcept;
+
 } // namespace ri::trace

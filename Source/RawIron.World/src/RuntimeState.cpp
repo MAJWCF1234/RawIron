@@ -1791,6 +1791,16 @@ PhysicsVolumeModifiers RuntimeEnvironmentService::GetPhysicsVolumeModifiersAt(co
     state.buoyancy = ClampFloat(state.buoyancy, 0.0f, 3.0f);
     state.gravityScale = ClampFloat(state.gravityScale, -2.0f, 4.0f);
     state.jumpScale = ClampFloat(state.jumpScale, 0.0f, 4.0f);
+
+    auto sortDedupe = [](std::vector<std::string>& ids) {
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+    };
+    sortDedupe(state.activeVolumes);
+    sortDedupe(state.activeFluids);
+    sortDedupe(state.activeSurfaceVelocity);
+    sortDedupe(state.activeRadialForces);
+
     return state;
 }
 

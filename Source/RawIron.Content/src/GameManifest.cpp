@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <span>
 #include <unordered_set>
 
 namespace ri::content {
@@ -10,6 +11,7 @@ namespace ri::content {
 namespace fs = std::filesystem;
 namespace {
 constexpr std::string_view kCurrentGameFormatContract = "rawiron-game-v1.3.7";
+constexpr std::string_view kCurrentRuntimeContract = "rawiron-runtime-v1";
 
 constexpr std::array kRequiredGameFiles = {
     "manifest.json",
@@ -90,6 +92,14 @@ constexpr std::array<std::string_view, 3> kAllowedManifestTypes = {
     "experience",
 };
 
+constexpr std::array<std::string_view, 5> kRequiredRuntimeServices = {
+    "lifecycle",
+    "events",
+    "services",
+    "paths",
+    "frame-clock",
+};
+
 bool IsSemanticVersionTriplet(std::string_view value) {
     int componentCount = 0;
     std::size_t cursor = 0;
@@ -137,6 +147,10 @@ bool EndsWith(std::string_view value, std::string_view suffix) {
 
 bool IsAllowedManifestType(std::string_view value) {
     return std::find(kAllowedManifestTypes.begin(), kAllowedManifestTypes.end(), value) != kAllowedManifestTypes.end();
+}
+
+bool ContainsString(std::span<const std::string> values, std::string_view needle) {
+    return std::find(values.begin(), values.end(), needle) != values.end();
 }
 
 bool IsNonEmptyFile(const fs::path& path) {
@@ -190,6 +204,10 @@ std::optional<GameManifest> LoadGameManifest(const fs::path& manifestPath) {
     manifest.format = ri::core::detail::ExtractJsonString(text, "format").value_or("");
     manifest.type = ri::core::detail::ExtractJsonString(text, "type").value_or("");
     manifest.entry = ri::core::detail::ExtractJsonString(text, "entry").value_or("");
+    manifest.runtimeContract = ri::core::detail::ExtractJsonString(text, "runtimeContract").value_or("");
+    manifest.runtimeModule = ri::core::detail::ExtractJsonString(text, "runtimeModule").value_or("");
+    manifest.runtimeHost = ri::core::detail::ExtractJsonString(text, "runtimeHost").value_or("");
+    manifest.runtimeServices = ri::core::detail::ExtractJsonStringArray(text, "runtimeServices");
     manifest.version = ri::core::detail::ExtractJsonString(text, "version").value_or("");
     manifest.author = ri::core::detail::ExtractJsonString(text, "author").value_or("");
     manifest.editorProjectArg = ri::core::detail::ExtractJsonString(text, "editorProjectArg").value_or("");
@@ -269,6 +287,20 @@ std::vector<std::string> ValidateGameProjectFormat(const GameManifest& manifest)
 
     if (manifest.format != kCurrentGameFormatContract) {
         issues.push_back("manifest.format must be \"" + std::string(kCurrentGameFormatContract) + "\".");
+    }
+    if (manifest.runtimeContract != kCurrentRuntimeContract) {
+        issues.push_back("manifest.runtimeContract must be \"" + std::string(kCurrentRuntimeContract) + "\".");
+    }
+    if (manifest.runtimeModule.empty()) {
+        issues.push_back("manifest.runtimeModule must be a non-empty string naming the mounted runtime module.");
+    }
+    if (manifest.runtimeHost != "RuntimeCore") {
+        issues.push_back("manifest.runtimeHost must be \"RuntimeCore\".");
+    }
+    for (std::string_view service : kRequiredRuntimeServices) {
+        if (!ContainsString(manifest.runtimeServices, service)) {
+            issues.push_back("manifest.runtimeServices must include \"" + std::string(service) + "\".");
+        }
     }
     if (manifest.version.empty()) {
         issues.push_back("manifest.version must be a non-empty string.");
@@ -546,5 +578,3 @@ std::filesystem::path ResolveGameAssetPath(const std::filesystem::path& gameRoot
 }
 
 } // namespace ri::content
-
-

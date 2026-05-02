@@ -7,6 +7,7 @@ target_link_libraries(RawIron.Player
     RawIron::Audio
     RawIron::Core
     RawIron::RenderVulkan
+    RawIron::Runtime
     RawIron::SceneUtilities
 )
 

@@ -1,10 +1,10 @@
 /**
- * Proto Engine CLI: extract, rebuild, and tower checks.
+ * Proto Engine CLI: extract, pieces, proof, launch.
  * Usage:
  *   node proto-tool.mjs extract
- *   node proto-tool.mjs rebuild-level
  *   node proto-tool.mjs pieces
  *   node proto-tool.mjs proof
+ *   node proto-tool.mjs launch [--mechtest|--no-kiosk|--port=N]
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -20,9 +20,9 @@ const rootDir = path.dirname(toolPath);
 const criticalFiles = [
   'index.js',
   'engine.js',
+  'dev-level.js',
   'proto-tool.mjs',
   'launch-mechtest.bat',
-  'dev_level.json',
   'dist/index.html'
 ];
 
@@ -171,18 +171,6 @@ async function runExtract() {
   }
 }
 
-/** Run Node with argv[1..] set to `scriptArgs`; never use shell so `Program Files` paths work on Windows. */
-function runNodeToExit(scriptArgs) {
-  const child = spawn(process.execPath, scriptArgs, {
-    cwd: rootDir,
-    stdio: 'inherit',
-    shell: false
-  });
-  return new Promise((resolve) => {
-    child.on('exit', (code) => resolve(code ?? 0));
-  });
-}
-
 function runCommand(command, args) {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
@@ -228,9 +216,15 @@ async function runProof() {
     } = await import('./engine.js');
     assert.match(createRuntimeId('piece'), /^piece_[0-9A-Za-z]{10}$/);
     assert.equal(clampFiniteNumber(999, 5, 0, 10), 10);
+    const { devLevel } = await import('./dev-level.js');
+    assert.ok(devLevel && typeof devLevel === 'object' && !Array.isArray(devLevel),
+      'dev-level.js must export a level object');
+    assert.ok(Array.isArray(devLevel.geometry) && devLevel.geometry.length > 0,
+      'dev-level.js must contain a non-empty geometry array');
+    assert.ok(Array.isArray(devLevel.lights), 'dev-level.js must contain a lights array');
   } catch (error) {
     allPassed = false;
-    console.error('[check] embedded engine assertions failed');
+    console.error('[check] embedded engine + level assertions failed');
     console.error(error);
   }
   console.log('\nStanding verdict');
@@ -352,11 +346,6 @@ async function main() {
     await runExtract();
     return;
   }
-  if (cmd === 'rebuild-level') {
-    const code = await runNodeToExit([path.join(rootDir, 'dev-level.build.mjs')]);
-    process.exit(code);
-    return;
-  }
   if (cmd === 'pieces') {
     printPieces();
     return;
@@ -369,7 +358,7 @@ async function main() {
     await runLaunch(process.argv.slice(3));
     return;
   }
-  console.error('Usage: node proto-tool.mjs <extract|rebuild-level|pieces|proof|launch>');
+  console.error('Usage: node proto-tool.mjs <extract|pieces|proof|launch>');
   process.exit(1);
 }
 

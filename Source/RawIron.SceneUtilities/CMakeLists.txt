@@ -24,6 +24,8 @@ add_library(RawIron.SceneUtilities
   src/FbxLoader.cpp
   src/GltfLoader.cpp
   src/Helpers.cpp
+  src/HumanoidAnimationProfiles.cpp
+  src/HumanoidRigNames.cpp
   src/LevelObjectRegistry.cpp
   src/LoftPrimitiveStack.cpp
   src/ModelLoader.cpp

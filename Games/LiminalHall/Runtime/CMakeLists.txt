@@ -22,6 +22,7 @@ target_link_libraries(RawIron.Game.LiminalHall
     RawIron::Logic
     RawIron::RenderSoftware
     RawIron::RenderVulkan
+    RawIron::Runtime
     RawIron::SceneUtilities
     RawIron::Trace
     RawIron::World

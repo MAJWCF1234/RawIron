@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <optional>
 #include <set>
 #include <string>
@@ -120,6 +121,128 @@ void AppendQuadFacing(std::vector<ri::math::Vec3>& vertices,
     }
     AppendTriangle(vertices, a, b, c);
     AppendTriangle(vertices, a, c, d);
+}
+
+float SeededUnit01(int seed) {
+    const float v = std::sin(static_cast<float>(seed) * 127.1f + 311.7f) * 43758.5453123f;
+    return v - std::floor(v);
+}
+
+void AppendAxisAlignedBox(std::vector<ri::math::Vec3>& triangles,
+                          const ri::math::Vec3& minB,
+                          const ri::math::Vec3& maxB) {
+    const ri::math::Vec3 v000{minB.x, minB.y, minB.z};
+    const ri::math::Vec3 v100{maxB.x, minB.y, minB.z};
+    const ri::math::Vec3 v110{maxB.x, minB.y, maxB.z};
+    const ri::math::Vec3 v010{minB.x, minB.y, maxB.z};
+    const ri::math::Vec3 v001{minB.x, maxB.y, minB.z};
+    const ri::math::Vec3 v101{maxB.x, maxB.y, minB.z};
+    const ri::math::Vec3 v111{maxB.x, maxB.y, maxB.z};
+    const ri::math::Vec3 v011{minB.x, maxB.y, maxB.z};
+    AppendQuadFacing(triangles, v000, v100, v110, v010, {0.0f, -1.0f, 0.0f});
+    AppendQuadFacing(triangles, v001, v011, v111, v101, {0.0f, 1.0f, 0.0f});
+    AppendQuadFacing(triangles, v000, v010, v011, v001, {-1.0f, 0.0f, 0.0f});
+    AppendQuadFacing(triangles, v100, v101, v111, v110, {1.0f, 0.0f, 0.0f});
+    AppendQuadFacing(triangles, v000, v001, v101, v100, {0.0f, 0.0f, -1.0f});
+    AppendQuadFacing(triangles, v010, v110, v111, v011, {0.0f, 0.0f, 1.0f});
+}
+
+void AppendOpenCylinderBetween(std::vector<ri::math::Vec3>& triangles,
+                               const ri::math::Vec3& start,
+                               const ri::math::Vec3& end,
+                               float radius,
+                               int segments) {
+    const int segs = ClampRange(segments, 3, 32);
+    const ri::math::Vec3 axis = end - start;
+    const float len = std::sqrt(ri::math::LengthSquared(axis));
+    if (len < 1e-5f || radius < 1e-5f) {
+        return;
+    }
+    const ri::math::Vec3 dir = axis * (1.0f / len);
+    ri::math::Vec3 t = (std::fabs(dir.y) < 0.9f) ? ri::math::Cross({0.0f, 1.0f, 0.0f}, dir) : ri::math::Cross({1.0f, 0.0f, 0.0f}, dir);
+    if (ri::math::LengthSquared(t) < 1e-10f) {
+        t = {1.0f, 0.0f, 0.0f};
+    }
+    t = ri::math::Normalize(t);
+    ri::math::Vec3 b = ri::math::Normalize(ri::math::Cross(dir, t));
+    t = ri::math::Normalize(ri::math::Cross(b, dir));
+
+    for (int index = 0; index < segs; ++index) {
+        const float a0 = (2.0f * kPi * static_cast<float>(index)) / static_cast<float>(segs);
+        const float a1 = (2.0f * kPi * static_cast<float>(index + 1)) / static_cast<float>(segs);
+        const ri::math::Vec3 r0 = (t * std::cos(a0) + b * std::sin(a0)) * radius;
+        const ri::math::Vec3 r1 = (t * std::cos(a1) + b * std::sin(a1)) * radius;
+        const ri::math::Vec3 p0a = start + r0;
+        const ri::math::Vec3 p1a = start + r1;
+        const ri::math::Vec3 p0b = end + r0;
+        const ri::math::Vec3 p1b = end + r1;
+        const ri::math::Vec3 n = ri::math::Normalize((r0 + r1) * 0.5f);
+        AppendQuadFacing(triangles, p0a, p1a, p1b, p0b, n);
+    }
+}
+
+void BranchRecursive(std::vector<ri::math::Vec3>& triangles,
+                     const ri::math::Vec3& start,
+                     const ri::math::Vec3& direction,
+                     int depth,
+                     int maxDepth,
+                     float segmentLength,
+                     float branchScale,
+                     float branchAngleRad,
+                     float radius,
+                     int radialSegments,
+                     int& branchesEmitted,
+                     int branchBudget) {
+    if (branchesEmitted >= branchBudget) {
+        return;
+    }
+    const float safeLen = std::max(segmentLength, 0.04f);
+    const ri::math::Vec3 end = start + direction * safeLen;
+    AppendOpenCylinderBetween(triangles, start, end, radius, radialSegments);
+    branchesEmitted += 1;
+    if (depth >= maxDepth) {
+        return;
+    }
+    const float nextLen = safeLen * branchScale;
+    const float nextRadius = std::max(0.01f, radius * branchScale);
+    const float c = std::cos(branchAngleRad);
+    const float s = std::sin(branchAngleRad);
+    ri::math::Vec3 left{direction.x * c - direction.y * s, direction.x * s + direction.y * c, direction.z};
+    if (ri::math::LengthSquared(left) > 1e-10f) {
+        left = ri::math::Normalize(left);
+    } else {
+        left = direction;
+    }
+    ri::math::Vec3 right{direction.x * c + direction.y * s, -direction.x * s + direction.y * c, direction.z};
+    if (ri::math::LengthSquared(right) > 1e-10f) {
+        right = ri::math::Normalize(right);
+    } else {
+        right = direction;
+    }
+    BranchRecursive(triangles,
+                    end,
+                    left,
+                    depth + 1,
+                    maxDepth,
+                    nextLen,
+                    branchScale,
+                    branchAngleRad,
+                    nextRadius,
+                    radialSegments,
+                    branchesEmitted,
+                    branchBudget);
+    BranchRecursive(triangles,
+                    end,
+                    right,
+                    depth + 1,
+                    maxDepth,
+                    nextLen,
+                    branchScale,
+                    branchAngleRad,
+                    nextRadius,
+                    radialSegments,
+                    branchesEmitted,
+                    branchBudget);
 }
 
 void AppendMesh(CompiledMesh& destination, const CompiledMesh& source) {
@@ -1248,21 +1371,171 @@ CompiledMesh CreateWaterSurfaceMesh(const StructuralPrimitiveOptions& options) {
 CompiledMesh CreateHeightfieldMesh(const StructuralPrimitiveOptions& options, bool terrain) {
     const int xSegments = ClampRange(options.cellsX > 0 ? options.cellsX : options.radialSegments, 2, 64);
     const int zSegments = ClampRange(options.cellsZ > 0 ? options.cellsZ : options.sides, 2, 64);
+    const std::size_t expectedSamples =
+        static_cast<std::size_t>((xSegments + 1) * (zSegments + 1));
+    const bool useSamples =
+        !options.heightfieldSamples.empty() && options.heightfieldSamples.size() == expectedSamples;
     const float amplitude = std::clamp(std::fabs(options.depth), 0.02f, 0.5f);
     std::vector<ri::math::Vec3> triangles;
     triangles.reserve(static_cast<std::size_t>(xSegments * zSegments * 6));
     const auto pointAt = [&](int x, int z) {
         const float fx = -0.5f + (static_cast<float>(x) / static_cast<float>(xSegments));
         const float fz = -0.5f + (static_cast<float>(z) / static_cast<float>(zSegments));
-        const float ridge = terrain
-            ? std::sin(fx * kPi * 2.0f) * std::cos(fz * kPi * 2.0f)
-            : std::sin((fx * 2.7f + fz * 1.3f) * kPi);
+        float ridge = 0.0f;
+        if (useSamples) {
+            const std::size_t index = static_cast<std::size_t>(z * (xSegments + 1) + x);
+            ridge = std::clamp(options.heightfieldSamples[index], -1.0f, 1.0f);
+        } else {
+            ridge = terrain ? std::sin(fx * kPi * 2.0f) * std::cos(fz * kPi * 2.0f)
+                            : std::sin((fx * 2.7f + fz * 1.3f) * kPi);
+        }
         return ri::math::Vec3{fx, ridge * amplitude, fz};
     };
     for (int x = 0; x < xSegments; ++x) {
         for (int z = 0; z < zSegments; ++z) {
             AppendQuadFacing(triangles, pointAt(x, z), pointAt(x, z + 1), pointAt(x + 1, z + 1), pointAt(x + 1, z), {0.0f, 1.0f, 0.0f});
         }
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateVoronoiFractureMesh(const StructuralPrimitiveOptions& options) {
+    const int seedCount = ClampInteger(options.detail > 0 ? options.detail : 14, 14, 1, 128);
+    const float gapThickness =
+        options.thickness > 1e-6f ? std::clamp(std::fabs(options.thickness), 0.0f, 0.2f) : 0.04f;
+    const float jitter =
+        options.strutRadius > 1e-6f ? std::clamp(std::fabs(options.strutRadius), 0.0f, 0.45f) : 0.18f;
+    const int cellsPerAxis = std::max(1, static_cast<int>(std::ceil(std::cbrt(static_cast<double>(seedCount)))));
+    const float cellSize = 1.0f / static_cast<float>(cellsPerAxis);
+    const float shardSize = std::max(0.04f, cellSize - gapThickness);
+    std::vector<ri::math::Vec3> triangles;
+    int seedIndex = 0;
+    for (int ix = 0; ix < cellsPerAxis && seedIndex < seedCount; ++ix) {
+        for (int iy = 0; iy < cellsPerAxis && seedIndex < seedCount; ++iy) {
+            for (int iz = 0; iz < cellsPerAxis && seedIndex < seedCount; ++iz) {
+                const ri::math::Vec3 center{
+                    -0.5f + ((static_cast<float>(ix) + 0.5f) * cellSize),
+                    -0.5f + ((static_cast<float>(iy) + 0.5f) * cellSize),
+                    -0.5f + ((static_cast<float>(iz) + 0.5f) * cellSize)};
+                const float jx = (SeededUnit01(seedIndex + 1) - 0.5f) * cellSize * jitter;
+                const float jy = (SeededUnit01(seedIndex + 11) - 0.5f) * cellSize * jitter;
+                const float jz = (SeededUnit01(seedIndex + 21) - 0.5f) * cellSize * jitter;
+                const float sx = shardSize * (0.74f + (SeededUnit01(seedIndex + 31) * 0.22f));
+                const float sy = shardSize * (0.74f + (SeededUnit01(seedIndex + 41) * 0.22f));
+                const float sz = shardSize * (0.74f + (SeededUnit01(seedIndex + 51) * 0.22f));
+                const ri::math::Vec3 c2 = center + ri::math::Vec3{jx, jy, jz};
+                const ri::math::Vec3 minB{c2.x - sx * 0.5f, c2.y - sy * 0.5f, c2.z - sz * 0.5f};
+                const ri::math::Vec3 maxB{c2.x + sx * 0.5f, c2.y + sy * 0.5f, c2.z + sz * 0.5f};
+                AppendAxisAlignedBox(triangles, minB, maxB);
+                seedIndex += 1;
+            }
+        }
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateMetaballClusterMesh(const StructuralPrimitiveOptions& options) {
+    const int lat = ClampInteger(options.radialSegments, 16, 6, 64);
+    const int lon = lat;
+    const float baseR =
+        std::clamp(options.length > 1e-5f ? std::fabs(options.length) * 0.76f : 0.38f, 0.08f, 1.5f);
+    const float blendR = std::max(
+        baseR * 1.6f,
+        std::clamp(options.depth > 1e-5f ? std::fabs(options.depth) : baseR * 1.2f, 0.05f, 4.0f));
+    const float blendR2 = blendR * blendR;
+
+    struct Influence {
+        ri::math::Vec3 center{};
+        float weight = 0.0f;
+    };
+    std::vector<Influence> influences;
+    if (!options.points.empty()) {
+        for (std::size_t index = 0; index < options.points.size(); ++index) {
+            const float w = 0.18f + SeededUnit01(static_cast<int>(index) + 1) * 0.18f;
+            influences.push_back({options.points[index], w});
+        }
+    } else {
+        influences.push_back({{-0.24f, 0.05f, -0.12f}, 0.26f});
+        influences.push_back({{0.18f, 0.12f, 0.08f}, 0.22f});
+        influences.push_back({{0.02f, -0.14f, 0.2f}, 0.18f});
+    }
+
+    std::vector<ri::math::Vec3> basePos;
+    basePos.reserve(static_cast<std::size_t>((lat + 1) * (lon + 1)));
+    for (int iy = 0; iy <= lat; ++iy) {
+        const float t = static_cast<float>(iy) / static_cast<float>(lat);
+        const float phi = t * kPi;
+        const float sinPhi = std::sin(phi);
+        const float cosPhi = std::cos(phi);
+        for (int ix = 0; ix <= lon; ++ix) {
+            const float u = static_cast<float>(ix) / static_cast<float>(lon);
+            const float theta = u * 2.0f * kPi;
+            const float x = sinPhi * std::cos(theta) * baseR;
+            const float y = cosPhi * baseR;
+            const float z = sinPhi * std::sin(theta) * baseR;
+            basePos.push_back({x, y, z});
+        }
+    }
+
+    for (ri::math::Vec3& p : basePos) {
+        ri::math::Vec3 n = p;
+        if (ri::math::LengthSquared(n) > 1e-10f) {
+            n = ri::math::Normalize(n);
+        } else {
+            n = {0.0f, 1.0f, 0.0f};
+        }
+        float displacement = 0.0f;
+        for (const Influence& inf : influences) {
+            const float distSq = ri::math::LengthSquared(p - inf.center);
+            displacement += std::exp(-(distSq / std::max(1e-4f, blendR2))) * inf.weight;
+        }
+        p = p + n * displacement;
+    }
+
+    std::vector<ri::math::Vec3> triangles;
+    for (int iy = 0; iy < lat; ++iy) {
+        for (int ix = 0; ix < lon; ++ix) {
+            const int row = iy * (lon + 1);
+            const int a = row + ix;
+            const int b = a + 1;
+            const int c = a + (lon + 1) + 1;
+            const int d = a + (lon + 1);
+            AppendQuadFacing(triangles, basePos[a], basePos[b], basePos[c], basePos[d], {0.0f, 1.0f, 0.0f});
+        }
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateLSystemBranchMesh(const StructuralPrimitiveOptions& options) {
+    const int iterations = ClampInteger(options.detail > 0 ? options.detail : 3, 3, 1, 6);
+    const float branchLength =
+        std::clamp(options.length > 1e-5f ? std::fabs(options.length) : 0.55f, 0.08f, 4.0f);
+    const float branchScale =
+        std::clamp(options.topRadius > 1e-5f ? std::fabs(options.topRadius) : 0.72f, 0.2f, 0.92f);
+    const float branchAngleDeg =
+        std::clamp(options.spanDegrees > 1e-3f ? options.spanDegrees : 28.0f, 1.0f, 85.0f);
+    const float branchAngleRad = branchAngleDeg * (kPi / 180.0f);
+    const float radius =
+        std::clamp(options.strutRadius > 1e-5f ? std::fabs(options.strutRadius) : 0.09f, 0.01f, 1.0f);
+    const int radialSegments = std::max(5, ClampInteger(options.radialSegments, 6, 3, 18));
+
+    std::vector<ri::math::Vec3> triangles;
+    int branchesEmitted = 0;
+    constexpr int kBranchBudget = 256;
+    BranchRecursive(triangles,
+                    {0.0f, -0.5f, 0.0f},
+                    {0.0f, 1.0f, 0.0f},
+                    1,
+                    iterations,
+                    branchLength,
+                    branchScale,
+                    branchAngleRad,
+                    radius,
+                    radialSegments,
+                    branchesEmitted,
+                    kBranchBudget);
+    if (triangles.empty()) {
+        AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f});
     }
     return BuildMeshFromTriangles(triangles);
 }
@@ -1477,6 +1750,24 @@ CompiledMesh CreateSpiralStairsMesh(const StructuralPrimitiveOptions& options) {
     return BuildMeshFromTriangles(triangles);
 }
 
+/// Filleted “rounded box” visual: superellipsoid with exponents derived from `bevelRadius` (meters, unit cube).
+/// This is a **high-quality mesh approximation** to Three.js `RoundedBoxGeometry` without CSG: smooth silhouettes
+/// and stable bounds near ±0.5, suitable for author-facing structural previews and collision convex fallback (`box`).
+CompiledMesh CreateRoundedBoxMesh(const StructuralPrimitiveOptions& options) {
+    const float r =
+        std::clamp(options.bevelRadius > 1e-6f ? options.bevelRadius : 0.08f, 0.01f, 0.49f);
+    StructuralPrimitiveOptions se = options;
+    const float t = r / 0.5f;
+    const float exp = std::clamp(2.0f + 5.5f * t, 2.08f, 7.0f);
+    se.exponentX = exp;
+    se.exponentY = exp;
+    se.exponentZ = exp;
+    const int segHint = options.bevelSegments > 0 ? options.bevelSegments : 4;
+    se.radialSegments = ClampInteger(segHint * 4, 16, 6, 96);
+    se.sides = ClampInteger(segHint * 5, 24, 8, 128);
+    return CreateSuperellipsoidMesh(se);
+}
+
 } // namespace
 
 bool IsNativeStructuralPrimitive(std::string_view type) {
@@ -1519,7 +1810,18 @@ bool IsNativeStructuralPrimitive(std::string_view type) {
         || type == "hexahedron"
         || type == "convex_hull"
         || type == "roof_gable"
-        || type == "hipped_roof";
+        || type == "hipped_roof"
+        || type == "rounded_box"
+        || type == "displacement"
+        || type == "displacement_map"
+        || type == "manifold_sweep"
+        || type == "spline_extrusion"
+        || type == "voronoi_fracture"
+        || type == "cellular_shatter"
+        || type == "metaball"
+        || type == "metaball_cluster"
+        || type == "lsystem_branch"
+        || type == "lsystem";
 }
 
 std::optional<ConvexSolid> CreateConvexPrimitiveSolid(std::string_view type,
@@ -1583,6 +1885,24 @@ std::optional<ConvexSolid> CreateConvexPrimitiveSolid(std::string_view type,
 }
 
 CompiledMesh BuildPrimitiveMesh(std::string_view type, const StructuralPrimitiveOptions& options) {
+    if (type == "rounded_box") {
+        return CreateRoundedBoxMesh(options);
+    }
+    if (type == "displacement" || type == "displacement_map") {
+        return CreateHeightfieldMesh(options, false);
+    }
+    if (type == "manifold_sweep" || type == "spline_extrusion") {
+        return CreateSplineSweepMesh(options);
+    }
+    if (type == "voronoi_fracture" || type == "cellular_shatter") {
+        return CreateVoronoiFractureMesh(options);
+    }
+    if (type == "metaball" || type == "metaball_cluster") {
+        return CreateMetaballClusterMesh(options);
+    }
+    if (type == "lsystem_branch" || type == "lsystem") {
+        return CreateLSystemBranchMesh(options);
+    }
     if (type == "plane") {
         return CreatePlaneMesh();
     }
@@ -1680,6 +2000,16 @@ CompiledMesh BuildPrimitiveMesh(std::string_view type, const StructuralPrimitive
     }
 
     return BuildCompiledMeshFromConvexSolid(CreateAxisAlignedBoxSolid());
+}
+
+CompiledMesh BuildHippedRoofCompiledMesh(float ridgeRatio) {
+    const std::optional<ConvexSolid> solid = CreateHippedRoofSolid(ridgeRatio);
+    return BuildCompiledMeshFromConvexSolid(solid.value_or(CreateAxisAlignedBoxSolid()));
+}
+
+CompiledMesh BuildConvexHullCompiledMeshFromPoints(const std::vector<ri::math::Vec3>& points) {
+    const std::optional<ConvexSolid> solid = CreateConvexHullSolidFromPoints(points);
+    return BuildCompiledMeshFromConvexSolid(solid.value_or(CreateAxisAlignedBoxSolid()));
 }
 
 } // namespace ri::structural

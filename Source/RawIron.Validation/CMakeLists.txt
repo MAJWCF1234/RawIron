@@ -3,6 +3,7 @@ add_library(RawIron.Validation
   src/DataSchema.cpp
   src/DistinctStrings.cpp
   src/IdFormat.cpp
+  src/LevelPlayerSpawn.cpp
   src/Schemas.cpp
   src/StringPattern.cpp
 )

@@ -1,6 +1,7 @@
 #include "RawIron/Core/CommandLine.h"
 #include "RawIron/Core/CrashDiagnostics.h"
 #include "RawIron/Core/Log.h"
+#include "RawIron/Runtime/RuntimeCore.h"
 
 #include "VisualShellTypes.h"
 
@@ -12,6 +13,7 @@
 #include <filesystem>
 #include <exception>
 #include <iostream>
+#include <utility>
 
 namespace fs = std::filesystem;
 
@@ -24,9 +26,29 @@ int main(int argc, char** argv) {
         const fs::path sourceRoot =
             FindSourceRoot(buildRoot.empty() ? executablePath.parent_path() : buildRoot.parent_path());
         ShellState shell(buildRoot, sourceRoot);
+        ri::runtime::RuntimePaths paths = ri::runtime::DetectRuntimePaths(sourceRoot.empty() ? fs::current_path() : sourceRoot);
+        ri::runtime::RuntimeCore runtime(
+            ri::runtime::RuntimeIdentity{
+                .id = "rawiron.visualshell",
+                .displayName = "RawIron.VisualShell",
+                .mode = "tool",
+                .instanceId = {},
+            },
+            std::move(paths));
+        if (!runtime.Startup(commandLine)) {
+            return 1;
+        }
+        (void)runtime.Frame(ri::core::FrameContext{
+            .frameIndex = 0,
+            .deltaSeconds = 0.0,
+            .elapsedSeconds = 0.0,
+            .realtimeSeconds = 0.0,
+            .realDeltaSeconds = 0.0,
+        });
 
         if (commandLine.HasFlag("--headless")) {
             PrintHeadlessSummary(shell);
+            runtime.Shutdown();
             return 0;
         }
 
@@ -37,9 +59,12 @@ int main(int argc, char** argv) {
 
         shell.AppendLog("Visual shell ready.");
         shell.AppendLog("Use Up/Down for actions, Left/Right for Scene Kit examples, and Enter to run tools.");
-        return RunVisualShellDesktopUi(shell, GetModuleHandleW(nullptr));
+        const int result = RunVisualShellDesktopUi(shell, GetModuleHandleW(nullptr));
+        runtime.Shutdown();
+        return result;
 #else
         PrintHeadlessSummary(shell);
+        runtime.Shutdown();
         return 0;
 #endif
     } catch (const std::exception&) {

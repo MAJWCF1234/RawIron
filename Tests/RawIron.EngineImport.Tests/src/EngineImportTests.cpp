@@ -3276,6 +3276,10 @@ void TestGameManifest() {
             << "  \"format\": \"rawiron-game-v1.3.7\",\n"
             << "  \"type\": \"test-game\",\n"
             << "  \"entry\": \"RawIron.DemoA\",\n"
+            << "  \"runtimeContract\": \"rawiron-runtime-v1\",\n"
+            << "  \"runtimeModule\": \"RawIron.Game.DemoA\",\n"
+            << "  \"runtimeHost\": \"RuntimeCore\",\n"
+            << "  \"runtimeServices\": [\"lifecycle\", \"events\", \"services\", \"paths\", \"frame-clock\"],\n"
             << "  \"version\": \"1.3.7\",\n"
             << "  \"author\": \"RawIron Team\",\n"
             << "  \"editorProjectArg\": \"--game=demo-a\",\n"
@@ -3301,6 +3305,11 @@ void TestGameManifest() {
            "Game manifest loader should expose id/name/entry fields");
     Expect(loaded->format == "rawiron-game-v1.3.7" && loaded->version == "1.3.7" && loaded->author == "RawIron Team",
            "Game manifest loader should expose v1.3 format/version/author fields");
+    Expect(loaded->runtimeContract == "rawiron-runtime-v1"
+               && loaded->runtimeModule == "RawIron.Game.DemoA"
+               && loaded->runtimeHost == "RuntimeCore"
+               && loaded->runtimeServices.size() == 5U,
+           "Game manifest loader should expose required Runtime core contract fields");
     Expect(loaded->editorProjectArg == "--game=demo-a"
                && loaded->primaryLevel == "levels/assembly.primitives.csv",
            "Game manifest loader should expose v1.3 editorProjectArg/primaryLevel fields");

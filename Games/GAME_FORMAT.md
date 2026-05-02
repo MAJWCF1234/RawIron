@@ -2,6 +2,19 @@
 
 Sample games use a versioned contract such as `rawiron-game-v1.3.7`; see each game’s `manifest.json` and README for the exact bundle.
 
+## Mandatory Runtime core contract
+
+Every RawIron game manifest must bind the game to the shared Runtime core. This is not optional app glue; it is the engine-level lifecycle spine that keeps games from reinventing startup, frame ticking, events, services, paths, and shutdown.
+
+Required manifest fields:
+
+- `runtimeContract`: must be `rawiron-runtime-v1`
+- `runtimeModule`: names the mounted game runtime module, usually the CMake/package identity such as `RawIron.Game.LiminalHall`
+- `runtimeHost`: must be `RuntimeCore`
+- `runtimeServices`: must include `lifecycle`, `events`, `services`, `paths`, and `frame-clock`
+
+The game application executable may still own platform/window/render presentation details, but it must mount its game module through `RawIron.Runtime` concepts instead of creating another lifecycle convention.
+
 ## Core engine pillars (FPS test hall backbone)
 
 These systems are implemented in RawIron C++ and exercised by standalone games such as **Liminal Hall** and **Wilderness Ruins**.
@@ -52,6 +65,7 @@ These systems are implemented in RawIron C++ and exercised by standalone games s
 - `--benchmark-frames=<n>` on standalone: run **n** presented frames, log **FPS** from the same path as manual play, then exit.
 - `**--bench`** / `**--bench-frames**`: CPU/software render benchmark (see `--help` per app).
 - `**ri::debug::ExportRuntimeDebugSnapshot**` (and related APIs) support dumping structured runtime snapshots for tooling (see `Source/RawIron.Debug`).
+- `**ri::runtime::RuntimeCore`** is the official lifecycle/service/event host for games. New games should add `RuntimeModule` hooks rather than building a private startup/tick/shutdown loop.
 
 ---
 

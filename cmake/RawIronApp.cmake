@@ -23,6 +23,7 @@ function(rawiron_add_app)
 
   add_executable("${RAWIRON_APP_TARGET}" ${RAWIRON_APP_SOURCES})
 
+  target_link_libraries("${RAWIRON_APP_TARGET}" PRIVATE RawIron::Runtime)
   if(RAWIRON_APP_LIBRARIES)
     target_link_libraries("${RAWIRON_APP_TARGET}" PRIVATE ${RAWIRON_APP_LIBRARIES})
   endif()

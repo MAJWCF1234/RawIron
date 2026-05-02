@@ -61,12 +61,6 @@ struct ResolvedLight {
     float spotAngleDegrees = 45.0f;
 };
 
-struct MeshCullBounds {
-    ri::math::Vec3 center{};
-    float radius = 0.0f;
-    bool valid = false;
-};
-
 constexpr std::array<ri::math::Vec3, 8> kCubeVertices = {{
     {-0.5f, -0.5f, -0.5f},
     {0.5f, -0.5f, -0.5f},
@@ -190,7 +184,7 @@ ScreenVertex ProjectPoint(const ri::math::Vec3& position,
     };
 }
 
-MeshCullBounds BuildMeshCullBounds(const ri::scene::Mesh& mesh) {
+ScenePreviewMeshCullBounds BuildMeshCullBounds(const ri::scene::Mesh& mesh) {
     if (!mesh.positions.empty()) {
         ri::math::Vec3 minPoint = mesh.positions.front();
         ri::math::Vec3 maxPoint = mesh.positions.front();
@@ -207,7 +201,7 @@ MeshCullBounds BuildMeshCullBounds(const ri::scene::Mesh& mesh) {
         for (const ri::math::Vec3& point : mesh.positions) {
             radiusSq = std::max(radiusSq, ri::math::LengthSquared(point - center));
         }
-        return MeshCullBounds{
+        return ScenePreviewMeshCullBounds{
             .center = center,
             .radius = std::sqrt(std::max(0.0f, radiusSq)),
             .valid = true,
@@ -216,15 +210,33 @@ MeshCullBounds BuildMeshCullBounds(const ri::scene::Mesh& mesh) {
 
     switch (mesh.primitive) {
     case ri::scene::PrimitiveType::Cube:
-        return MeshCullBounds{.center = {}, .radius = 0.8660254f, .valid = true};
+        return ScenePreviewMeshCullBounds{.center = {}, .radius = 0.8660254f, .valid = true};
     case ri::scene::PrimitiveType::Plane:
-        return MeshCullBounds{.center = {}, .radius = 0.7071068f, .valid = true};
+        return ScenePreviewMeshCullBounds{.center = {}, .radius = 0.7071068f, .valid = true};
     case ri::scene::PrimitiveType::Sphere:
-        return MeshCullBounds{.center = {}, .radius = 1.0f, .valid = true};
+        return ScenePreviewMeshCullBounds{.center = {}, .radius = 1.0f, .valid = true};
     case ri::scene::PrimitiveType::Custom:
     default:
-        return MeshCullBounds{};
+        return ScenePreviewMeshCullBounds{};
     }
+}
+
+void ApplyLowSpecMode(ScenePreviewOptions& options) {
+    if (!options.lowSpecMode) {
+        return;
+    }
+
+    options.pointSampleTextures = true;
+    options.adaptiveTextureSampling = true;
+    options.adaptivePointSampleStartDepth = std::min(options.adaptivePointSampleStartDepth, 18.0f);
+    options.affineTextureMapping = true;
+    options.orderedDither = false;
+    options.enableFarHorizon = true;
+    options.farHorizonStartDistance = std::min(options.farHorizonStartDistance, 36.0f);
+    options.farHorizonEndDistance = std::min(options.farHorizonEndDistance, 96.0f);
+    options.farHorizonMaxDistance = std::min(options.farHorizonMaxDistance, 180.0f);
+    options.farHorizonMaxNodeStride = std::max(options.farHorizonMaxNodeStride, 8U);
+    options.farHorizonMaxInstanceStride = std::max(options.farHorizonMaxInstanceStride, 12U);
 }
 
 bool IsHiddenPreviewNode(const ri::scene::Scene& scene, int nodeHandle, const ScenePreviewOptions& options) {
@@ -1039,6 +1051,7 @@ void RenderScenePreviewInto(const ri::scene::Scene& scene,
                             SoftwareImage& outImage,
                             ScenePreviewCache* cache) {
     ScenePreviewOptions options = rawOptions;
+    ApplyLowSpecMode(options);
     options.width = std::clamp(options.width, 64, 2048);
     options.height = std::clamp(options.height, 64, 2048);
 
@@ -1059,7 +1072,12 @@ void RenderScenePreviewInto(const ri::scene::Scene& scene,
     TextureCache localTextureCache{};
     TextureCache& textureCache = cache != nullptr ? cache->textures : localTextureCache;
     const fs::path textureRoot = ResolveTextureRoot(options);
-    std::vector<std::optional<MeshCullBounds>> meshCullCache(scene.MeshCount());
+    std::vector<std::optional<ScenePreviewMeshCullBounds>> localMeshCullCache{};
+    std::vector<std::optional<ScenePreviewMeshCullBounds>>& meshCullCache =
+        cache != nullptr ? cache->meshCullBounds : localMeshCullCache;
+    if (meshCullCache.size() != scene.MeshCount()) {
+        meshCullCache.assign(scene.MeshCount(), std::nullopt);
+    }
 
     for (const int nodeHandle : scene.GetRenderableNodeHandles()) {
         if (IsHiddenPreviewNode(scene, nodeHandle, options)) {
@@ -1074,7 +1092,7 @@ void RenderScenePreviewInto(const ri::scene::Scene& scene,
         if (!meshCullCache[node.mesh].has_value()) {
             meshCullCache[node.mesh] = BuildMeshCullBounds(mesh);
         }
-        const MeshCullBounds& cull = *meshCullCache[node.mesh];
+        const ScenePreviewMeshCullBounds& cull = *meshCullCache[node.mesh];
         if (cull.valid) {
             const ri::math::Vec3 worldCullCenter = ri::math::TransformPoint(world, cull.center);
             const ri::math::Vec3 viewCullCenter = ToCameraSpace(camera, worldCullCenter);
@@ -1126,7 +1144,7 @@ void RenderScenePreviewInto(const ri::scene::Scene& scene,
         if (!meshCullCache[batch.mesh].has_value()) {
             meshCullCache[batch.mesh] = BuildMeshCullBounds(mesh);
         }
-        const MeshCullBounds& cull = *meshCullCache[batch.mesh];
+        const ScenePreviewMeshCullBounds& cull = *meshCullCache[batch.mesh];
         for (std::size_t transformIndex = 0; transformIndex < batch.transforms.size(); ++transformIndex) {
             const ri::scene::Transform& transform = batch.transforms[transformIndex];
             const ri::math::Mat4 world = ri::math::Multiply(parentWorld, transform.LocalMatrix());

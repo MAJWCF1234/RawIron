@@ -100,6 +100,7 @@ struct HeadlessCaptureOptions {
     float deltaSeconds = 1.0f / 60.0f;
     std::filesystem::path outputPath;
     bool autoplay = true;
+    bool softwareLowSpec = false;
 };
 
 bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* error = nullptr);

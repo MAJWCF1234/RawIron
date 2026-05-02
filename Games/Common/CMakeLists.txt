@@ -1,4 +1,5 @@
 add_library(RawIron.Game.RuntimeDiagnosticsDraw STATIC
+  src/GameRuntimeCore.cpp
   src/RuntimeDiagnosticsStandaloneDraw.cpp
 )
 
@@ -11,7 +12,9 @@ target_include_directories(RawIron.Game.RuntimeDiagnosticsDraw
 
 target_link_libraries(RawIron.Game.RuntimeDiagnosticsDraw
   PUBLIC
+    RawIron::Content
     RawIron::Core
+    RawIron::Runtime
     RawIron::SceneUtilities
     RawIron::Spatial
     RawIron::Trace

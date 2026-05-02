@@ -8,6 +8,7 @@
 #include "RawIron/Core/FixedStepAccumulator.h"
 #include "RawIron/Core/GameSimulationClock.h"
 #include "RawIron/Runtime/LevelScopedSchedulers.h"
+#include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Core/FrameArena.h"
 #include "RawIron/Core/InputPolling.h"
 #include "RawIron/Core/MainLoop.h"
@@ -592,6 +593,175 @@ void TestLevelScopedSchedulers() {
     (void)clearInsideCallback.ScheduleEvery(1.0, [&] { clearTicks += 100; }, 0.0);
     clearInsideCallback.Tick(1.0, 1.0);
     Expect(clearTicks == 1, "Clearing inside an interval callback should prevent later staged callbacks from running");
+}
+
+void TestRuntimeCoreLifecycleAndHostAdapter() {
+    struct RuntimeTrace {
+        int startupCount = 0;
+        int frameCount = 0;
+        int pauseCount = 0;
+        int resumeCount = 0;
+        int shutdownCount = 0;
+        int stopRequestedCount = 0;
+        std::vector<std::string> phases;
+    };
+
+    class RecordingRuntimeModule final : public ri::runtime::RuntimeModule {
+    public:
+        explicit RecordingRuntimeModule(std::shared_ptr<RuntimeTrace> trace)
+            : trace_(std::move(trace)) {}
+
+        [[nodiscard]] std::string_view Name() const noexcept override { return "RecordingRuntimeModule"; }
+
+        bool OnRuntimeStartup(ri::runtime::RuntimeContext& context,
+                              const ri::core::CommandLine&) override {
+            ++trace_->startupCount;
+            context.Services().Register<RuntimeTrace>(trace_);
+            return context.Phase() == ri::runtime::RuntimePhase::Loading;
+        }
+
+        bool OnRuntimeFrame(ri::runtime::RuntimeContext& context,
+                            const ri::core::FrameContext& frame) override {
+            ++trace_->frameCount;
+            Expect(context.Frame().frameIndex == frame.frameIndex,
+                   "RuntimeContext should expose the active frame snapshot before module ticks");
+            return trace_->frameCount < 2;
+        }
+
+        void OnRuntimePause(ri::runtime::RuntimeContext&) override {
+            ++trace_->pauseCount;
+        }
+
+        void OnRuntimeResume(ri::runtime::RuntimeContext&) override {
+            ++trace_->resumeCount;
+        }
+
+        void OnRuntimeShutdown(ri::runtime::RuntimeContext&) override {
+            ++trace_->shutdownCount;
+        }
+
+    private:
+        std::shared_ptr<RuntimeTrace> trace_;
+    };
+
+    auto trace = std::make_shared<RuntimeTrace>();
+    ri::runtime::RuntimeCore runtime(
+        ri::runtime::RuntimeIdentity{
+            .id = "runtime-test",
+            .displayName = "Runtime Test",
+            .mode = "test",
+            .instanceId = {},
+        },
+        ri::runtime::RuntimePaths{
+            .workspaceRoot = FindWorkspaceRoot(),
+            .gameRoot = {},
+            .saveRoot = {},
+            .configRoot = {},
+        });
+    runtime.Context().Events().On("runtime.phase", [trace](const ri::runtime::RuntimeEvent& event) {
+        const auto found = event.fields.find("to");
+        if (found != event.fields.end()) {
+            trace->phases.push_back(found->second);
+        }
+    });
+    runtime.Context().Events().On("runtime.stop_requested", [trace](const ri::runtime::RuntimeEvent&) {
+        ++trace->stopRequestedCount;
+    });
+    Expect(runtime.TryAddModule(std::make_unique<RecordingRuntimeModule>(trace)),
+           "Runtime core should accept a unique named module");
+    Expect(!runtime.TryAddModule(std::make_unique<RecordingRuntimeModule>(trace)),
+           "Runtime core should reject duplicate module names");
+    Expect(runtime.HasModule("RecordingRuntimeModule"), "Runtime core should expose mounted module lookup by name");
+    const std::vector<std::string> moduleNames = runtime.ModuleNames();
+    Expect(moduleNames.size() == 1U && moduleNames.front() == "RecordingRuntimeModule",
+           "Runtime core should expose stable module names");
+
+    ri::runtime::RuntimeHostAdapter host(runtime);
+    char arg0[] = "rawiron-runtime-test";
+    char* argv[] = {arg0};
+    const ri::core::CommandLine commandLine(1, argv);
+
+    ri::core::MainLoopOptions options{};
+    options.maxFrames = 5;
+    options.fixedDeltaSeconds = 1.0 / 60.0;
+    options.paceToFixedDelta = false;
+
+    const int exitCode = ri::core::RunMainLoop(host, commandLine, options);
+    Expect(exitCode == 0, "Runtime host adapter should run through the core main loop");
+    Expect(trace->startupCount == 1, "Runtime core should start modules once");
+    Expect(trace->frameCount == 2, "Runtime module should be able to stop the host loop");
+    Expect(trace->stopRequestedCount == 1, "Runtime core should emit a stop-requested event when a module stops");
+    Expect(runtime.Context().StopReason() == "Runtime module requested stop: RecordingRuntimeModule",
+           "Runtime context should retain the module stop reason");
+    Expect(trace->shutdownCount == 1, "Runtime core should shut modules down once");
+    Expect(runtime.Context().Phase() == ri::runtime::RuntimePhase::Stopped,
+           "Runtime core should finish in the stopped phase");
+    Expect(runtime.Context().Services().Resolve<RuntimeTrace>() == trace,
+           "Runtime services should expose registered shared services by type");
+    Expect(runtime.Context().Services().Contains<RuntimeTrace>(),
+           "Runtime services should expose typed service presence checks");
+    Expect(runtime.Context().Services().Unregister<RuntimeTrace>(),
+           "Runtime services should remove registered services by type");
+    Expect(!runtime.Context().Services().Contains<RuntimeTrace>(),
+           "Runtime services should report removed services as absent");
+    Expect(std::find(trace->phases.begin(), trace->phases.end(), "starting") != trace->phases.end() &&
+               std::find(trace->phases.begin(), trace->phases.end(), "loading") != trace->phases.end() &&
+               std::find(trace->phases.begin(), trace->phases.end(), "running") != trace->phases.end() &&
+               std::find(trace->phases.begin(), trace->phases.end(), "stopped") != trace->phases.end(),
+           "Runtime phase events should describe startup and shutdown transitions");
+
+    auto pauseTrace = std::make_shared<RuntimeTrace>();
+    ri::runtime::RuntimeCore pauseRuntime(
+        ri::runtime::RuntimeIdentity{
+            .id = "runtime-pause-test",
+            .displayName = "Runtime Pause Test",
+            .mode = "test",
+            .instanceId = {},
+        });
+    pauseRuntime.AddModule(std::make_unique<RecordingRuntimeModule>(pauseTrace));
+    Expect(pauseRuntime.Startup(commandLine), "Runtime core should start directly without the host adapter");
+    Expect(pauseRuntime.Pause("unit-test"), "Runtime core should support explicit pause transitions");
+    Expect(pauseRuntime.Context().Phase() == ri::runtime::RuntimePhase::Paused,
+           "Runtime core should enter paused phase");
+    Expect(pauseTrace->pauseCount == 1, "Runtime module should receive pause callbacks");
+    Expect(pauseRuntime.Resume(), "Runtime core should support resume transitions");
+    Expect(pauseRuntime.Context().Phase() == ri::runtime::RuntimePhase::Running,
+           "Runtime core should return to running phase after resume");
+    Expect(pauseTrace->resumeCount == 1, "Runtime module should receive resume callbacks");
+    pauseRuntime.Shutdown();
+
+    class LegacyHost final : public ri::core::Host {
+    public:
+        [[nodiscard]] std::string_view GetName() const noexcept override { return "LegacyHost"; }
+        [[nodiscard]] std::string_view GetMode() const noexcept override { return "tool"; }
+
+        void OnStartup(const ri::core::CommandLine&) override { ++startupCount; }
+        [[nodiscard]] bool OnFrame(const ri::core::FrameContext&) override {
+            ++frameCount;
+            return frameCount < 3;
+        }
+        void OnShutdown() override { ++shutdownCount; }
+
+        int startupCount = 0;
+        int frameCount = 0;
+        int shutdownCount = 0;
+    };
+
+    LegacyHost legacyHost;
+    ri::runtime::RuntimeCore hostRuntime(
+        ri::runtime::RuntimeIdentity{
+            .id = "legacy-host-runtime",
+            .displayName = "Legacy Host Runtime",
+            .mode = "tool",
+            .instanceId = {},
+        });
+    hostRuntime.AddModule(std::make_unique<ri::runtime::RuntimeHostModule>(legacyHost));
+    ri::runtime::RuntimeHostAdapter legacyAdapter(hostRuntime);
+    const int legacyExitCode = ri::core::RunMainLoop(legacyAdapter, commandLine, options);
+    Expect(legacyExitCode == 0, "RuntimeHostModule should let legacy hosts run through RuntimeCore");
+    Expect(legacyHost.startupCount == 1, "RuntimeHostModule should forward startup to the mounted host");
+    Expect(legacyHost.frameCount == 3, "RuntimeHostModule should forward frames until the host stops");
+    Expect(legacyHost.shutdownCount == 1, "RuntimeHostModule should forward shutdown to the mounted host");
 }
 
 void TestMainLoopSanitizesInvalidFixedDelta() {
@@ -3642,6 +3812,7 @@ const ri::test::TestCase kCoreTests[] = {
     {"TestFixedStepAccumulator", TestFixedStepAccumulator},
     {"TestGameSimulationClock", TestGameSimulationClock},
     {"TestLevelScopedSchedulers", TestLevelScopedSchedulers},
+    {"TestRuntimeCoreLifecycleAndHostAdapter", TestRuntimeCoreLifecycleAndHostAdapter},
     {"TestMainLoopSanitizesInvalidFixedDelta", TestMainLoopSanitizesInvalidFixedDelta},
     {"TestMainLoopSanitizesNonFiniteFixedDelta", TestMainLoopSanitizesNonFiniteFixedDelta},
     {"TestFixedStepAccumulatorSanitizesNonFiniteConfig", TestFixedStepAccumulatorSanitizesNonFiniteConfig},

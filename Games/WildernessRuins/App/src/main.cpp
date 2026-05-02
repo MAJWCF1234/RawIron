@@ -59,6 +59,11 @@ int main(int argc, char** argv) {
         ri::core::LogInfo("  --checkpoint-slot=<id>      Checkpoint slot id (default: autosave)");
         ri::core::LogInfo("  --resume-query=<query>      URL-style query string (?startFromCheckpoint=1&checkpointSlot=...)");
         ri::core::LogInfo("  --checkpoint-storage-root=<path>  Override Saved/Checkpoints root directory");
+        ri::core::LogInfo("  --headless                  Run RuntimeCore-backed software headless validation");
+        ri::core::LogInfo("  --headless-frames=<n>       Headless validation frames (default 240)");
+        ri::core::LogInfo("  --headless-output=<path>    Optional BMP output path for headless validation");
+        ri::core::LogInfo("  --no-autoplay               Disable headless autoplay input");
+        ri::core::LogInfo("  --software-low-spec         Use the old-system software renderer profile");
         return 0;
     }
 
@@ -154,9 +159,24 @@ int main(int argc, char** argv) {
     std::string error;
     (void)bench;
     if (headless) {
-        ri::core::LogSection("Forest Ruins Failure");
-        ri::core::LogInfo("Headless software capture has been retired. Standalone is Vulkan-native only.");
-        return 1;
+        ri::games::forestruins::HeadlessCaptureOptions headlessOptions{};
+        headlessOptions.standalone = options;
+        headlessOptions.standalone.captureMouse = false;
+        headlessOptions.frames = std::clamp(commandLine.GetIntOr("--headless-frames", headlessOptions.frames), 1, 3600);
+        headlessOptions.autoplay = !commandLine.HasFlag("--no-autoplay");
+        headlessOptions.softwareLowSpec = commandLine.HasFlag("--software-low-spec");
+        if (const auto output = commandLine.GetValue("--headless-output");
+            output.has_value() && !output->empty()) {
+            headlessOptions.outputPath = std::filesystem::path(*output);
+        }
+        if (!ri::games::forestruins::RunHeadlessCapture(headlessOptions, &error)) {
+            if (!error.empty()) {
+                ri::core::LogSection("Forest Ruins Failure");
+                ri::core::LogInfo(error);
+            }
+            return 1;
+        }
+        return 0;
     }
     if (!ri::games::forestruins::RunStandalone(options, &error)) {
         if (!error.empty()) {

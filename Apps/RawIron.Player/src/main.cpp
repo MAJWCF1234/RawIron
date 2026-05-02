@@ -7,6 +7,7 @@
 #include "RawIron/Core/MainLoop.h"
 #include "RawIron/Math/Vec3.h"
 #include "RawIron/Render/VulkanBootstrap.h"
+#include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Scene/ScriptedCameraReview.h"
 #include "RawIron/Scene/WorkspaceSandbox.h"
 #include "RawIron/Scene/SceneUtils.h"
@@ -185,6 +186,16 @@ int main(int argc, char** argv) {
     try {
         ri::core::CommandLine commandLine(argc, argv);
         PlayerHost host;
+        ri::runtime::RuntimeCore runtime(
+            ri::runtime::RuntimeIdentity{
+                .id = "rawiron.player",
+                .displayName = "RawIron.Player",
+                .mode = "player",
+                .instanceId = {},
+            },
+            ri::runtime::DetectRuntimePaths());
+        runtime.AddModule(std::make_unique<ri::runtime::RuntimeHostModule>(host));
+        ri::runtime::RuntimeHostAdapter runtimeHost(runtime);
 
         ri::core::MainLoopOptions options;
         options.maxFrames = commandLine.GetIntOr("--frames", 6);
@@ -192,7 +203,7 @@ int main(int argc, char** argv) {
         options.verboseFrames = commandLine.HasFlag("--verbose-frames");
         options.paceToFixedDelta = !commandLine.HasFlag("--unpaced");
 
-        return ri::core::RunMainLoop(host, commandLine, options);
+        return ri::core::RunMainLoop(runtimeHost, commandLine, options);
     } catch (const std::exception&) {
         ri::core::LogCurrentExceptionWithStackTrace("Player Failure");
         return 1;

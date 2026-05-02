@@ -33,7 +33,9 @@ if(MSVC)
   target_compile_options(RawIron.EngineImport.Tests PRIVATE /FS)
 else()
   # The import suite uses designated aggregate literals heavily for sparse authoring fixtures.
+  # MinGW's stock assembler limits object section count; the merged `EngineImportTests.cpp` can exceed it.
   target_compile_options(RawIron.EngineImport.Tests PRIVATE
+    -Wa,-mbig-obj
     -Wno-missing-field-initializers
     -fno-var-tracking-assignments)
 endif()

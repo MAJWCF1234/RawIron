@@ -36,6 +36,8 @@ struct ScenePreviewOptions {
     bool affineTextureMapping = false;
     /// Subtle ordered dither toward 5-bit channels.
     bool orderedDither = true;
+    /// Opt-in profile for very old CPUs/GPUs: cheaper sampling, affine UVs, no dither, and distance thinning.
+    bool lowSpecMode = false;
     /// Distance-tiered thinning/culling to keep full-res software rendering responsive in large halls.
     bool enableFarHorizon = false;
     float farHorizonStartDistance = 70.0f;
@@ -50,9 +52,16 @@ struct ScenePreviewOptions {
     ri::scene::PhotoModeCameraOverrides photoMode{};
 };
 
+struct ScenePreviewMeshCullBounds {
+    ri::math::Vec3 center{};
+    float radius = 0.0f;
+    bool valid = false;
+};
+
 struct ScenePreviewCache {
     std::unordered_map<std::string, RgbaImage> textures{};
     std::vector<float> depthBuffer{};
+    std::vector<std::optional<ScenePreviewMeshCullBounds>> meshCullBounds{};
 };
 
 /// Delegates to `ri::content::ResolveEngineTexturesDirectory` (see `EngineAssets.h`).

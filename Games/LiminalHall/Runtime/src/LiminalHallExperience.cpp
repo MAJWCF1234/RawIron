@@ -1,4 +1,5 @@
 #include "RawIron/Games/LiminalHall/LiminalHallWorld.h"
+#include "RawIron/Games/GameRuntimeCore.h"
 #include "RawIron/Games/RuntimeDiagnosticsStandaloneDraw.h"
 
 #include "RawIron/Content/EngineAssets.h"
@@ -8,6 +9,7 @@
 #include "RawIron/Audio/AudioBackendMiniaudio.h"
 #include "RawIron/Audio/AudioManager.h"
 #include "RawIron/Core/Log.h"
+#include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
@@ -52,6 +54,21 @@ namespace ri::games::liminal {
 namespace {
 
 namespace fs = std::filesystem;
+
+[[nodiscard]] ri::runtime::RuntimeCore CreateLiminalRuntimeCore(
+    const ri::content::GameManifest& manifest,
+    const StandaloneOptions& options,
+    std::shared_ptr<ri::content::GameManifest> manifestService,
+    std::shared_ptr<ri::content::GameRuntimeSupportData> supportService) {
+    return ri::games::CreateGameRuntimeCore(
+        manifest,
+        "RawIron.Game.LiminalHall",
+        ri::games::BuildGameRuntimePaths(manifest, options.workspaceRoot, options.checkpointStorageRoot),
+        ri::games::GameRuntimeBootServices{
+            .manifest = std::move(manifestService),
+            .support = std::move(supportService),
+        });
+}
 
 std::optional<ri::content::GameManifest> ResolveStandaloneGameManifest(const StandaloneOptions& options) {
     if (!options.gameRoot.empty()) {
@@ -1465,11 +1482,15 @@ void TickStandaloneFrame(RuntimeState& state) {
     TickLogicDemo(state, dt);
 }
 
-bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options, RuntimeState& state, std::string* error) {
+bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
+                                   RuntimeState& state,
+                                   ri::runtime::RuntimeCore& runtime,
+                                   std::string* error) {
     state.lastTick = std::chrono::steady_clock::now();
     state.hwnd = nullptr;
     const bool benchmarking = options.benchmarkFrames > 0;
     int benchmarkedFrames = 0;
+    int runtimeFrameIndex = 0;
     const auto benchmarkStart = std::chrono::steady_clock::now();
 
     const fs::path textureRootForVulkan = state.previewOptions.textureRoot.value_or(fs::path{});
@@ -1483,9 +1504,22 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options, RuntimeStat
     };
 
     const ri::render::vulkan::VulkanNativeSceneFrameCallback buildFrame =
-        [&state, &options, &benchmarkedFrames, &textureRootForVulkan](ri::render::vulkan::VulkanNativeSceneFrame& frame,
-                                                                     std::string*) {
+        [&state, &options, &benchmarkedFrames, &runtimeFrameIndex, &runtime, &textureRootForVulkan](
+            ri::render::vulkan::VulkanNativeSceneFrame& frame,
+            std::string*) {
             TickStandaloneFrame(state);
+            const ri::core::FrameContext runtimeFrame = ri::games::BuildGameRuntimeFrameContext(
+                runtimeFrameIndex,
+                1.0 / 60.0,
+                static_cast<double>(state.elapsedSeconds),
+                static_cast<double>(state.elapsedSeconds));
+            ++runtimeFrameIndex;
+            if (!runtime.Frame(runtimeFrame)) {
+                if (state.hwnd != nullptr) {
+                    PostMessageW(state.hwnd, WM_CLOSE, 0, 0);
+                }
+                return true;
+            }
             frame.scene = &state.world.scene;
             frame.cameraNode = state.world.playerCameraNode;
             frame.textureRoot = textureRootForVulkan;
@@ -2141,25 +2175,18 @@ bool RunStandalone(const StandaloneOptions& options, std::string* error) {
             }
             return false;
         }
-        const ri::content::GameRuntimeSupportData standaloneSupport =
-            ri::content::LoadGameRuntimeSupportData(manifest->rootPath);
-        const ri::content::AudioZoneRow* audioAtOrigin =
-            ri::content::FindAudioZoneAtPoint(0.0f, 0.0f, 0.0f, standaloneSupport);
-        const float lodScaleSample = standaloneSupport.lodRanges.empty()
-            ? 1.0f
-            : ri::content::ComputeLodScaleForDistance(
-                  standaloneSupport.lodRanges.front().id,
-                  24.0f,
-                  standaloneSupport);
-        ri::core::LogInfo(std::string("Runtime support data: triggers=")
-            + std::to_string(standaloneSupport.levelTriggers.size()) + ", occlusion="
-            + std::to_string(standaloneSupport.occlusionVolumes.size()) + ", materials="
-            + std::to_string(standaloneSupport.materialsById.size()) + ", achievements="
-            + std::to_string(standaloneSupport.achievementIdsByPlatform.size()) + ", audioZones="
-            + std::to_string(standaloneSupport.audioZones.size()) + ", lodRanges="
-            + std::to_string(standaloneSupport.lodRanges.size()) + ", audioAtOrigin="
-            + std::string(audioAtOrigin != nullptr ? audioAtOrigin->id : "none") + ", lodScale@24m="
-            + std::to_string(lodScaleSample));
+        auto manifestService = std::make_shared<ri::content::GameManifest>(*manifest);
+        auto standaloneSupport = std::make_shared<ri::content::GameRuntimeSupportData>(
+            ri::content::LoadGameRuntimeSupportData(manifest->rootPath));
+        ri::games::LogGameRuntimeSupportSummary(*standaloneSupport);
+        ri::runtime::RuntimeCore runtime = CreateLiminalRuntimeCore(
+            *manifest,
+            options,
+            manifestService,
+            standaloneSupport);
+        if (!ri::games::StartupGameRuntimeCore(runtime, error)) {
+            return false;
+        }
         ri::core::LogSection("RawIron Standalone");
         ri::core::LogInfo("Game: " + manifest->name + " (" + manifest->id + ")");
         ri::core::LogInfo("Game root: " + manifest->rootPath.string());
@@ -2169,7 +2196,8 @@ bool RunStandalone(const StandaloneOptions& options, std::string* error) {
         InitializeRuntimeState(options, *manifest, state);
 
         std::string runtimeError;
-        const bool ok = RunStandaloneNativeVulkanLoop(options, state, &runtimeError);
+        const bool ok = RunStandaloneNativeVulkanLoop(options, state, runtime, &runtimeError);
+        runtime.Shutdown();
         if (!ok) {
             if (error != nullptr) {
                 *error = runtimeError;
@@ -2211,31 +2239,25 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
             }
             return false;
         }
-        const ri::content::GameRuntimeSupportData headlessSupport =
-            ri::content::LoadGameRuntimeSupportData(manifest->rootPath);
-        const ri::content::AudioZoneRow* headlessAudioAtOrigin =
-            ri::content::FindAudioZoneAtPoint(0.0f, 0.0f, 0.0f, headlessSupport);
-        const float headlessLodScaleSample = headlessSupport.lodRanges.empty()
-            ? 1.0f
-            : ri::content::ComputeLodScaleForDistance(
-                  headlessSupport.lodRanges.front().id,
-                  24.0f,
-                  headlessSupport);
-        ri::core::LogInfo(std::string("Runtime support data: triggers=")
-            + std::to_string(headlessSupport.levelTriggers.size()) + ", occlusion="
-            + std::to_string(headlessSupport.occlusionVolumes.size()) + ", materials="
-            + std::to_string(headlessSupport.materialsById.size()) + ", achievements="
-            + std::to_string(headlessSupport.achievementIdsByPlatform.size()) + ", audioZones="
-            + std::to_string(headlessSupport.audioZones.size()) + ", lodRanges="
-            + std::to_string(headlessSupport.lodRanges.size()) + ", audioAtOrigin="
-            + std::string(headlessAudioAtOrigin != nullptr ? headlessAudioAtOrigin->id : "none")
-            + ", lodScale@24m=" + std::to_string(headlessLodScaleSample));
+        auto manifestService = std::make_shared<ri::content::GameManifest>(*manifest);
+        auto headlessSupport = std::make_shared<ri::content::GameRuntimeSupportData>(
+            ri::content::LoadGameRuntimeSupportData(manifest->rootPath));
+        ri::games::LogGameRuntimeSupportSummary(*headlessSupport);
+        ri::runtime::RuntimeCore runtime = CreateLiminalRuntimeCore(
+            *manifest,
+            options.standalone,
+            manifestService,
+            headlessSupport);
+        if (!ri::games::StartupGameRuntimeCore(runtime, error)) {
+            return false;
+        }
 
         RuntimeState state{};
         StandaloneOptions runOptions = options.standalone;
         runOptions.captureMouse = false;
         runOptions.renderer = StandaloneRenderer::VulkanNative;
         InitializeRuntimeState(runOptions, *manifest, state);
+        state.previewOptions.lowSpecMode = options.softwareLowSpec;
         ri::core::LogInfo("Mouse capture forced off for headless mode.");
 
         const int frames = std::max(1, options.frames);
@@ -2244,6 +2266,8 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
         ri::core::LogSection("Liminal Headless");
         ri::core::LogInfo("Frames: " + std::to_string(frames) + " dt=" + std::to_string(dt));
         ri::core::LogInfo(std::string("Autoplay: ") + (options.autoplay ? "enabled" : "disabled"));
+        ri::core::LogInfo(std::string("Software low-spec profile: ")
+            + (options.softwareLowSpec ? "enabled" : "disabled"));
 
         for (int frameIndex = 0; frameIndex < frames; ++frameIndex) {
             ri::trace::MovementInput input = BuildIdleHeadlessInput(state);
@@ -2265,6 +2289,9 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
             ProcessPendingDoorTransitions(state);
             SimulateAndApplyView(state, input, dt, animationSeconds);
             TickLogicDemo(state, dt);
+            if (!runtime.Frame(ri::games::BuildGameRuntimeFrameContext(frameIndex, dt, animationSeconds, animationSeconds))) {
+                break;
+            }
             ri::render::software::RenderScenePreviewInto(
                 state.world.scene,
                 state.world.playerCameraNode,
@@ -2285,6 +2312,7 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
 
         if (options.outputPath.empty()) {
             ri::core::LogInfo("Headless run complete (no --output specified, image not saved).");
+            runtime.Shutdown();
             return true;
         }
 
@@ -2293,10 +2321,12 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
             if (error != nullptr) {
                 *error = "Failed to save headless capture BMP to " + options.outputPath.string();
             }
+            runtime.Shutdown();
             return false;
         }
         ri::core::LogInfo("Headless capture saved: " + options.outputPath.string());
         ri::core::LogInfo("Image size: " + std::to_string(lastImage.width) + "x" + std::to_string(lastImage.height));
+        runtime.Shutdown();
         return true;
 #else
         (void)options;

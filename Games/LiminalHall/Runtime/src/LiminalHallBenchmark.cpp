@@ -32,6 +32,7 @@ bool RunLiminalHallSoftwareRenderBenchmark(const fs::path& workspaceRoot,
                                            const int viewportHeight,
                                            const std::uint32_t warmupFrames,
                                            const std::uint32_t timedFrames,
+                                           const bool lowSpecMode,
                                            std::string* reportOut,
                                            std::string* errorOut) {
     try {
@@ -66,6 +67,7 @@ bool RunLiminalHallSoftwareRenderBenchmark(const fs::path& workspaceRoot,
         preview.height = viewportHeight;
         preview.orderedDither = false;
         preview.pointSampleTextures = true;
+        preview.lowSpecMode = lowSpecMode;
 
         fs::path exePath{};
 #if defined(_WIN32)
@@ -79,10 +81,17 @@ bool RunLiminalHallSoftwareRenderBenchmark(const fs::path& workspaceRoot,
             preview.textureRoot = textureDir;
         }
 
+        ri::render::software::ScenePreviewCache previewCache{};
+        ri::render::software::SoftwareImage previewImage{};
         using Clock = std::chrono::high_resolution_clock;
         const auto benchOnce = [&]() {
             const Clock::time_point start = Clock::now();
-            (void)ri::render::software::RenderScenePreview(world.scene, world.playerCameraNode, preview);
+            ri::render::software::RenderScenePreviewInto(
+                world.scene,
+                world.playerCameraNode,
+                preview,
+                previewImage,
+                &previewCache);
             const Clock::time_point end = Clock::now();
             return std::chrono::duration<double, std::milli>(end - start).count();
         };
@@ -115,6 +124,7 @@ bool RunLiminalHallSoftwareRenderBenchmark(const fs::path& workspaceRoot,
         text.precision(3);
         text << "Liminal Hall software renderer (CPU)\n";
         text << "Viewport: " << viewportWidth << "x" << viewportHeight << "\n";
+        text << "Low-spec profile: " << (lowSpecMode ? "enabled" : "disabled") << "\n";
         text << "Warmup frames: " << warmupFrames << "  Timed frames: " << timedFrames << "\n";
         text << "Median: " << medianMs << " ms/frame  (~" << fpsMedian << " fps)\n";
         text << "Mean:   " << meanMs << " ms/frame\n";

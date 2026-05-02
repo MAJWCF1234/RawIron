@@ -1,52 +1,17 @@
-/**
- * Combined engine module (formerly ./engine/*.js and structuralPrimitives).
- */
-import * as THREE from 'three';
-
+/** Math, volumes, spawns, ground probe, decal presets, runtime IDs (aligned with RawIron C++ where noted). */
 export const GameAssets = {
     IMG_PREFIX: './images/',
     MODEL_ASSET_PATH_PREFIX: './models/',
     MODEL_DATA_PATH_PREFIX: './models/',
-    textureManifest: {},
-    availableModels: [],
-    animationLibraryProfiles: {},
-    externalModels: {}
+    textureManifest: {}
 };
 
+/** Level validation messages used by `index.js` when loading JSON. */
 export const STRINGS = {
     msg: {
-        pointerLockFailed: "Pointer Lock failed. Spectator Mode enabled.",
-        webglContextLost: "WebGL context lost. Please reload the page.",
-        webglContextRestored: "WebGL context restored. Resuming...",
-        levelLoadError: "ERROR: Could not load level.",
-        levelInvalid: "Invalid level data. Check level JSON format.",
-        levelNotObject: "Level file must be a JSON object (not an array or plain value).",
-        levelJsonParse: "Level file is not valid JSON.",
-        accessGranted: "ACCESS GRANTED",
-        newObjective: "NEW OBJECTIVE:",
-        somethingAware: "SOMETHING IS AWARE OF YOU",
-        staticSpike: "STATIC SPIKE DETECTED",
-        equipped: "Equipped:",
-        clickToEnter: "[ CLICK TO ENTER THE STATIC ]",
-        clickToResume: "[ CLICK TO RESUME ]",
-        clickToRestart: "[ CLICK TO RESTART ]",
-        retry: "RETRY",
-        continue: "CONTINUE",
-        loading: "LOADING...",
-        ready: "Ready.",
-        unstuckSuccess: "UNSTUCK RECOVERY TRIGGERED",
-        unstuckFailed: "UNSTUCK RECOVERY FAILED"
-    },
-    ui: {
-        gameTitle: "ANOMALOUS ECHO",
-        echoPaused: "ECHO PAUSED",
-        connectionLost: "CONNECTION LOST",
-        objective: "OBJECTIVE:",
-        interact: "[E] INTERACT",
-        debugReport: "SYSTEM DEBUG REPORT",
-        copy: "Copy",
-        copied: "Copied!",
-        copyFailed: "Copy failed"
+        levelInvalid: 'Invalid level data. Check level JSON format.',
+        levelNotObject: 'Level file must be a JSON object (not an array or plain value).',
+        levelJsonParse: 'Level file is not valid JSON.'
     }
 };
 
@@ -57,9 +22,7 @@ export const DEFAULT_KEYS = {
     right: 'KeyD'
 };
 
-/**
- * Shared numeric and transform utility helpers.
- */
+// --- Math finite (C++: `ri::math::FiniteVec3FromSpan`, `FiniteQuatComponents`, …) ---
 
 export function clampFiniteNumber(raw, fallback, min, max) {
     const n = Number(raw);
@@ -72,8 +35,6 @@ export function clampFiniteNumber(raw, fallback, min, max) {
 export function clampFiniteInteger(raw, fallback, min, max) {
     return Math.round(clampFiniteNumber(raw, fallback, min, max));
 }
-
-export const clampPickupMotion = clampFiniteNumber;
 
 export function finiteVec3Components(arr, fallback = [0, 0, 0]) {
     const base = Array.isArray(arr) && arr.length >= 3 ? arr : fallback;
@@ -122,6 +83,8 @@ export function finiteScaleComponents(arr, fallback = [1, 1, 1]) {
     return [clamp(sc[0]), clamp(sc[1]), clamp(sc[2])];
 }
 
+// --- Authoring volumes (C++: `ri::spatial::PointInsideAuthoringVolume`) ---
+
 export function pointInsideAuthoringVolume(point, volume) {
     if (!point || !volume || !volume.position) return false;
     const px = Number(point.x);
@@ -164,46 +127,45 @@ export function pointInsideAuthoringVolume(point, volume) {
     return dx * dx + dy * dy + dz * dz <= r * r;
 }
 
-const TAU = Math.PI * 2;
+// --- Player starts (C++: `ri::validation::LevelPlayerSpawn`) ---
 
-function remainderIeee(x, y) {
-    if (!Number.isFinite(x) || !Number.isFinite(y) || y === 0) return NaN;
-    const q = x / y;
-    const lo = Math.floor(q);
-    const hi = Math.ceil(q);
-    if (lo === hi) return x - y * lo;
-    const dl = Math.abs(q - lo);
-    const du = Math.abs(q - hi);
-    if (dl < du) return x - y * lo;
-    if (du < dl) return x - y * hi;
-    return x - y * (lo % 2 === 0 ? lo : hi);
+/** First `player_start` in array order (matches `TryGetPrimaryPlayerStart`). */
+export function tryGetPrimaryPlayerStart(spawners) {
+    if (!Array.isArray(spawners)) return null;
+    for (const s of spawners) {
+        if (s && typeof s.type === 'string' && s.type.toLowerCase() === 'player_start') {
+            return s;
+        }
+    }
+    return null;
 }
 
-export function normalizeYawRadians(angle) {
-    const a = Number(angle);
-    if (!Number.isFinite(a)) return 0;
-    return remainderIeee(a, TAU);
-}
-
-export function stepYawToward(currentYaw, desiredYaw, maxRadiansPerStep) {
-    let c = Number(currentYaw);
-    const d = Number(desiredYaw);
-    let cap = Number(maxRadiansPerStep);
-    if (!Number.isFinite(c)) c = 0;
-    if (!Number.isFinite(d)) return { newYaw: c, alignment: 1 };
-    cap = Math.max(0.001, Number.isFinite(cap) ? cap : 0.001);
-    const delta = normalizeYawRadians(d - c);
-    const step = Math.max(-cap, Math.min(cap, delta));
-    const newYaw = c + step;
-    const remaining = normalizeYawRadians(d - newYaw);
-    let alignment = Math.cos(remaining);
-    if (!Number.isFinite(alignment)) alignment = 1;
-    return { newYaw, alignment: Math.max(-1, Math.min(1, alignment)) };
-}
+// --- Ground probe (C++: `ri::trace::ProbeGroundAtFeet`) ---
 
 /**
- * Runtime IDs for the web shell: prefix sanitize + 10-char suffix.
+ * Single downward ray from above the feet AABB; the heavier multi-probe scoring lives in `ri::trace`.
+ * @param {object} game
+ * @param {import('three').Vector3} baseFeetPosition
+ * @param {object} ctx
  */
+export function probeGroundAtFeet(game, baseFeetPosition, ctx) {
+    if (!game?.findGroundHit || !baseFeetPosition) return null;
+    const probeLift = Math.max(0.2, ctx.maxDistance + 0.1);
+    ctx.groundProbeOrigin.copy(baseFeetPosition);
+    ctx.groundProbeOrigin.y += probeLift;
+    const hit = game.findGroundHit(ctx.groundProbeOrigin, {
+        maxDistance: probeLift + 0.1,
+        minNormalY: ctx.minNormalY,
+        traceTag: 'player'
+    });
+    if (!hit?.point) return null;
+    const relativeY = hit.point.y - baseFeetPosition.y;
+    if (relativeY > Math.max(ctx.allowAbove, ctx.getGroundProbeAllowAbove())) return null;
+    hit.clearance = Math.max(0, baseFeetPosition.y - hit.point.y);
+    hit.supportDelta = relativeY;
+    return hit;
+}
+
 const RUNTIME_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const SUFFIX_LENGTH = 10;
 const ALPHABET_SIZE = 62;
@@ -264,8 +226,19 @@ function randomSuffixUniform() {
     }
     return fallback;
 }
-
 export function createRuntimeId(prefix = 'rt') {
     const safePrefix = sanitizeRuntimeIdPrefix(prefix);
     return `${safePrefix}_${randomSuffixUniform()}`;
+}
+
+const DECAL_PRESET_HINTS = {
+    blood: { alphaTest: 0.45, metalness: 0.02, roughnessFactor: 0.98, emissiveIntensity: 0.05, uvScalePerMeterU: 0, uvScalePerMeterV: 0 },
+    cable: { alphaTest: 0.35, metalness: 0.08, roughnessFactor: 0.92, emissiveIntensity: 0, uvScalePerMeterU: 5.0, uvScalePerMeterV: 2.222 },
+    hazard: { alphaTest: 0.35, metalness: 0.18, roughnessFactor: 0.84, emissiveIntensity: 0.18, uvScalePerMeterU: 1.25, uvScalePerMeterV: 1.25 }
+};
+
+/** Returns hints that mirror C++ `DecalAuthoringMaterialHints`, or null when the preset is unknown. */
+export function resolveAuthoringDecalPreset(preset) {
+    if (typeof preset !== 'string') return null;
+    return DECAL_PRESET_HINTS[preset.toLowerCase()] || null;
 }

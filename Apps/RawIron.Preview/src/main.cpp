@@ -5,6 +5,7 @@
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
+#include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Scene/ModelLoader.h"
 #include "RawIron/Scene/Scene.h"
 #include "RawIron/Scene/SceneKit.h"
@@ -38,6 +39,26 @@ namespace {
 
 namespace fs = std::filesystem;
 
+class ScopedRuntimeShutdown {
+public:
+    explicit ScopedRuntimeShutdown(ri::runtime::RuntimeCore& runtime)
+        : runtime_(runtime) {}
+
+    ~ScopedRuntimeShutdown() {
+        if (active_) {
+            runtime_.Shutdown();
+        }
+    }
+
+    void Dismiss() noexcept {
+        active_ = false;
+    }
+
+private:
+    ri::runtime::RuntimeCore& runtime_;
+    bool active_ = true;
+};
+
 void PrintPreviewUsage() {
     std::cout
         << "RawIron.Preview — Scene Kit software snapshot + optional Vulkan window (Windows).\n"
@@ -47,6 +68,8 @@ void PrintPreviewUsage() {
         << "  --headless | --save     Write BMP (see --output)\n"
         << "  --output <path>         BMP path (default: rawiron_preview.bmp)\n"
         << "  --backend auto|vulkan|vulkan-native   Preview loop backend\n"
+        << "  --preview-frames <n>    Auto-close native Vulkan preview after n frames\n"
+        << "  --software-low-spec     Use the old-system software renderer profile\n"
         << "  --psx-water            Live RawIron-native PSX water package proof window\n"
         << "\nPhoto mode (FOV only; does not edit scene cameras):\n"
         << "  --photo-mode            Mild default widen (~1.18x vertical FOV) unless --photo-fov / --photo-scale\n"
@@ -416,6 +439,7 @@ ri::render::software::ScenePreviewOptions BuildPreviewOptions(const ri::core::Co
     ri::render::software::ScenePreviewOptions options{};
     options.width = std::max(64, commandLine.GetIntOr("--width", 768));
     options.height = std::max(64, commandLine.GetIntOr("--height", 768));
+    options.lowSpecMode = commandLine.HasFlag("--software-low-spec");
 
     const std::optional<std::string> photoFov = commandLine.GetValue("--photo-fov");
     const std::optional<std::string> photoScale = commandLine.GetValue("--photo-scale");
@@ -544,18 +568,44 @@ ri::scene::SceneKitPreview LoadSelectedPreview(const ri::core::CommandLine& comm
 #if defined(_WIN32)
 int PresentInteractivePreview(PreviewBackend backend,
                               const ri::scene::SceneKitPreview& preview,
-                              const ri::render::software::ScenePreviewOptions& previewOptions) {
+                              const ri::render::software::ScenePreviewOptions& previewOptions,
+                              const int previewFrames) {
     const std::string windowTitle = "RawIron Preview - " + preview.title;
     std::string error;
-    const ri::render::vulkan::VulkanPreviewWindowOptions windowOptions{
+    HWND hwnd = nullptr;
+    ri::render::vulkan::VulkanPreviewWindowOptions windowOptions{
         .windowTitle = windowTitle,
         .scenePhotoMode = previewOptions.photoMode,
+        .textureRoot = previewOptions.textureRoot.value_or(fs::path{}),
+        .outClientHwnd = previewFrames > 0 ? static_cast<void*>(&hwnd) : nullptr,
     };
     const int width = std::max(previewOptions.width, 1);
     const int height = std::max(previewOptions.height, 1);
     bool presented = false;
     if (backend == PreviewBackend::VulkanNative) {
-        presented = ri::render::vulkan::PresentSceneKitPreviewWindowNative(preview, width, height, windowOptions, &error);
+        if (previewFrames > 0) {
+            int frameCount = 0;
+            presented = ri::render::vulkan::RunVulkanNativeSceneLoop(
+                width,
+                height,
+                [&](ri::render::vulkan::VulkanNativeSceneFrame& frame, std::string*) {
+                    frame.scene = &preview.scene;
+                    frame.cameraNode = preview.orbitCamera.cameraNode;
+                    frame.photoMode = previewOptions.photoMode;
+                    frame.photoModeEnabled = ri::scene::PhotoModeFieldOfViewActive(previewOptions.photoMode);
+                    frame.textureRoot = previewOptions.textureRoot.value_or(fs::path{});
+                    frame.animationTimeSeconds = static_cast<double>(frameCount) / 60.0;
+                    ++frameCount;
+                    if (frameCount >= previewFrames && hwnd != nullptr) {
+                        PostMessageW(hwnd, WM_CLOSE, 0, 0);
+                    }
+                    return true;
+                },
+                windowOptions,
+                &error);
+        } else {
+            presented = ri::render::vulkan::PresentSceneKitPreviewWindowNative(preview, width, height, windowOptions, &error);
+        }
     } else if (backend == PreviewBackend::Auto) {
         presented = ri::render::vulkan::PresentSceneKitPreviewWindowNative(preview, width, height, windowOptions, &error);
         if (!presented) {
@@ -586,6 +636,25 @@ int main(int argc, char** argv) {
         }
         const PreviewBackend backend = ParsePreviewBackend(commandLine);
         const fs::path workspaceRoot = DetectWorkspaceRoot(commandLine);
+        ri::runtime::RuntimeCore runtime(
+            ri::runtime::RuntimeIdentity{
+                .id = "rawiron.preview",
+                .displayName = "RawIron.Preview",
+                .mode = "preview",
+                .instanceId = {},
+            },
+            ri::runtime::DetectRuntimePaths(workspaceRoot));
+        if (!runtime.Startup(commandLine)) {
+            return 1;
+        }
+        ScopedRuntimeShutdown runtimeShutdown(runtime);
+        (void)runtime.Frame(ri::core::FrameContext{
+            .frameIndex = 0,
+            .deltaSeconds = 0.0,
+            .elapsedSeconds = 0.0,
+            .realtimeSeconds = 0.0,
+            .realDeltaSeconds = 0.0,
+        });
         const ri::render::software::ScenePreviewOptions options = BuildPreviewOptions(commandLine);
         if (const auto modelOutput = commandLine.GetValue("--psx-water-export-model"); modelOutput.has_value()) {
             const ri::scene::Mesh mesh = BuildReconstructedPsxWaterMesh(workspaceRoot);
@@ -652,7 +721,11 @@ int main(int argc, char** argv) {
         ri::core::LogInfo("Backend: " + std::string(PreviewBackendName(backend)));
         ri::core::LogInfo("Software preview remains headless-only for saved regression snapshots.");
         ri::core::LogInfo("Close the window to exit.");
-        return PresentInteractivePreview(backend, preview, options);
+        return PresentInteractivePreview(
+            backend,
+            preview,
+            options,
+            std::max(0, commandLine.GetIntOr("--preview-frames", 0)));
 #else
         if (!saved) {
             savedPath = fs::current_path() / "rawiron_preview.bmp";

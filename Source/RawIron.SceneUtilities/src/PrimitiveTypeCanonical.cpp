@@ -71,6 +71,16 @@ std::string ResolveStructuralPrimitiveTypeToken(const std::optional<std::string_
         normalized = "sphere";
     } else if (normalized == "plane" || normalized == "quad" || normalized == "ground") {
         normalized = "plane";
+    } else if (normalized == "displacement" || normalized == "displacement_map") {
+        normalized = "displacement";
+    } else if (normalized == "manifold_sweep" || normalized == "spline_extrusion") {
+        normalized = "spline_sweep";
+    } else if (normalized == "cellular_shatter") {
+        normalized = "voronoi_fracture";
+    } else if (normalized == "metaball") {
+        normalized = "metaball_cluster";
+    } else if (normalized == "lsystem" || normalized == "lsystem_branch") {
+        normalized = "lsystem_branch";
     }
     return normalized;
 }

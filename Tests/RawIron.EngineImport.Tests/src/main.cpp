@@ -19,7 +19,10 @@
 #include "RawIron/Runtime/RuntimeId.h"
 #include "RawIron/Runtime/RuntimeTuning.h"
 #include "RawIron/Scene/AuthoringTransform.h"
+#include "RawIron/Scene/HumanoidAnimationProfiles.h"
+#include "RawIron/Scene/HumanoidRigNames.h"
 #include "RawIron/Scene/LoftPrimitiveStack.h"
+#include "RawIron/Scene/PrimitiveTypeCanonical.h"
 #include "RawIron/Render/PostProcessProfiles.h"
 #include "RawIron/Scene/ModelLoader.h"
 #include "RawIron/Spatial/SpatialIndex.h"
@@ -38,6 +41,7 @@
 #include "RawIron/Structural/StructuralDeferredOperations.h"
 #include "RawIron/Structural/StructuralGraph.h"
 #include "RawIron/Structural/StructuralPrimitives.h"
+#include "RawIron/Validation/LevelPlayerSpawn.h"
 #include "RawIron/Validation/Schemas.h"
 #include "RawIron/World/Instrumentation.h"
 #include "RawIron/World/InventoryState.h"
@@ -407,6 +411,11 @@ void TestRuntimeTuning() {
     Expect(locomotionRecord.at("walkSpeed") == 6.0 && locomotionRecord.at("crouchSpeed") == 3.0,
            "Locomotion subset snapshot should round-trip numeric entries");
 
+    const ri::trace::MovementControllerOptions fp = ri::trace::FpSandboxMovementOptions();
+    Expect(!fp.simulateStamina && NearlyEqual(fp.maxGroundSpeed, 5.0f) && NearlyEqual(fp.gravity, 32.0f)
+               && fp.projectMovementOntoGroundNormal,
+           "FP sandbox movement should mirror default locomotion tuning with stamina disabled for prototype parity");
+
     ri::trace::TraceScene scene{};
     scene.SetColliders({
         {.id = "a", .bounds = ri::spatial::Aabb{{0, 0, 0}, {1, 1, 1}}},
@@ -757,9 +766,67 @@ void TestStructuralPrimitives() {
                && IsNativeStructuralPrimitive("hexahedron")
                && IsNativeStructuralPrimitive("convex_hull")
                && IsNativeStructuralPrimitive("roof_gable")
-               && IsNativeStructuralPrimitive("hipped_roof")
-               && !IsNativeStructuralPrimitive("portal"),
+           && IsNativeStructuralPrimitive("hipped_roof")
+           && IsNativeStructuralPrimitive("rounded_box")
+           && IsNativeStructuralPrimitive("displacement")
+           && IsNativeStructuralPrimitive("voronoi_fracture")
+           && IsNativeStructuralPrimitive("metaball_cluster")
+           && IsNativeStructuralPrimitive("lsystem_branch")
+           && !IsNativeStructuralPrimitive("portal"),
            "Structural primitive registry should recognize the expanded native primitive subset");
+
+    Expect(ri::scene::ResolveStructuralPrimitiveTypeToken(std::nullopt,
+                                                          std::optional<std::string_view>("displacement_map"),
+                                                          "box")
+               == "displacement",
+           "Structural authoring aliases should normalize displacement_map to displacement");
+    Expect(ri::scene::CanonicalHumanoidBoneKey("mixamorig:LeftArm") == "leftarm",
+           "Humanoid bone canonicalization should strip Mixamo prefixes and aliases");
+    Expect(ri::scene::HumanoidAnimationProfileExists("hazmat_survivor")
+               && !ri::scene::HumanoidAnimationProfileExists("unknown_profile_xyz"),
+           "Humanoid animation profile registry should expose known survivor bundles");
+    {
+        const std::vector<std::string>& idle = ri::scene::HumanoidProfileClipCandidates("hazmat_survivor", "idle");
+        Expect(!idle.empty() && idle.front().find("Idle") != std::string::npos,
+               "Hazmat survivor idle profile should list Idle clips for native hydration");
+    }
+    Expect(ri::trace::ResolveAuthoringDecalPreset("blood").has_value()
+               && ri::trace::ResolveAuthoringDecalPreset("blood")->metalness < 0.1f,
+           "Authoring decal presets should expose native material routing hints");
+    {
+        const auto cable = ri::trace::ResolveAuthoringDecalPreset("cable");
+        const auto hazard = ri::trace::ResolveAuthoringDecalPreset("hazard");
+        const auto blood = ri::trace::ResolveAuthoringDecalPreset("blood");
+        Expect(cable.has_value() && hazard.has_value() && blood.has_value(),
+               "Cable/hazard/blood presets should resolve");
+        Expect(NearlyEqual(cable->uvScalePerMeterU, 5.0f) && cable->uvScalePerMeterV > 2.0f,
+               "Cable preset should bake a per-meter UV tile rate for run + cross axes");
+        Expect(NearlyEqual(hazard->uvScalePerMeterU, 1.25f) && NearlyEqual(hazard->uvScalePerMeterV, 1.25f),
+               "Hazard preset should bake symmetric per-meter UV tile rate");
+        Expect(blood->uvScalePerMeterU == 0.0f && blood->uvScalePerMeterV == 0.0f,
+               "Blood preset should disable preset-driven UV auto-scaling");
+        const std::span<const std::string_view> presetIds = ri::trace::ListAuthoringDecalPresetIds();
+        Expect(presetIds.size() == 3U && presetIds[0] == "blood" && presetIds[2] == "hazard",
+               "Decal preset id list should be deterministic");
+    }
+    {
+        const std::span<const ri::math::Vec3> offsets = ri::validation::PlayerSpawnRecoveryOffsets();
+        Expect(offsets.size() >= 8U && offsets.front().x == 0.0f && offsets.front().y == 0.0f
+                   && offsets.front().z == 0.0f,
+               "Player spawn recovery ladder should start with the authored position");
+        bool sawHorizontalRing = false;
+        bool sawVerticalLift = false;
+        for (const ri::math::Vec3& offset : offsets) {
+            if (offset.y == 0.0f && (offset.x != 0.0f || offset.z != 0.0f)) {
+                sawHorizontalRing = true;
+            }
+            if (offset.y > 1.0f && offset.x == 0.0f && offset.z == 0.0f) {
+                sawVerticalLift = true;
+            }
+        }
+        Expect(sawHorizontalRing && sawVerticalLift,
+               "Player spawn recovery ladder should include horizontal and vertical recovery candidates");
+    }
 
     const auto boxSolid = CreateConvexPrimitiveSolid("box");
     Expect(boxSolid.has_value() && boxSolid->polygons.size() == 6U,
@@ -777,6 +844,50 @@ void TestStructuralPrimitives() {
     const ri::structural::CompiledMesh rampMesh = BuildPrimitiveMesh("ramp");
     Expect(rampMesh.triangleCount == 8U && rampMesh.hasBounds,
            "Structural primitives should compile a native ramp mesh");
+
+    {
+        const ri::structural::CompiledMesh hippedRoof = ri::structural::BuildHippedRoofCompiledMesh(0.34f);
+        Expect(hippedRoof.triangleCount > 0U
+                   && hippedRoof.positions.size() == hippedRoof.normals.size()
+                   && hippedRoof.positions.size() == hippedRoof.triangleCount * 3U
+                   && hippedRoof.hasBounds
+                   && NearlyEqual(hippedRoof.boundsMin.y, -0.5f)
+                   && NearlyEqual(hippedRoof.boundsMax.y, 0.5f),
+               "Single-call hipped-roof builder should yield a closed unit-cube-bounded native mesh");
+    }
+    {
+        const std::vector<ri::math::Vec3> tetraPoints = {
+            {-0.5f, -0.5f, -0.5f}, {0.5f, -0.5f, -0.5f}, {0.0f, -0.5f, 0.5f}, {0.0f, 0.5f, 0.0f},
+        };
+        const ri::structural::CompiledMesh hullMesh = ri::structural::BuildConvexHullCompiledMeshFromPoints(tetraPoints);
+        Expect(hullMesh.triangleCount >= 4U
+                   && hullMesh.positions.size() == hullMesh.triangleCount * 3U
+                   && hullMesh.hasBounds,
+               "Single-call convex-hull builder should compile a closed tetrahedron from four points");
+        const ri::structural::CompiledMesh fallbackMesh = ri::structural::BuildConvexHullCompiledMeshFromPoints({});
+        Expect(fallbackMesh.triangleCount == 12U
+                   && fallbackMesh.hasBounds
+                   && NearlyEqual(fallbackMesh.boundsMin.x, -0.5f)
+                   && NearlyEqual(fallbackMesh.boundsMax.x, 0.5f),
+               "Convex-hull builder should fall back to a unit AABB when fewer than four points are supplied");
+    }
+    {
+        const ri::structural::CompiledMesh first = BuildPrimitiveMesh("box");
+        const ri::structural::CompiledMesh second = ri::structural::BuildHippedRoofCompiledMesh(0.34f);
+        const ri::structural::CompiledMesh merged = ri::structural::MergeCompiledMeshes({first, second});
+        Expect(merged.triangleCount == first.triangleCount + second.triangleCount
+                   && merged.positions.size() == merged.triangleCount * 3U
+                   && merged.normals.size() == merged.positions.size()
+                   && merged.hasBounds
+                   && NearlyEqual(merged.boundsMin.x, std::min(first.boundsMin.x, second.boundsMin.x))
+                   && NearlyEqual(merged.boundsMax.y, std::max(first.boundsMax.y, second.boundsMax.y)),
+               "MergeCompiledMeshes should concatenate triangle lists and union bounds across parts");
+        const ri::structural::CompiledMesh emptyMerged = ri::structural::MergeCompiledMeshes({});
+        Expect(emptyMerged.triangleCount == 0U
+                   && emptyMerged.positions.empty()
+                   && !emptyMerged.hasBounds,
+               "MergeCompiledMeshes with no inputs should produce an empty mesh");
+    }
 
     const auto wedgeSolid = CreateConvexPrimitiveSolid("wedge");
     Expect(wedgeSolid.has_value() && wedgeSolid->polygons.size() == 5U,
@@ -829,6 +940,48 @@ void TestStructuralPrimitives() {
                && NearlyEqual(hollowBoxMesh.boundsMin.x, -0.5f)
                && NearlyEqual(hollowBoxMesh.boundsMax.y, 0.5f),
            "Structural primitives should compile a native hollow box shell mesh");
+
+    const ri::structural::CompiledMesh roundedBoxMesh =
+        BuildPrimitiveMesh("rounded_box", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.bevelRadius = 0.1f;
+            options.bevelSegments = 3;
+        }));
+    Expect(roundedBoxMesh.triangleCount > 200U && roundedBoxMesh.hasBounds
+               && roundedBoxMesh.boundsMax.x > 0.45f && roundedBoxMesh.boundsMax.x <= 0.55f,
+           "Rounded box primitive should compile a dense superellipsoid approximation with near-unit bounds");
+
+    const ri::structural::CompiledMesh voronoiMesh =
+        BuildPrimitiveMesh("voronoi_fracture", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.detail = 12;
+            options.thickness = 0.04f;
+            options.strutRadius = 0.18f;
+        }));
+    Expect(voronoiMesh.triangleCount > 100U && voronoiMesh.hasBounds,
+           "Voronoi fracture primitive should emit merged shard box meshes");
+
+    StructuralPrimitiveOptions heightSamples{};
+    heightSamples.cellsX = 4;
+    heightSamples.cellsZ = 4;
+    heightSamples.depth = 0.18f;
+    heightSamples.heightfieldSamples.resize(25U);
+    for (float& sample : heightSamples.heightfieldSamples) {
+        sample = 0.35f;
+    }
+    const ri::structural::CompiledMesh sampledPatchMesh = BuildPrimitiveMesh("heightmap_patch", heightSamples);
+    Expect(sampledPatchMesh.triangleCount == 32U && sampledPatchMesh.hasBounds,
+           "Heightmap patch should consume explicit heightfieldSamples when grid dimensions match");
+
+    const ri::structural::CompiledMesh lsystemMesh =
+        BuildPrimitiveMesh("lsystem_branch", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
+            options.detail = 3;
+            options.length = 0.42f;
+            options.topRadius = 0.74f;
+            options.spanDegrees = 26.0f;
+            options.strutRadius = 0.07f;
+            options.radialSegments = 6;
+        }));
+    Expect(lsystemMesh.triangleCount > 40U && lsystemMesh.hasBounds,
+           "L-system branch primitive should compile stacked cylinders");
 
     const auto frustumSolid = CreateConvexPrimitiveSolid("frustum", MakePrimitiveOptions([](StructuralPrimitiveOptions& options) {
         options.radialSegments = 8;
@@ -2242,6 +2395,53 @@ void TestTraceScene() {
     Expect(groundHit->id == "floor", "FindGroundHit should resolve the floor collider");
     ExpectVec3(groundHit->normal, {0.0f, 1.0f, 0.0f}, "FindGroundHit normal");
 
+    const std::array<ri::spatial::Aabb, 2> compoundOverlap = {
+        Aabb{.min = {2.1f, 1.0f, -0.5f}, .max = {2.5f, 2.0f, 0.5f}},
+        Aabb{.min = {1.5f, 1.0f, -0.5f}, .max = {2.6f, 2.0f, 0.5f}},
+    };
+    const auto compoundHit = ri::trace::QueryCompoundTraceBox(scene, compoundOverlap, {});
+    Expect(compoundHit.has_value() && compoundHit->id == "wall",
+           "Compound AABB trace should return the first blocking sample hit in order (proto traceCompoundBoxes)");
+
+    const ri::spatial::Aabb sweepSample{
+        .min = {-0.5f, 0.5f, -0.5f},
+        .max = {0.5f, 1.5f, 0.5f},
+    };
+    const std::array<ri::spatial::Aabb, 2> compoundSweepSamples = {sweepSample, sweepSample};
+    const auto compoundSweep = ri::trace::QueryCompoundTraceSweptBox(
+        scene,
+        compoundSweepSamples,
+        {3.0f, 0.0f, 0.0f},
+        {});
+    Expect(compoundSweep.has_value() && NearlyEqual(compoundSweep->time, 0.5f),
+           "Compound sweep should pick the earliest time among rounded-hull sample boxes");
+    const ri::trace::SlideMoveResult compoundSlide = ri::trace::QueryCompoundSlideMoveBox(
+        scene,
+        compoundSweepSamples,
+        {3.0f, 1.0f, 0.0f},
+        4U,
+        0.001f,
+        {});
+    Expect(compoundSlide.blocked && !compoundSlide.hits.empty() && compoundSlide.hits[0].id == "wall",
+           "Compound slide move should operate on the primary sample box like the web slideMoveCompoundBoxes");
+
+    ri::trace::TraceScene groundOnly({
+        TraceCollider{
+            .id = "floor",
+            .bounds = Aabb{.min = {-10.0f, -0.1f, -10.0f}, .max = {10.0f, 0.0f, 10.0f}},
+            .structural = true,
+            .dynamic = false,
+        },
+    });
+    ri::trace::GroundFeetProbeOptions probeOpts{};
+    probeOpts.maxDistance = 1.15f;
+    probeOpts.minNormalY = 0.5f;
+    // Feet near the floor so each lifted ray (length probeLift+0.1) reaches the slab (matches web defaults).
+    const std::optional<ri::trace::GroundFeetProbeResult> feetProbe =
+        ri::trace::ProbeGroundAtFeet(groundOnly, ri::math::Vec3{0.2f, 0.08f, -0.1f}, 0.24f, probeOpts);
+    Expect(feetProbe.has_value() && feetProbe->hit.id == "floor" && feetProbe->clearance >= 0.05f,
+           "ProbeGroundAtFeet should mirror web multi-offset feet probing against walkable ground");
+
     Expect(!scene.TraceBox(Aabb{.min = {1.5f, 1.0f, -0.5f}, .max = {2.5f, 2.0f, 0.5f}}, {.ignoreId = "wall"}).has_value(),
            "TraceBox ignoreId should suppress hits against the ignored collider");
 
@@ -2734,6 +2934,23 @@ void TestValidationSchemas() {
     const std::optional<std::string> validLevelError = ri::validation::ValidateLevelPayload(validLevel, "valid_level");
     Expect(!validLevelError.has_value(), "Level validation should accept well-formed engine-native payloads");
 
+    ri::validation::LevelPayload duplicateEventLevel{};
+    duplicateEventLevel.levelName = "Dup";
+    duplicateEventLevel.geometry.push_back(MakeNode("room", "Room", "box"));
+    ri::events::EventDefinition duplicateEventA{};
+    duplicateEventA.id = "same";
+    duplicateEventA.hook = "a";
+    duplicateEventA.actions = {MakeMessageAction("x")};
+    ri::events::EventDefinition duplicateEventB{};
+    duplicateEventB.id = "same";
+    duplicateEventB.hook = "b";
+    duplicateEventB.actions = {MakeMessageAction("y")};
+    duplicateEventLevel.events = {duplicateEventA, duplicateEventB};
+    const std::optional<std::string> duplicateEventError =
+        ri::validation::ValidateLevelPayload(duplicateEventLevel, "dup_events");
+    Expect(duplicateEventError.has_value() && duplicateEventError->find("duplicate event id") != std::string::npos,
+           "Level validation should reject duplicate event ids");
+
     ri::validation::LevelPayload dirtyLevel = validLevel;
     dirtyLevel.levelName = "  Facility  ";
     dirtyLevel.objective = "   \t  ";
@@ -2796,6 +3013,30 @@ void TestValidationSchemas() {
            "Checkpoint parsing should keep only finite named world values");
     Expect(!ri::validation::ValidateCheckpointState(parsedCheckpoint, "checkpoint").has_value(),
            "Checkpoint validation should accept sanitized checkpoint payloads");
+
+    std::vector<ri::structural::StructuralNode> spawners;
+    spawners.push_back(MakeNode("npc_1", "Grunt", "hostile_npc"));
+    ri::structural::StructuralNode start{};
+    start.id = "player_start_dev";
+    start.name = "Start";
+    start.type = "player_start";
+    start.position = {4.0f, 0.0f, -1.2f};
+    start.rotation = {0.0f, 45.0f, 0.0f};
+    spawners.push_back(start);
+    Expect(ri::validation::CountPlayerStartSpawners(spawners) == 1U,
+           "Spawn helpers should count player_start entries case-insensitively");
+    const std::optional<ri::validation::PlayerStartCandidate> primary =
+        ri::validation::TryGetPrimaryPlayerStart(spawners);
+    Expect(primary.has_value() && primary->id == "player_start_dev"
+               && NearlyEqual(primary->feetPosition.x, 4.0f) && NearlyEqual(primary->rotationEulerDegrees.y, 45.0f),
+           "Primary player start resolution should mirror authored structural spawn transforms");
+
+    ri::structural::StructuralNode dupStart = start;
+    dupStart.id = "player_start_dup";
+    const std::vector<ri::structural::StructuralNode> multiStart = {start, dupStart};
+    const std::optional<std::string> multiErr = ri::validation::ValidateAtMostOnePlayerStart(multiStart, "level.spawners");
+    Expect(multiErr.has_value() && multiErr->find("at most one") != std::string::npos,
+           "Spawn validation should flag multiple player_start entries for CI pipelines");
 
     const ri::validation::SchemaValidationMetrics after = ri::validation::GetSchemaValidationMetrics();
     Expect(after.tuningParses >= before.tuningParses + 2, "Schema metrics should count runtime tuning parses");

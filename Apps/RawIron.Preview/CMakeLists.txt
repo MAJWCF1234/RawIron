@@ -8,6 +8,7 @@ target_link_libraries(RawIron.Preview
     RawIron::SceneUtilities
     RawIron::RenderSoftware
     RawIron::RenderVulkan
+    RawIron::Runtime
 )
 
 if (WIN32)

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <set>
 #include <sstream>
+#include <unordered_set>
 
 namespace ri::validation {
 namespace {
@@ -286,6 +287,25 @@ std::optional<std::string> ValidateLevelPayload(const LevelPayload& levelData, s
     gMetrics.levelValidations += 1;
 
     const std::string filename = levelFilename.empty() ? std::string("level") : std::string(levelFilename);
+
+    constexpr std::size_t kMaxContentNodes = 1'000'000U;
+    const std::size_t totalNodes = levelData.geometry.size() + levelData.lights.size() + levelData.modelInstances.size()
+        + levelData.spawners.size() + levelData.prefabInstances.size();
+    if (totalNodes > kMaxContentNodes) {
+        gMetrics.levelValidationFailures += 1;
+        return filename + ": level content node count exceeds engine limit.";
+    }
+
+    std::unordered_set<std::string> eventIds;
+    for (const ri::events::EventDefinition& event : levelData.events) {
+        if (event.id.empty()) {
+            continue;
+        }
+        if (!eventIds.insert(event.id).second) {
+            gMetrics.levelValidationFailures += 1;
+            return filename + ": duplicate event id '" + event.id + "'.";
+        }
+    }
 
     if (const std::optional<std::string> worldspawnOutputs = ValidateConnectionMap(levelData.worldspawn.outputs, "worldspawn.outputs"); worldspawnOutputs.has_value()) {
         gMetrics.levelValidationFailures += 1;

@@ -18,6 +18,7 @@ target_link_libraries(RawIron.Game.ForestRuins
     RawIron::Game.RuntimeDiagnosticsDraw
     RawIron::RenderSoftware
     RawIron::RenderVulkan
+    RawIron::Runtime
     RawIron::SceneUtilities
     RawIron::Trace
     RawIron::World

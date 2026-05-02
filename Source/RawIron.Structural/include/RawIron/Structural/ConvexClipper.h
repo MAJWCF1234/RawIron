@@ -68,6 +68,10 @@ struct ConvexSolidClipResult {
                                                            const Plane& splitPlane,
                                                            float epsilon = 1e-5f);
 [[nodiscard]] CompiledMesh BuildCompiledMeshFromConvexSolid(const ConvexSolid& solid);
+/// Concatenates compiled meshes (positions + normals as parallel triangle-list arrays) and unions their bounds.
+/// Empty inputs yield an empty mesh; a single non-empty input is returned verbatim. Mismatched
+/// `positions.size()` vs `normals.size()` per input is treated as malformed and skipped.
+[[nodiscard]] CompiledMesh MergeCompiledMeshes(const std::vector<CompiledMesh>& meshes);
 /// Stabilizes mesh-derived plane soups before CSG (duplicate / opposite-facing planes within epsilon).
 [[nodiscard]] std::vector<Plane> DedupeConvexPlanes(const std::vector<Plane>& planes, float epsilon = 1e-4f);
 

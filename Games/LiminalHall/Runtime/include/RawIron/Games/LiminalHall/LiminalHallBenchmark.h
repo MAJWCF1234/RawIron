@@ -13,6 +13,7 @@ namespace ri::games::liminal {
                                                          int viewportHeight,
                                                          std::uint32_t warmupFrames,
                                                          std::uint32_t timedFrames,
+                                                         bool lowSpecMode,
                                                          std::string* reportOut,
                                                          std::string* errorOut);
 

@@ -12,13 +12,11 @@
     "test": "node ./proto-tool.mjs proof",
     "preview": "vite preview",
     "ensure:assets": "node ./proto-tool.mjs extract",
-    "rebuild:level": "node ./proto-tool.mjs rebuild-level",
     "tower:pieces": "node ./proto-tool.mjs pieces",
     "tower:proof": "node ./proto-tool.mjs proof"
   },
   "dependencies": {
-    "three": "^0.179.1",
-    "three-mesh-bvh": "^0.9.9"
+    "three": "^0.179.1"
   },
   "devDependencies": {
     "node-unrar-js": "^2.0.2",

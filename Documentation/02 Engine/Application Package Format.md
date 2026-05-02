@@ -55,6 +55,9 @@ That helper standardizes:
 - runtime DLL staging
 - optional engine texture bundling
 - app smoke-test registration
+- linkage to `RawIron::Runtime`
+
+All app executables must mount the shared Runtime core. Apps can still own their UI, command-line surface, platform windowing, or tool-specific orchestration, but app startup/frame/shutdown should be stapled to `RawIron.Runtime` instead of inventing a local lifecycle registry.
 
 Each app `CMakeLists.txt` should describe only what the app owns:
 
@@ -69,12 +72,13 @@ Good app-local examples:
 
 - launcher UI
 - preview-shell orchestration
-- app-specific startup wiring
+- app-specific Runtime module composition
 - app-specific assets and config defaults
 - package-local helper classes used by one app
 
 Good shared-engine examples:
 
+- Runtime core lifecycle, events, services, path context, and host adapters
 - scene graph/runtime services
 - generalized rendering backends
 - reusable runtime tuning or event infrastructure
@@ -88,3 +92,10 @@ Games and apps should be parallel concepts in RawIron:
 - `Apps/<AppName>/` owns app-specific host/composition/UI/tooling code
 
 Both mount the engine. Neither should splatter their identity across `Source/`.
+
+The minimum app contract is:
+
+- link `RawIron::Runtime`
+- use `RuntimeCore`/`RuntimeHostAdapter` or an equivalent adapter over `RuntimeContext`
+- keep app-specific behavior in modules/composition code
+- do not create another app-private service locator, event spine, frame-clock contract, or startup/shutdown convention

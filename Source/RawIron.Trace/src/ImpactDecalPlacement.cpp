@@ -1,7 +1,10 @@
 #include "RawIron/Trace/ImpactDecalPlacement.h"
 
-#include <cmath>
 #include <algorithm>
+#include <array>
+#include <cmath>
+#include <cctype>
+#include <string>
 
 namespace ri::trace {
 namespace {
@@ -77,6 +80,52 @@ std::optional<ImpactDecalPlacement> BuildDragStreakDecalPlacement(const ri::math
     out.halfExtentU = clampedHalf;
     out.halfExtentV = streakHalfWidth;
     return out;
+}
+
+std::optional<DecalAuthoringMaterialHints> ResolveAuthoringDecalPreset(const std::string_view preset) noexcept {
+    std::string key;
+    key.reserve(preset.size());
+    for (const char ch : preset) {
+        key.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+    }
+    if (key == "blood") {
+        return DecalAuthoringMaterialHints{.alphaTest = 0.45f,
+                                           .metalness = 0.02f,
+                                           .roughness = 0.98f,
+                                           .emissiveIntensity = 0.05f,
+                                           .uvScalePerMeterU = 0.0f,
+                                           .uvScalePerMeterV = 0.0f,
+                                           .transparent = true,
+                                           .depthWrite = false};
+    }
+    if (key == "cable") {
+        // Cable runs prefer 1 tile per 0.20m along the run, 1 tile per 0.45m across the width.
+        return DecalAuthoringMaterialHints{.alphaTest = 0.35f,
+                                           .metalness = 0.08f,
+                                           .roughness = 0.92f,
+                                           .emissiveIntensity = 0.0f,
+                                           .uvScalePerMeterU = 5.0f,
+                                           .uvScalePerMeterV = 1.0f / 0.45f,
+                                           .transparent = true,
+                                           .depthWrite = false};
+    }
+    if (key == "hazard") {
+        // Hazard chevrons stay legible at ~1 tile per 0.80m on both axes.
+        return DecalAuthoringMaterialHints{.alphaTest = 0.35f,
+                                           .metalness = 0.18f,
+                                           .roughness = 0.84f,
+                                           .emissiveIntensity = 0.18f,
+                                           .uvScalePerMeterU = 1.25f,
+                                           .uvScalePerMeterV = 1.25f,
+                                           .transparent = true,
+                                           .depthWrite = false};
+    }
+    return std::nullopt;
+}
+
+std::span<const std::string_view> ListAuthoringDecalPresetIds() noexcept {
+    static constexpr std::array<std::string_view, 3> kIds = {"blood", "cable", "hazard"};
+    return {kIds.data(), kIds.size()};
 }
 
 } // namespace ri::trace
