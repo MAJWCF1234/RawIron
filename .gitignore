@@ -28,3 +28,6 @@ Assets/Source/**/*.sln
 # Local scratch captures (do not commit)
 Saved/TestScratch/
 
+# Local split-zip release drops (Scripts/Publish-FullWorkspaceSplitZip.ps1)
+/ReleaseArtifacts/
+

@@ -9,7 +9,7 @@ Join (concatenate in order 01 + 02 + 03) into:
   RawIron_full_release_with_builds.zip
 
 SHA256 of the joined ZIP (verify before extracting):
-  966411d7eea09ca664e44fed1f3d51ee5346287496d4fa9715d1735b95b81261
+  f3ac837cd2d32f0fbdfdd2469e4c58c2ab67f9decb4915caeeb1bcf33175157c
 
 PowerShell:
   Get-FileHash -Algorithm SHA256 .\RawIron_full_release_with_builds.zip
