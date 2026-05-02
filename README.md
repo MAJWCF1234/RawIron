@@ -60,6 +60,8 @@ ctest --test-dir "$env:LOCALAPPDATA\RawIron\cmake-build\dev-msvc" -C RelWithDebI
 
 If `git push` fails reading `.git/objects/pack` on your workspace drive, run `Scripts/Git-PushViaBundle.ps1 -Confirm` (bundle → clone under `%TEMP%` → push). It does not modify `Assets/` or other source trees.
 
+To install a published **split full-workspace** release from GitHub (download parts, join, verify, extract), run `Installer/RawIron.FullWorkspace.Installer.cmd` for the graphical wizard, or `powershell -STA -File Installer/RawIron.FullWorkspace.Installer.ps1 -NoGui` for automation.
+
 Useful tooling commands after a successful build (same `.\build\dev-msvc\...` paths with `dev-msvc`; use `%LOCALAPPDATA%\RawIron\cmake-build\dev-msvc\...` when you built with `dev-msvc-localappdata`):
 
 ```powershell
