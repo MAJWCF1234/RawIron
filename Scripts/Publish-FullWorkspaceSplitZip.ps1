@@ -162,7 +162,7 @@ try {
     $iu = Join-Path $OutputDir 'Installer_upload'
     Write-Host "Copying Installer (outside big zip) -> $iu"
     New-Item -ItemType Directory -Force -Path $iu | Out-Null
-    Copy-Item -LiteralPath (Join-Path $RepoRoot 'Installer\*') -Destination $iu -Recurse -Force
+    Copy-Item -Path (Join-Path $RepoRoot 'Installer\*') -Destination $iu -Recurse -Force
 
     Write-Host ""
     Write-Host "Done. Upload to GitHub Release:"

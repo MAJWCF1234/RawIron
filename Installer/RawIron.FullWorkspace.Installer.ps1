@@ -10,12 +10,12 @@
   .\RawIron.FullWorkspace.Installer.ps1 -NoGui -InstallRoot D:\RawIronWS
 #>
 param(
-    [string] $ReleaseTag = 'full-workspace-msvc-2026-05-03',
+    [string] $ReleaseTag = 'full-workspace-msvc-2026-05-04',
     [string] $Repo = 'MAJWCF1234/RawIron',
     [string] $InstallRoot = '',
     [string] $DownloadCache = (Join-Path $env:LOCALAPPDATA 'RawIron\release-downloads'),
     [switch] $SkipDownload,
-    [string] $ExpectedSha256 = 'f3ac837cd2d32f0fbdfdd2469e4c58c2ab67f9decb4915caeeb1bcf33175157c',
+    [string] $ExpectedSha256 = '3ea214947e9f1c85fcf696b8cbc81630b40db9ecc757f2c346853016e281e2b5',
     [switch] $SkipHashCheck,
     [switch] $WhatIf,
     [switch] $NoGui
