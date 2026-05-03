@@ -27,6 +27,14 @@ struct CompiledGeometryNode {
     CompiledMesh compiledMesh;
     bool compiledWorldSpace = true;
     bool compiledFromStructuralCsg = true;
+    /// Which authored structural template this mesh came from (`primitiveType` if set, else `type`).
+    std::string resolvedPrimitiveType;
+    /// Index of this convex fragment within the batch emitted for one compile step (0-based).
+    std::size_t convexFragmentIndex = 0;
+    /// Total convex fragments in that batch (typically matches solid count passed to `BuildCompiledGeometryNodesFromSolids`).
+    std::size_t convexFragmentCount = 1;
+    /// Stable key for editors and telemetry: `id` if set, else `name`, else resolved template string (before `_fragment_N` ids).
+    std::string authoringSourceKey;
 };
 
 struct StructuralBooleanTarget {
@@ -52,6 +60,16 @@ struct StructuralGeometryCompileResult {
     std::vector<StructuralDeferredTargetOperation> deferredOperations;
     std::vector<CompiledGeometryNode> compiledNodes;
     std::vector<std::string> suppressedTargetIds;
+    /// Non-fatal compile notes (e.g. CSG removed all geometry for a target).
+    std::vector<std::string> compileWarnings;
+    /// Sum of `CompiledMesh::triangleCount` across `compiledNodes` after compile completes.
+    std::size_t totalCompiledTriangles = 0;
+    /// Axis-aligned union of `compiledNodes` mesh bounds when every contributor had `CompiledMesh::hasBounds`.
+    std::optional<Bounds> compiledGeometryWorldBounds;
+    /// Count of structural nodes passed into `CompileStructuralGeometryNodes`.
+    std::size_t inputStructuralNodeCount = 0;
+    /// Count after array/symmetry expansion (`expandedNodes.size()`).
+    std::size_t expandedStructuralNodeCount = 0;
     std::size_t bevelModifiersApplied = 0;
     std::size_t detailModifiersApplied = 0;
 };
@@ -60,6 +78,14 @@ struct StructuralCompileOptions {
     bool enableHighCostBooleanPasses = true;
     bool enableNonManifoldReconcile = true;
     bool enableHighCostNonManifoldFallback = false;
+    /// Half-space epsilon for convex CSG clipping (`SubtractConvexPlanesFromSolid` / intersect). Must be positive;
+    /// non-finite or non-positive values fall back to `1e-5`. Clamped to roughly `[1e-8, 1e-2]` so authors can tighten
+    /// joints vs ancient fixed eps without destabilizing the clipper.
+    float csgPlaneEpsilon = 1e-5f;
+    /// When true, append `compileWarnings` for compiled fragments with no triangles or missing bounds.
+    bool reportDegenerateConvexFragments = true;
+    /// When true, warn when a subtractive/intersect cutter lists `targetIds` that do not match any non-empty `id` on the expanded structural graph.
+    bool validateCutterTargetReferences = true;
 };
 
 struct StructuralCompileIncrementalResult {
@@ -97,6 +123,8 @@ struct StructuralCompileIncrementalResult {
 [[nodiscard]] StructuralNode ApplyNonManifoldReconcilersToNode(const StructuralNode& node,
                                                                const std::vector<StructuralNode>& reconcilers,
                                                                bool allowHighCostHullFallback = false);
+/// Canonical primitive template string for a node (`primitiveType` wins over `type`), used by compile and tooling.
+[[nodiscard]] std::string ResolveStructuralPrimitiveType(const StructuralNode& node);
 [[nodiscard]] std::vector<std::string> GetBooleanOperatorTargetIds(const StructuralNode& node);
 [[nodiscard]] bool SupportsBooleanAdditiveTarget(const StructuralBooleanTarget& target);
 [[nodiscard]] bool SupportsBooleanAdditiveTargetNode(const StructuralNode& node);
@@ -120,11 +148,14 @@ struct StructuralCompileIncrementalResult {
     return BuildCompiledGeometryNodesFromSolids(baseNode, solids, idPrefix);
 }
 [[nodiscard]] StructuralBooleanCompileResult CompileBooleanUnionNode(const StructuralNode& unionNode,
-                                                                     const std::vector<StructuralBooleanTarget>& targets);
+                                                                     const std::vector<StructuralBooleanTarget>& targets,
+                                                                     float csgPlaneEpsilon = 1e-5f);
 [[nodiscard]] StructuralBooleanCompileResult CompileBooleanIntersectionNode(const StructuralNode& intersectionNode,
-                                                                            const std::vector<StructuralBooleanTarget>& targets);
+                                                                            const std::vector<StructuralBooleanTarget>& targets,
+                                                                            float csgPlaneEpsilon = 1e-5f);
 [[nodiscard]] StructuralBooleanCompileResult CompileBooleanDifferenceNode(const StructuralNode& differenceNode,
-                                                                          const std::vector<StructuralBooleanTarget>& targets);
+                                                                          const std::vector<StructuralBooleanTarget>& targets,
+                                                                          float csgPlaneEpsilon = 1e-5f);
 [[nodiscard]] std::vector<CompiledGeometryNode> CompileConvexHullAggregateNode(const StructuralNode& aggregateNode,
                                                                                const std::vector<StructuralBooleanTarget>& targets);
 [[nodiscard]] StructuralGeometryCompileResult CompileStructuralGeometryNodes(

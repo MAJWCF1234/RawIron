@@ -1,4 +1,5 @@
 #include "RawIron/Render/VulkanPreviewPresenter.h"
+#include "RawIron/Render/HybridPresentationTargets.h"
 
 #if defined(_WIN32)
 #include "RawIron/Core/Log.h"
@@ -98,7 +99,7 @@ struct NativeScenePreviewData {
     std::array<float, 4> postProcessPrimary{{0.0f, 0.0f, 0.0f, 0.0f}};
     /// rgb=tint color, a=tint strength
     std::array<float, 4> postProcessTint{{1.0f, 1.0f, 1.0f, 0.0f}};
-    /// x=blur amount, y=static fade, z=time seconds, w=reserved
+    /// x=blur, y=static fade, z=time seconds, w=non-zero: hybrid HDR linear radiance (composite tonemap/post).
     std::array<float, 4> postProcessSecondary{{0.0f, 0.0f, 0.0f, 0.0f}};
     int renderQualityTier = 1;
     std::array<float, 16> lightViewProjection{
@@ -550,6 +551,24 @@ VkFormat FindDepthFormat(VkPhysicalDevice physicalDevice) {
         }
     }
     throw std::runtime_error("No supported Vulkan depth format was found.");
+}
+
+VkFormat FindHdrSceneColorFormat(VkPhysicalDevice physicalDevice) {
+    static_cast<void>(HybridPresentationFormats::kSceneHdrColor);
+    const std::array<VkFormat, 2> formats = {
+        VK_FORMAT_R16G16B16A16_SFLOAT,
+        VK_FORMAT_R32G32B32A32_SFLOAT,
+    };
+    for (const VkFormat format : formats) {
+        VkFormatProperties properties{};
+        vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &properties);
+        constexpr VkFormatFeatureFlags required =
+            VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+        if ((properties.optimalTilingFeatures & required) == required) {
+            return format;
+        }
+    }
+    throw std::runtime_error("No Vulkan HDR scene color format (RGBA16F or RGBA32F with attachment + sampling).");
 }
 
 VkFormat FindShadowDepthFormat(VkPhysicalDevice physicalDevice) {
@@ -1301,6 +1320,54 @@ ImageResource CreateDepthImage(VkPhysicalDevice physicalDevice,
     return resource;
 }
 
+ImageResource CreateHdrSceneColorImage(VkPhysicalDevice physicalDevice,
+                                       VkDevice device,
+                                       VkFormat format,
+                                       std::uint32_t width,
+                                       std::uint32_t height) {
+    ImageResource resource{};
+    const VkImageCreateInfo imageInfo{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = format,
+        .extent = {width, height, 1},
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+    ExpectVk(vkCreateImage(device, &imageInfo, nullptr, &resource.image), "vkCreateImage(hdr-scene)");
+
+    VkMemoryRequirements requirements{};
+    vkGetImageMemoryRequirements(device, resource.image, &requirements);
+    const VkMemoryAllocateInfo allocateInfo{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = requirements.size,
+        .memoryTypeIndex = FindMemoryType(physicalDevice, requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
+    };
+    ExpectVk(vkAllocateMemory(device, &allocateInfo, nullptr, &resource.memory), "vkAllocateMemory(hdr-scene)");
+    ExpectVk(vkBindImageMemory(device, resource.image, resource.memory, 0), "vkBindImageMemory(hdr-scene)");
+
+    const VkImageViewCreateInfo hdrViewInfo{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = resource.image,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = format,
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+    };
+    ExpectVk(vkCreateImageView(device, &hdrViewInfo, nullptr, &resource.view), "vkCreateImageView(hdr-scene)");
+    return resource;
+}
+
 struct GpuAlbedoImage {
     VkImage image = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
@@ -1721,6 +1788,15 @@ struct NativeAlbedoTextureCache {
     }
 };
 
+void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
+                                          VkRenderPass compositeRenderPass,
+                                          VkFramebuffer compositeFramebuffer,
+                                          VkExtent2D extent,
+                                          VkPipeline compositePipeline,
+                                          VkPipelineLayout compositePipelineLayout,
+                                          VkDescriptorSet cameraDescriptorSet,
+                                          VkDescriptorSet hdrTextureDescriptorSet);
+
 void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                               VkRenderPass shadowRenderPass,
                               VkFramebuffer shadowFramebuffer,
@@ -1742,7 +1818,12 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                               NativeAlbedoTextureCache& textureCache,
                               const ri::scene::Scene& scene,
                               const std::unordered_map<int, CachedGpuMesh>& meshCache,
-                              const NativeScenePreviewData& sceneData) {
+                              const NativeScenePreviewData& sceneData,
+                              VkFramebuffer hybridCompositeFramebuffer,
+                              VkRenderPass hybridCompositeRenderPass,
+                              VkPipeline hybridCompositePipeline,
+                              VkPipelineLayout hybridCompositePipelineLayout,
+                              VkDescriptorSet hybridCompositeHdrDescriptorSet) {
     const VkCommandBufferBeginInfo beginInfo{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     ExpectVk(vkBeginCommandBuffer(commandBuffer, &beginInfo), "vkBeginCommandBuffer");
 
@@ -1932,7 +2013,69 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
         vkCmdDrawIndexed(commandBuffer, indexCount, std::max(draw.instanceCount, 1U), firstIndex, 0, 0);
     }
     vkCmdEndRenderPass(commandBuffer);
+    RecordHybridCompositeInCommandBuffer(commandBuffer,
+                                         hybridCompositeRenderPass,
+                                         hybridCompositeFramebuffer,
+                                         extent,
+                                         hybridCompositePipeline,
+                                         hybridCompositePipelineLayout,
+                                         cameraDescriptorSet,
+                                         hybridCompositeHdrDescriptorSet);
     ExpectVk(vkEndCommandBuffer(commandBuffer), "vkEndCommandBuffer");
+}
+
+void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
+                                          VkRenderPass compositeRenderPass,
+                                          VkFramebuffer compositeFramebuffer,
+                                          VkExtent2D extent,
+                                          VkPipeline compositePipeline,
+                                          VkPipelineLayout compositePipelineLayout,
+                                          VkDescriptorSet cameraDescriptorSet,
+                                          VkDescriptorSet hdrTextureDescriptorSet) {
+    if (compositeFramebuffer == VK_NULL_HANDLE || compositeRenderPass == VK_NULL_HANDLE
+        || compositePipeline == VK_NULL_HANDLE || compositePipelineLayout == VK_NULL_HANDLE
+        || hdrTextureDescriptorSet == VK_NULL_HANDLE) {
+        return;
+    }
+    const VkClearValue compositeClear{};
+    const VkRenderPassBeginInfo compositeBegin{
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .renderPass = compositeRenderPass,
+        .framebuffer = compositeFramebuffer,
+        .renderArea = {
+            .offset = {0, 0},
+            .extent = extent,
+        },
+        .clearValueCount = 1,
+        .pClearValues = &compositeClear,
+    };
+    const VkViewport compositeViewport{
+        .x = 0.0f,
+        .y = static_cast<float>(extent.height),
+        .width = static_cast<float>(extent.width),
+        .height = -static_cast<float>(extent.height),
+        .minDepth = 0.0f,
+        .maxDepth = 1.0f,
+    };
+    const VkRect2D compositeScissor{
+        .offset = {0, 0},
+        .extent = extent,
+    };
+    vkCmdBeginRenderPass(commandBuffer, &compositeBegin, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline);
+    vkCmdSetViewport(commandBuffer, 0, 1, &compositeViewport);
+    vkCmdSetScissor(commandBuffer, 0, 1, &compositeScissor);
+    const std::array<VkDescriptorSet, 2> compositeSets = {cameraDescriptorSet, hdrTextureDescriptorSet};
+    vkCmdBindDescriptorSets(commandBuffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            compositePipelineLayout,
+                            0,
+                            static_cast<std::uint32_t>(compositeSets.size()),
+                            compositeSets.data(),
+                            0,
+                            nullptr);
+    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    vkCmdEndRenderPass(commandBuffer);
 }
 
 } // namespace
@@ -2341,6 +2484,153 @@ bool RunVulkanNativeSceneLoop(const int width,
         ExpectVk(vkCreateDescriptorSetLayout(device, &skyCameraSetLayoutInfo, nullptr, &skyCameraSetLayout),
                  "vkCreateDescriptorSetLayout(sky-camera)");
 
+        const bool enableHybridHdr = options.enableHybridHdrPresentation;
+        VkFormat hdrSceneFormat = VK_FORMAT_UNDEFINED;
+        ImageResource hdrSceneColorImage{};
+        VkRenderPass hdrSceneRenderPass = VK_NULL_HANDLE;
+        VkFramebuffer hdrSceneFramebuffer = VK_NULL_HANDLE;
+        VkRenderPass compositeRenderPass = VK_NULL_HANDLE;
+        std::vector<VkFramebuffer> compositeFramebuffers;
+        VkDescriptorSetLayout compositeHdrTextureSetLayout = VK_NULL_HANDLE;
+        VkPipelineLayout compositePipelineLayout = VK_NULL_HANDLE;
+        VkShaderModule compositeVertShader = VK_NULL_HANDLE;
+        VkShaderModule compositeFragShader = VK_NULL_HANDLE;
+        VkPipeline pipelineHdrScene = VK_NULL_HANDLE;
+        VkPipeline skyPipelineHdr = VK_NULL_HANDLE;
+        VkPipeline compositePipeline = VK_NULL_HANDLE;
+        VkDescriptorPool compositeDescriptorPool = VK_NULL_HANDLE;
+        VkDescriptorSet compositeHdrDescriptorSet = VK_NULL_HANDLE;
+
+        if (enableHybridHdr) {
+            hdrSceneFormat = FindHdrSceneColorFormat(selection.physicalDevice);
+            hdrSceneColorImage =
+                CreateHdrSceneColorImage(selection.physicalDevice, device, hdrSceneFormat, extent.width, extent.height);
+
+            const VkAttachmentDescription hdrSceneColorAttachmentDesc{
+                .format = hdrSceneFormat,
+                .samples = VK_SAMPLE_COUNT_1_BIT,
+                .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+                .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+                .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            };
+            const std::array<VkAttachmentDescription, 2> hdrSceneAttachmentDescs = {hdrSceneColorAttachmentDesc,
+                                                                                     depthAttachment};
+            const VkSubpassDependency hdrSceneToSampleDependency{
+                .srcSubpass = 0,
+                .dstSubpass = VK_SUBPASS_EXTERNAL,
+                .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+            };
+            const std::array<VkSubpassDependency, 2> hdrSceneDependencies = {dependency, hdrSceneToSampleDependency};
+            const VkRenderPassCreateInfo hdrSceneRenderPassInfo{
+                .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+                .attachmentCount = static_cast<std::uint32_t>(hdrSceneAttachmentDescs.size()),
+                .pAttachments = hdrSceneAttachmentDescs.data(),
+                .subpassCount = 1,
+                .pSubpasses = &subpass,
+                .dependencyCount = static_cast<std::uint32_t>(hdrSceneDependencies.size()),
+                .pDependencies = hdrSceneDependencies.data(),
+            };
+            ExpectVk(vkCreateRenderPass(device, &hdrSceneRenderPassInfo, nullptr, &hdrSceneRenderPass),
+                     "vkCreateRenderPass(hdr-scene)");
+
+            const std::array<VkImageView, 2> hdrSceneFbAttachments = {hdrSceneColorImage.view, depthImage.view};
+            const VkFramebufferCreateInfo hdrSceneFramebufferInfo{
+                .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+                .renderPass = hdrSceneRenderPass,
+                .attachmentCount = static_cast<std::uint32_t>(hdrSceneFbAttachments.size()),
+                .pAttachments = hdrSceneFbAttachments.data(),
+                .width = extent.width,
+                .height = extent.height,
+                .layers = 1,
+            };
+            ExpectVk(vkCreateFramebuffer(device, &hdrSceneFramebufferInfo, nullptr, &hdrSceneFramebuffer),
+                     "vkCreateFramebuffer(hdr-scene)");
+
+            const VkAttachmentDescription compositeSwapAttachmentDesc{
+                .format = surfaceFormat.format,
+                .samples = VK_SAMPLE_COUNT_1_BIT,
+                .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+                .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            };
+            const VkAttachmentReference compositeSwapColorReference{
+                .attachment = 0,
+                .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            };
+            const VkSubpassDescription compositeSubpassDesc{
+                .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+                .colorAttachmentCount = 1,
+                .pColorAttachments = &compositeSwapColorReference,
+            };
+            const VkSubpassDependency compositePassDependency{
+                .srcSubpass = VK_SUBPASS_EXTERNAL,
+                .dstSubpass = 0,
+                .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            };
+            const VkRenderPassCreateInfo compositeRenderPassInfo{
+                .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+                .attachmentCount = 1,
+                .pAttachments = &compositeSwapAttachmentDesc,
+                .subpassCount = 1,
+                .pSubpasses = &compositeSubpassDesc,
+                .dependencyCount = 1,
+                .pDependencies = &compositePassDependency,
+            };
+            ExpectVk(vkCreateRenderPass(device, &compositeRenderPassInfo, nullptr, &compositeRenderPass),
+                     "vkCreateRenderPass(composite)");
+            compositeFramebuffers.reserve(swapchainImageViews.size());
+            for (VkImageView swapColorView : swapchainImageViews) {
+                const VkFramebufferCreateInfo compositeFbInfo{
+                    .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+                    .renderPass = compositeRenderPass,
+                    .attachmentCount = 1,
+                    .pAttachments = &swapColorView,
+                    .width = extent.width,
+                    .height = extent.height,
+                    .layers = 1,
+                };
+                VkFramebuffer compositeFb = VK_NULL_HANDLE;
+                ExpectVk(vkCreateFramebuffer(device, &compositeFbInfo, nullptr, &compositeFb), "vkCreateFramebuffer(composite)");
+                compositeFramebuffers.push_back(compositeFb);
+            }
+
+            const VkDescriptorSetLayoutBinding compositeHdrSamplerBinding{
+                .binding = 0,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            };
+            const VkDescriptorSetLayoutCreateInfo compositeHdrSamplerLayoutInfo{
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+                .bindingCount = 1,
+                .pBindings = &compositeHdrSamplerBinding,
+            };
+            ExpectVk(vkCreateDescriptorSetLayout(device, &compositeHdrSamplerLayoutInfo, nullptr, &compositeHdrTextureSetLayout),
+                     "vkCreateDescriptorSetLayout(composite-hdr)");
+
+            const std::array<VkDescriptorSetLayout, 2> compositePipelineSetLayouts = {cameraSetLayout, compositeHdrTextureSetLayout};
+            const VkPipelineLayoutCreateInfo compositePipelineLayoutInfo{
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+                .setLayoutCount = static_cast<std::uint32_t>(compositePipelineSetLayouts.size()),
+                .pSetLayouts = compositePipelineSetLayouts.data(),
+                .pushConstantRangeCount = 0,
+                .pPushConstantRanges = nullptr,
+            };
+            ExpectVk(vkCreatePipelineLayout(device, &compositePipelineLayoutInfo, nullptr, &compositePipelineLayout),
+                     "vkCreatePipelineLayout(composite)");
+        }
+
         const std::array<VkDescriptorSetLayout, 3> pipelineSetLayouts = {cameraSetLayout, textureSetLayout, shadowSetLayout};
 
         const VkPushConstantRange pushConstantRange{
@@ -2393,6 +2683,10 @@ bool RunVulkanNativeSceneLoop(const int width,
         const VkShaderModule skyVertShader = CreateShaderModule(device, shaderDir / "NativeSkybox.vert.spv");
         const VkShaderModule skyFragShader = CreateShaderModule(device, shaderDir / "NativeSkybox.frag.spv");
         const VkShaderModule shadowVertShader = CreateShaderModule(device, shaderDir / "NativeShadowDepth.vert.spv");
+        if (enableHybridHdr) {
+            compositeVertShader = CreateShaderModule(device, shaderDir / "NativeComposite.vert.spv");
+            compositeFragShader = CreateShaderModule(device, shaderDir / "NativeComposite.frag.spv");
+        }
 
         const VkPipelineShaderStageCreateInfo vertStage{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -2566,6 +2860,79 @@ bool RunVulkanNativeSceneLoop(const int width,
         VkPipeline skyPipeline = VK_NULL_HANDLE;
         ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &skyPipelineInfo, nullptr, &skyPipeline),
                  "vkCreateGraphicsPipelines(sky)");
+
+        if (enableHybridHdr) {
+            VkGraphicsPipelineCreateInfo hdrPipelineInfo = pipelineInfo;
+            hdrPipelineInfo.renderPass = hdrSceneRenderPass;
+            ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &hdrPipelineInfo, nullptr, &pipelineHdrScene),
+                     "vkCreateGraphicsPipelines(hdr-scene)");
+
+            VkGraphicsPipelineCreateInfo skyHdrPipelineInfo = skyPipelineInfo;
+            skyHdrPipelineInfo.renderPass = hdrSceneRenderPass;
+            ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &skyHdrPipelineInfo, nullptr, &skyPipelineHdr),
+                     "vkCreateGraphicsPipelines(sky-hdr)");
+
+            const VkPipelineShaderStageCreateInfo compositeVertStage{
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage = VK_SHADER_STAGE_VERTEX_BIT,
+                .module = compositeVertShader,
+                .pName = "main",
+            };
+            const VkPipelineShaderStageCreateInfo compositeFragStage{
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+                .module = compositeFragShader,
+                .pName = "main",
+            };
+            const std::array<VkPipelineShaderStageCreateInfo, 2> compositeStages = {compositeVertStage, compositeFragStage};
+            const VkPipelineVertexInputStateCreateInfo compositeVertexInputInfo{
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+                .vertexBindingDescriptionCount = 0,
+                .pVertexBindingDescriptions = nullptr,
+                .vertexAttributeDescriptionCount = 0,
+                .pVertexAttributeDescriptions = nullptr,
+            };
+            const VkPipelineRasterizationStateCreateInfo compositeRasterInfo{
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+                .polygonMode = VK_POLYGON_MODE_FILL,
+                .cullMode = VK_CULL_MODE_NONE,
+                .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+                .lineWidth = 1.0f,
+            };
+            const VkPipelineDepthStencilStateCreateInfo compositeDepthStencilInfo{
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+                .depthTestEnable = VK_FALSE,
+                .depthWriteEnable = VK_FALSE,
+            };
+            const VkPipelineColorBlendAttachmentState compositeBlendAttachment{
+                .blendEnable = VK_FALSE,
+                .colorWriteMask =
+                    VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+            };
+            const VkPipelineColorBlendStateCreateInfo compositeColorBlendInfo{
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+                .attachmentCount = 1,
+                .pAttachments = &compositeBlendAttachment,
+            };
+            const VkGraphicsPipelineCreateInfo compositePipelineInfo{
+                .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+                .stageCount = static_cast<std::uint32_t>(compositeStages.size()),
+                .pStages = compositeStages.data(),
+                .pVertexInputState = &compositeVertexInputInfo,
+                .pInputAssemblyState = &inputAssemblyInfo,
+                .pViewportState = &viewportStateInfo,
+                .pRasterizationState = &compositeRasterInfo,
+                .pMultisampleState = &multisampleInfo,
+                .pDepthStencilState = &compositeDepthStencilInfo,
+                .pColorBlendState = &compositeColorBlendInfo,
+                .pDynamicState = &dynamicStateInfo,
+                .layout = compositePipelineLayout,
+                .renderPass = compositeRenderPass,
+                .subpass = 0,
+            };
+            ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &compositePipelineInfo, nullptr, &compositePipeline),
+                     "vkCreateGraphicsPipelines(composite)");
+        }
 
         const VkPipelineShaderStageCreateInfo shadowVertStage{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -2747,6 +3114,43 @@ bool RunVulkanNativeSceneLoop(const int width,
         VkSampler linearSampler = VK_NULL_HANDLE;
         ExpectVk(vkCreateSampler(device, &samplerInfo, nullptr, &linearSampler), "vkCreateSampler(albedo)");
 
+        if (enableHybridHdr) {
+            const VkDescriptorPoolSize compositePoolSize{
+                .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+            };
+            const VkDescriptorPoolCreateInfo compositePoolInfo{
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                .maxSets = 1,
+                .poolSizeCount = 1,
+                .pPoolSizes = &compositePoolSize,
+            };
+            ExpectVk(vkCreateDescriptorPool(device, &compositePoolInfo, nullptr, &compositeDescriptorPool),
+                     "vkCreateDescriptorPool(composite-hdr)");
+            const VkDescriptorSetAllocateInfo compositeAllocateInfo{
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                .descriptorPool = compositeDescriptorPool,
+                .descriptorSetCount = 1,
+                .pSetLayouts = &compositeHdrTextureSetLayout,
+            };
+            ExpectVk(vkAllocateDescriptorSets(device, &compositeAllocateInfo, &compositeHdrDescriptorSet),
+                     "vkAllocateDescriptorSets(composite-hdr)");
+            const VkDescriptorImageInfo hdrSceneImageInfo{
+                .sampler = linearSampler,
+                .imageView = hdrSceneColorImage.view,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            };
+            const VkWriteDescriptorSet writeHdrScene{
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = compositeHdrDescriptorSet,
+                .dstBinding = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &hdrSceneImageInfo,
+            };
+            vkUpdateDescriptorSets(device, 1, &writeHdrScene, 0, nullptr);
+        }
+
         VkSamplerCreateInfo shadowSamplerInfo{};
         shadowSamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         shadowSamplerInfo.magFilter = VK_FILTER_LINEAR;
@@ -2873,6 +3277,9 @@ bool RunVulkanNativeSceneLoop(const int width,
             if (!BuildNativeScenePreviewData(frame, width, height, &sceneData, &frameError)) {
                 throw std::runtime_error(frameError.empty() ? "Failed to build native Vulkan scene data." : frameError);
             }
+            if (options.enableHybridHdrPresentation) {
+                sceneData.postProcessSecondary[3] = 1.0f;
+            }
             if (sceneData.scene == nullptr) {
                 throw std::runtime_error("Native Vulkan scene data did not include a scene pointer.");
             }
@@ -2954,22 +3361,27 @@ bool RunVulkanNativeSceneLoop(const int width,
                                      VkExtent2D{kShadowMapResolution, kShadowMapResolution},
                                      shadowPipeline,
                                      shadowPipelineLayout,
-                                     framebuffers[imageIndex],
-                                     renderPass,
+                                     enableHybridHdr ? hdrSceneFramebuffer : framebuffers[imageIndex],
+                                     enableHybridHdr ? hdrSceneRenderPass : renderPass,
                                      extent,
-                                     skyPipeline,
+                                     enableHybridHdr ? skyPipelineHdr : skyPipeline,
                                      skyPipelineLayout,
                                      skyDescriptorSet,
                                      skyTextureSet,
                                      skyMesh,
-                                     pipeline,
+                                     enableHybridHdr ? pipelineHdrScene : pipeline,
                                      pipelineLayout,
                                      cameraDescriptorSet,
                                      shadowDescriptorSet,
                                      textureCache,
                                      *sceneData.scene,
                                      meshCache,
-                                     sceneData);
+                                     sceneData,
+                                     enableHybridHdr ? compositeFramebuffers[imageIndex] : VK_NULL_HANDLE,
+                                     enableHybridHdr ? compositeRenderPass : VK_NULL_HANDLE,
+                                     enableHybridHdr ? compositePipeline : VK_NULL_HANDLE,
+                                     enableHybridHdr ? compositePipelineLayout : VK_NULL_HANDLE,
+                                     enableHybridHdr ? compositeHdrDescriptorSet : VK_NULL_HANDLE);
 
             const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
             const VkSubmitInfo submitInfo{
@@ -3027,6 +3439,27 @@ bool RunVulkanNativeSceneLoop(const int width,
         vkDestroyPipelineLayout(device, shadowPipelineLayout, nullptr);
         vkDestroyFramebuffer(device, shadowFramebuffer, nullptr);
         vkDestroyRenderPass(device, shadowRenderPass, nullptr);
+        if (enableHybridHdr) {
+            vkDestroyPipeline(device, compositePipeline, nullptr);
+            vkDestroyPipeline(device, skyPipelineHdr, nullptr);
+            vkDestroyPipeline(device, pipelineHdrScene, nullptr);
+            vkDestroyShaderModule(device, compositeFragShader, nullptr);
+            vkDestroyShaderModule(device, compositeVertShader, nullptr);
+            vkDestroyDescriptorPool(device, compositeDescriptorPool, nullptr);
+            for (VkFramebuffer compositeFb : compositeFramebuffers) {
+                if (compositeFb != VK_NULL_HANDLE) {
+                    vkDestroyFramebuffer(device, compositeFb, nullptr);
+                }
+            }
+            vkDestroyRenderPass(device, compositeRenderPass, nullptr);
+            vkDestroyFramebuffer(device, hdrSceneFramebuffer, nullptr);
+            vkDestroyRenderPass(device, hdrSceneRenderPass, nullptr);
+            vkDestroyImageView(device, hdrSceneColorImage.view, nullptr);
+            vkDestroyImage(device, hdrSceneColorImage.image, nullptr);
+            vkFreeMemory(device, hdrSceneColorImage.memory, nullptr);
+            vkDestroyPipelineLayout(device, compositePipelineLayout, nullptr);
+            vkDestroyDescriptorSetLayout(device, compositeHdrTextureSetLayout, nullptr);
+        }
         vkDestroyPipeline(device, skyPipeline, nullptr);
         vkDestroyShaderModule(device, skyFragShader, nullptr);
         vkDestroyShaderModule(device, skyVertShader, nullptr);

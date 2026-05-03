@@ -155,6 +155,7 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir) {
 }
 
 void main() {
+    const bool hybridHdrRadiance = cameraData.postProcessSecondary.w > 0.5;
     vec3 normal = normalize(inNormal);
     vec3 albedo = inColor.rgb;
     float sampledAlpha = 1.0;
@@ -189,7 +190,12 @@ void main() {
     float fogDensity = cameraData.renderTuning.w;
 
     if ((drawData.litShadingModel & 1) == 0) {
-        vec3 unlit = TonemapAcesApprox((albedo + drawData.emissiveColor) * exposure);
+        vec3 linearUnlit = (albedo + drawData.emissiveColor) * exposure;
+        if (hybridHdrRadiance) {
+            fragColor = vec4(linearUnlit, outputAlpha);
+            return;
+        }
+        vec3 unlit = TonemapAcesApprox(linearUnlit);
         unlit = ApplyColorGrade(unlit, contrast, saturation);
         unlit = ApplyPostProcessFx(unlit);
         fragColor = vec4(clamp(unlit, 0.0, 1.0), outputAlpha);
@@ -255,7 +261,12 @@ void main() {
     vec3 fogColorFar = vec3(0.40, 0.47, 0.54);
     vec3 fogColor = mix(fogColorNear, fogColorFar, horizonFactor);
     vec3 color = mix(litRgb, fogColor, fogAmount * 0.28);
-    vec3 mapped = TonemapAcesApprox(color * exposure);
+    vec3 linearLit = color * exposure;
+    if (hybridHdrRadiance) {
+        fragColor = vec4(linearLit, outputAlpha);
+        return;
+    }
+    vec3 mapped = TonemapAcesApprox(linearLit);
     mapped = ApplyColorGrade(mapped, contrast, saturation);
     mapped = ApplyPostProcessFx(mapped);
     fragColor = vec4(clamp(mapped, 0.0, 1.0), outputAlpha);

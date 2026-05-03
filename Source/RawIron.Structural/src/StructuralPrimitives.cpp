@@ -1,6 +1,7 @@
 #include "RawIron/Structural/StructuralPrimitives.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <optional>
@@ -2010,6 +2011,30 @@ CompiledMesh BuildHippedRoofCompiledMesh(float ridgeRatio) {
 CompiledMesh BuildConvexHullCompiledMeshFromPoints(const std::vector<ri::math::Vec3>& points) {
     const std::optional<ConvexSolid> solid = CreateConvexHullSolidFromPoints(points);
     return BuildCompiledMeshFromConvexSolid(solid.value_or(CreateAxisAlignedBoxSolid()));
+}
+
+bool StructuralPrimitiveHasConvexSolidSupport(std::string_view type) {
+    if (type == "box" || type == "hollow_box") {
+        return true;
+    }
+    return CreateConvexPrimitiveSolid(type, {}).has_value();
+}
+
+std::string NormalizeStructuralPrimitiveTypeKey(std::string_view type) {
+    std::size_t start = 0;
+    while (start < type.size() && std::isspace(static_cast<unsigned char>(type[start]))) {
+        ++start;
+    }
+    std::size_t end = type.size();
+    while (end > start && std::isspace(static_cast<unsigned char>(type[end - 1]))) {
+        --end;
+    }
+    std::string out;
+    out.reserve(end - start);
+    for (std::size_t i = start; i < end; ++i) {
+        out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(type[i]))));
+    }
+    return out;
 }
 
 } // namespace ri::structural

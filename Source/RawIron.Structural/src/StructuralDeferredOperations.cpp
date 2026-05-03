@@ -165,13 +165,6 @@ StructuralPrimitiveOptions BuildPrimitiveOptionsFromNode(const StructuralNode& n
     return options;
 }
 
-std::string ResolveStructuralPrimitiveType(const StructuralNode& node) {
-    if (!node.primitiveType.empty()) {
-        return node.primitiveType;
-    }
-    return node.type;
-}
-
 CompiledMesh TransformCompiledMesh(const CompiledMesh& mesh, const ri::math::Mat4& matrix) {
     CompiledMesh transformed{};
     transformed.positions.reserve(mesh.positions.size());

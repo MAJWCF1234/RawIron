@@ -47,6 +47,12 @@ struct StructuralPrimitiveOptions {
 /// True when `type` is implemented by `BuildPrimitiveMesh` / collision solids in this module.
 /// The `protoengine` browser preview only implements a small dispatch set; `displacement` / `voronoi_fracture` / `metaball_cluster` / `lsystem_branch` / full heightfield samples are **native** here.
 [[nodiscard]] bool IsNativeStructuralPrimitive(std::string_view type);
+/// True when the native structural type has a **polyhedral convex solid** suitable for boolean CSG / convex clipping
+/// (`ConvexSolid` pipeline). Mesh-forward primitives (`stairs`, `rounded_box`, …) return false; `box` and `hollow_box`
+/// return true because the compiler builds solids for them explicitly.
+[[nodiscard]] bool StructuralPrimitiveHasConvexSolidSupport(std::string_view type);
+/// ASCII lowercase + trim outer whitespace; stable map keys across authoring variants (` Box ` → `box`).
+[[nodiscard]] std::string NormalizeStructuralPrimitiveTypeKey(std::string_view type);
 [[nodiscard]] std::optional<ConvexSolid> CreateConvexPrimitiveSolid(std::string_view type,
                                                                     const StructuralPrimitiveOptions& options = {});
 [[nodiscard]] CompiledMesh BuildPrimitiveMesh(std::string_view type,

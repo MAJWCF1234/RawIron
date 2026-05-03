@@ -29,6 +29,11 @@ struct StructuralDependencyIssue {
     std::string dependencyId;
 };
 
+/// Authoring node in the structural graph. A structural primitive is **not** only solid mesh geometry (`box`, sweeps,
+/// CSG results): it also includes **primitive volumes**—spatial templates whose primary payload is region semantics
+/// (triggers, fog, audio, clips, nav modifiers, physics/query volumes, etc.). Phase classification (`ClassifyStructuralPhase`)
+/// separates compile-time mesh/solid work from runtime/post-build/frame volume and effect primitives; both kinds share
+/// this node shape (transform, ids, targets, flags).
 struct StructuralNode {
     std::string id;
     std::string name;

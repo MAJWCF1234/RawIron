@@ -10,7 +10,7 @@ set(RAWIRON_VULKAN_SHADER_OUTPUTS)
 
 if(RAWIRON_GLSLANG_VALIDATOR)
   file(MAKE_DIRECTORY "${RAWIRON_VULKAN_SHADER_DIR}")
-  foreach(shader_name IN ITEMS NativeScenePreview.vert NativeScenePreview.frag NativeSkybox.vert NativeSkybox.frag NativeShadowDepth.vert)
+  foreach(shader_name IN ITEMS NativeScenePreview.vert NativeScenePreview.frag NativeSkybox.vert NativeSkybox.frag NativeShadowDepth.vert NativeComposite.vert NativeComposite.frag)
     set(shader_input "${CMAKE_CURRENT_SOURCE_DIR}/shaders/${shader_name}")
     set(shader_output "${RAWIRON_VULKAN_SHADER_DIR}/${shader_name}.spv")
     add_custom_command(

@@ -59,6 +59,9 @@ struct VulkanPreviewWindowOptions {
     Win32MessageHook onWin32Message = nullptr;
     /// Written once the client HWND exists (same as swapchain surface target).
     void* outClientHwnd = nullptr;
+    /// When true, native preview renders scene-linear HDR into an offscreen target and runs a fullscreen
+    /// composite (tonemap + existing post chain) to the swapchain — foundation for SSAO/SSR/bloom masks.
+    bool enableHybridHdrPresentation = false;
 };
 
 struct VulkanNativeSceneFrame {

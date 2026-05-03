@@ -2,13 +2,23 @@
 #include "RawIron/Structural/StructuralPrimitives.h"
 
 #include <algorithm>
-#include <cstdint>
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <set>
+#include <string>
+#include <unordered_set>
 
 namespace ri::structural {
+
+std::string ResolveStructuralPrimitiveType(const StructuralNode& node) {
+    if (!node.primitiveType.empty()) {
+        return node.primitiveType;
+    }
+    return node.type;
+}
+
 namespace {
 
 std::uint64_t HashCombine(const std::uint64_t seed, const std::uint64_t value) {
@@ -115,8 +125,76 @@ std::vector<std::string> CollectSupportedTargetIds(const std::vector<StructuralB
     return ids;
 }
 
+void AppendCutterTargetValidationWarnings(StructuralGeometryCompileResult& result,
+                                          const std::vector<StructuralCutterVolume>& cutterVolumes,
+                                          const std::vector<StructuralNode>& expandedNodes) {
+    std::unordered_set<std::string> knownIds;
+    knownIds.reserve(expandedNodes.size() * 2U);
+    for (const StructuralNode& node : expandedNodes) {
+        if (!node.id.empty()) {
+            knownIds.insert(node.id);
+        }
+    }
+    for (const StructuralCutterVolume& cutter : cutterVolumes) {
+        if (cutter.targetIds.empty()) {
+            continue;
+        }
+        for (const std::string& tid : cutter.targetIds) {
+            if (!tid.empty() && knownIds.find(tid) == knownIds.end()) {
+                result.compileWarnings.push_back(
+                    "Structural cutter references unknown target id '" + tid + "'");
+            }
+        }
+    }
+}
+
 float ClampFloat(float value, float minValue, float maxValue) {
     return std::max(minValue, std::min(maxValue, value));
+}
+
+float ResolveStructuralCompilePlaneEpsilon(const StructuralCompileOptions& options) {
+    constexpr float kDefault = 1e-5f;
+    const float candidate = options.csgPlaneEpsilon;
+    if (!std::isfinite(candidate) || candidate <= 0.0f) {
+        return kDefault;
+    }
+    return std::clamp(candidate, 1e-8f, 1e-2f);
+}
+
+void FinalizeStructuralCompileStatistics(StructuralGeometryCompileResult& result,
+                                         const StructuralCompileOptions& options) {
+    result.totalCompiledTriangles = 0;
+    result.compiledGeometryWorldBounds = std::nullopt;
+
+    std::optional<Bounds> worldBounds;
+    for (const CompiledGeometryNode& node : result.compiledNodes) {
+        result.totalCompiledTriangles += node.compiledMesh.triangleCount;
+
+        if (node.compiledMesh.hasBounds) {
+            const ri::math::Vec3& mn = node.compiledMesh.boundsMin;
+            const ri::math::Vec3& mx = node.compiledMesh.boundsMax;
+            if (!worldBounds.has_value()) {
+                worldBounds = Bounds{.min = mn, .max = mx};
+            } else {
+                worldBounds->min.x = std::min(worldBounds->min.x, mn.x);
+                worldBounds->min.y = std::min(worldBounds->min.y, mn.y);
+                worldBounds->min.z = std::min(worldBounds->min.z, mn.z);
+                worldBounds->max.x = std::max(worldBounds->max.x, mx.x);
+                worldBounds->max.y = std::max(worldBounds->max.y, mx.y);
+                worldBounds->max.z = std::max(worldBounds->max.z, mx.z);
+            }
+        }
+
+        if (options.reportDegenerateConvexFragments) {
+            if (node.compiledMesh.triangleCount == 0U || !node.compiledMesh.hasBounds) {
+                const std::string id = !node.node.id.empty() ? node.node.id
+                    : !node.resolvedPrimitiveType.empty()      ? node.resolvedPrimitiveType
+                                                                : std::string{"<structural>"};
+                result.compileWarnings.push_back("Degenerate or empty structural compile mesh for '" + id + "'");
+            }
+        }
+    }
+    result.compiledGeometryWorldBounds = worldBounds;
 }
 
 int ClampInt(int value, int minValue, int maxValue) {
@@ -204,13 +282,6 @@ StructuralPrimitiveOptions BuildPrimitiveOptionsFromNode(const StructuralNode& n
         options.vertices = node.vertices;
     }
     return options;
-}
-
-std::string ResolveStructuralPrimitiveType(const StructuralNode& node) {
-    if (!node.primitiveType.empty()) {
-        return node.primitiveType;
-    }
-    return node.type;
 }
 
 std::string ToLowerCopy(std::string value) {
@@ -926,14 +997,25 @@ std::vector<CompiledGeometryNode> BuildCompiledGeometryNodesFromSolids(const Str
     nodes.reserve(solids.size());
 
     const std::string prefix(idPrefix);
+    const std::size_t totalFragments = solids.size();
     for (std::size_t index = 0; index < solids.size(); ++index) {
         CompiledGeometryNode compiled{};
         compiled.node = baseNode;
-        if (!prefix.empty() || !baseNode.id.empty()) {
-            compiled.node.id = (prefix.empty() ? baseNode.id : prefix) + "_fragment_" + std::to_string(index + 1);
-        }
+        const std::string fragmentStem =
+            !prefix.empty() ? prefix : (!baseNode.id.empty() ? baseNode.id : std::string{"__structural_fragment"});
+        compiled.node.id = fragmentStem + "_fragment_" + std::to_string(index + 1);
         if (!baseNode.name.empty()) {
             compiled.node.name = baseNode.name + " fragment " + std::to_string(index + 1);
+        }
+        compiled.resolvedPrimitiveType = ResolveStructuralPrimitiveType(baseNode);
+        compiled.convexFragmentIndex = index;
+        compiled.convexFragmentCount = totalFragments;
+        if (!baseNode.id.empty()) {
+            compiled.authoringSourceKey = baseNode.id;
+        } else if (!baseNode.name.empty()) {
+            compiled.authoringSourceKey = baseNode.name;
+        } else {
+            compiled.authoringSourceKey = compiled.resolvedPrimitiveType;
         }
         compiled.compiledMesh = BuildCompiledMeshFromConvexSolid(solids[index]);
         nodes.push_back(std::move(compiled));
@@ -943,7 +1025,8 @@ std::vector<CompiledGeometryNode> BuildCompiledGeometryNodesFromSolids(const Str
 }
 
 StructuralBooleanCompileResult CompileBooleanUnionNode(const StructuralNode& unionNode,
-                                                       const std::vector<StructuralBooleanTarget>& targets) {
+                                                       const std::vector<StructuralBooleanTarget>& targets,
+                                                       const float csgPlaneEpsilon) {
     const std::vector<std::string> rawTargetIds = GetBooleanOperatorTargetIds(unionNode);
     const std::set<std::string> targetIds(rawTargetIds.begin(), rawTargetIds.end());
     const std::vector<StructuralBooleanTarget> supportedTargets = CollectSupportedBooleanTargets(targetIds, targets);
@@ -965,7 +1048,8 @@ StructuralBooleanCompileResult CompileBooleanUnionNode(const StructuralNode& uni
                         nextFragments.push_back(fragment);
                         continue;
                     }
-                    for (const ConvexSolid& result : SubtractConvexPlanesFromSolid(fragment.solid, otherSolid.planes)) {
+                    for (const ConvexSolid& result :
+                         SubtractConvexPlanesFromSolid(fragment.solid, otherSolid.planes, csgPlaneEpsilon)) {
                         nextFragments.push_back(SolidFragment{
                             .solid = result,
                             .bounds = ComputeSolidBounds(result),
@@ -1004,7 +1088,8 @@ StructuralBooleanCompileResult CompileBooleanUnionNode(const StructuralNode& uni
 }
 
 StructuralBooleanCompileResult CompileBooleanIntersectionNode(const StructuralNode& intersectionNode,
-                                                              const std::vector<StructuralBooleanTarget>& targets) {
+                                                              const std::vector<StructuralBooleanTarget>& targets,
+                                                              const float csgPlaneEpsilon) {
     const std::vector<std::string> rawTargetIds = GetBooleanOperatorTargetIds(intersectionNode);
     const std::set<std::string> targetIds(rawTargetIds.begin(), rawTargetIds.end());
     const std::vector<StructuralBooleanTarget> supportedTargets = CollectSupportedBooleanTargets(targetIds, targets);
@@ -1021,7 +1106,8 @@ StructuralBooleanCompileResult CompileBooleanIntersectionNode(const StructuralNo
                 if (!BoundsIntersect(fragment.bounds, targetSolid.bounds)) {
                     continue;
                 }
-                for (const ConvexSolid& result : IntersectSolidWithConvexPlanes(fragment.solid, targetSolid.planes)) {
+                for (const ConvexSolid& result :
+                     IntersectSolidWithConvexPlanes(fragment.solid, targetSolid.planes, csgPlaneEpsilon)) {
                     nextFragments.push_back(SolidFragment{
                         .solid = result,
                         .bounds = ComputeSolidBounds(result),
@@ -1056,7 +1142,8 @@ StructuralBooleanCompileResult CompileBooleanIntersectionNode(const StructuralNo
 }
 
 StructuralBooleanCompileResult CompileBooleanDifferenceNode(const StructuralNode& differenceNode,
-                                                            const std::vector<StructuralBooleanTarget>& targets) {
+                                                            const std::vector<StructuralBooleanTarget>& targets,
+                                                            const float csgPlaneEpsilon) {
     const std::vector<std::string> rawTargetIds = GetBooleanOperatorTargetIds(differenceNode);
     const std::set<std::string> targetIds(rawTargetIds.begin(), rawTargetIds.end());
     const std::vector<StructuralBooleanTarget> supportedTargets = CollectSupportedBooleanTargets(targetIds, targets);
@@ -1081,7 +1168,8 @@ StructuralBooleanCompileResult CompileBooleanDifferenceNode(const StructuralNode
                         nextFragments.push_back(fragment);
                         continue;
                     }
-                    for (const ConvexSolid& result : SubtractConvexPlanesFromSolid(fragment.solid, otherSolid.planes)) {
+                    for (const ConvexSolid& result :
+                         SubtractConvexPlanesFromSolid(fragment.solid, otherSolid.planes, csgPlaneEpsilon)) {
                         nextFragments.push_back(SolidFragment{
                             .solid = result,
                             .bounds = ComputeSolidBounds(result),
@@ -1153,10 +1241,16 @@ StructuralGeometryCompileResult CompileStructuralGeometryNodes(const std::vector
                                                                const StructuralCompileOptions& options) {
     StructuralGeometryCompileResult result{};
     if (nodes.empty()) {
+        result.inputStructuralNodeCount = 0;
+        result.expandedStructuralNodeCount = 0;
         return result;
     }
 
+    result.inputStructuralNodeCount = nodes.size();
+    const float csgPlaneEpsilon = ResolveStructuralCompilePlaneEpsilon(options);
+
     result.expandedNodes = ExpandArrayPrimitiveNodes(ExpandSymmetryMirrorNodes(nodes));
+    result.expandedStructuralNodeCount = result.expandedNodes.size();
 
     std::vector<StructuralNode> bevelModifiers;
     std::vector<StructuralNode> detailModifiers;
@@ -1218,6 +1312,10 @@ StructuralGeometryCompileResult CompileStructuralGeometryNodes(const std::vector
         }
     }
 
+    if (options.validateCutterTargetReferences && !cutterVolumes.empty()) {
+        AppendCutterTargetValidationWarnings(result, cutterVolumes, result.expandedNodes);
+    }
+
     for (const StructuralNode& node : result.expandedNodes) {
         if (IsBooleanOperatorNode(node)
             || IsDeferredStructuralTargetOperationNode(node)
@@ -1258,18 +1356,20 @@ StructuralGeometryCompileResult CompileStructuralGeometryNodes(const std::vector
 
     if (options.enableHighCostBooleanPasses) {
         for (const StructuralNode& unionNode : unionNodes) {
-            const StructuralBooleanCompileResult unionResult = CompileBooleanUnionNode(unionNode, remainingTargets);
+            const StructuralBooleanCompileResult unionResult =
+                CompileBooleanUnionNode(unionNode, remainingTargets, csgPlaneEpsilon);
             AppendCompiledNodes(result.compiledNodes, unionResult.compiledNodes);
             ApplySuppressedTargetIds(remainingTargets, result.suppressedTargetIds, unionResult.targetIds);
         }
         for (const StructuralNode& intersectionNode : intersectionNodes) {
             const StructuralBooleanCompileResult intersectionResult =
-                CompileBooleanIntersectionNode(intersectionNode, remainingTargets);
+                CompileBooleanIntersectionNode(intersectionNode, remainingTargets, csgPlaneEpsilon);
             AppendCompiledNodes(result.compiledNodes, intersectionResult.compiledNodes);
             ApplySuppressedTargetIds(remainingTargets, result.suppressedTargetIds, intersectionResult.targetIds);
         }
         for (const StructuralNode& differenceNode : differenceNodes) {
-            const StructuralBooleanCompileResult differenceResult = CompileBooleanDifferenceNode(differenceNode, remainingTargets);
+            const StructuralBooleanCompileResult differenceResult =
+                CompileBooleanDifferenceNode(differenceNode, remainingTargets, csgPlaneEpsilon);
             AppendCompiledNodes(result.compiledNodes, differenceResult.compiledNodes);
             ApplySuppressedTargetIds(remainingTargets, result.suppressedTargetIds, differenceResult.targetIds);
         }
@@ -1298,8 +1398,8 @@ StructuralGeometryCompileResult CompileStructuralGeometryNodes(const std::vector
 
                         touched = true;
                         const std::vector<ConvexSolid> resultSolids = cutterVolume.intersect
-                            ? IntersectSolidWithConvexPlanes(fragment.solid, cutterSolid.planes)
-                            : SubtractConvexPlanesFromSolid(fragment.solid, cutterSolid.planes);
+                            ? IntersectSolidWithConvexPlanes(fragment.solid, cutterSolid.planes, csgPlaneEpsilon)
+                            : SubtractConvexPlanesFromSolid(fragment.solid, cutterSolid.planes, csgPlaneEpsilon);
                         for (const ConvexSolid& resultSolid : resultSolids) {
                             nextFragments.push_back(SolidFragment{
                                 .solid = resultSolid,
@@ -1315,6 +1415,13 @@ StructuralGeometryCompileResult CompileStructuralGeometryNodes(const std::vector
                 if (fragments.empty()) {
                     break;
                 }
+            }
+
+            if (touched && fragments.empty()) {
+                const std::string targetLabel =
+                    !target.node.id.empty() ? target.node.id : ResolveStructuralPrimitiveType(target.node);
+                result.compileWarnings.push_back(
+                    "Structural CSG removed all geometry for target '" + targetLabel + "'");
             }
 
             if (!touched) {
@@ -1335,6 +1442,7 @@ StructuralGeometryCompileResult CompileStructuralGeometryNodes(const std::vector
                                     BuildCompiledGeometryNodesFromSolids(target.node, solids, prefix));
             }
         }
+        FinalizeStructuralCompileStatistics(result, options);
         return result;
     }
 
@@ -1342,6 +1450,7 @@ StructuralGeometryCompileResult CompileStructuralGeometryNodes(const std::vector
         result.passthroughNodes.push_back(target.node);
     }
 
+    FinalizeStructuralCompileStatistics(result, options);
     return result;
 }
 
@@ -1352,8 +1461,12 @@ std::uint64_t BuildStructuralCompileSignature(const std::vector<StructuralNode>&
     signature = HashCombine(signature, HashValue(options.enableHighCostBooleanPasses));
     signature = HashCombine(signature, HashValue(options.enableNonManifoldReconcile));
     signature = HashCombine(signature, HashValue(options.enableHighCostNonManifoldFallback));
+    signature = HashCombine(signature, HashValue(options.csgPlaneEpsilon));
+    signature = HashCombine(signature, HashValue(options.reportDegenerateConvexFragments));
+    signature = HashCombine(signature, HashValue(options.validateCutterTargetReferences));
     for (const StructuralNode& node : nodes) {
         signature = HashCombine(signature, HashValue(node.id));
+        signature = HashCombine(signature, HashValue(node.name));
         signature = HashCombine(signature, HashValue(node.type));
         signature = HashCombine(signature, HashValue(node.primitiveType));
         signature = HashCombine(signature, HashValue(node.opType));
@@ -1394,6 +1507,20 @@ std::uint64_t BuildStructuralCompileSignature(const std::vector<StructuralNode>&
             signature = HashCombine(signature, HashValue(point.y));
             signature = HashCombine(signature, HashValue(point.z));
         }
+        signature = HashCombine(signature, HashValue(node.vertices.size()));
+        for (const ri::math::Vec3& vertex : node.vertices) {
+            signature = HashCombine(signature, HashValue(vertex.x));
+            signature = HashCombine(signature, HashValue(vertex.y));
+            signature = HashCombine(signature, HashValue(vertex.z));
+        }
+        signature = HashCombine(signature, HashValue(node.bevelRadius));
+        signature = HashCombine(signature, HashValue(node.bevelSegments));
+        signature = HashCombine(signature, HashValue(node.count));
+        signature = HashCombine(signature, HashValue(node.width));
+        signature = HashCombine(signature, HashValue(node.offsetY));
+        signature = HashCombine(signature, HashValue(node.projectionHeight));
+        signature = HashCombine(signature, HashValue(node.projectionDistance));
+        signature = HashCombine(signature, HashValue(node.mirrorAxis));
     }
     return signature;
 }
