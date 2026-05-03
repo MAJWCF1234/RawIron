@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 1,
+  "startScreen": "vn_title",
+  "variables": [
+    { "id": "vn_route", "value": "" }
+  ],
+  "screens": [
+    {
+      "id": "vn_title",
+      "title": "Prologue",
+      "music": "audio/ambient_loop_placeholder",
+      "background": {
+        "tint": [0.04, 0.05, 0.12, 0.98]
+      },
+      "advance": {
+        "onSpace": true,
+        "onClick": true,
+        "onEnter": true,
+        "onMouseWheel": true,
+        "action": { "type": "navigate", "target": "vn_scene1" }
+      },
+      "blocks": [
+        { "type": "heading", "text": "Signals in the Static", "align": "center" },
+        { "type": "spacer", "height": 20 },
+        {
+          "type": "narration",
+          "text": "A compact screen graph: every beat is a screen. Branch with choices or advance with Space.",
+          "align": "center"
+        },
+        { "type": "spacer", "height": 28 },
+        { "type": "label", "text": "Space or click to continue", "align": "center" }
+      ]
+    },
+    {
+      "id": "vn_scene1",
+      "title": "Hall",
+      "background": {
+        "tint": [0.06, 0.05, 0.08, 0.96]
+      },
+      "blocks": [
+        {
+          "type": "historyNote",
+          "text": "Act I — The hall",
+          "backlogOnly": true
+        },
+        { "type": "spacer", "height": 8 },
+        {
+          "type": "say",
+          "speaker": "Mina",
+          "side": "left",
+          "portrait": "Characters/mina_neutral.png",
+          "voice": "Audio/Voice/mina_hall_warm_board.ogg",
+          "text": "The relay should be dead. Why is the board still warm?"
+        },
+        { "type": "spacer", "height": 16 },
+        {
+          "type": "narration",
+          "text": "Rain ticks against corrugated glass. Somewhere, a fan spins one tired revolution at a time.",
+          "align": "left"
+        },
+        { "type": "spacer", "height": 24 },
+        {
+          "type": "choices",
+          "choices": [
+            {
+              "label": "Trace the power rail",
+              "action": {
+                "type": "navigate",
+                "target": "vn_route_power",
+                "setVar": { "id": "vn_route", "value": "power" }
+              }
+            },
+            {
+              "label": "Review the logs",
+              "action": {
+                "type": "navigate",
+                "target": "vn_route_logs",
+                "setVar": { "id": "vn_route", "value": "logs" }
+              }
+            },
+            { "label": "Step back (main menu)", "action": { "type": "navigate", "target": "vn_hub" } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "vn_route_power",
+      "title": "Power rail",
+      "background": { "tint": [0.08, 0.04, 0.04, 0.95] },
+      "advance": {
+        "onSpace": true,
+        "onEnter": true,
+        "action": { "type": "navigate", "target": "vn_scene1" }
+      },
+      "blocks": [
+        {
+          "type": "say",
+          "speaker": "Mina",
+          "side": "right",
+          "text": "Dead rail… except this cap is leaking like it remembers voltage."
+        },
+        { "type": "spacer", "height": 12 },
+        { "type": "label", "text": "Space to return", "align": "center" }
+      ]
+    },
+    {
+      "id": "vn_route_logs",
+      "title": "Logs",
+      "background": { "tint": [0.04, 0.06, 0.08, 0.95] },
+      "advance": {
+        "onSpace": true,
+        "onEnter": true,
+        "action": { "type": "navigate", "target": "vn_scene1" }
+      },
+      "blocks": [
+        {
+          "type": "say",
+          "speaker": "Mina",
+          "text": "Last heartbeat was hours ago. Then fifty lines of… nothing. Then a checksum that does not exist in our build."
+        },
+        { "type": "spacer", "height": 12 },
+        { "type": "label", "text": "Space to return", "align": "center" }
+      ]
+    },
+    {
+      "id": "vn_hub",
+      "title": "Hub",
+      "background": { "tint": [0.03, 0.04, 0.09, 0.96] },
+      "blocks": [
+        { "type": "heading", "text": "Flow hub", "align": "center" },
+        {
+          "type": "label",
+          "text": "Store key vn_route = \"${vn_route}\" (empty until you branch in the hall).",
+          "align": "center"
+        },
+        { "type": "spacer", "height": 12 },
+        {
+          "type": "narration",
+          "text": "Pick a branch in the hall — the store remembers which path you took.",
+          "align": "center",
+          "visibleWhen": { "var": "vn_route", "equals": "" }
+        },
+        {
+          "type": "narration",
+          "text": "Last branch: power rail.",
+          "align": "center",
+          "visibleWhen": { "var": "vn_route", "equals": "power" }
+        },
+        {
+          "type": "narration",
+          "text": "Last branch: server logs.",
+          "align": "center",
+          "visibleWhen": { "var": "vn_route", "equals": "logs" }
+        },
+        { "type": "spacer", "height": 16 },
+        {
+          "type": "choices",
+          "choices": [
+            { "label": "Replay opening", "action": { "type": "navigate", "target": "vn_title" } },
+            { "label": "Return to hall", "action": { "type": "navigate", "target": "vn_scene1" } },
+            {
+              "label": "Re-open log findings",
+              "visibleWhen": { "var": "vn_route", "equals": "logs" },
+              "action": { "type": "navigate", "target": "vn_route_logs" }
+            },
+            {
+              "label": "Re-open power finding",
+              "visibleWhen": { "var": "vn_route", "equals": "power" },
+              "action": { "type": "navigate", "target": "vn_route_power" }
+            },
+            {
+              "label": "Clear route memory",
+              "action": { "type": "setVar", "id": "vn_route", "value": "" }
+            },
+            { "label": "Quit", "action": { "type": "emit", "id": "app.quit" } }
+          ]
+        }
+      ]
+    }
+  ]
+}

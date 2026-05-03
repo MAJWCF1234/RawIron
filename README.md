@@ -1,151 +1,143 @@
 # RawIron
 
-RawIron is a native C++ game engine project focused on fast desktop iteration, clear runtime boundaries, and practical tooling for authored worlds.
+Native **C++20** game engine and tooling: Vulkan runtime, scene graph, logic/events, and two in-repo games. **Windows-first**; Linux presets exist for library work.
 
-The engine is currently Windows-first, with Linux kept in the build and architecture path. The repository includes the shared engine libraries, native application hosts, tooling, test coverage, documentation, and two built-in game/runtime modules used to exercise the engine.
+**On GitHub:** this **README** on the default branch is the **source-of-truth** for how to build and run. The **Releases** tab may ship **optional** large binary bundles (split ZIPs + installer); there are **no** checked-in engine binaries on `main`. For **bugs / features**, use **[Issues](issues)** (templates under [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/)). For **contribution workflow**, see [**CONTRIBUTING.md**](CONTRIBUTING.md). For **security**, see [**SECURITY.md**](SECURITY.md).
 
-## Highlights
+[![CI](https://github.com/MAJWCF1234/RawIron/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MAJWCF1234/RawIron/actions/workflows/ci.yml) — **Windows MSVC** slim build + `RawIron.UiMenu --headless` on every push/PR to `main`. Maintainer guide: [**Documentation/04 Build/GitHub Push and Publish.md**](Documentation/04%20Build/GitHub%20Push%20and%20Publish.md).
 
-- C++20 engine code organized into focused runtime libraries
-- Native player, editor, preview, and visual shell applications
-- Vulkan preview backend with deterministic software-rendered snapshots for tests
-- Scene Kit utility layer for scene helpers, model import smoke tests, scripted camera review, and preview examples
-- Runtime systems for events, logic graphs, world volumes, inventory, NPC state, triggers, checkpoints, audio, tracing, and instrumentation
-- Tooling for workspace inspection, asset standardization, Scene Kit checks, Vulkan diagnostics, preview rendering, and scene-state save/load
-- CTest-backed smoke and engine-import test coverage
+---
 
-## Repository Layout
+## What you get on `main` (default CMake)
 
-- `Source/RawIron.Core`: core runtime, math, scene graph, host loop, input helpers, render command plumbing, and diagnostics
-- `Source/RawIron.Audio`: managed audio and miniaudio-backed playback
-- `Source/RawIron.Content`: asset documents, manifests, prefab/template expansion, and authored-content conversion
-- `Source/RawIron.Debug`: runtime snapshots and debug report formatting
-- `Source/RawIron.DevInspector`: optional development snapshot and diagnostic channel
-- `Source/RawIron.Events`: hook, action, sequence, timer, and world-state event flow
-- `Source/RawIron.Logic`: logic graph, port schema, visual primitives, and logic kit support
-- `Source/RawIron.Runtime`: runtime IDs, event bus, tuning, experience presets, and entity-I/O telemetry
-- `Source/RawIron.SceneUtilities`: Scene Kit helpers, starter scenes, importers, raycasts, animation, scripted camera review, and scene-state I/O
-- `Source/RawIron.Spatial`: AABB primitives, broadphase indexing, and spatial queries
-- `Source/RawIron.Structural`: structural graph, primitive builders, compiler helpers, boolean operators, cutter volumes, and deferred operations
-- `Source/RawIron.Trace`: trace scene, movement, locomotion, kinematic, entity, and object physics helpers
-- `Source/RawIron.Validation`: schema registry, constraints, coercion, reference checks, and validation reports
-- `Source/RawIron.World`: world volumes, triggers, presentation state, inventory, NPC state, checkpoints, helper telemetry, text overlays, and runtime instrumentation
-- `Source/RawIron.Render.Software`: deterministic software preview rendering
-- `Source/RawIron.Render.Vulkan`: Vulkan bootstrap, diagnostics, preview presentation, and command submission foundations
-- `Apps`: native player, editor, preview, and visual shell hosts
-- `Games`: built-in Liminal Hall and Wilderness Ruins runtime modules and game executables
-- `Tools/ri_tool`: command-line workspace, asset, preview, Scene Kit, and diagnostics tooling
-- `Tests`: native test targets
-- `Documentation`: Obsidian-friendly engine documentation
-- `Assets/Cooked`: runtime-ready and standardized asset output
-- `Assets/Source`: local source-asset workspace (often large drops; track only what you intend to share)
+By default the root `CMakeLists.txt` builds a **slim** set of **runnable targets**:
 
-## Build
+| Output | Role |
+|--------|------|
+| **`RawIron.UiMenu`** | Windows JSON + Dear ImGui **UI / screen-flow** harness (`--demo-vn`, `--headless`). |
+| **`RawIron.ParticleShowcase`** | CPU/GPU **particle** exercise host. |
+| **`RawIron.LiminalGame`** | **Liminal Hall** game. |
+| **`RawIron.ForestRuinsGame`** | **Wilderness Ruins** game. |
 
-From a configured C++ development shell:
+Everything else (generic **Player**, **Editor**, **Visual Shell**, **`ri_tool`**, **DevInspector**, large native **CTest** trees) is **off** unless you pass **`-D RAWIRON_BUILD_…=ON`** at configure time. See [Optional targets](#optional-targets).
+
+---
+
+## Quick start (clone → build → run)
+
+**Prerequisites:** Visual Studio 2022 (C++ desktop), **CMake ≥ 3.24**, **Vulkan SDK** (for game/particle paths).
 
 ```powershell
+git clone <your-fork-or-upstream-url> RawIron
+cd RawIron
 cmake --preset dev-msvc
-cmake --build --preset build-dev-msvc
-ctest --test-dir .\build\dev-msvc --output-on-failure -V
+cmake --build build/dev-msvc --config RelWithDebInfo --target RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame
 ```
 
-If the repository lives on a removable or non-NTFS volume and MSVC fails with filesystem errors (locked intermediates, corrupt PDBs, “invalid argument” copies into `build\`), use the preset that keeps the CMake binary directory on your profile drive instead:
+**Typical outputs** (paths use `RelWithDebInfo`; adjust if you use another VS configuration):
+
+```text
+build\dev-msvc\Apps\RawIron.UiMenu\RelWithDebInfo\RawIron.UiMenu.exe
+build\dev-msvc\Apps\RawIron.ParticleShowcase\RelWithDebInfo\RawIron.ParticleShowcase.exe
+build\dev-msvc\Games\LiminalHall\App\RelWithDebInfo\RawIron.LiminalGame.exe
+build\dev-msvc\Games\WildernessRuins\App\RelWithDebInfo\RawIron.ForestRuinsGame.exe
+```
+
+**UI harness smoke (no window):**
 
 ```powershell
-cmake --preset dev-msvc-localappdata
-cmake --build --preset build-dev-msvc-localappdata
-ctest --test-dir "$env:LOCALAPPDATA\RawIron\cmake-build\dev-msvc" -C RelWithDebInfo --output-on-failure -V
+.\build\dev-msvc\Apps\RawIron.UiMenu\RelWithDebInfo\RawIron.UiMenu.exe --workspace=$PWD --headless
 ```
 
-**Portable folder (USB, zip, moving machines):** Prefer `cmake --preset dev-msvc` so all outputs stay under **`<RawIron>\build\dev-msvc`**. That way the whole repository directory is self-contained (sources + local build; `build\` is gitignored but still travels when you copy the folder). If you had to use `dev-msvc-localappdata`, sync the profile build back into the repo before archiving:
+**VN demo (interactive, branching JSON UI):** double-click **`Launch UiMenu VN Demo.cmd`** in the repo root, or run the same `RawIron.UiMenu.exe` with **`--demo-vn`**. In-game copy may use **`${variableId}`** in `text` / `label` / `speaker` / choice labels / **`portrait`** / **`image`** / **`background.image`** paths. Press **`B`** for the **backlog** (opens scrolled to the end). **`H`** toggles the small music / missing-background dev strip. **`1`–`9`** activate visible choice buttons in screen order. Screen **`advance`** supports **`onSpace`**, **`onClick`**, **`onEnter`**, **`onMouseWheel`**, and **`delaySeconds`** (hold **Ctrl** to shorten the timer). **`say`** blocks may set **`voice`** (cue string; UI + backlog until playback is wired).
 
-```powershell
-.\Scripts\Sync-ProfileBuildToRepo.ps1
-```
+**Games** (from repo root, after build):
 
-That mirrors `%LOCALAPPDATA%\RawIron\cmake-build\dev-msvc` → `.\build\dev-msvc` so executables and staged DLLs live next to your tree again.
+- `.\play-liminal.cmd`
+- `.\play-forest-ruins.cmd`
 
-If `git push` fails reading `.git/objects/pack` on your workspace drive, run `Scripts/Git-PushViaBundle.ps1 -Confirm` (bundle → clone under `%TEMP%` → push). Otherwise clone the repo to a local NTFS path and push from there.
+**If MSVC fails on a removable / odd filesystem:** use `cmake --preset dev-msvc-localappdata` and `cmake --build --preset build-dev-msvc-localappdata`, then optionally `.\Scripts\Sync-ProfileBuildToRepo.ps1` to mirror binaries under `.\build\dev-msvc`.
 
-Maintainers: split full-workspace ZIPs for GitHub Releases are built with `Scripts/Publish-FullWorkspaceSplitZip.ps1 -OutputDir <path>` (writes `RawIron_full_release_with_builds.zip.part01`–`.part03` and `Installer_upload\`; update `Installer/RawIron.FullWorkspace.Installer.ps1` `ReleaseTag` / `ExpectedSha256` from script output). If you **force-move** that Git tag, GitHub may mark the matching release as **draft** until you publish it again (UI or REST `draft: false`). Attach ZIP parts with `curl` to the release `upload_url` or drag-and-drop on the release page.
+---
 
-To install a published **split full-workspace** release from GitHub (download parts, join, verify, extract), run `Installer/RawIron.FullWorkspace.Installer.cmd` for the graphical wizard, or `powershell -STA -File Installer/RawIron.FullWorkspace.Installer.ps1 -NoGui` for automation.
+## Releases (what users expect on GitHub)
 
-Useful tooling commands after a successful build (same `.\build\dev-msvc\...` paths with `dev-msvc`; use `%LOCALAPPDATA%\RawIron\cmake-build\dev-msvc\...` when you built with `dev-msvc-localappdata`):
+Visitors typically look for **(1)** how to run something without compiling, **(2)** a clear **version / tag**, **(3)** **checksums** for large downloads, and **(4)** whether the default branch is **ahead** of the last release. This repo is optimized around **build-from-source** on `main`; releases are an **optional** acceleration path.
 
-```powershell
-.\build\dev-msvc\Tools\ri_tool\ri_tool.exe --workspace
-.\build\dev-msvc\Tools\ri_tool\ri_tool.exe --scenekit-targets
-.\build\dev-msvc\Tools\ri_tool\ri_tool.exe --scenekit-checks
-.\build\dev-msvc\Tools\ri_tool\ri_tool.exe --vulkan-diagnostics
-.\build\dev-msvc\Tools\ri_tool\ri_tool.exe --render-cube
-.\build\dev-msvc\Apps\RawIron.VisualShell\RawIron.VisualShell.exe
-```
+| Expectation | What we publish |
+|-------------|-----------------|
+| **Source always works** | Default branch **`main`** should match the **Quick start** in this README (slim CMake). CI / local builds validate that expectation. |
+| **Releases ≠ nightly `main`** | A **GitHub Release** is a **snapshot**: tag + attached assets. New commits on `main` may land **after** the newest release; clone **`main`** for the latest sources. |
+| **Prebuilt “full workspace”** | Maintainers may attach **split ZIP parts** (`RawIron_full_release_with_builds.zip.part01` … `.part03`) to a release, produced with **`Scripts/Publish-FullWorkspaceSplitZip.ps1`**. **SHA256** of the **reassembled** ZIP belongs in release notes and in **`Installer/RawIron.FullWorkspace.Installer.ps1`** (`ExpectedSha256`, `ReleaseTag`). |
+| **Installer entry point** | **`Installer/RawIron.FullWorkspace.Installer.cmd`** (or **`.ps1 -NoGui`**) downloads those parts from **`/releases/download/<tag>/...`**, verifies the hash, and extracts. |
+| **No release?** | Users should **build from source** per **Quick start**. Do not assume game or menu binaries exist in the git tree. |
+| **Pre-release checkbox** | GitHub’s **“Set as a pre-release”** should be used when a bundle is experimental or not yet smoke-tested on a clean machine. |
 
-Clang build:
+**Maintainer checklist when publishing a new full-workspace release**
 
-```powershell
-cmake --preset dev-clang
-cmake --build --preset build-dev-clang
-ctest --test-dir .\build\dev-clang --output-on-failure -V
-```
+1. Create a **tag** (example pattern: `full-workspace-msvc-YYYY-MM-DD` — keep in sync with installer defaults).  
+2. Attach **all** split parts; confirm **`part03`** padding rule in `Scripts/Publish-FullWorkspaceSplitZip.ps1` / `ReleaseArtifacts/release-notes.md` if used.  
+3. Paste **SHA256** and short **“what’s inside”** into the release description (you can start from **`ReleaseArtifacts/release-notes.md`**).  
+4. Update **`Installer/RawIron.FullWorkspace.Installer.ps1`** `ReleaseTag` and `ExpectedSha256` on `main` in the **same** PR or immediately after, so `main` always points at a real asset set.  
+5. If you **move, delete, or retag** a release, expect broken installer downloads until URLs and hashes match again.
 
-Linux-oriented preset:
+**License:** there is **no** single repository-wide `LICENSE` file yet; **`ThirdParty/`** contains per-library notices. See **CONTRIBUTING.md**.
 
-```bash
-cmake --preset dev-linux-clang
-cmake --build --preset build-dev-linux-clang
-ctest --test-dir build/dev-linux-clang --output-on-failure -V
-```
+---
 
-## Applications
+## Optional targets
 
-- App packages follow the same ownership rule as games: app-specific code belongs in `Apps/<AppName>/`, while
-  shared engine code belongs in `Source/`.
-- `RawIron.Player`: starter runtime host
-- `RawIron.Editor`: native editor shell with persistent authored scene state, resource browsing, and in-editor export/play flow
-- `RawIron.Preview`: Scene Kit preview window and headless snapshot host
-- `RawIron.VisualShell`: keyboard-first launch surface for previews, diagnostics, tests, and documentation
-- `RawIron.LiminalGame`: Liminal Hall game host
-- `RawIron.ForestRuinsGame`: Wilderness Ruins game host
+Reconfigure with any of:
 
-Repository-root launchers are available for common local workflows:
+- `-D RAWIRON_BUILD_PLAYER=ON`
+- `-D RAWIRON_BUILD_EDITOR=ON`
+- `-D RAWIRON_BUILD_TOOLS=ON` (builds `Tools/ri_tool`)
+- `-D RAWIRON_BUILD_VISUAL_SHELL=ON`
+- `-D RAWIRON_BUILD_TESTS=ON` (enables **CTest**; small app smokes such as `RawIron.UiMenu.HeadlessParse` when the UiMenu target is built)
+- `-D RAWIRON_BUILD_DEV_INSPECTOR=ON`
 
-- `Launch RawIron Editor.cmd`
-- `Launch RawIron Visual Shell.cmd`
-- `launch_rawiron_editor.sh`
-- `launch_rawiron_visual_shell.sh`
-- `play-liminal.cmd`
-- `play-forest-ruins.cmd`
+`CMakeLists.slim.txt` in the repo root is a **full drop-in copy** of the slim root `CMakeLists.txt` (useful if your IDE locks `CMakeLists.txt` on Windows).
 
-## Tooling
+---
 
-`ri_tool` currently supports:
+## Repository layout (short)
 
-- workspace discovery and workspace folder creation
-- standard asset document generation with `.ri_asset.json`
-- Scene Kit target listing, example rendering, and milestone checks
-- Vulkan diagnostics
-- post-process preset reporting
-- software preview rendering
-- sample scene reporting
-- scene-state save/load
+- **`Source/`** — engine libraries (`RawIron.Core`, `RawIron.Runtime`, `RawIron.Render.Vulkan`, `RawIron.SceneUtilities`, …).
+- **`Games/`** — **LiminalHall** and **WildernessRuins** runtimes + game apps.
+- **`Apps/`** — **`RawIron.UiMenu`**, **`RawIron.ParticleShowcase`** (other apps optional via CMake).
+- **`Assets/`** — cooked/source content; **`Assets/UI/`** — JSON UI manifests + schema.
+- **`Documentation/`** — Obsidian-style engine docs (`Documentation/00 Home.md`).
+- **`Scripts/`** — build hygiene, publish, sync profile builds.
+- **`Installer/`** — full-workspace release installer.
+- **`Tests/`** — CMake stub; heavy historical native suites were removed in favor of **game `*.riscript`** flows and optional **CTest** from apps.
+
+---
 
 ## Testing
 
-The MSVC build currently exposes 17 generated CTest entries, including host smoke tests, tooling smoke tests, the core test suite, the engine-import suite, and stacktrace smoke coverage.
+- Default **`RAWIRON_BUILD_TESTS=OFF`**: no expectation of a monolithic `RawIron.Core.Tests` binary on `main`.
+- Set **`RAWIRON_BUILD_TESTS=ON`** and configure/build **RawIron.UiMenu** to register lightweight **CTest** entries where defined in app `CMakeLists.txt`.
+- Engine and gameplay validation increasingly live in **per-game scripts** under `Games/*/scripts/`.
 
-```powershell
-ctest --test-dir .\build\dev-msvc -N
-ctest --test-dir .\build\dev-msvc --output-on-failure -V
-```
+---
 
 ## Documentation
 
-Project documentation lives in `Documentation` as an Obsidian-friendly vault. Start with:
+Start here:
 
 - `Documentation/00 Home.md`
 - `Documentation/02 Engine/Current Engine Review.md`
 - `Documentation/02 Engine/Repository Layout.md`
-- `Documentation/04 Build/Testing.md`
+- `Documentation/04 Build/Testing.md` (may still mention removed native suites — treat as historical where it conflicts with this README)
+- `Documentation/04 Build/GitHub Push and Publish.md` — **CI**, bundle push, and **GitHub Releases** workflow for maintainers
+
+---
+
+## Contributing & issues
+
+- **Contributing guide:** [**CONTRIBUTING.md**](CONTRIBUTING.md) (build matrix, UI smoke, release notes for maintainers).
+- **GitHub Issues** (templates under **`.github/ISSUE_TEMPLATE/`**) for bugs and feature requests — the issue chooser also links back to this README and **Documentation/**.
+- **Pull requests:** fill out **`.github/pull_request_template.md`**. User-facing behavior (README, manifests, installer defaults) should be updated in the same PR when it changes.
+- Large refactors: open an issue first so `main` stays buildable for the **slim default** above.
+
+Other scripts (push bundles, clean build trees): see **`Scripts/`** and comments in **`Installer/`**.

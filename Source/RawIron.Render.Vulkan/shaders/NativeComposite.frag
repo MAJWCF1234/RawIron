@@ -15,6 +15,7 @@ layout(set = 0, binding = 0) uniform CameraData {
     vec4 lightDirectionIntensity;
     vec4 localLightPositionRange;
     vec4 localLightColorIntensity;
+    vec4 viewportMetrics;
 } cameraData;
 
 layout(set = 1, binding = 0) uniform sampler2D hdrSceneLinear;
@@ -42,7 +43,7 @@ float Hash21(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 }
 
-vec3 ApplyPostProcessFx(vec3 color) {
+vec3 ApplyPostProcessFx(vec3 color, vec2 uv01) {
     float noiseAmount = clamp(cameraData.postProcessPrimary.x, 0.0, 0.3);
     float scanlineAmount = clamp(cameraData.postProcessPrimary.y, 0.0, 0.2);
     float barrelDistortion = clamp(cameraData.postProcessPrimary.z, 0.0, 0.2);
@@ -53,8 +54,9 @@ vec3 ApplyPostProcessFx(vec3 color) {
     float staticFadeAmount = clamp(cameraData.postProcessSecondary.y, 0.0, 1.0);
     float timeSeconds = cameraData.postProcessSecondary.z;
 
-    vec2 uv = fract(gl_FragCoord.xy * 0.002 + vec2(0.173, 0.391));
-    vec2 centered = uv * 2.0 - 1.0;
+    vec2 centered = uv01 * 2.0 - 1.0;
+    float aspect = cameraData.viewportMetrics.x / max(cameraData.viewportMetrics.y, 1.0);
+    centered.x *= aspect;
     float radial = clamp(dot(centered, centered), 0.0, 1.0);
 
     float vignette = 1.0 - (barrelDistortion * radial * radial * 1.6);
@@ -91,6 +93,6 @@ void main() {
     float saturation = cameraData.renderTuning.z;
     vec3 mapped = TonemapAcesApprox(linearHdr);
     mapped = ApplyColorGrade(mapped, contrast, saturation);
-    mapped = ApplyPostProcessFx(mapped);
+    mapped = ApplyPostProcessFx(mapped, sampleUv);
     fragColor = vec4(clamp(mapped, 0.0, 1.0), 1.0);
 }

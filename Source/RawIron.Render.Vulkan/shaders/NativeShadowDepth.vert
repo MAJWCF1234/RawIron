@@ -13,6 +13,7 @@ layout(set = 0, binding = 0) uniform CameraData {
     vec4 lightDirectionIntensity;
     vec4 localLightPositionRange;
     vec4 localLightColorIntensity;
+    vec4 viewportMetrics;
 } cameraData;
 
 layout(push_constant) uniform DrawData {

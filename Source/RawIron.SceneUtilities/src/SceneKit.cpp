@@ -2,6 +2,7 @@
 
 #include "RawIron/Math/Vec3.h"
 #include "RawIron/Scene/ModelLoader.h"
+#include "RawIron/Scene/ParticleSystem.h"
 #include "RawIron/Scene/Raycast.h"
 #include "RawIron/Scene/SceneUtils.h"
 
@@ -34,7 +35,7 @@ struct ExampleDescriptor {
     const char* statusLabel;
 };
 
-constexpr std::array<ExampleDescriptor, 10> kExampleDescriptors = {{
+constexpr std::array<ExampleDescriptor, 11> kExampleDescriptors = {{
     {"scene_controls_orbit", "Orbit controls", "reference://scene_controls_orbit",
      "orbit camera + helpers + preview shell", "foundation-live"},
     {"scene_geometry_cube", "Geometry cube", "reference://scene_geometry_cube",
@@ -60,6 +61,9 @@ constexpr std::array<ExampleDescriptor, 10> kExampleDescriptors = {{
     {"scene_audio_orientation", "Positional audio orientation",
      "reference://scene_audio_orientation",
      "listener/source layout preview for native audio integration", "preview-live"},
+    {"scene_particles", "Particle fountain",
+     "reference://scene_particles",
+     "cpu particle simulation + mesh instance batch preview", "preview-live"},
 }};
 
 SceneKitMilestoneResult MakeResult(const ExampleDescriptor& descriptor) {
@@ -636,6 +640,89 @@ SceneKitMilestoneResult EvaluateInstancingPerformance(const ExampleDescriptor& d
     return result;
 }
 
+SceneKitMilestoneResult EvaluateParticles(const ExampleDescriptor& descriptor,
+                                          const SceneKitMilestoneCallbacks& callbacks) {
+    DemoRig rig = BuildBaseDemoRig("SceneKitParticles", false, 16.0f);
+
+    CpuParticleSystemConfig particleConfig{};
+    particleConfig.emitterCenter = ri::math::Vec3{0.0f, 0.42f, 0.0f};
+    particleConfig.maxParticles = 420;
+    particleConfig.emitterRadius = 0.32f;
+    particleConfig.velocityMin = {-0.7f, 3.4f, -0.7f};
+    particleConfig.velocityMax = {0.7f, 5.4f, 0.7f};
+    particleConfig.particleLifeSeconds = 2.75f;
+    particleConfig.gravityY = -10.5f;
+    particleConfig.scaleMin = 0.06f;
+    particleConfig.scaleMax = 0.19f;
+    particleConfig.linearDragPerSecond = 0.95f;
+    particleConfig.respawnWhenBelowWorldY = -2.5f;
+    particleConfig.windAcceleration = ri::math::Vec3{0.35f, 0.0f, -0.12f};
+
+    CpuParticleSystem particles(particleConfig);
+    constexpr float dt = 1.0f / 60.0f;
+    for (int step = 0; step < 220; ++step) {
+        particles.Step(dt);
+    }
+
+    const int sharedMesh = rig.scene.AddMesh(Mesh{
+        .name = "ParticleFountainMesh",
+        .primitive = PrimitiveType::Sphere,
+        .positions = {},
+        .indices = {},
+    });
+    const int sharedMaterial = rig.scene.AddMaterial(Material{
+        .name = "ParticleFountainMaterial",
+        .shadingModel = ShadingModel::Unlit,
+        .baseColor = ri::math::Vec3{0.95f, 0.48f, 0.12f},
+        .emissiveColor = ri::math::Vec3{0.55f, 0.22f, 0.04f},
+        .opacity = 0.38f,
+        .additiveBlend = true,
+    });
+    const int particleBatch = rig.scene.AddMeshInstanceBatch(MeshInstanceBatch{
+        .name = "ParticleFountainBatch",
+        .parent = rig.root,
+        .mesh = sharedMesh,
+        .material = sharedMaterial,
+        .transforms = {},
+    });
+
+    particles.ApplyInstanceTransforms(rig.scene, particleBatch);
+
+    PrimitiveNodeOptions basin{};
+    basin.nodeName = "ParticleBasin";
+    basin.parent = rig.root;
+    basin.primitive = PrimitiveType::Cube;
+    basin.materialName = "ParticleBasinMaterial";
+    basin.shadingModel = ShadingModel::Lit;
+    basin.baseColor = ri::math::Vec3{0.22f, 0.24f, 0.28f};
+    basin.transform.position = ri::math::Vec3{0.0f, 0.06f, 0.0f};
+    basin.transform.scale = ri::math::Vec3{3.8f, 0.14f, 3.8f};
+    const int basinNode = AddPrimitiveNode(rig.scene, basin);
+
+    PrimitiveNodeOptions anchor{};
+    anchor.nodeName = "ParticleDemoAnchor";
+    anchor.parent = rig.root;
+    anchor.primitive = PrimitiveType::Cube;
+    anchor.materialName = "ParticleDemoAnchorMaterial";
+    anchor.shadingModel = ShadingModel::Unlit;
+    anchor.baseColor = ri::math::Vec3{0.28f, 0.86f, 0.62f};
+    anchor.transform.position = particleConfig.emitterCenter + ri::math::Vec3{0.0f, 0.15f, 0.0f};
+    anchor.transform.scale = ri::math::Vec3{0.24f, 0.24f, 0.24f};
+    const int anchorNode = AddPrimitiveNode(rig.scene, anchor);
+
+    (void)FrameNodesWithOrbitCamera(rig.scene, rig.orbitCamera, {basinNode, anchorNode}, 2.35f);
+
+    SceneKitMilestoneResult result = MakeResult(descriptor);
+    result.scene = std::move(rig.scene);
+    result.cameraNode = rig.orbitCamera.cameraNode;
+    result.focusNode = anchorNode;
+    result.passed = result.scene.MeshInstanceCount() >= 300U;
+    result.detail = "cpu particles=" + std::to_string(particles.ParticleCount()) +
+                    " mesh instances=" + std::to_string(result.scene.MeshInstanceCount());
+    FinalizeResult(result, callbacks);
+    return result;
+}
+
 float ComputeSpeakerYawDegrees(const ri::math::Vec3& speakerPosition, const ri::math::Vec3& listenerPosition) {
     const ri::math::Vec3 offset = listenerPosition - speakerPosition;
     constexpr float kRadiansToDegrees = 57.29577951308232f;
@@ -777,6 +864,7 @@ std::optional<SceneKitMilestoneResult> EvaluateDescriptor(const ExampleDescripto
     if (slug == "scene_instancing_performance") return EvaluateInstancingPerformance(descriptor, callbacks);
     if (slug == "scene_materials_envmaps") return EvaluateEnvironmentMaps(descriptor, callbacks);
     if (slug == "scene_audio_orientation") return EvaluateAudioOrientation(descriptor, callbacks);
+    if (slug == "scene_particles") return EvaluateParticles(descriptor, callbacks);
     return std::nullopt;
 }
 

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: README — build, slim default, releases
+    url: https://github.com/MAJWCF1234/RawIron/blob/main/README.md
+    about: Quick start, default CMake outputs, and what to expect from GitHub Releases vs building from source.
+  - name: Documentation (engine)
+    url: https://github.com/MAJWCF1234/RawIron/tree/main/Documentation
+    about: Obsidian-style docs on `main` (start at `Documentation/00 Home.md`).

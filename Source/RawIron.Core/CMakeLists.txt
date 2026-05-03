@@ -43,3 +43,7 @@ if (RAWIRON_ENABLE_STACKTRACE_DIAGNOSTICS)
     target_link_libraries(RawIron.Core PRIVATE dbghelp)
   endif()
 endif()
+
+if(NOT TARGET RawIron.UI AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../RawIron.UI/CMakeLists.txt")
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../RawIron.UI" "${CMAKE_BINARY_DIR}/Source/RawIron.UI")
+endif()

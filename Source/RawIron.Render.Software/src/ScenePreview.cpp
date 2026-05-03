@@ -621,7 +621,10 @@ void RasterizeTriangleProjected(SoftwareImage& image,
                 continue;
             }
 
-            depthBuffer[pixelIndex] = depth;
+            const bool additivePass = material.additiveBlend;
+            if (!additivePass) {
+                depthBuffer[pixelIndex] = depth;
+            }
 
             float u = 0.0f;
             float v = 0.0f;
@@ -651,7 +654,14 @@ void RasterizeTriangleProjected(SoftwareImage& image,
             }
             const std::size_t colorOffset = pixelIndex * 3U;
             const float alpha = Clamp01(material.opacity * sample.alpha);
-            if (material.transparent || alpha < 0.999f) {
+            if (additivePass) {
+                const ri::math::Vec3 destination{
+                    static_cast<float>(image.pixels[colorOffset + 0U]) / 255.0f,
+                    static_cast<float>(image.pixels[colorOffset + 1U]) / 255.0f,
+                    static_cast<float>(image.pixels[colorOffset + 2U]) / 255.0f,
+                };
+                out = ClampColor(destination + (out * alpha));
+            } else if (material.transparent || alpha < 0.999f) {
                 const ri::math::Vec3 destination{
                     static_cast<float>(image.pixels[colorOffset + 0U]) / 255.0f,
                     static_cast<float>(image.pixels[colorOffset + 1U]) / 255.0f,

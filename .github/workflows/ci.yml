@@ -1,0 +1,54 @@
+# Slim default build on Windows (matches root README Quick start).
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-slim:
+    name: Windows MSVC (slim targets)
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@v1.1.1
+        with:
+          version: latest
+          cache: true
+          quiet: true
+
+      - name: MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure CMake (preset dev-msvc)
+        run: cmake --preset dev-msvc
+
+      - name: Build slim default targets
+        run: >-
+          cmake --build build/dev-msvc --config RelWithDebInfo --parallel
+          --target RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame
+
+      - name: UiMenu headless smoke
+        shell: pwsh
+        run: |
+          $exe = Join-Path "${{ github.workspace }}" "build/dev-msvc/Apps/RawIron.UiMenu/RelWithDebInfo/RawIron.UiMenu.exe"
+          if (-not (Test-Path -LiteralPath $exe)) { throw "Missing $exe" }
+          & $exe --workspace="${{ github.workspace }}" --headless
+          if ($LASTEXITCODE -ne 0) { throw "UiMenu --headless exited $LASTEXITCODE" }

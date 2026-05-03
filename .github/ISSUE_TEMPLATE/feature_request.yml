@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest an engine, tool, or workflow improvement.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or gap
+      description: What workflow or capability is missing or awkward today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should happen instead? (API shape, CMake option, doc change, etc.)
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Runtime / core
+        - Rendering (Vulkan / software)
+        - Scene / import
+        - Games (Liminal / Forest Ruins)
+        - UI manifests / UiMenu
+        - Build / CI / releases
+        - Documentation
+        - Other
+    validations:
+      required: true

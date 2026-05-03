@@ -1,6 +1,7 @@
 # Push the current branch via a temporary bundle + clone on %TEMP%.
 # Use when `git push` fails with "Access is denied" reading `.git/objects/pack`
 # on some volumes (common with certain removable / non-NTFS filesystems).
+# See also: Documentation/04 Build/GitHub Push and Publish.md
 #
 # Safety:
 # - Does not modify or delete anything under Assets/, Games/, Saved/, ThirdParty/, Source/, etc.

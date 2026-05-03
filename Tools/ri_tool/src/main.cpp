@@ -67,7 +67,7 @@ struct VulkanToolingDiagnostics {
     std::vector<std::string> availableTools;
 };
 
-constexpr std::array<SceneReferenceTarget, 10> kSceneReferenceTargets = {{
+constexpr std::array<SceneReferenceTarget, 11> kSceneReferenceTargets = {{
     {"scene_controls_orbit", "Orbit controls", "reference://scene_controls_orbit",
      "orbit camera + helpers + viewport shell", "foundation-live"},
     {"scene_geometry_cube", "Geometry cube", "reference://scene_geometry_cube",
@@ -88,6 +88,8 @@ constexpr std::array<SceneReferenceTarget, 10> kSceneReferenceTargets = {{
      "reflection-bay material staging preview", "preview-live"},
     {"scene_audio_orientation", "Positional audio orientation", "reference://scene_audio_orientation",
      "listener/source layout preview for future spatial audio", "preview-live"},
+    {"scene_particles", "Particle fountain", "reference://scene_particles",
+     "cpu particle simulation + mesh instance batch preview", "preview-live"},
 }};
 
 std::string GetEnvironmentVariable(const char* name) {

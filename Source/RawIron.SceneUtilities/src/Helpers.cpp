@@ -6,6 +6,58 @@
 
 namespace ri::scene {
 
+Mesh MakeUvSphereMesh(const std::string& name) {
+    constexpr int kSegmentsAround = 12;
+    constexpr int kSegmentsDown = 4;
+    constexpr float kPi = 3.14159265358979323846f;
+
+    Mesh mesh{};
+    mesh.name = name;
+    mesh.primitive = PrimitiveType::Sphere;
+    mesh.positions.reserve(static_cast<std::size_t>((kSegmentsAround + 1) * (kSegmentsDown + 1)));
+    mesh.texCoords.reserve(static_cast<std::size_t>((kSegmentsAround + 1) * (kSegmentsDown + 1)));
+    mesh.indices.reserve(static_cast<std::size_t>(kSegmentsAround * kSegmentsDown * 6));
+
+    for (int y = 0; y <= kSegmentsDown; ++y) {
+        const float v = static_cast<float>(y) / static_cast<float>(kSegmentsDown);
+        const float theta = v * kPi;
+        const float sinTheta = std::sin(theta);
+        const float cosTheta = std::cos(theta);
+        for (int x = 0; x <= kSegmentsAround; ++x) {
+            const float u = static_cast<float>(x) / static_cast<float>(kSegmentsAround);
+            const float phi = u * (kPi * 2.0f);
+            const float sinPhi = std::sin(phi);
+            const float cosPhi = std::cos(phi);
+            mesh.positions.push_back(ri::math::Vec3{
+                sinTheta * cosPhi * 0.5f,
+                cosTheta * 0.5f,
+                sinTheta * sinPhi * 0.5f,
+            });
+            mesh.texCoords.push_back(ri::math::Vec2{u, v});
+        }
+    }
+
+    const int stride = kSegmentsAround + 1;
+    for (int y = 0; y < kSegmentsDown; ++y) {
+        for (int x = 0; x < kSegmentsAround; ++x) {
+            const int a = y * stride + x;
+            const int b = a + 1;
+            const int c = a + stride;
+            const int d = c + 1;
+            mesh.indices.push_back(a);
+            mesh.indices.push_back(c);
+            mesh.indices.push_back(b);
+            mesh.indices.push_back(b);
+            mesh.indices.push_back(c);
+            mesh.indices.push_back(d);
+        }
+    }
+
+    mesh.vertexCount = static_cast<int>(mesh.positions.size());
+    mesh.indexCount = static_cast<int>(mesh.indices.size());
+    return mesh;
+}
+
 namespace {
 
 constexpr float kRadiansToDegrees = 57.29577951308232f;
@@ -59,57 +111,6 @@ Mesh MakeProceduralTerrainMesh(const ProceduralTerrainOptions& options, const st
             const int a = (z * vertsX) + x;
             const int b = a + 1;
             const int c = ((z + 1) * vertsX) + x;
-            const int d = c + 1;
-            mesh.indices.push_back(a);
-            mesh.indices.push_back(c);
-            mesh.indices.push_back(b);
-            mesh.indices.push_back(b);
-            mesh.indices.push_back(c);
-            mesh.indices.push_back(d);
-        }
-    }
-
-    mesh.vertexCount = static_cast<int>(mesh.positions.size());
-    mesh.indexCount = static_cast<int>(mesh.indices.size());
-    return mesh;
-}
-
-Mesh MakeUvSphereMesh(const std::string& name) {
-    constexpr int kSegmentsAround = 12;
-    constexpr int kSegmentsDown = 4;
-
-    Mesh mesh{};
-    mesh.name = name;
-    mesh.primitive = PrimitiveType::Sphere;
-    mesh.positions.reserve(static_cast<std::size_t>((kSegmentsAround + 1) * (kSegmentsDown + 1)));
-    mesh.texCoords.reserve(static_cast<std::size_t>((kSegmentsAround + 1) * (kSegmentsDown + 1)));
-    mesh.indices.reserve(static_cast<std::size_t>(kSegmentsAround * kSegmentsDown * 6));
-
-    for (int y = 0; y <= kSegmentsDown; ++y) {
-        const float v = static_cast<float>(y) / static_cast<float>(kSegmentsDown);
-        const float theta = v * kPi;
-        const float sinTheta = std::sin(theta);
-        const float cosTheta = std::cos(theta);
-        for (int x = 0; x <= kSegmentsAround; ++x) {
-            const float u = static_cast<float>(x) / static_cast<float>(kSegmentsAround);
-            const float phi = u * (kPi * 2.0f);
-            const float sinPhi = std::sin(phi);
-            const float cosPhi = std::cos(phi);
-            mesh.positions.push_back(ri::math::Vec3{
-                sinTheta * cosPhi * 0.5f,
-                cosTheta * 0.5f,
-                sinTheta * sinPhi * 0.5f,
-            });
-            mesh.texCoords.push_back(ri::math::Vec2{u, v});
-        }
-    }
-
-    const int stride = kSegmentsAround + 1;
-    for (int y = 0; y < kSegmentsDown; ++y) {
-        for (int x = 0; x < kSegmentsAround; ++x) {
-            const int a = y * stride + x;
-            const int b = a + 1;
-            const int c = a + stride;
             const int d = c + 1;
             mesh.indices.push_back(a);
             mesh.indices.push_back(c);

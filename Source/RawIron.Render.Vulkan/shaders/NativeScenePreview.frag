@@ -21,6 +21,7 @@ layout(set = 0, binding = 0) uniform CameraData {
     vec4 lightDirectionIntensity;
     vec4 localLightPositionRange;
     vec4 localLightColorIntensity;
+    vec4 viewportMetrics;
 } cameraData;
 
 layout(set = 1, binding = 0) uniform sampler2D albedoTex;
@@ -90,7 +91,7 @@ float Hash21(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 }
 
-vec3 ApplyPostProcessFx(vec3 color) {
+vec3 ApplyPostProcessFx(vec3 color, vec2 uv01) {
     float noiseAmount = clamp(cameraData.postProcessPrimary.x, 0.0, 0.3);
     float scanlineAmount = clamp(cameraData.postProcessPrimary.y, 0.0, 0.2);
     float barrelDistortion = clamp(cameraData.postProcessPrimary.z, 0.0, 0.2);
@@ -101,8 +102,9 @@ vec3 ApplyPostProcessFx(vec3 color) {
     float staticFadeAmount = clamp(cameraData.postProcessSecondary.y, 0.0, 1.0);
     float timeSeconds = cameraData.postProcessSecondary.z;
 
-    vec2 uv = fract(gl_FragCoord.xy * 0.002 + vec2(0.173, 0.391));
-    vec2 centered = uv * 2.0 - 1.0;
+    vec2 centered = uv01 * 2.0 - 1.0;
+    float aspect = cameraData.viewportMetrics.x / max(cameraData.viewportMetrics.y, 1.0);
+    centered.x *= aspect;
     float radial = clamp(dot(centered, centered), 0.0, 1.0);
 
     // Improvement 1: radial vignette from barrel-distortion channel.
@@ -156,6 +158,7 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir) {
 
 void main() {
     const bool hybridHdrRadiance = cameraData.postProcessSecondary.w > 0.5;
+    const vec2 postUv01 = gl_FragCoord.xy * cameraData.viewportMetrics.zw;
     vec3 normal = normalize(inNormal);
     vec3 albedo = inColor.rgb;
     float sampledAlpha = 1.0;
@@ -197,7 +200,7 @@ void main() {
         }
         vec3 unlit = TonemapAcesApprox(linearUnlit);
         unlit = ApplyColorGrade(unlit, contrast, saturation);
-        unlit = ApplyPostProcessFx(unlit);
+        unlit = ApplyPostProcessFx(unlit, postUv01);
         fragColor = vec4(clamp(unlit, 0.0, 1.0), outputAlpha);
         return;
     }
@@ -268,6 +271,6 @@ void main() {
     }
     vec3 mapped = TonemapAcesApprox(linearLit);
     mapped = ApplyColorGrade(mapped, contrast, saturation);
-    mapped = ApplyPostProcessFx(mapped);
+    mapped = ApplyPostProcessFx(mapped, postUv01);
     fragColor = vec4(clamp(mapped, 0.0, 1.0), outputAlpha);
 }

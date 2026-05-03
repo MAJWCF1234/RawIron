@@ -106,6 +106,8 @@ struct ProceduralTerrainOptions {
     float detailFrequency = 0.11f;
 };
 
+[[nodiscard]] Mesh MakeUvSphereMesh(const std::string& name);
+
 int AddPrimitiveNode(Scene& scene, const PrimitiveNodeOptions& options);
 int AddProceduralTerrainNode(Scene& scene, const ProceduralTerrainOptions& options);
 int AddLightNode(Scene& scene, const LightNodeOptions& options);

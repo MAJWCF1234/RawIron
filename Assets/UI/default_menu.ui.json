@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "startScreen": "title",
+  "screens": [
+    {
+      "id": "title",
+      "title": "Title",
+      "background": {
+        "tint": [0.02, 0.03, 0.08, 0.97]
+      },
+      "blocks": [
+        { "type": "heading", "text": "RawIron", "align": "center" },
+        { "type": "spacer", "height": 28 },
+        { "type": "paragraph", "text": "Press Enter or click below to continue.", "align": "center" },
+        { "type": "spacer", "height": 36 },
+        { "type": "button", "label": "Continue", "action": { "type": "navigate", "target": "main_menu" } }
+      ]
+    },
+    {
+      "id": "main_menu",
+      "title": "Main Menu",
+      "background": {
+        "tint": [0.03, 0.04, 0.09, 0.96]
+      },
+      "blocks": [
+        { "type": "heading", "text": "Main Menu", "align": "center" },
+        { "type": "spacer", "height": 24 },
+        { "type": "button", "label": "Play", "action": { "type": "emit", "id": "game.start" } },
+        { "type": "button", "label": "Credits", "action": { "type": "navigate", "target": "credits" } },
+        { "type": "button", "label": "Quit", "action": { "type": "emit", "id": "app.quit" } }
+      ]
+    },
+    {
+      "id": "credits",
+      "title": "Credits",
+      "background": {
+        "tint": [0.02, 0.02, 0.06, 0.95]
+      },
+      "blocks": [
+        { "type": "heading", "text": "Credits", "align": "center" },
+        { "type": "spacer", "height": 20 },
+        {
+          "type": "paragraph",
+          "text": "RawIron Engine — UI manifest preview.\nAuthor menus and credits as JSON under Assets/UI for editor workflow.",
+          "align": "center"
+        },
+        { "type": "spacer", "height": 28 },
+        { "type": "button", "label": "Back", "action": { "type": "back" } }
+      ]
+    }
+  ]
+}

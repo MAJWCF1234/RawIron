@@ -78,6 +78,7 @@ struct NativeSceneDraw {
     /// Resolved path under `textureRoot` for this frame (animated sequences); empty falls back to material lookup.
     std::string resolvedAlbedoRelPath{};
     bool nativeWaterUvMotion = false;
+    bool additiveBlend = false;
 };
 
 struct NativeScenePreviewData {
@@ -114,6 +115,8 @@ struct NativeScenePreviewData {
     std::array<float, 4> localLightPositionRange{{0.0f, 1.8f, 0.0f, 20.0f}};
     /// rgb=local light color, w=intensity multiplier
     std::array<float, 4> localLightColorIntensity{{1.0f, 0.92f, 0.82f, 2.0f}};
+    /// x=width px, y=height px, z=1/width, w=1/height (post radial / vignette).
+    std::array<float, 4> viewportMetrics{{1920.0f, 1080.0f, 1.0f / 1920.0f, 1.0f / 1080.0f}};
     /// Column-major `mat4` for `NativeSkybox.vert` (`projection * skyRotation`).
     std::array<float, 16> skyClipFromLocal{};
     /// Column-major `mat4`; upper 3x3 maps eye-space directions to world for equirect sampling.
@@ -144,9 +147,10 @@ struct alignas(16) CameraUniformStd140 {
     float lightDirectionIntensity[4]{};
     float localLightPositionRange[4]{};
     float localLightColorIntensity[4]{};
+    float viewportMetrics[4]{};
 };
 
-static_assert(sizeof(CameraUniformStd140) == 256, "Must match NativeScenePreview shader CameraData std140 layout.");
+static_assert(sizeof(CameraUniformStd140) == 272, "Must match NativeScenePreview shader CameraData std140 layout.");
 
 void StoreMat4ColumnMajorGlsl(const ri::math::Mat4& matrix, float destination[16]) {
     for (int column = 0; column < 4; ++column) {
@@ -1017,6 +1021,7 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                     draw.nativeWaterUvMotion = NativePreviewIsWaterLikeMaterial(material);
                 }
                 draw.litShadingModel = material.shadingModel == ri::scene::ShadingModel::Lit;
+                draw.additiveBlend = material.additiveBlend;
                 data.draws.push_back(draw);
                 break;
             }
@@ -1113,6 +1118,9 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
         0.0f,
     };
     outData->renderQualityTier = std::clamp(frame.renderQualityTier, 0, 2);
+    const float vw = static_cast<float>(std::max(width, 1));
+    const float vh = static_cast<float>(std::max(height, 1));
+    outData->viewportMetrics = {vw, vh, 1.0f / vw, 1.0f / vh};
     return true;
 }
 
@@ -1811,7 +1819,8 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                               VkDescriptorSet skyDescriptorSet,
                               VkDescriptorSet skyTextureDescriptorSet,
                               const CachedGpuMesh& skyMesh,
-                              VkPipeline pipeline,
+                              VkPipeline scenePipeline,
+                              VkPipeline scenePipelineAdditive,
                               VkPipelineLayout pipelineLayout,
                               VkDescriptorSet cameraDescriptorSet,
                               VkDescriptorSet shadowDescriptorSet,
@@ -1907,6 +1916,9 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
             if (draw.alphaCutout) {
                 continue;
             }
+            if (draw.additiveBlend) {
+                continue;
+            }
             const auto meshIt = meshCache.find(draw.meshHandle);
             if (meshIt == meshCache.end()) {
                 continue;
@@ -1956,9 +1968,10 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
         vkCmdDrawIndexed(commandBuffer, skyMesh.indexCount, 1, 0, 0, 0);
     }
 
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline);
     vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+    bool sceneAdditivePipelineBound = false;
     for (const NativeSceneDraw& draw : sceneData.draws) {
         const auto meshIt = meshCache.find(draw.meshHandle);
         if (meshIt == meshCache.end()) {
@@ -1971,6 +1984,15 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
         const std::uint32_t indexCount = draw.indexCount == 0 ? availableIndexCount : std::min(draw.indexCount, availableIndexCount);
         if (indexCount == 0) {
             continue;
+        }
+
+        if (scenePipelineAdditive != VK_NULL_HANDLE) {
+            if (draw.additiveBlend != sceneAdditivePipelineBound) {
+                vkCmdBindPipeline(commandBuffer,
+                                  VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                  draw.additiveBlend ? scenePipelineAdditive : scenePipeline);
+                sceneAdditivePipelineBound = draw.additiveBlend;
+            }
         }
 
         VkDescriptorSet textureSet = textureCache.descriptorFor(scene, draw, sceneData.textureRoot);
@@ -2496,6 +2518,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         VkShaderModule compositeVertShader = VK_NULL_HANDLE;
         VkShaderModule compositeFragShader = VK_NULL_HANDLE;
         VkPipeline pipelineHdrScene = VK_NULL_HANDLE;
+        VkPipeline pipelineHdrSceneAdditive = VK_NULL_HANDLE;
         VkPipeline skyPipelineHdr = VK_NULL_HANDLE;
         VkPipeline compositePipeline = VK_NULL_HANDLE;
         VkDescriptorPool compositeDescriptorPool = VK_NULL_HANDLE;
@@ -2805,6 +2828,31 @@ bool RunVulkanNativeSceneLoop(const int width,
         ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline),
                  "vkCreateGraphicsPipelines");
 
+        VkPipelineDepthStencilStateCreateInfo depthStencilAdditiveInfo = depthStencilInfo;
+        depthStencilAdditiveInfo.depthWriteEnable = VK_FALSE;
+        const VkPipelineColorBlendAttachmentState blendAttachmentAdditive{
+            .blendEnable = VK_TRUE,
+            .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+            .dstColorBlendFactor = VK_BLEND_FACTOR_ONE,
+            .colorBlendOp = VK_BLEND_OP_ADD,
+            .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+            .alphaBlendOp = VK_BLEND_OP_ADD,
+            .colorWriteMask =
+                VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+        };
+        const VkPipelineColorBlendStateCreateInfo colorBlendAdditiveInfo{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+            .attachmentCount = 1,
+            .pAttachments = &blendAttachmentAdditive,
+        };
+        VkGraphicsPipelineCreateInfo pipelineAdditiveInfo = pipelineInfo;
+        pipelineAdditiveInfo.pDepthStencilState = &depthStencilAdditiveInfo;
+        pipelineAdditiveInfo.pColorBlendState = &colorBlendAdditiveInfo;
+        VkPipeline pipelineAdditive = VK_NULL_HANDLE;
+        ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineAdditiveInfo, nullptr, &pipelineAdditive),
+                 "vkCreateGraphicsPipelines(scene-additive)");
+
         const VkPipelineShaderStageCreateInfo skyVertStage{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .stage = VK_SHADER_STAGE_VERTEX_BIT,
@@ -2866,6 +2914,11 @@ bool RunVulkanNativeSceneLoop(const int width,
             hdrPipelineInfo.renderPass = hdrSceneRenderPass;
             ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &hdrPipelineInfo, nullptr, &pipelineHdrScene),
                      "vkCreateGraphicsPipelines(hdr-scene)");
+
+            VkGraphicsPipelineCreateInfo hdrAdditiveInfo = pipelineAdditiveInfo;
+            hdrAdditiveInfo.renderPass = hdrSceneRenderPass;
+            ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &hdrAdditiveInfo, nullptr, &pipelineHdrSceneAdditive),
+                     "vkCreateGraphicsPipelines(hdr-scene-additive)");
 
             VkGraphicsPipelineCreateInfo skyHdrPipelineInfo = skyPipelineInfo;
             skyHdrPipelineInfo.renderPass = hdrSceneRenderPass;
@@ -3318,6 +3371,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             std::memcpy(cameraUniform.localLightColorIntensity,
                         sceneData.localLightColorIntensity.data(),
                         sizeof(cameraUniform.localLightColorIntensity));
+            std::memcpy(cameraUniform.viewportMetrics, sceneData.viewportMetrics.data(), sizeof(cameraUniform.viewportMetrics));
             std::memcpy(mappedUniformMemory, &cameraUniform, sizeof(CameraUniformStd140));
             SkyUniformStd140 skyUniform{};
             skyUniform.hasSkyTexture = sceneData.skyUseTextureFile;
@@ -3370,6 +3424,7 @@ bool RunVulkanNativeSceneLoop(const int width,
                                      skyTextureSet,
                                      skyMesh,
                                      enableHybridHdr ? pipelineHdrScene : pipeline,
+                                     enableHybridHdr ? pipelineHdrSceneAdditive : pipelineAdditive,
                                      pipelineLayout,
                                      cameraDescriptorSet,
                                      shadowDescriptorSet,
@@ -3442,6 +3497,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         if (enableHybridHdr) {
             vkDestroyPipeline(device, compositePipeline, nullptr);
             vkDestroyPipeline(device, skyPipelineHdr, nullptr);
+            vkDestroyPipeline(device, pipelineHdrSceneAdditive, nullptr);
             vkDestroyPipeline(device, pipelineHdrScene, nullptr);
             vkDestroyShaderModule(device, compositeFragShader, nullptr);
             vkDestroyShaderModule(device, compositeVertShader, nullptr);
@@ -3464,6 +3520,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         vkDestroyShaderModule(device, skyFragShader, nullptr);
         vkDestroyShaderModule(device, skyVertShader, nullptr);
         vkDestroyPipelineLayout(device, skyPipelineLayout, nullptr);
+        vkDestroyPipeline(device, pipelineAdditive, nullptr);
         vkDestroyPipeline(device, pipeline, nullptr);
         vkDestroyShaderModule(device, fragShader, nullptr);
         vkDestroyShaderModule(device, vertShader, nullptr);

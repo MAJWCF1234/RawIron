@@ -1,0 +1,225 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://rawiron.dev/schema/ui_manifest.schema.json",
+  "title": "RawIron UI manifest",
+  "description": "Declarative screens: menus, credits, and visual-novel-style flows (store variables, visibleWhen, setVar on actions). Loaded via RawIron.UI / TryLoadUiManifestFromJsonFile.",
+  "type": "object",
+  "required": ["screens"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "startScreen": {
+      "type": "string",
+      "description": "Initial screen id; defaults to first screen in `screens` when omitted."
+    },
+    "variables": {
+      "type": "array",
+      "description": "Initial string store (Ren'Py-style defaults).",
+      "items": { "$ref": "#/definitions/variableDef" }
+    },
+    "screens": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/screen" }
+    }
+  },
+  "definitions": {
+    "variableDef": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "description": "Alias for id." },
+        "value": { "type": "string", "description": "Initial value (may be empty)." }
+      }
+    },
+    "conditionWhen": {
+      "type": "object",
+      "required": ["var", "equals"],
+      "additionalProperties": false,
+      "properties": {
+        "var": { "type": "string", "minLength": 1 },
+        "equals": { "type": "string", "description": "Compared to current store string (missing key counts as empty)." }
+      }
+    },
+    "setVarPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "description": "Alias for id." },
+        "value": { "type": "string" }
+      }
+    },
+    "screen": {
+      "type": "object",
+      "required": ["id", "blocks"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "music": {
+          "type": "string",
+          "description": "Optional music / ambience asset id or path (runtime hook)."
+        },
+        "background": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tint": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": { "type": "number" }
+            },
+            "image": {
+              "type": "string",
+              "description": "Full-screen backdrop path relative to workspace."
+            }
+          }
+        },
+        "advance": {
+          "type": "object",
+          "description": "VN-style line advance: Space, click, Enter, and/or a one-shot timer applies `action`.",
+          "additionalProperties": false,
+          "properties": {
+            "onSpace": { "type": "boolean" },
+            "onClick": { "type": "boolean" },
+            "onEnter": {
+              "type": "boolean",
+              "description": "Advance when Enter / keypad Enter is pressed (same window as Space advance)."
+            },
+            "delaySeconds": {
+              "type": "number",
+              "minimum": 0,
+              "description": "If > 0, auto-fire `action` once after this many seconds on each stack visit (manual advance cancels the wait for that visit)."
+            },
+            "onMouseWheel": {
+              "type": "boolean",
+              "description": "Advance when the mouse wheel moves over the root UI window (empty space avoids stealing scroll from widgets)."
+            },
+            "action": { "$ref": "#/definitions/action" }
+          }
+        },
+        "blocks": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/block" }
+        }
+      }
+    },
+    "choiceItem": {
+      "type": "object",
+      "required": ["label"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "action": { "$ref": "#/definitions/action" },
+        "visibleWhen": { "$ref": "#/definitions/conditionWhen" }
+      }
+    },
+    "block": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "heading",
+            "paragraph",
+            "label",
+            "spacer",
+            "separator",
+            "button",
+            "say",
+            "narration",
+            "choices",
+            "image",
+            "historyNote"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "description": "Body copy; may include `${varId}` replaced at runtime from the manifest string store."
+        },
+        "label": {
+          "type": "string",
+          "description": "Button label; `${varId}` interpolation supported (same store as `text`)."
+        },
+        "align": { "type": "string", "enum": ["left", "center", "right"] },
+        "height": { "type": "number", "minimum": 0 },
+        "speaker": { "type": "string" },
+        "voice": {
+          "type": "string",
+          "description": "On `say`: optional voice line id or asset path; `${varId}` supported. Shown as hint until audio is wired."
+        },
+        "portrait": { "type": "string" },
+        "side": {
+          "type": "string",
+          "description": "Portrait column: left | right | center (layout hint)."
+        },
+        "image": { "type": "string", "description": "Image block asset path relative to workspace." },
+        "anchor": {
+          "type": "string",
+          "description": "Image placement hint: top | bottom | fill."
+        },
+        "heightHint": { "type": "number", "minimum": 0 },
+        "choices": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/choiceItem" }
+        },
+        "action": { "$ref": "#/definitions/action" },
+        "visibleWhen": { "$ref": "#/definitions/conditionWhen" },
+        "rememberInHistory": {
+          "type": "boolean",
+          "description": "For say/narration: append to session backlog when shown (default true). Alias: remember."
+        },
+        "remember": {
+          "type": "boolean",
+          "description": "Alias for rememberInHistory on say/narration blocks."
+        },
+        "backlogOnly": {
+          "type": "boolean",
+          "description": "For `historyNote`: if true, only append to backlog — no on-screen line (default false)."
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["navigate", "emit", "back", "setVar"]
+        },
+        "target": {
+          "type": "string",
+          "description": "Destination screen id when type is navigate."
+        },
+        "id": {
+          "type": "string",
+          "description": "Emit action id, or setVar variable id."
+        },
+        "name": {
+          "type": "string",
+          "description": "Alias for id (setVar)."
+        },
+        "value": {
+          "type": "string",
+          "description": "setVar value string."
+        },
+        "actionId": {
+          "type": "string",
+          "description": "Alias for id for emit actions."
+        },
+        "when": { "$ref": "#/definitions/conditionWhen" },
+        "setVar": { "$ref": "#/definitions/setVarPatch" }
+      }
+    }
+  }
+}

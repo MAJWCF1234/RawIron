@@ -53,6 +53,8 @@ struct Material {
     float alphaCutoff = 0.5f;
     bool doubleSided = false;
     bool transparent = false;
+    /// Software preview (and submission sorting): additive tint dest += fragment * opacity; does not write depth.
+    bool additiveBlend = false;
     /// Optional tangent-space normal map under the texture root.
     std::string normalTexture{};
     /// Optional packed occlusion/roughness/metallic map (ORM in glTF convention).

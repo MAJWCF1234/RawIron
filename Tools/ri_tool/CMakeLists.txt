@@ -56,10 +56,11 @@ if (RAWIRON_BUILD_TESTS)
     "Projects/Sandbox/Scenes: ${RAWIRON_TOOL_WORKSPACE_SCENES_NATIVE}"
   )
   set(rawiron_tool_reference_expected
-    "Scene Kit parity gate: 10 tracked references"
+    "Scene Kit parity gate: 11 tracked references"
     "scene_controls_orbit - Orbit controls"
     "scene_loader_gltf - GLTF loader"
     "scene_audio_orientation - Positional audio orientation"
+    "scene_particles - Particle fountain"
   )
   set(rawiron_scenekit_checks_root "${CMAKE_CURRENT_BINARY_DIR}/scenekit-checks")
   set(rawiron_scenekit_checks_expected
@@ -74,7 +75,8 @@ if (RAWIRON_BUILD_TESTS)
     "[PASS] Instancing performance"
     "[PASS] Environment maps"
     "[PASS] Positional audio orientation"
-    "Scene Kit checks summary: 10/10 passed"
+    "[PASS] Particle fountain"
+    "Scene Kit checks summary: 11/11 passed"
   )
   set(rawiron_scenekit_required_files
     "scene_controls_orbit.bmp"
@@ -87,6 +89,7 @@ if (RAWIRON_BUILD_TESTS)
     "scene_instancing_performance.bmp"
     "scene_materials_envmaps.bmp"
     "scene_audio_orientation.bmp"
+    "scene_particles.bmp"
   )
   if (WIN32)
     set(rawiron_tool_vulkan_expected

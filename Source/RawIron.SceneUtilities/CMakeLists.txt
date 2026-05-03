@@ -39,6 +39,7 @@ add_library(RawIron.SceneUtilities
   src/SceneEntityPhysics.cpp
   src/ScriptedCameraReview.cpp
   src/SceneRenderSubmission.cpp
+  src/ParticleSystem.cpp
   src/SceneKit.cpp
   src/SceneStateIO.cpp
   src/SceneUtils.cpp

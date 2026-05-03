@@ -75,7 +75,7 @@ std::uint16_t ResolvePipelineBucket(const Scene& scene,
     }
 
     const Material& material = scene.GetMaterial(node.material);
-    if (material.transparent || material.opacity < 0.999f) {
+    if (material.additiveBlend || material.transparent || material.opacity < 0.999f) {
         return options.transparentPipelineBucket;
     }
     if (material.shadingModel == ShadingModel::Unlit) {
@@ -489,7 +489,7 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
                 return options.litPipelineBucket;
             }
             const Material& material = scene.GetMaterial(batch.material);
-            if (material.transparent || material.opacity < 0.999f) {
+            if (material.additiveBlend || material.transparent || material.opacity < 0.999f) {
                 return options.transparentPipelineBucket;
             }
             if (material.shadingModel == ShadingModel::Unlit) {
@@ -504,7 +504,28 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
                        static_cast<int>(std::numeric_limits<std::uint16_t>::max())));
         const bool isTransparent = pipelineBucket == options.transparentPipelineBucket;
 
-        for (std::size_t instanceIndex = 0; instanceIndex < batch.transforms.size(); ++instanceIndex) {
+        std::vector<std::size_t> instanceOrder;
+        instanceOrder.resize(batch.transforms.size());
+        for (std::size_t i = 0; i < instanceOrder.size(); ++i) {
+            instanceOrder[i] = i;
+        }
+        if (isTransparent) {
+            std::sort(
+                instanceOrder.begin(),
+                instanceOrder.end(),
+                [&](const std::size_t a, const std::size_t b) {
+                    const ri::math::Mat4 worldA = ri::math::Multiply(parentWorld, batch.transforms[a].LocalMatrix());
+                    const ri::math::Mat4 worldB = ri::math::Multiply(parentWorld, batch.transforms[b].LocalMatrix());
+                    const float za =
+                        ri::math::TransformPoint(viewMatrix, ri::math::ExtractTranslation(worldA)).z;
+                    const float zb =
+                        ri::math::TransformPoint(viewMatrix, ri::math::ExtractTranslation(worldB)).z;
+                    // Draw farther instances first (larger eye-space z) so alpha-over reads back-to-front.
+                    return za > zb;
+                });
+        }
+
+        for (const std::size_t instanceIndex : instanceOrder) {
             const ri::math::Mat4 world = ri::math::Multiply(parentWorld, batch.transforms[instanceIndex].LocalMatrix());
             const ri::math::Vec3 worldPosition = ri::math::ExtractTranslation(world);
             const ri::math::Vec3 viewPosition = ri::math::TransformPoint(viewMatrix, worldPosition);
