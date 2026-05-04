@@ -45,15 +45,19 @@ jobs:
           $vk = $env:VULKAN_SDK.TrimEnd('\')
           if (-not $vk) { throw 'VULKAN_SDK missing after Vulkan install step' }
           $inc = Join-Path $vk 'Include'
-          $lib = @(
-            (Join-Path $vk 'Lib\vulkan-1.lib'),
-            (Join-Path $vk 'Lib\x64\vulkan-1.lib')
-          ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-          if (-not $lib) {
+          if (-not (Test-Path -LiteralPath $inc)) {
             Write-Host 'VULKAN_SDK=' $vk
-            if (Test-Path (Join-Path $vk 'Lib')) { Get-ChildItem (Join-Path $vk 'Lib') -Recurse -Filter '*.lib' | Select-Object -First 40 FullName }
-            throw 'vulkan-1.lib not found under VULKAN_SDK/Lib'
+            Get-ChildItem -LiteralPath $vk -ErrorAction SilentlyContinue | Format-Table Name,Mode
+            throw 'Vulkan Include/ missing under VULKAN_SDK'
           }
+          $libItem = Get-ChildItem -LiteralPath $vk -Recurse -Filter 'vulkan-1.lib' -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $libItem) {
+            Write-Host 'VULKAN_SDK=' $vk
+            Get-ChildItem -LiteralPath $vk -Recurse -Filter '*.lib' -ErrorAction SilentlyContinue | Select-Object -First 50 FullName
+            throw 'vulkan-1.lib not found anywhere under VULKAN_SDK'
+          }
+          $lib = $libItem.FullName
           $incF = $inc -replace '\\','/'
           $libF = $lib -replace '\\','/'
           cmake --preset dev-msvc "-DVulkan_INCLUDE_DIR=$incF" "-DVulkan_LIBRARY=$libF"
