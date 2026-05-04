@@ -38,13 +38,18 @@ jobs:
         with:
           arch: x64
 
+      # FindVulkan does not always pick up VULKAN_SDK from the composite action; pin the root explicitly.
       - name: Configure CMake (preset dev-msvc)
-        run: cmake --preset dev-msvc
+        shell: pwsh
+        run: |
+          if (-not $env:VULKAN_SDK) { throw 'VULKAN_SDK missing after Vulkan install step' }
+          cmake --preset dev-msvc "-DVulkan_ROOT=$($env:VULKAN_SDK -replace '\\','/')"
 
       - name: Build slim default targets
-        run: >-
-          cmake --build build/dev-msvc --config RelWithDebInfo --parallel
-          --target RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame
+        shell: pwsh
+        run: |
+          cmake --build build/dev-msvc --config RelWithDebInfo --parallel `
+            --target RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame
 
       - name: UiMenu headless smoke
         shell: pwsh
