@@ -25,8 +25,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # v1.2+ uses actions/cache@v4; v1.1.1 used cache@v2 (GitHub auto-fails that at action resolve time).
       - name: Install Vulkan SDK
-        uses: humbletim/install-vulkan-sdk@v1.1.1
+        uses: humbletim/install-vulkan-sdk@v1.2
         with:
           version: latest
           cache: true
