@@ -14,14 +14,16 @@ By default the root `CMakeLists.txt` builds these **runnable targets**:
 
 | Output | Role |
 |--------|------|
-| **`RawIron.Editor`** | Native **editor** host (`Apps/RawIron.Editor`). Launch from repo root: **`Launch RawIron Editor.cmd`**. Game folders call this launcher with **`--game=…`**. |
-| **`RawIron.VisualShell`** | Keyboard-first **visual shell** (`Apps/RawIron.VisualShell`). **`Launch RawIron Visual Shell.cmd`** from repo root. |
+| **`RawIron.Player`** | Generic **runtime host** + Vulkan bootstrap (`Apps/RawIron.Player`). **`Launch RawIron Player.cmd`**. |
+| **`RawIron.Preview`** | Scene Kit **snapshot / preview** host, software + optional Vulkan (`Apps/RawIron.Preview`). **`Launch RawIron Preview.cmd`**. |
+| **`RawIron.Editor`** | Native **editor** host (`Apps/RawIron.Editor`). **`Launch RawIron Editor.cmd`**. Game folders pass **`--game=…`**. |
+| **`RawIron.VisualShell`** | Keyboard-first **visual shell** (`Apps/RawIron.VisualShell`). **`Launch RawIron Visual Shell.cmd`**. |
 | **`RawIron.UiMenu`** | JSON + Dear ImGui **UI / screen-flow** harness (`--demo-vn`, `--headless`). |
 | **`RawIron.ParticleShowcase`** | CPU/GPU **particle** exercise host. |
 | **`RawIron.LiminalGame`** | **Liminal Hall** game. |
 | **`RawIron.ForestRuinsGame`** | **Wilderness Ruins** game. |
 
-Optional **`RAWIRON_BUILD_*`** switches turn on **`RawIron.Player`**, **`ri_tool`**, **CTest** smokes, **DevInspector**, etc. See [Optional targets](#optional-targets). Use **`CMakeLists.slim.txt`** only when you intentionally want a smaller configure surface.
+Optional **`RAWIRON_BUILD_*`** switches turn off **`RawIron.Player`** / **`RawIron.Preview`**, enable **`ri_tool`**, **CTest** smokes, **DevInspector**, etc. See [Optional targets](#optional-targets). **`CMakeLists.slim.txt`** mirrors defaults but exists if your IDE locks **`CMakeLists.txt`**.
 
 ---
 
@@ -33,12 +35,14 @@ Optional **`RAWIRON_BUILD_*`** switches turn on **`RawIron.Player`**, **`ri_tool
 git clone <your-fork-or-upstream-url> RawIron
 cd RawIron
 cmake --preset dev-msvc
-cmake --build build/dev-msvc --config RelWithDebInfo --target RawIron.Editor RawIron.VisualShell RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame
+cmake --build build/dev-msvc --config RelWithDebInfo --target RawIron.Player RawIron.Preview RawIron.Editor RawIron.VisualShell RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame
 ```
 
 **Typical outputs** (paths use `RelWithDebInfo`; adjust if you use another VS configuration):
 
 ```text
+build\dev-msvc\Apps\RawIron.Player\RelWithDebInfo\RawIron.Player.exe
+build\dev-msvc\Apps\RawIron.Preview\RelWithDebInfo\RawIron.Preview.exe
 build\dev-msvc\Apps\RawIron.Editor\RelWithDebInfo\RawIron.Editor.exe
 build\dev-msvc\Apps\RawIron.VisualShell\RelWithDebInfo\RawIron.VisualShell.exe
 build\dev-msvc\Apps\RawIron.UiMenu\RelWithDebInfo\RawIron.UiMenu.exe
@@ -90,16 +94,15 @@ Visitors typically look for **(1)** how to run something without compiling, **(2
 
 ## Optional targets
 
-**Editor** and **Visual Shell** are **ON** by default in the root `CMakeLists.txt`. Turn **OFF** with `-D RAWIRON_BUILD_EDITOR=OFF` / `-D RAWIRON_BUILD_VISUAL_SHELL=OFF` if you need a faster configure.
+**Player**, **Preview**, **Editor**, and **Visual Shell** are **ON** by default. Turn any **OFF** with `-D RAWIRON_BUILD_PLAYER=OFF`, `-D RAWIRON_BUILD_PREVIEW=OFF`, `-D RAWIRON_BUILD_EDITOR=OFF`, `-D RAWIRON_BUILD_VISUAL_SHELL=OFF` for a faster configure.
 
 Other switches:
 
-- `-D RAWIRON_BUILD_PLAYER=ON`
 - `-D RAWIRON_BUILD_TOOLS=ON` (builds `Tools/ri_tool`)
 - `-D RAWIRON_BUILD_TESTS=ON` (enables **CTest**; small app smokes such as `RawIron.UiMenu.HeadlessParse` when the UiMenu target is built)
 - `-D RAWIRON_BUILD_DEV_INSPECTOR=ON`
 
-`CMakeLists.slim.txt` in the repo root is a **full drop-in copy** of the slim root `CMakeLists.txt` (useful if your IDE locks `CMakeLists.txt` on Windows).
+`CMakeLists.slim.txt` tracks the same **`RAWIRON_BUILD_*`** defaults as **`CMakeLists.txt`** for IDE workflows that cannot edit the primary file.
 
 ---
 
@@ -107,7 +110,7 @@ Other switches:
 
 - **`Source/`** — engine libraries (`RawIron.Core`, `RawIron.Runtime`, `RawIron.Render.Vulkan`, `RawIron.SceneUtilities`, …).
 - **`Games/`** — **LiminalHall** and **WildernessRuins** runtimes + game apps.
-- **`Apps/`** — **`RawIron.Editor`**, **`RawIron.VisualShell`**, **`RawIron.UiMenu`**, **`RawIron.ParticleShowcase`**.
+- **`Apps/`** — **`RawIron.Player`**, **`RawIron.Preview`**, **`RawIron.Editor`**, **`RawIron.VisualShell`**, **`RawIron.UiMenu`**, **`RawIron.ParticleShowcase`**.
 - **`Assets/`** — cooked/source content; **`Assets/UI/`** — JSON UI manifests + schema.
 - **`Documentation/`** — Obsidian-style engine docs (`Documentation/00 Home.md`).
 - **`Scripts/`** — build hygiene, publish, sync profile builds.

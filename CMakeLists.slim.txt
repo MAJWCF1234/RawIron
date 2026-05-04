@@ -11,7 +11,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(RAWIRON_BUILD_PLAYER "Build RawIron.Player (generic host)" OFF)
+option(RAWIRON_BUILD_PLAYER "Build RawIron.Player (generic runtime host)" ON)
+option(RAWIRON_BUILD_PREVIEW "Build RawIron.Preview (Scene Kit + snapshot host)" ON)
 option(RAWIRON_BUILD_EDITOR "Build RawIron.Editor" ON)
 option(RAWIRON_BUILD_PARTICLE_SHOWCASE "Build RawIron.ParticleShowcase" ON)
 option(RAWIRON_BUILD_LIMINAL_GAME "Build the Liminal Hall game application" ON)
@@ -94,6 +95,10 @@ add_subdirectory(Source/RawIron.Structural)
 
 if (RAWIRON_BUILD_PLAYER)
   add_subdirectory(Apps/RawIron.Player)
+endif()
+
+if (RAWIRON_BUILD_PREVIEW)
+  add_subdirectory(Apps/RawIron.Preview)
 endif()
 
 if (RAWIRON_BUILD_EDITOR)
