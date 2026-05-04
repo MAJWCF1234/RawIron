@@ -25,44 +25,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # v1.2+ uses actions/cache@v4; v1.1.1 used cache@v2 (GitHub auto-fails that at action resolve time).
+      # humbletim/install-vulkan-sdk unpacks the Windows .exe with 7z; recent LunarG layouts can omit headers
+      # under VULKAN_SDK (CMake then finds no vulkan.h). jakoch runs the SDK installer and sets VULKAN_SDK correctly.
       - name: Install Vulkan SDK
-        uses: humbletim/install-vulkan-sdk@v1.2
+        uses: jakoch/install-vulkan-sdk-action@v1.5.1
         with:
-          version: latest
+          vulkan_version: latest
           cache: true
-          quiet: true
 
       - name: MSVC developer environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
-      # LunarG layout on CI is often VULKAN_SDK/<ver>/Include (not VULKAN_SDK/Include). Resolve from vulkan.h + vulkan-1.lib.
       - name: Configure CMake (preset dev-msvc)
-        shell: pwsh
-        run: |
-          $vk = $env:VULKAN_SDK.TrimEnd('\')
-          if (-not $vk) { throw 'VULKAN_SDK missing after Vulkan install step' }
-          $vkH = Get-ChildItem -LiteralPath $vk -Recurse -Filter 'vulkan.h' -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match '[\\/]include[\\/]vulkan[\\/]vulkan\.h$' } | Select-Object -First 1
-          if (-not $vkH) {
-            Write-Host 'VULKAN_SDK=' $vk
-            Get-ChildItem -LiteralPath $vk -Recurse -Filter 'vulkan.h' -ErrorAction SilentlyContinue | Select-Object -First 20 FullName
-            throw 'vulkan.h not found under VULKAN_SDK'
-          }
-          $inc = (Resolve-Path (Join-Path $vkH.Directory.FullName '..')).Path
-          $libItem = Get-ChildItem -LiteralPath $vk -Recurse -Filter 'vulkan-1.lib' -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-          if (-not $libItem) {
-            Write-Host 'VULKAN_SDK=' $vk
-            Get-ChildItem -LiteralPath $vk -Recurse -Filter '*.lib' -ErrorAction SilentlyContinue | Select-Object -First 50 FullName
-            throw 'vulkan-1.lib not found under VULKAN_SDK'
-          }
-          $lib = $libItem.FullName
-          $incF = $inc -replace '\\','/'
-          $libF = $lib -replace '\\','/'
-          cmake --preset dev-msvc "-DVulkan_INCLUDE_DIR=$incF" "-DVulkan_LIBRARY=$libF"
+        run: cmake --preset dev-msvc
 
       - name: Build slim default targets
         shell: pwsh
