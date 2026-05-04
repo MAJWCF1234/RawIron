@@ -38,24 +38,26 @@ jobs:
         with:
           arch: x64
 
-      # FindVulkan on the GHA image often misses Vulkan_LIBRARY even when VULKAN_SDK is set; pin include + lib.
+      # LunarG layout on CI is often VULKAN_SDK/<ver>/Include (not VULKAN_SDK/Include). Resolve from vulkan.h + vulkan-1.lib.
       - name: Configure CMake (preset dev-msvc)
         shell: pwsh
         run: |
           $vk = $env:VULKAN_SDK.TrimEnd('\')
           if (-not $vk) { throw 'VULKAN_SDK missing after Vulkan install step' }
-          $inc = Join-Path $vk 'Include'
-          if (-not (Test-Path -LiteralPath $inc)) {
+          $vkH = Get-ChildItem -LiteralPath $vk -Recurse -Filter 'vulkan.h' -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '[\\/]include[\\/]vulkan[\\/]vulkan\.h$' } | Select-Object -First 1
+          if (-not $vkH) {
             Write-Host 'VULKAN_SDK=' $vk
-            Get-ChildItem -LiteralPath $vk -ErrorAction SilentlyContinue | Format-Table Name,Mode
-            throw 'Vulkan Include/ missing under VULKAN_SDK'
+            Get-ChildItem -LiteralPath $vk -Recurse -Filter 'vulkan.h' -ErrorAction SilentlyContinue | Select-Object -First 20 FullName
+            throw 'vulkan.h not found under VULKAN_SDK'
           }
+          $inc = (Resolve-Path (Join-Path $vkH.Directory.FullName '..')).Path
           $libItem = Get-ChildItem -LiteralPath $vk -Recurse -Filter 'vulkan-1.lib' -ErrorAction SilentlyContinue |
             Select-Object -First 1
           if (-not $libItem) {
             Write-Host 'VULKAN_SDK=' $vk
             Get-ChildItem -LiteralPath $vk -Recurse -Filter '*.lib' -ErrorAction SilentlyContinue | Select-Object -First 50 FullName
-            throw 'vulkan-1.lib not found anywhere under VULKAN_SDK'
+            throw 'vulkan-1.lib not found under VULKAN_SDK'
           }
           $lib = $libItem.FullName
           $incF = $inc -replace '\\','/'
