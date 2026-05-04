@@ -11,8 +11,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(RAWIRON_BUILD_PLAYER "Build RawIron.Player (generic host; off in slim workspace)" OFF)
-option(RAWIRON_BUILD_EDITOR "Build RawIron.Editor" OFF)
+option(RAWIRON_BUILD_PLAYER "Build RawIron.Player (generic host)" OFF)
+option(RAWIRON_BUILD_EDITOR "Build RawIron.Editor" ON)
 option(RAWIRON_BUILD_PARTICLE_SHOWCASE "Build RawIron.ParticleShowcase" ON)
 option(RAWIRON_BUILD_LIMINAL_GAME "Build the Liminal Hall game application" ON)
 option(RAWIRON_BUILD_FOREST_RUINS_GAME "Build the Wilderness Ruins game application" ON)
@@ -21,7 +21,7 @@ cmake_dependent_option(RAWIRON_EDITOR_LINK_LIMINAL
   ON
   "RAWIRON_BUILD_EDITOR"
   OFF)
-option(RAWIRON_BUILD_VISUAL_SHELL "Build RawIron.VisualShell" OFF)
+option(RAWIRON_BUILD_VISUAL_SHELL "Build RawIron.VisualShell" ON)
 option(RAWIRON_BUILD_TOOLS "Build ri_tool and other CLI tools" OFF)
 option(RAWIRON_BUILD_TESTS "Enable CTest and lightweight app smoke tests (no giant native suites)" OFF)
 option(RAWIRON_BUILD_DEV_INSPECTOR "Build RawIron.DevInspector (development observability channel)" OFF)

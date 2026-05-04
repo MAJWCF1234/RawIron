@@ -4,22 +4,24 @@ Native **C++20** game engine and tooling: Vulkan runtime, scene graph, logic/eve
 
 **On GitHub:** this **README** on the default branch is the **source-of-truth** for how to build and run. The **Releases** tab may ship **optional** large binary bundles (split ZIPs + installer); there are **no** checked-in engine binaries on `main`. For **bugs / features**, use **[Issues](issues)** (templates under [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/)). For **contribution workflow**, see [**CONTRIBUTING.md**](CONTRIBUTING.md). For **security**, see [**SECURITY.md**](SECURITY.md).
 
-[![CI](https://github.com/MAJWCF1234/RawIron/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MAJWCF1234/RawIron/actions/workflows/ci.yml) — **Windows MSVC** slim build + `RawIron.UiMenu --headless` on every push/PR to `main`. Maintainer guide: [**Documentation/04 Build/GitHub Push and Publish.md**](Documentation/04%20Build/GitHub%20Push%20and%20Publish.md).
+[![CI](https://github.com/MAJWCF1234/RawIron/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MAJWCF1234/RawIron/actions/workflows/ci.yml) — **Windows MSVC** CI builds core slim targets + `RawIron.UiMenu --headless`. Maintainer guide: [**Documentation/04 Build/GitHub Push and Publish.md**](Documentation/04%20Build/GitHub%20Push%20and%20Publish.md).
 
 ---
 
 ## What you get on `main` (default CMake)
 
-By default the root `CMakeLists.txt` builds a **slim** set of **runnable targets**:
+By default the root `CMakeLists.txt` builds these **runnable targets**:
 
 | Output | Role |
 |--------|------|
-| **`RawIron.UiMenu`** | Windows JSON + Dear ImGui **UI / screen-flow** harness (`--demo-vn`, `--headless`). |
+| **`RawIron.Editor`** | Native **editor** host (`Apps/RawIron.Editor`). Launch from repo root: **`Launch RawIron Editor.cmd`**. Game folders call this launcher with **`--game=…`**. |
+| **`RawIron.VisualShell`** | Keyboard-first **visual shell** (`Apps/RawIron.VisualShell`). **`Launch RawIron Visual Shell.cmd`** from repo root. |
+| **`RawIron.UiMenu`** | JSON + Dear ImGui **UI / screen-flow** harness (`--demo-vn`, `--headless`). |
 | **`RawIron.ParticleShowcase`** | CPU/GPU **particle** exercise host. |
 | **`RawIron.LiminalGame`** | **Liminal Hall** game. |
 | **`RawIron.ForestRuinsGame`** | **Wilderness Ruins** game. |
 
-Everything else (generic **Player**, **Editor**, **Visual Shell**, **`ri_tool`**, **DevInspector**, large native **CTest** trees) is **off** unless you pass **`-D RAWIRON_BUILD_…=ON`** at configure time. See [Optional targets](#optional-targets).
+Optional **`RAWIRON_BUILD_*`** switches turn on **`RawIron.Player`**, **`ri_tool`**, **CTest** smokes, **DevInspector**, etc. See [Optional targets](#optional-targets). Use **`CMakeLists.slim.txt`** only when you intentionally want a smaller configure surface.
 
 ---
 
@@ -31,12 +33,14 @@ Everything else (generic **Player**, **Editor**, **Visual Shell**, **`ri_tool`**
 git clone <your-fork-or-upstream-url> RawIron
 cd RawIron
 cmake --preset dev-msvc
-cmake --build build/dev-msvc --config RelWithDebInfo --target RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame
+cmake --build build/dev-msvc --config RelWithDebInfo --target RawIron.Editor RawIron.VisualShell RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame
 ```
 
 **Typical outputs** (paths use `RelWithDebInfo`; adjust if you use another VS configuration):
 
 ```text
+build\dev-msvc\Apps\RawIron.Editor\RelWithDebInfo\RawIron.Editor.exe
+build\dev-msvc\Apps\RawIron.VisualShell\RelWithDebInfo\RawIron.VisualShell.exe
 build\dev-msvc\Apps\RawIron.UiMenu\RelWithDebInfo\RawIron.UiMenu.exe
 build\dev-msvc\Apps\RawIron.ParticleShowcase\RelWithDebInfo\RawIron.ParticleShowcase.exe
 build\dev-msvc\Games\LiminalHall\App\RelWithDebInfo\RawIron.LiminalGame.exe
@@ -49,12 +53,11 @@ build\dev-msvc\Games\WildernessRuins\App\RelWithDebInfo\RawIron.ForestRuinsGame.
 .\build\dev-msvc\Apps\RawIron.UiMenu\RelWithDebInfo\RawIron.UiMenu.exe --workspace=$PWD --headless
 ```
 
+**Editor & visual shell (from repo root, after build):** double-click **`Launch RawIron Editor.cmd`** or **`Launch RawIron Visual Shell.cmd`**. The editor is invoked with **`--workspace=<repo root>`**; add **`--game=liminal-hall`** or **`--game=wilderness-ruins`** to open a registered project (same as **`Games\LiminalHall\Open Liminal Hall In Editor.cmd`**).
+
 **VN demo (interactive, branching JSON UI):** double-click **`Launch UiMenu VN Demo.cmd`** in the repo root, or run the same `RawIron.UiMenu.exe` with **`--demo-vn`**. In-game copy may use **`${variableId}`** in `text` / `label` / `speaker` / choice labels / **`portrait`** / **`image`** / **`background.image`** paths. Press **`B`** for the **backlog** (opens scrolled to the end). **`H`** toggles the small music / missing-background dev strip. **`1`–`9`** activate visible choice buttons in screen order. Screen **`advance`** supports **`onSpace`**, **`onClick`**, **`onEnter`**, **`onMouseWheel`**, and **`delaySeconds`** (hold **Ctrl** to shorten the timer). **`say`** blocks may set **`voice`** (cue string; UI + backlog until playback is wired).
 
-**Games** (from repo root, after build):
-
-- `.\play-liminal.cmd`
-- `.\play-forest-ruins.cmd`
+**Games** (from each game folder under `Games\`, after build — see **`Play Liminal Hall.cmd`** and **`Play Wilderness Ruins.cmd`**).
 
 **If MSVC fails on a removable / odd filesystem:** use `cmake --preset dev-msvc-localappdata` and `cmake --build --preset build-dev-msvc-localappdata`, then optionally `.\Scripts\Sync-ProfileBuildToRepo.ps1` to mirror binaries under `.\build\dev-msvc`.
 
@@ -87,12 +90,12 @@ Visitors typically look for **(1)** how to run something without compiling, **(2
 
 ## Optional targets
 
-Reconfigure with any of:
+**Editor** and **Visual Shell** are **ON** by default in the root `CMakeLists.txt`. Turn **OFF** with `-D RAWIRON_BUILD_EDITOR=OFF` / `-D RAWIRON_BUILD_VISUAL_SHELL=OFF` if you need a faster configure.
+
+Other switches:
 
 - `-D RAWIRON_BUILD_PLAYER=ON`
-- `-D RAWIRON_BUILD_EDITOR=ON`
 - `-D RAWIRON_BUILD_TOOLS=ON` (builds `Tools/ri_tool`)
-- `-D RAWIRON_BUILD_VISUAL_SHELL=ON`
 - `-D RAWIRON_BUILD_TESTS=ON` (enables **CTest**; small app smokes such as `RawIron.UiMenu.HeadlessParse` when the UiMenu target is built)
 - `-D RAWIRON_BUILD_DEV_INSPECTOR=ON`
 
@@ -104,7 +107,7 @@ Reconfigure with any of:
 
 - **`Source/`** — engine libraries (`RawIron.Core`, `RawIron.Runtime`, `RawIron.Render.Vulkan`, `RawIron.SceneUtilities`, …).
 - **`Games/`** — **LiminalHall** and **WildernessRuins** runtimes + game apps.
-- **`Apps/`** — **`RawIron.UiMenu`**, **`RawIron.ParticleShowcase`** (other apps optional via CMake).
+- **`Apps/`** — **`RawIron.Editor`**, **`RawIron.VisualShell`**, **`RawIron.UiMenu`**, **`RawIron.ParticleShowcase`**.
 - **`Assets/`** — cooked/source content; **`Assets/UI/`** — JSON UI manifests + schema.
 - **`Documentation/`** — Obsidian-style engine docs (`Documentation/00 Home.md`).
 - **`Scripts/`** — build hygiene, publish, sync profile builds.
