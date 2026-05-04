@@ -38,12 +38,25 @@ jobs:
         with:
           arch: x64
 
-      # FindVulkan does not always pick up VULKAN_SDK from the composite action; pin the root explicitly.
+      # FindVulkan on the GHA image often misses Vulkan_LIBRARY even when VULKAN_SDK is set; pin include + lib.
       - name: Configure CMake (preset dev-msvc)
         shell: pwsh
         run: |
-          if (-not $env:VULKAN_SDK) { throw 'VULKAN_SDK missing after Vulkan install step' }
-          cmake --preset dev-msvc "-DVulkan_ROOT=$($env:VULKAN_SDK -replace '\\','/')"
+          $vk = $env:VULKAN_SDK.TrimEnd('\')
+          if (-not $vk) { throw 'VULKAN_SDK missing after Vulkan install step' }
+          $inc = Join-Path $vk 'Include'
+          $lib = @(
+            (Join-Path $vk 'Lib\vulkan-1.lib'),
+            (Join-Path $vk 'Lib\x64\vulkan-1.lib')
+          ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $lib) {
+            Write-Host 'VULKAN_SDK=' $vk
+            if (Test-Path (Join-Path $vk 'Lib')) { Get-ChildItem (Join-Path $vk 'Lib') -Recurse -Filter '*.lib' | Select-Object -First 40 FullName }
+            throw 'vulkan-1.lib not found under VULKAN_SDK/Lib'
+          }
+          $incF = $inc -replace '\\','/'
+          $libF = $lib -replace '\\','/'
+          cmake --preset dev-msvc "-DVulkan_INCLUDE_DIR=$incF" "-DVulkan_LIBRARY=$libF"
 
       - name: Build slim default targets
         shell: pwsh
