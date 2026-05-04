@@ -1,6 +1,6 @@
 blank_issues_enabled: true
 contact_links:
-  - name: README — build, slim default, releases
+  - name: README — build, CI smoke, releases
     url: https://github.com/MAJWCF1234/RawIron/blob/main/README.md
     about: Quick start, default CMake outputs, and what to expect from GitHub Releases vs building from source.
   - name: Documentation (engine)

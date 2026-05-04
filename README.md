@@ -4,7 +4,7 @@ Native **C++20** game engine and tooling: Vulkan runtime, scene graph, logic/eve
 
 **On GitHub:** this **README** on the default branch is the **source-of-truth** for how to build and run. The **Releases** tab may ship **optional** large binary bundles (split ZIPs + installer); there are **no** checked-in engine binaries on `main`. For **bugs / features**, use **[Issues](issues)** (templates under [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/)). For **contribution workflow**, see [**CONTRIBUTING.md**](CONTRIBUTING.md). For **security**, see [**SECURITY.md**](SECURITY.md).
 
-[![CI](https://github.com/MAJWCF1234/RawIron/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MAJWCF1234/RawIron/actions/workflows/ci.yml) — **Windows MSVC** CI builds core slim targets + `RawIron.UiMenu --headless`. Maintainer guide: [**Documentation/04 Build/GitHub Push and Publish.md**](Documentation/04%20Build/GitHub%20Push%20and%20Publish.md).
+[![CI](https://github.com/MAJWCF1234/RawIron/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MAJWCF1234/RawIron/actions/workflows/ci.yml) — **Windows MSVC** CI builds a **fast smoke subset** (UiMenu, ParticleShowcase, both games) and runs **`RawIron.UiMenu --headless`**. **`CMakeLists.txt` still turns on the full app set** for local clones; CI is narrower to save minutes on every push. Maintainer guide: [**Documentation/04 Build/GitHub Push and Publish.md**](Documentation/04%20Build/GitHub%20Push%20and%20Publish.md).
 
 ---
 
@@ -23,7 +23,7 @@ By default the root `CMakeLists.txt` builds these **runnable targets**:
 | **`RawIron.LiminalGame`** | **Liminal Hall** game. |
 | **`RawIron.ForestRuinsGame`** | **Wilderness Ruins** game. |
 
-Optional **`RAWIRON_BUILD_*`** switches turn off **`RawIron.Player`** / **`RawIron.Preview`**, enable **`ri_tool`**, **CTest** smokes, **DevInspector**, etc. See [Optional targets](#optional-targets). **`CMakeLists.slim.txt`** mirrors defaults but exists if your IDE locks **`CMakeLists.txt`**.
+Optional **`RAWIRON_BUILD_*`** switches turn off **`RawIron.Player`** / **`RawIron.Preview`**, enable **`ri_tool`**, **CTest** smokes, **DevInspector**, etc. See [Optional targets](#optional-targets). **`CMakeLists.ide-mirror.txt`** is a copy of the same defaults for workflows where an IDE cannot edit **`CMakeLists.txt`** in place.
 
 ---
 
@@ -73,7 +73,7 @@ Visitors typically look for **(1)** how to run something without compiling, **(2
 
 | Expectation | What we publish |
 |-------------|-----------------|
-| **Source always works** | Default branch **`main`** should match the **Quick start** in this README (slim CMake). CI / local builds validate that expectation. |
+| **Source always works** | Default branch **`main`** should match the **Quick start** (full default **`CMakeLists.txt`**). CI runs a **smaller smoke build** for speed; local full builds catch everything else. |
 | **Releases ≠ nightly `main`** | A **GitHub Release** is a **snapshot**: tag + attached assets. New commits on `main` may land **after** the newest release; clone **`main`** for the latest sources. |
 | **Prebuilt “full workspace”** | Maintainers may attach **split ZIP parts** (`RawIron_full_release_with_builds.zip.part01` … `.part03`) to a release, produced with **`Scripts/Publish-FullWorkspaceSplitZip.ps1`**. **SHA256** of the **reassembled** ZIP belongs in release notes and in **`Installer/RawIron.FullWorkspace.Installer.ps1`** (`ExpectedSha256`, `ReleaseTag`). |
 | **Installer entry point** | **`Installer/RawIron.FullWorkspace.Installer.cmd`** (or **`.ps1 -NoGui`**) downloads those parts from **`/releases/download/<tag>/...`**, verifies the hash, and extracts. |
@@ -102,7 +102,7 @@ Other switches:
 - `-D RAWIRON_BUILD_TESTS=ON` (enables **CTest**; small app smokes such as `RawIron.UiMenu.HeadlessParse` when the UiMenu target is built)
 - `-D RAWIRON_BUILD_DEV_INSPECTOR=ON`
 
-`CMakeLists.slim.txt` tracks the same **`RAWIRON_BUILD_*`** defaults as **`CMakeLists.txt`** for IDE workflows that cannot edit the primary file.
+`CMakeLists.ide-mirror.txt` tracks the same **`RAWIRON_BUILD_*`** defaults as **`CMakeLists.txt`** for IDE workflows that cannot edit the primary file.
 
 ---
 
@@ -144,6 +144,6 @@ Start here:
 - **Contributing guide:** [**CONTRIBUTING.md**](CONTRIBUTING.md) (build matrix, UI smoke, release notes for maintainers).
 - **GitHub Issues** (templates under **`.github/ISSUE_TEMPLATE/`**) for bugs and feature requests — the issue chooser also links back to this README and **Documentation/**.
 - **Pull requests:** fill out **`.github/pull_request_template.md`**. User-facing behavior (README, manifests, installer defaults) should be updated in the same PR when it changes.
-- Large refactors: open an issue first so `main` stays buildable for the **slim default** above.
+- Large refactors: open an issue first so `main` stays buildable with the **default CMake** and **CI smoke** expectations above.
 
 Other scripts (push bundles, clean build trees): see **`Scripts/`** and comments in **`Installer/`**.

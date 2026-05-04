@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        **Default expectation:** `main` builds the **slim** set (UiMenu, ParticleShowcase, two games) with MSVC + CMake as in the root **README.md** (Quick start). Please confirm you followed that before filing.
+        **Default expectation:** `main` configures with the **full default** `CMakeLists.txt`. CI only **smoke-builds** UiMenu, ParticleShowcase, and the two games—please confirm you built those (or the full Quick start list) with MSVC + CMake as in the root **README.md** before filing.
   - type: textarea
     id: summary
     attributes:

@@ -4,13 +4,13 @@ Thanks for helping improve the engine, games, or tooling.
 
 ## Continuous integration
 
-Pull requests and pushes to **`main`** / **`master`** run **[`.github/workflows/ci.yml`](.github/workflows/ci.yml)** (Windows, Vulkan SDK, slim targets, **`RawIron.UiMenu --headless`**). Fix CI before merge when possible.
+Pull requests and pushes to **`main`** / **`master`** run **[`.github/workflows/ci.yml`](.github/workflows/ci.yml)** (Windows, Vulkan SDK, **smoke targets**, **`RawIron.UiMenu --headless`**). Fix CI before merge when possible.
 
 Maintainer playbook (push when push fails, full-workspace releases, `gh` tips): **[Documentation/04 Build/GitHub Push and Publish.md](Documentation/04%20Build/GitHub%20Push%20and%20Publish.md)**.
 
 ## Before you open a PR
 
-1. **Build the default (slim) matrix** from the root [README.md](README.md) — `cmake --preset dev-msvc` then build **`RawIron.UiMenu`**, **`RawIron.ParticleShowcase`**, **`RawIron.LiminalGame`**, and **`RawIron.ForestRuinsGame`**. If your change needs optional CMake flags, say so in the PR. (Same matrix as CI.)
+1. **Build at least the CI smoke matrix** from the root [README.md](README.md) — `cmake --preset dev-msvc` then build **`RawIron.UiMenu`**, **`RawIron.ParticleShowcase`**, **`RawIron.LiminalGame`**, and **`RawIron.ForestRuinsGame`**. Prefer also building **Player / Preview / Editor / Visual Shell** when your change touches those targets. If your change needs optional CMake flags, say so in the PR.
 2. **UI / JSON flows:** if you touch manifests or `RawIron.UiMenu`, run at least:
    - `RawIron.UiMenu.exe --workspace=<repo> --headless`
    - and, when relevant, `--demo-vn` for a quick interactive pass.

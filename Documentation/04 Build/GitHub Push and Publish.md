@@ -29,7 +29,7 @@ Creates a **bundle** under `%TEMP%`, clones it, pushes to `origin`, then deletes
 
 - Workflow: **[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)**  
 - **Triggers:** `push` / `pull_request` to `main` or `master`, plus **Run workflow** (manual).  
-- **Does:** Vulkan SDK → MSVC → `cmake --preset dev-msvc` → build **UiMenu**, **ParticleShowcase**, **LiminalGame**, **ForestRuinsGame** → **`RawIron.UiMenu --headless`**.
+- **Does:** Vulkan SDK → MSVC → `cmake --preset dev-msvc` → build a **smoke subset** (**UiMenu**, **ParticleShowcase**, **LiminalGame**, **ForestRuinsGame**) for speed → **`RawIron.UiMenu --headless`**. The repo’s default **`CMakeLists.txt`** still enables **all** major apps for local full builds.
 
 If CI fails on Vulkan or shader tools, see [[04 Build/Vulkan Environment|Vulkan Environment]] and confirm `glslangValidator` is on `PATH` after the install action (the workflow uses the same CMake rules as a local machine).
 

@@ -1,4 +1,4 @@
-# Slim default build on Windows (matches root README Quick start).
+# Fast Windows smoke: subset of targets + UiMenu headless (full sources remain default in CMakeLists.txt).
 name: CI
 
 on:
@@ -16,8 +16,8 @@ permissions:
   contents: read
 
 jobs:
-  windows-slim:
-    name: Windows MSVC (slim targets)
+  windows-msvc-smoke:
+    name: Windows MSVC (smoke targets)
     runs-on: windows-2022
     timeout-minutes: 90
 
@@ -41,7 +41,7 @@ jobs:
       - name: Configure CMake (preset dev-msvc)
         run: cmake --preset dev-msvc
 
-      - name: Build slim default targets
+      - name: Build smoke targets (CI)
         shell: pwsh
         run: |
           cmake --build build/dev-msvc --config RelWithDebInfo --parallel `
