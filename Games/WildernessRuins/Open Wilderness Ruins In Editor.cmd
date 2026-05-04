@@ -6,10 +6,12 @@ if not exist "%MANIFEST%" (
   echo Missing manifest.json in WildernessRuins folder.
   exit /b 1
 )
-findstr /c:"\"format\": \"rawiron-game-v1.3.5\"" "%MANIFEST%" >nul || (
-  echo WildernessRuins manifest format is not rawiron-game-v1.3.5.
-  exit /b 1
-)
+findstr /c:"\"format\": \"rawiron-game-v1.3.7\"" "%MANIFEST%" >nul && goto wilderness_open_fmt_ok
+findstr /c:"\"format\": \"rawiron-game-v1.3.6\"" "%MANIFEST%" >nul && goto wilderness_open_fmt_ok
+findstr /c:"\"format\": \"rawiron-game-v1.3.5\"" "%MANIFEST%" >nul && goto wilderness_open_fmt_ok
+echo WildernessRuins manifest format must be rawiron-game-v1.3.5, v1.3.6, or v1.3.7 ^(latest^).
+exit /b 1
+:wilderness_open_fmt_ok
 findstr /c:"\"editorProjectArg\": \"--game=wilderness-ruins\"" "%MANIFEST%" >nul || (
   echo WildernessRuins manifest editorProjectArg must be --game=wilderness-ruins.
   exit /b 1

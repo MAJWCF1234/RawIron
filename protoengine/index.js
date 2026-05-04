@@ -1,5 +1,45 @@
 
-import * as THREE from 'three';
+import {
+    ACESFilmicToneMapping,
+    AmbientLight,
+    Box3,
+    BoxGeometry,
+    BufferAttribute,
+    BufferGeometry,
+    CapsuleGeometry,
+    Clock,
+    Color,
+    CylinderGeometry,
+    DoubleSide,
+    Euler,
+    ExtrudeGeometry,
+    FileLoader,
+    Float32BufferAttribute,
+    FrontSide,
+    Group,
+    LoadingManager,
+    Matrix3,
+    Matrix4,
+    Mesh,
+    MeshBasicMaterial,
+    MeshStandardMaterial,
+    Path,
+    PCFSoftShadowMap,
+    PerspectiveCamera,
+    PlaneGeometry,
+    PointLight,
+    Quaternion,
+    Raycaster,
+    RepeatWrapping,
+    Scene,
+    Shape,
+    SRGBColorSpace,
+    TextureLoader,
+    Vector2,
+    Vector3,
+    WebGLRenderer,
+    MathUtils
+} from 'three';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import {
     DEFAULT_KEYS,
@@ -35,8 +75,8 @@ class Player {
         this.controls = controls;
         this.camera = controls.object;
         this.position = this.camera.position;
-        this.velocity = new THREE.Vector3();
-        this.direction = new THREE.Vector3();
+        this.velocity = new Vector3();
+        this.direction = new Vector3();
         this.stance = 'standing';
         this.eyeHeights = { standing: 1.8 };
         this.hullHeights = { standing: 1.62 };
@@ -53,24 +93,24 @@ class Player {
         this.groundSnapDistance = 0.14;
         this.groundContactOffset = 0.03;
         this.maxWalkableSlopeY = 0.45;
-        this.collisionBox = new THREE.Box3();
-        this.tempVector = new THREE.Vector3();
-        this._collisionCenter = new THREE.Vector3();
-        this.collisionSize = new THREE.Vector3(0.64, 0, 0.64);
-        this.feetPosition = new THREE.Vector3();
-        this.eyeOffset = new THREE.Vector3(0, this.targetHeight, 0);
-        this.forwardVector = new THREE.Vector3();
-        this.rightVector = new THREE.Vector3();
-        this.moveDirection = new THREE.Vector3();
-        this.surfaceNormal = new THREE.Vector3(0, 1, 0);
-        this.surfacePoint = new THREE.Vector3();
-        this.surfaceMoveDirection = new THREE.Vector3();
-        this.stepProbeOffset = new THREE.Vector3();
-        this.groundProbeOrigin = new THREE.Vector3();
-        this.groundProbePosition = new THREE.Vector3();
-        this.slideDelta = new THREE.Vector3();
-        this._sweepDelta = new THREE.Vector3();
-        this._supportCheckBox = new THREE.Box3();
+        this.collisionBox = new Box3();
+        this.tempVector = new Vector3();
+        this._collisionCenter = new Vector3();
+        this.collisionSize = new Vector3(0.64, 0, 0.64);
+        this.feetPosition = new Vector3();
+        this.eyeOffset = new Vector3(0, this.targetHeight, 0);
+        this.forwardVector = new Vector3();
+        this.rightVector = new Vector3();
+        this.moveDirection = new Vector3();
+        this.surfaceNormal = new Vector3(0, 1, 0);
+        this.surfacePoint = new Vector3();
+        this.surfaceMoveDirection = new Vector3();
+        this.stepProbeOffset = new Vector3();
+        this.groundProbeOrigin = new Vector3();
+        this.groundProbePosition = new Vector3();
+        this.slideDelta = new Vector3();
+        this._sweepDelta = new Vector3();
+        this._supportCheckBox = new Box3();
         this.lastGroundedAt = 0;
         this.syncCameraToBody();
     }
@@ -158,7 +198,7 @@ class Player {
             this.syncCameraToBody();
             return true;
         }
-        const candidate = new THREE.Vector3();
+        const candidate = new Vector3();
         const step = Math.max(0.16, this.getCurrentHullRadius() * 1.35);
         for (const lift of [Math.max(0.28, this.maxStepHeight * 0.45), Math.max(0.85, this.maxStepHeight + 0.22), Math.max(1.7, this.getCurrentHullHeight() + 0.25)]) {
             for (const [x, z] of [[0, 0], [step, 0], [-step, 0], [0, step], [0, -step], [step * 2, 0], [-step * 2, 0]]) {
@@ -367,7 +407,7 @@ class Player {
                     this.syncCameraToBody();
                 }
             } else {
-                const netGravityScale = THREE.MathUtils.clamp(volumeModifiers.gravityScale - volumeModifiers.buoyancy, -2, 4);
+                const netGravityScale = MathUtils.clamp(volumeModifiers.gravityScale - volumeModifiers.buoyancy, -2, 4);
                 this.velocity.y = Math.max(
                     this.velocity.y - (this.gravity * this.fallGravityMultiplier * netGravityScale * dt),
                     -this.maxFallSpeed
@@ -518,7 +558,7 @@ export class AnomalousEchoGame {
         this.keyBindings = { ...DEFAULT_KEYS };
         this.gameState = { isPaused: true, isLoaded: false, isGameOver: false, missionCompleted: false, invulnerableUntil: 0 };
         this.loadedAssets = { textures: {}, models: {} };
-        this.clock = new THREE.Clock();
+        this.clock = new Clock();
         this.flickerIntervals = [];
         this.levelGeometries = [];
         this.animationFrameId = null;
@@ -540,49 +580,49 @@ export class AnomalousEchoGame {
         this.triggerVolumes = [];
         this.completedEventIds = new Set();
         this.triggerVolumeIndex = null;
-        this._spectatorDirection = new THREE.Vector3();
-        this._spectatorRight = new THREE.Vector3();
-        this._movementScratch = new THREE.Vector3();
-        this._movementTestBox = new THREE.Box3();
-        this._triggerQueryBox = new THREE.Box3();
-        this._triggerQueryPadding = new THREE.Vector3(0.05, 0.05, 0.05);
-        this._traceCandidateBox = new THREE.Box3();
+        this._spectatorDirection = new Vector3();
+        this._spectatorRight = new Vector3();
+        this._movementScratch = new Vector3();
+        this._movementTestBox = new Box3();
+        this._triggerQueryBox = new Box3();
+        this._triggerQueryPadding = new Vector3(0.05, 0.05, 0.05);
+        this._traceCandidateBox = new Box3();
         
-        this._slideRemaining = new THREE.Vector3();
-        this._slideMoved = new THREE.Vector3();
-        this._slideStep = new THREE.Vector3();
-        this._slideClip = new THREE.Vector3();
-        this._slideNudge = new THREE.Vector3();
-        this._slideWorkingBox = new THREE.Box3();
-        this._structuralTempBox = new THREE.Box3();
-        this._structuralTempMatrix = new THREE.Matrix4();
-        this._structuralTempQuaternion = new THREE.Quaternion();
-        this._structuralTempScale = new THREE.Vector3();
-        this._structuralTempPosition = new THREE.Vector3();
-        this._runtimeProjectorBounds = new THREE.Box3();
-        this._runtimeProjectorTargetBounds = new THREE.Box3();
+        this._slideRemaining = new Vector3();
+        this._slideMoved = new Vector3();
+        this._slideStep = new Vector3();
+        this._slideClip = new Vector3();
+        this._slideNudge = new Vector3();
+        this._slideWorkingBox = new Box3();
+        this._structuralTempBox = new Box3();
+        this._structuralTempMatrix = new Matrix4();
+        this._structuralTempQuaternion = new Quaternion();
+        this._structuralTempScale = new Vector3();
+        this._structuralTempPosition = new Vector3();
+        this._runtimeProjectorBounds = new Box3();
+        this._runtimeProjectorTargetBounds = new Box3();
         this._pendingGameplayEnterTimeout = null;
         this.soundscape = {};
         this._elapsedTimeOverride = null;
         this.initEngine(); 
-        this._tempEuler = new THREE.Euler(0, 0, 0, 'YXZ'); // For camera pitch clamping
+        this._tempEuler = new Euler(0, 0, 0, 'YXZ'); // For camera pitch clamping
         this.initUI(); 
         this.loadAssets();
     }
 
     initEngine() {
-        this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.scene = new Scene();
+        this.camera = new PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
         this.camera.rotation.order = 'YXZ'; // Fix rotation order for FPS camera to prevent gimbal lock
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
         this.renderer.setPixelRatio(dpr);
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.shadowMap.type = PCFSoftShadowMap;
         this.renderer.shadowMap.autoUpdate = true;
-        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.outputColorSpace = SRGBColorSpace;
+        this.renderer.toneMapping = ACESFilmicToneMapping;
         this.renderer.toneMappingExposure = 1.65;
         this.pixelRatio = dpr;
         
@@ -610,8 +650,8 @@ export class AnomalousEchoGame {
         this.dynamicCollidableMeshes = [];
         this.staticCollisionIndex = null;
         this.structuralCollisionIndex = null;
-        this._toObject = new THREE.Vector3();
-        this._kickSpinScratch = new THREE.Vector3();
+        this._toObject = new Vector3();
+        this._kickSpinScratch = new Vector3();
 
         this.composer = {
             render: () => this.renderer.render(this.scene, this.camera)
@@ -799,10 +839,10 @@ export class AnomalousEchoGame {
         finalScale[1] *= authoredScale[1];
         finalScale[2] *= authoredScale[2];
         const basePosition = Array.isArray(positionData) && positionData.length >= 3
-            ? new THREE.Vector3().fromArray(finiteVec3Components(positionData, [0, 0, 0]))
-            : new THREE.Vector3();
+            ? new Vector3().fromArray(finiteVec3Components(positionData, [0, 0, 0]))
+            : new Vector3();
         if (Array.isArray(importTransform?.position) && importTransform.position.length >= 3) {
-            const importPosition = new THREE.Vector3().fromArray(finiteVec3Components(importTransform.position, [0, 0, 0]));
+            const importPosition = new Vector3().fromArray(finiteVec3Components(importTransform.position, [0, 0, 0]));
             importPosition.x *= finalScale[0];
             importPosition.y *= finalScale[1];
             importPosition.z *= finalScale[2];
@@ -857,7 +897,7 @@ export class AnomalousEchoGame {
     }
 
     async loadModelAsset(modelName) {
-        const modelLoader = new THREE.FileLoader();
+        const modelLoader = new FileLoader();
         modelLoader.setResponseType('json');
         const raw = await new Promise((resolve, reject) => {
             modelLoader.load(`${GameAssets.MODEL_DATA_PATH_PREFIX}${modelName}.json`, resolve, undefined, reject);
@@ -877,8 +917,8 @@ export class AnomalousEchoGame {
     }
 
     loadAssets() {
-        const manager = new THREE.LoadingManager();
-        const textureLoader = new THREE.TextureLoader(manager);
+        const manager = new LoadingManager();
+        const textureLoader = new TextureLoader(manager);
         manager.onProgress = (url, loaded, total) => {
             const progress = total > 0 ? Math.round((loaded / total) * 100) : 100;
             if (this.ui.loadingProgress) this.ui.loadingProgress.textContent = `LOADING... ${progress}%`;
@@ -903,7 +943,7 @@ export class AnomalousEchoGame {
             textureLoader.load(
                 assetPath.startsWith('./') ? assetPath : GameAssets.IMG_PREFIX + assetPath,
                 (texture) => {
-                    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+                    texture.wrapS = texture.wrapT = RepeatWrapping;
                     texture.name = filename;
                     this.loadedAssets.textures[filename] = texture;
                 },
@@ -1046,9 +1086,9 @@ export class AnomalousEchoGame {
         return false;
     }
 
-    getCollisionBounds(mesh, targetBox = new THREE.Box3()) {
+    getCollisionBounds(mesh, targetBox = new Box3()) {
         if (!mesh) return targetBox.makeEmpty();
-        if (mesh.userData?.boundingBox instanceof THREE.Box3 && !mesh.userData?.dynamicCollider) {
+        if (mesh.userData?.boundingBox instanceof Box3 && !mesh.userData?.dynamicCollider) {
             return targetBox.copy(mesh.userData.boundingBox);
         }
         return targetBox.setFromObject(mesh);
@@ -1071,8 +1111,8 @@ export class AnomalousEchoGame {
             return {
                 object: candidate,
                 box: candidateBox.clone(),
-                point: queryBox.getCenter(new THREE.Vector3()),
-                normal: new THREE.Vector3(0, 1, 0),
+                point: queryBox.getCenter(new Vector3()),
+                normal: new Vector3(0, 1, 0),
                 penetration: 0
             };
         }
@@ -1087,7 +1127,7 @@ export class AnomalousEchoGame {
             predicate = null
         } = options;
         const candidates = structuralOnly ? this.queryStructuralCollidablesForRay(origin, direction, far) : this.queryCollidablesForRay(origin, direction, far);
-        const raycaster = new THREE.Raycaster(origin, direction, 0, far);
+        const raycaster = new Raycaster(origin, direction, 0, far);
         const hits = raycaster.intersectObjects(candidates, true);
         for (const hit of hits) {
             if (ignoreObject && this.objectContainsObject(ignoreObject, hit.object)) continue;
@@ -1118,17 +1158,17 @@ export class AnomalousEchoGame {
                 if (overlapsX && overlapsZ && queryBox.min.y >= candidateBox.max.y) {
                     const endMinY = queryBox.min.y + delta.y;
                     if (endMinY <= candidateBox.max.y) {
-                        const time = THREE.MathUtils.clamp((queryBox.min.y - candidateBox.max.y) / (-delta.y), 0, 1);
+                        const time = MathUtils.clamp((queryBox.min.y - candidateBox.max.y) / (-delta.y), 0, 1);
                         if (!bestHit || time < bestHit.time) {
                             bestHit = {
                                 object: candidate,
                                 box: candidateBox.clone(),
-                                point: new THREE.Vector3(
-                                    THREE.MathUtils.clamp((queryBox.min.x + queryBox.max.x) * 0.5, candidateBox.min.x, candidateBox.max.x),
+                                point: new Vector3(
+                                    MathUtils.clamp((queryBox.min.x + queryBox.max.x) * 0.5, candidateBox.min.x, candidateBox.max.x),
                                     candidateBox.max.y,
-                                    THREE.MathUtils.clamp((queryBox.min.z + queryBox.max.z) * 0.5, candidateBox.min.z, candidateBox.max.z)
+                                    MathUtils.clamp((queryBox.min.z + queryBox.max.z) * 0.5, candidateBox.min.z, candidateBox.max.z)
                                 ),
-                                normal: new THREE.Vector3(0, 1, 0),
+                                normal: new Vector3(0, 1, 0),
                                 time,
                                 penetration: 0
                             };
@@ -1144,9 +1184,9 @@ export class AnomalousEchoGame {
     slideMoveBox(queryBox, delta, options = {}) {
         if (!queryBox || !delta) {
             return {
-                positionDelta: new THREE.Vector3(),
-                remainingDelta: new THREE.Vector3(),
-                endBox: queryBox ? queryBox.clone() : new THREE.Box3(),
+                positionDelta: new Vector3(),
+                remainingDelta: new Vector3(),
+                endBox: queryBox ? queryBox.clone() : new Box3(),
                 hits: [],
                 blocked: false
             };
@@ -1216,14 +1256,14 @@ export class AnomalousEchoGame {
             minNormalY = 0.5,
             traceTag = null
         } = options;
-        return this.traceRay(origin, new THREE.Vector3(0, -1, 0), maxDistance, {
+        return this.traceRay(origin, new Vector3(0, -1, 0), maxDistance, {
             structuralOnly,
             ignoreObject,
             traceTag,
             predicate: (object, hit) => {
                 if (!hit?.face?.normal) return false;
                 const worldNormal = hit.face.normal.clone()
-                    .applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(object.matrixWorld));
+                    .applyNormalMatrix(new Matrix3().getNormalMatrix(object.matrixWorld));
                 if (worldNormal.lengthSq() < 1e-12) return false;
                 if (!Number.isFinite(worldNormal.x) || !Number.isFinite(worldNormal.y) || !Number.isFinite(worldNormal.z)) return false;
                 worldNormal.normalize();
@@ -1237,7 +1277,7 @@ export class AnomalousEchoGame {
     updateTriggerVolumeBounds(volume) {
         if (!volume) return null;
         if (!volume.userData) volume.userData = {};
-        const box = volume.userData.boundingBox instanceof THREE.Box3 ? volume.userData.boundingBox : new THREE.Box3();
+        const box = volume.userData.boundingBox instanceof Box3 ? volume.userData.boundingBox : new Box3();
         if (volume.shape === 'box') {
             box.setFromCenterAndSize(volume.position, volume.size);
         } else if (volume.shape === 'cylinder') {
@@ -1276,14 +1316,14 @@ export class AnomalousEchoGame {
 
     disposeMesh(mesh) {
         if (!mesh) return;
-        if (mesh instanceof THREE.Group) {
+        if (mesh instanceof Group) {
             while (mesh.children.length > 0) {
                 this.disposeMesh(mesh.children[0]);
                 mesh.remove(mesh.children[0]);
             }
             return;
         }
-        if (mesh instanceof THREE.Mesh) {
+        if (mesh instanceof Mesh) {
             if (mesh.geometry) mesh.geometry.dispose();
             if (mesh.material) {
                 if (Array.isArray(mesh.material)) {
@@ -1339,7 +1379,7 @@ export class AnomalousEchoGame {
 
         this.collidableMeshes = [];
         
-        this.levelObjects = new THREE.Group();
+        this.levelObjects = new Group();
         this.scene.add(this.levelObjects);
     }
 
@@ -1424,7 +1464,7 @@ export class AnomalousEchoGame {
         if (this.ui.loadingProgressFill) this.ui.loadingProgressFill.style.width = '100%';
         if (this.ui.loadingProgressBar) this.ui.loadingProgressBar.setAttribute('aria-valuenow', '100');
         this.ui.loadingProgress && (this.ui.loadingProgress.textContent = 'Ready.');
-        if (levelData.settings && levelData.settings.backgroundColor) this.scene.background = new THREE.Color(levelData.settings.backgroundColor);
+        if (levelData.settings && levelData.settings.backgroundColor) this.scene.background = new Color(levelData.settings.backgroundColor);
         levelData.lights?.forEach((d) => this.createLightFromData(d));
         const geometryNodes = Array.isArray(levelData.geometry) ? levelData.geometry : [];
         geometryNodes.forEach((d) => this.createGeometryFromData(d));
@@ -1486,16 +1526,16 @@ export class AnomalousEchoGame {
             gravityScale: 1,
             drag: 0,
             buoyancy: 0,
-            flow: new THREE.Vector3(),
+            flow: new Vector3(),
             activeVolumes: [],
             activeFluids: [],
             activeSurfaceVelocity: [],
             activeRadialForces: []
         };
         if (!position) return modifiers;
-        modifiers.drag = THREE.MathUtils.clamp(modifiers.drag, 0, 8);
-        modifiers.buoyancy = THREE.MathUtils.clamp(modifiers.buoyancy, 0, 3);
-        modifiers.gravityScale = THREE.MathUtils.clamp(modifiers.gravityScale, -2, 4);
+        modifiers.drag = MathUtils.clamp(modifiers.drag, 0, 8);
+        modifiers.buoyancy = MathUtils.clamp(modifiers.buoyancy, 0, 3);
+        modifiers.gravityScale = MathUtils.clamp(modifiers.gravityScale, -2, 4);
         return modifiers;
     }
 
@@ -1560,8 +1600,8 @@ export class AnomalousEchoGame {
         };
         if (texture) {
             params.map = texture.clone();
-            params.map.wrapS = THREE.RepeatWrapping;
-            params.map.wrapT = THREE.RepeatWrapping;
+            params.map.wrapS = RepeatWrapping;
+            params.map.wrapT = RepeatWrapping;
             if (materialData.uvScale) {
                 params.map.repeat.fromArray(finiteVec2Components(materialData.uvScale, [1, 1]));
             }
@@ -1575,7 +1615,7 @@ export class AnomalousEchoGame {
         }
 
         if (materialData.emissiveColor) {
-            params.emissive = new THREE.Color(materialData.emissiveColor);
+            params.emissive = new Color(materialData.emissiveColor);
             params.emissiveIntensity = materialData.emissiveIntensity || 1.0;
             if (texture) params.emissiveMap = texture;
         }
@@ -1585,7 +1625,7 @@ export class AnomalousEchoGame {
             params.opacity = materialData.opacity ?? 1.0;
             params.alphaTest = materialData.alphaTest ?? 0.08;
             params.depthWrite = materialData.depthWrite ?? false;
-            params.side = materialData.side === 'double' ? THREE.DoubleSide : THREE.FrontSide;
+            params.side = materialData.side === 'double' ? DoubleSide : FrontSide;
         }
 
         if (materialData.polygonOffset) {
@@ -1594,7 +1634,7 @@ export class AnomalousEchoGame {
             params.polygonOffsetUnits = materialData.polygonOffsetUnits ?? -2;
         }
 
-        const material = new THREE.MeshStandardMaterial(params);
+        const material = new MeshStandardMaterial(params);
         if (materialData.transparent) {
             material.alphaToCoverage = materialData.alphaToCoverage ?? true;
         }
@@ -1620,14 +1660,14 @@ export class AnomalousEchoGame {
         const sx = Math.max(0.01, maxX - minX);
         const sy = Math.max(0.01, maxY - minY);
         const sz = Math.max(0.01, maxZ - minZ);
-        const geometry = new THREE.BoxGeometry(sx, sy, sz);
+        const geometry = new BoxGeometry(sx, sy, sz);
         geometry.translate((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5);
         geometry.center();
         return geometry.toNonIndexed();
     }
 
     /** Inline replacement for BufferGeometryUtils.mergeGeometries: concats non-indexed position+normal buffers. */
-    mergeStructuralPrimitiveGeometryParts(parts, fallbackFactory = () => new THREE.BoxGeometry(1, 1, 1)) {
+    mergeStructuralPrimitiveGeometryParts(parts, fallbackFactory = () => new BoxGeometry(1, 1, 1)) {
         const validParts = parts.filter(Boolean);
         if (validParts.length === 0) return fallbackFactory();
         if (validParts.length === 1) return validParts[0];
@@ -1650,8 +1690,8 @@ export class AnomalousEchoGame {
             positions.set(arr, offset);
             offset += arr.length;
         }
-        const merged = new THREE.BufferGeometry();
-        merged.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const merged = new BufferGeometry();
+        merged.setAttribute('position', new BufferAttribute(positions, 3));
         merged.computeVertexNormals();
         validParts.forEach((part) => part.dispose());
         flattened.forEach((part) => { if (!validParts.includes(part)) part.dispose(); });
@@ -1659,12 +1699,12 @@ export class AnomalousEchoGame {
     }
 
     createRampPrimitiveGeometry() {
-        const shape = new THREE.Shape();
+        const shape = new Shape();
         shape.moveTo(-0.5, -0.5);
         shape.lineTo(-0.5, 0.5);
         shape.lineTo(0.5, -0.5);
         shape.lineTo(-0.5, -0.5);
-        const geometry = new THREE.ExtrudeGeometry(shape, {
+        const geometry = new ExtrudeGeometry(shape, {
             depth: 1,
             bevelEnabled: false,
             steps: 1,
@@ -1677,12 +1717,12 @@ export class AnomalousEchoGame {
     }
 
     createWedgePrimitiveGeometry() {
-        const shape = new THREE.Shape();
+        const shape = new Shape();
         shape.moveTo(-0.5, -0.5);
         shape.lineTo(0.5, -0.5);
         shape.lineTo(-0.5, 0.5);
         shape.lineTo(-0.5, -0.5);
-        const geometry = new THREE.ExtrudeGeometry(shape, {
+        const geometry = new ExtrudeGeometry(shape, {
             depth: 1,
             bevelEnabled: false,
             steps: 1,
@@ -1696,7 +1736,7 @@ export class AnomalousEchoGame {
 
     createCylinderPrimitiveGeometry(data) {
         const radialSegments = clampFiniteInteger(data?.radialSegments, 16, 6, 48);
-        return new THREE.CylinderGeometry(0.5, 0.5, 1, radialSegments, 1, false);
+        return new CylinderGeometry(0.5, 0.5, 1, radialSegments, 1, false);
     }
 
     samplePrimitiveArcPoints(centerX, centerY, radius, startAngle, endAngle, segments) {
@@ -1705,7 +1745,7 @@ export class AnomalousEchoGame {
         for (let index = 0; index <= safeSegments; index += 1) {
             const t = safeSegments === 0 ? 0 : index / safeSegments;
             const angle = startAngle + ((endAngle - startAngle) * t);
-            points.push(new THREE.Vector2(
+            points.push(new Vector2(
                 centerX + (Math.cos(angle) * radius),
                 centerY + (Math.sin(angle) * radius)
             ));
@@ -1715,7 +1755,7 @@ export class AnomalousEchoGame {
 
     createShapeFromPointLoop(points) {
         const safePoints = Array.isArray(points) ? points.filter(Boolean) : [];
-        const shape = new THREE.Shape();
+        const shape = new Shape();
         if (safePoints.length === 0) return shape;
         shape.moveTo(safePoints[0].x, safePoints[0].y);
         for (let index = 1; index < safePoints.length; index += 1) {
@@ -1727,7 +1767,7 @@ export class AnomalousEchoGame {
 
     createPathFromPointLoop(points) {
         const safePoints = Array.isArray(points) ? points.filter(Boolean) : [];
-        const path = new THREE.Path();
+        const path = new Path();
         if (safePoints.length === 0) return path;
         path.moveTo(safePoints[0].x, safePoints[0].y);
         for (let index = 1; index < safePoints.length; index += 1) {
@@ -1744,7 +1784,7 @@ export class AnomalousEchoGame {
         rotateY = 0,
         rotateZ = 0
     } = {}) {
-        const geometry = new THREE.ExtrudeGeometry(shape, {
+        const geometry = new ExtrudeGeometry(shape, {
             depth,
             bevelEnabled: false,
             steps: 1,
@@ -1780,7 +1820,7 @@ export class AnomalousEchoGame {
             });
         }
 
-        const spanRadians = THREE.MathUtils.degToRad(spanDegrees);
+        const spanRadians = MathUtils.degToRad(spanDegrees);
         const startAngle = (Math.PI * 0.5) + (spanRadians * 0.5);
         const endAngle = (Math.PI * 0.5) - (spanRadians * 0.5);
         const outerArc = this.samplePrimitiveArcPoints(0, 0, outerRadius, startAngle, endAngle, segments);
@@ -1790,18 +1830,18 @@ export class AnomalousEchoGame {
         const innerStart = innerArc[0];
         const innerEnd = innerArc[innerArc.length - 1];
         const outerLoop = [
-            new THREE.Vector2(outerStart.x, -0.5),
+            new Vector2(outerStart.x, -0.5),
             outerStart,
             ...outerArc.slice(1, -1),
             outerEnd,
-            new THREE.Vector2(outerEnd.x, -0.5)
+            new Vector2(outerEnd.x, -0.5)
         ];
         const innerLoop = [
-            new THREE.Vector2(innerEnd.x, -0.5),
+            new Vector2(innerEnd.x, -0.5),
             innerEnd,
             ...innerArc.slice(1, -1).reverse(),
             innerStart,
-            new THREE.Vector2(innerStart.x, -0.5)
+            new Vector2(innerStart.x, -0.5)
         ];
         const shape = this.createShapeFromPointLoop(outerLoop);
         shape.holes.push(this.createPathFromPointLoop(innerLoop));
@@ -1819,7 +1859,7 @@ export class AnomalousEchoGame {
         const innerShoulderY = Math.min(outerPeakY - 0.08, outerShoulderY + (thickness * 0.65));
         const innerPeakY = outerPeakY - (thickness * 0.95);
 
-        const shape = new THREE.Shape();
+        const shape = new Shape();
         shape.moveTo(-0.5, -0.5);
         shape.lineTo(-0.5, outerShoulderY);
         shape.quadraticCurveTo(-0.18, 0.34, 0, outerPeakY);
@@ -1827,7 +1867,7 @@ export class AnomalousEchoGame {
         shape.lineTo(0.5, -0.5);
         shape.lineTo(-0.5, -0.5);
 
-        const hole = new THREE.Path();
+        const hole = new Path();
         hole.moveTo(0.5 - innerInset, -0.5);
         hole.lineTo(0.5 - innerInset, innerShoulderY);
         hole.quadraticCurveTo(0.14, 0.26, 0, innerPeakY);
@@ -1852,7 +1892,7 @@ export class AnomalousEchoGame {
     createConePrimitiveGeometry(data) {
         const defaultSides = data?.type === 'pyramid' ? 4 : 16;
         const sides = clampFiniteInteger(data?.sides, defaultSides, 3, 64);
-        return new THREE.CylinderGeometry(0, 0.5, 1, sides, 1, false);
+        return new CylinderGeometry(0, 0.5, 1, sides, 1, false);
     }
 
     createCapsulePrimitiveGeometry(data) {
@@ -1860,14 +1900,14 @@ export class AnomalousEchoGame {
         const capSegments = clampFiniteInteger(data?.segments, 6, 2, 24);
         const radius = clampFiniteNumber(data?.radius ?? data?.outerRadius, 0.25, 0.05, 0.45);
         const length = clampFiniteNumber(data?.length ?? 0.5, 0.5, 0.05, 1.5);
-        return new THREE.CapsuleGeometry(radius, length, capSegments, radialSegments);
+        return new CapsuleGeometry(radius, length, capSegments, radialSegments);
     }
 
     createFrustumPrimitiveGeometry(data) {
         const radialSegments = clampFiniteInteger(data?.radialSegments ?? data?.segments, 16, 3, 64);
         const topRadius = clampFiniteNumber(data?.topRadius ?? data?.radiusTop, 0.18, 0, 0.5);
         const bottomRadius = clampFiniteNumber(data?.bottomRadius ?? data?.radiusBottom, 0.5, 0, 0.5);
-        return new THREE.CylinderGeometry(topRadius, bottomRadius, 1, radialSegments, 1, false);
+        return new CylinderGeometry(topRadius, bottomRadius, 1, radialSegments, 1, false);
     }
 
     createHexahedronPrimitiveGeometry(data) {
@@ -1884,7 +1924,7 @@ export class AnomalousEchoGame {
         const sourceVertices = Array.isArray(data?.vertices) && data.vertices.length >= 8
             ? data.vertices
             : (Array.isArray(data?.points) && data.points.length >= 8 ? data.points : defaultVertices);
-        const vertices = sourceVertices.slice(0, 8).map((point) => new THREE.Vector3(...finiteVec3Components(point, [0, 0, 0])));
+        const vertices = sourceVertices.slice(0, 8).map((point) => new Vector3(...finiteVec3Components(point, [0, 0, 0])));
         const faces = [
             [0, 1, 2], [0, 2, 3],
             [4, 7, 6], [4, 6, 5],
@@ -1901,14 +1941,14 @@ export class AnomalousEchoGame {
                 vertices[c].x, vertices[c].y, vertices[c].z
             );
         });
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        const geometry = new BufferGeometry();
+        geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
         geometry.computeVertexNormals();
         return geometry;
     }
 
     createGableRoofPrimitiveGeometry() {
-        const shape = new THREE.Shape();
+        const shape = new Shape();
         shape.moveTo(-0.5, -0.5);
         shape.lineTo(-0.5, 0.0);
         shape.lineTo(0, 0.5);
@@ -1923,7 +1963,7 @@ export class AnomalousEchoGame {
 
     createHippedRoofPrimitiveGeometry(data) {
         const ridgeRatio = clampFiniteNumber(data?.ridgeRatio, 0.34, 0.08, 0.85);
-        const r = THREE.MathUtils.clamp(ridgeRatio * 0.5, 0.04, 0.42);
+        const r = MathUtils.clamp(ridgeRatio * 0.5, 0.04, 0.42);
         const verts = [
             -0.5, -0.5, -0.5,   0.5, -0.5, -0.5,   0.5, -0.5,  0.5,  -0.5, -0.5,  0.5,
             -0.5,  0.0, -0.5,   0.5,  0.0, -0.5,   0.5,  0.0,  0.5,  -0.5,  0.0,  0.5,
@@ -1948,8 +1988,8 @@ export class AnomalousEchoGame {
             positions[i * 3 + 1] = verts[v + 1];
             positions[i * 3 + 2] = verts[v + 2];
         }
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const geometry = new BufferGeometry();
+        geometry.setAttribute('position', new BufferAttribute(positions, 3));
         geometry.computeVertexNormals();
         geometry.center();
         return geometry;
@@ -1974,12 +2014,12 @@ export class AnomalousEchoGame {
         const parts = [];
 
         if (bottomThickness > 0) {
-            const floor = new THREE.BoxGeometry(1, bottomThickness, 1);
+            const floor = new BoxGeometry(1, bottomThickness, 1);
             floor.translate(0, -0.5 + (bottomThickness * 0.5), 0);
             parts.push(floor);
         }
         if (topThickness > 0) {
-            const ceiling = new THREE.BoxGeometry(1, topThickness, 1);
+            const ceiling = new BoxGeometry(1, topThickness, 1);
             ceiling.translate(0, 0.5 - (topThickness * 0.5), 0);
             parts.push(ceiling);
         }
@@ -1995,12 +2035,12 @@ export class AnomalousEchoGame {
         const sideZ = (innerMinZ + innerMaxZ) * 0.5;
 
         if (leftThickness > 0) {
-            const leftWall = new THREE.BoxGeometry(leftThickness, wallHeight, sideDepth);
+            const leftWall = new BoxGeometry(leftThickness, wallHeight, sideDepth);
             leftWall.translate(-0.5 + (leftThickness * 0.5), wallY, sideZ);
             parts.push(leftWall);
         }
         if (rightThickness > 0) {
-            const rightWall = new THREE.BoxGeometry(rightThickness, wallHeight, sideDepth);
+            const rightWall = new BoxGeometry(rightThickness, wallHeight, sideDepth);
             rightWall.translate(0.5 - (rightThickness * 0.5), wallY, sideZ);
             parts.push(rightWall);
         }
@@ -2011,12 +2051,12 @@ export class AnomalousEchoGame {
         const frontBackX = (innerMinX + innerMaxX) * 0.5;
 
         if (backThickness > 0) {
-            const backWall = new THREE.BoxGeometry(frontBackWidth, wallHeight, backThickness);
+            const backWall = new BoxGeometry(frontBackWidth, wallHeight, backThickness);
             backWall.translate(frontBackX, wallY, -0.5 + (backThickness * 0.5));
             parts.push(backWall);
         }
         if (frontThickness > 0) {
-            const frontWall = new THREE.BoxGeometry(frontBackWidth, wallHeight, frontThickness);
+            const frontWall = new BoxGeometry(frontBackWidth, wallHeight, frontThickness);
             frontWall.translate(frontBackX, wallY, 0.5 - (frontThickness * 0.5));
             parts.push(frontWall);
         }
@@ -2039,12 +2079,12 @@ export class AnomalousEchoGame {
     }
 
     getGeometryTransformMatrix(data) {
-        const position = new THREE.Vector3(...finiteVec3Components(data?.position, [0, 0, 0]));
-        const rotation = new THREE.Euler(...finiteVec3Components(data?.rotation, [0, 0, 0]), 'XYZ');
-        const scale = new THREE.Vector3(...finiteScaleComponents(data?.scale, [1, 1, 1]));
-        return new THREE.Matrix4().compose(
+        const position = new Vector3(...finiteVec3Components(data?.position, [0, 0, 0]));
+        const rotation = new Euler(...finiteVec3Components(data?.rotation, [0, 0, 0]), 'XYZ');
+        const scale = new Vector3(...finiteScaleComponents(data?.scale, [1, 1, 1]));
+        return new Matrix4().compose(
             position,
-            new THREE.Quaternion().setFromEuler(rotation),
+            new Quaternion().setFromEuler(rotation),
             scale
         );
     }
@@ -2052,22 +2092,22 @@ export class AnomalousEchoGame {
     getOffsetStepMatrix(data = {}) {
         const matrixValues = Array.isArray(data?.offsetStepMatrix) ? data.offsetStepMatrix : (Array.isArray(data?.offsetMatrix) ? data.offsetMatrix : null);
         if (Array.isArray(matrixValues) && matrixValues.length >= 16) {
-            return new THREE.Matrix4().fromArray(matrixValues.slice(0, 16).map((value, index) => {
+            return new Matrix4().fromArray(matrixValues.slice(0, 16).map((value, index) => {
                 const numeric = Number(value);
                 return Number.isFinite(numeric) ? numeric : (index % 5 === 0 ? 1 : 0);
             }));
         }
         const step = data?.offsetStep && typeof data.offsetStep === 'object' ? data.offsetStep : data;
-        const position = new THREE.Vector3(...finiteVec3Components(step?.position ?? step?.positionStep, [0, 0, 0]));
-        const rotation = new THREE.Euler(...finiteVec3Components(step?.rotation ?? step?.rotationStep, [0, 0, 0]), 'XYZ');
-        const scale = new THREE.Vector3(...finiteScaleComponents(step?.scale ?? step?.scaleStep, [1, 1, 1]));
-        return new THREE.Matrix4().compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
+        const position = new Vector3(...finiteVec3Components(step?.position ?? step?.positionStep, [0, 0, 0]));
+        const rotation = new Euler(...finiteVec3Components(step?.rotation ?? step?.rotationStep, [0, 0, 0]), 'XYZ');
+        const scale = new Vector3(...finiteScaleComponents(step?.scale ?? step?.scaleStep, [1, 1, 1]));
+        return new Matrix4().compose(position, new Quaternion().setFromEuler(rotation), scale);
     }
 
     createTransformedArrayPrimitiveNode(baseNode, transformMatrix, arrayNode, index) {
         const resolvedType = this.getStructuralPrimitiveType(baseNode) || 'box';
         transformMatrix.decompose(this._structuralTempPosition, this._structuralTempQuaternion, this._structuralTempScale);
-        const rotation = new THREE.Euler().setFromQuaternion(this._structuralTempQuaternion, 'XYZ');
+        const rotation = new Euler().setFromQuaternion(this._structuralTempQuaternion, 'XYZ');
         return {
             ...baseNode,
             type: resolvedType,
@@ -2103,7 +2143,7 @@ export class AnomalousEchoGame {
 
             if (node.mergeHull) {
                 const mergedParts = [];
-                let runningMatrix = new THREE.Matrix4().identity();
+                let runningMatrix = new Matrix4().identity();
                 for (let index = 0; index < count; index += 1) {
                     const partNode = { ...basePrimitive, type: baseResolvedType };
                     const geometry = this.createStructuralPrimitiveGeometryFromData(partNode);
@@ -2128,7 +2168,7 @@ export class AnomalousEchoGame {
                 return;
             }
 
-            let runningMatrix = new THREE.Matrix4().identity();
+            let runningMatrix = new Matrix4().identity();
             for (let index = 0; index < count; index += 1) {
                 const transform = rootMatrix.clone().multiply(runningMatrix).multiply(baseMatrix);
                 expanded.push(this.createTransformedArrayPrimitiveNode(basePrimitive, transform, node, index));
@@ -2148,11 +2188,11 @@ export class AnomalousEchoGame {
         if (data?.compiledGeometry?.isBufferGeometry) return data.compiledGeometry;
         const t = this.getStructuralPrimitiveType(data);
         const s = this;
-        const unitBox = () => new THREE.BoxGeometry(1, 1, 1);
+        const unitBox = () => new BoxGeometry(1, 1, 1);
         const makers = {
             box: unitBox,
             rounded_box: unitBox,
-            plane: () => new THREE.PlaneGeometry(1, 1),
+            plane: () => new PlaneGeometry(1, 1),
             ramp: () => s.createRampPrimitiveGeometry(),
             wedge: () => s.createWedgePrimitiveGeometry(),
             cylinder: () => s.createCylinderPrimitiveGeometry(data),
@@ -2172,7 +2212,7 @@ export class AnomalousEchoGame {
     }
 
     createModelFromData(modelData) {
-        const group = new THREE.Group();
+        const group = new Group();
         group.name = modelData.modelName;
 
         const modelTextures = modelData.textures || {};
@@ -2197,7 +2237,7 @@ export class AnomalousEchoGame {
                 };
     
                 if (matData.emissiveColor) {
-                    params.emissive = new THREE.Color(matData.emissiveColor);
+                    params.emissive = new Color(matData.emissiveColor);
                     params.emissiveIntensity = matData.emissiveIntensity || 1.0;
                     if (texture) params.emissiveMap = texture;
                 }
@@ -2207,7 +2247,7 @@ export class AnomalousEchoGame {
                     params.opacity = matData.opacity || 0.5;
                 }
     
-                return new THREE.MeshStandardMaterial(params);
+                return new MeshStandardMaterial(params);
             };
     
             let mesh;
@@ -2215,10 +2255,10 @@ export class AnomalousEchoGame {
     
             if (matDataArray.length > 1) { // Multi-material for different faces
                 const materials = matDataArray.map(createMaterial);
-                mesh = new THREE.Mesh(geometry, materials);
+                mesh = new Mesh(geometry, materials);
             } else { // Single material for the whole mesh
                 const material = createMaterial(matDataArray[0] || {});
-                mesh = new THREE.Mesh(geometry, material);
+                mesh = new Mesh(geometry, material);
             }
     
             mesh.position.fromArray(finiteVec3Components(geoData.position, [0, 0, 0]));
@@ -2243,8 +2283,8 @@ export class AnomalousEchoGame {
             : null;
         const material = primaryMaterialData
             ? this.createMaterialFromData(primaryMaterialData)
-            : new THREE.MeshStandardMaterial({ color: 0xcc00cc });
-        const mesh = new THREE.Mesh(geometry, material);
+            : new MeshStandardMaterial({ color: 0xcc00cc });
+        const mesh = new Mesh(geometry, material);
         const isDecalPlane = data.type === 'plane' && material.transparent;
 
         if (!data.compiledWorldSpace) {
@@ -2261,7 +2301,7 @@ export class AnomalousEchoGame {
                 ? data.decalOffset
                 : (data.decalPreset ? 0.004 : 0);
             if (decalOffset !== 0) {
-                const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(mesh.quaternion);
+                const normal = new Vector3(0, 0, 1).applyQuaternion(mesh.quaternion);
                 if (normal.lengthSq() < 1e-12) normal.set(0, 1, 0);
                 else normal.normalize();
                 mesh.position.addScaledVector(normal, decalOffset);
@@ -2270,7 +2310,7 @@ export class AnomalousEchoGame {
 
         const supportColliderGeometries = data.isCollider ? this.createCompositeStructuralPrimitiveColliderGeometries(data) : [];
         if (supportColliderGeometries.length > 0) {
-            const root = new THREE.Group();
+            const root = new Group();
             root.name = data.name || data.id || `${data.type}_group`;
             root.position.copy(mesh.position);
             root.rotation.copy(mesh.rotation);
@@ -2282,7 +2322,7 @@ export class AnomalousEchoGame {
 
             supportColliderGeometries.forEach((supportGeometry, index) => {
                 this.levelGeometries.push(supportGeometry);
-                const colliderMesh = new THREE.Mesh(supportGeometry, new THREE.MeshBasicMaterial({
+                const colliderMesh = new Mesh(supportGeometry, new MeshBasicMaterial({
                     transparent: true,
                     opacity: 0,
                     depthWrite: false,
@@ -2344,7 +2384,7 @@ export class AnomalousEchoGame {
 
     createLightFromData(data) {
         if (!data || typeof data !== 'object') return;
-        const color = new THREE.Color(data.color != null ? data.color : '#333333');
+        const color = new Color(data.color != null ? data.color : '#333333');
         const intensityRaw = data.intensity ?? 1.0;
         const intensity = Number.isFinite(intensityRaw) && intensityRaw >= 0 ? intensityRaw : 1.0;
         const distRaw = data.distance;
@@ -2354,8 +2394,8 @@ export class AnomalousEchoGame {
         let light;
 
         switch (data.type) {
-            case "ambient": light = new THREE.AmbientLight(color, intensity); break;
-            case "point": light = new THREE.PointLight(color, intensity, pointDistance, pointDecay); break;
+            case "ambient": light = new AmbientLight(color, intensity); break;
+            case "point": light = new PointLight(color, intensity, pointDistance, pointDecay); break;
             default: console.warn("Unknown light type:", data.type); return;
         }
         
@@ -2426,7 +2466,7 @@ export class AnomalousEchoGame {
     }
 
     placePlayerAtSpawn(position, data = null) {
-        const candidate = new THREE.Vector3();
+        const candidate = new Vector3();
         const spawnOffsets = [
             [0, 0, 0],
             [0.75, 0, 0], [-0.75, 0, 0], [0, 0, 0.75], [0, 0, -0.75],
@@ -2475,7 +2515,7 @@ export class AnomalousEchoGame {
 
     resolvePlayerStartFeetPosition(data = {}) {
         const posArr = Array.isArray(data.position) && data.position.length >= 3 ? data.position : [0, 0, 0];
-        const position = new THREE.Vector3().fromArray(finiteVec3Components(posArr, [0, 0, 0]));
+        const position = new Vector3().fromArray(finiteVec3Components(posArr, [0, 0, 0]));
         const spawnStance = typeof data.stance === 'string' && this.player?.eyeHeights?.[data.stance]
             ? data.stance
             : 'standing';

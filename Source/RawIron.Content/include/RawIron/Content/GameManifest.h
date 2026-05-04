@@ -11,7 +11,8 @@ namespace ri::content {
 struct GameManifest {
     std::string id;
     std::string name;
-    /// Required game format contract identifier (expected: `rawiron-game-v1.3.7`).
+    /// Game format contract identifier (`rawiron-game-v1.3.7` is current; `ValidateGameProjectFormat`
+    /// also accepts some older v1.3.x patch tags for existing projects).
     std::string format;
     std::string type;
     std::string entry;

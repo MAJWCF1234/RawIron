@@ -10,7 +10,7 @@ layout(location = 6) in vec3 worldPositionWs;
 
 layout(location = 0) out vec4 fragColor;
 
-layout(set = 0, binding = 0) uniform CameraData {
+layout(std140, set = 0, binding = 0) uniform CameraData {
     mat4 viewProjection;
     vec4 cameraWorldPosition;
     vec4 renderTuning;
@@ -21,6 +21,7 @@ layout(set = 0, binding = 0) uniform CameraData {
     vec4 lightDirectionIntensity;
     vec4 localLightPositionRange;
     vec4 localLightColorIntensity;
+    vec4 directionalLightColorIntensity;
     vec4 viewportMetrics;
 } cameraData;
 
@@ -144,9 +145,22 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir) {
     if (uv.x <= 0.0 || uv.y <= 0.0 || uv.x >= 1.0 || uv.y >= 1.0 || receiverDepth <= 0.0 || receiverDepth >= 1.0) {
         return 1.0;
     }
+    const float tier = clamp(drawData.qualityTier, 0.0, 2.0);
     float bias = max(0.0008, 0.0022 * (1.0 - max(dot(normal, lightDir), 0.0)));
+    if (tier >= 2.0) {
+        bias *= 0.92;
+    }
     vec2 texel = 1.0 / vec2(textureSize(shadowMapTex, 0));
     float lit = 0.0;
+    if (tier >= 2.0) {
+        for (int y = -2; y <= 2; ++y) {
+            for (int x = -2; x <= 2; ++x) {
+                float sampleDepth = texture(shadowMapTex, uv + vec2(float(x), float(y)) * texel).r;
+                lit += (receiverDepth - bias) <= sampleDepth ? 1.0 : 0.0;
+            }
+        }
+        return lit / 25.0;
+    }
     for (int y = -1; y <= 1; ++y) {
         for (int x = -1; x <= 1; ++x) {
             float sampleDepth = texture(shadowMapTex, uv + vec2(float(x), float(y)) * texel).r;
@@ -206,8 +220,8 @@ void main() {
     }
 
     vec3 lightDir = normalize(cameraData.lightDirectionIntensity.xyz);
-    float sunIntensity = max(cameraData.lightDirectionIntensity.w, 0.0);
-    vec3 lightColor = vec3(1.0, 0.98, 0.94) * sunIntensity;
+    float sunDimmer = max(cameraData.lightDirectionIntensity.w, 0.0);
+    vec3 lightColor = cameraData.directionalLightColorIntensity.rgb * sunDimmer;
     float roughness = clamp(drawData.roughness, 0.04, 1.0);
     float metallic = clamp(drawData.metallic, 0.0, 1.0);
     vec3 V = viewDirectionWs;

@@ -96,6 +96,8 @@ public:
 
     [[nodiscard]] std::size_t ParticleCount() const noexcept { return particles_.size(); }
     [[nodiscard]] const CpuParticleSystemConfig& Config() const noexcept { return config_; }
+    /// Live-tune emission/sim parameters (e.g. audio-reactive showcases). Kept for tooling/demos only.
+    [[nodiscard]] CpuParticleSystemConfig& MutableConfig() noexcept { return config_; }
 
 private:
     struct Particle {

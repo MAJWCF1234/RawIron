@@ -4,14 +4,33 @@
 #include <algorithm>
 #include <array>
 #include <span>
+#include <string_view>
 #include <unordered_set>
 
 namespace ri::content {
 
 namespace fs = std::filesystem;
 namespace {
+/// Canonical string for new / updated `manifest.json` files (editor and validation surface this).
 constexpr std::string_view kCurrentGameFormatContract = "rawiron-game-v1.3.7";
 constexpr std::string_view kCurrentRuntimeContract = "rawiron-runtime-v1";
+
+/// Game projects may declare an older `format` if they still match the on-disk contract; the editor
+/// and runtime accept this range in addition to kCurrentGameFormatContract.
+constexpr std::array<std::string_view, 3> kSupportedGameFormatContracts = {
+    std::string_view{"rawiron-game-v1.3.7"},
+    std::string_view{"rawiron-game-v1.3.6"},
+    std::string_view{"rawiron-game-v1.3.5"},
+};
+
+[[nodiscard]] bool IsSupportedGameFormatContract(const std::string_view format) {
+    for (const std::string_view allowed : kSupportedGameFormatContracts) {
+        if (format == allowed) {
+            return true;
+        }
+    }
+    return false;
+}
 
 constexpr std::array kRequiredGameFiles = {
     "manifest.json",
@@ -285,8 +304,16 @@ std::vector<std::string> ValidateGameProjectFormat(const GameManifest& manifest)
         issues.push_back("manifest.entry must be a non-empty string.");
     }
 
-    if (manifest.format != kCurrentGameFormatContract) {
-        issues.push_back("manifest.format must be \"" + std::string(kCurrentGameFormatContract) + "\".");
+    if (!IsSupportedGameFormatContract(manifest.format)) {
+        std::string allowed = "manifest.format must be one of:";
+        for (const std::string_view option : kSupportedGameFormatContracts) {
+            allowed += " ";
+            allowed += std::string(option);
+        }
+        allowed += " (prefer \"";
+        allowed += std::string(kCurrentGameFormatContract);
+        allowed += "\" for new work).";
+        issues.push_back(std::move(allowed));
     }
     if (manifest.runtimeContract != kCurrentRuntimeContract) {
         issues.push_back("manifest.runtimeContract must be \"" + std::string(kCurrentRuntimeContract) + "\".");

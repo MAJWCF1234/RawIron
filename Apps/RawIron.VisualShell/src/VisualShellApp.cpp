@@ -204,6 +204,8 @@ std::vector<Action> BuildActions(const fs::path& buildRoot, const fs::path& sour
         ResolveBuiltBinaryPath(buildRoot, fs::path("Apps") / "RawIron.Editor", "RawIron.Editor" + exeSuffix),
         {
             "--editor-ui",
+            "--workspace",
+            Narrow(sourceRoot),
         },
     });
     actions.push_back(Action{

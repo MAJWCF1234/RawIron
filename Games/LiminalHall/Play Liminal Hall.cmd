@@ -6,10 +6,12 @@ if not exist "%MANIFEST%" (
   echo Missing manifest.json in LiminalHall folder.
   exit /b 1
 )
-findstr /c:"\"format\": \"rawiron-game-v1.3.5\"" "%MANIFEST%" >nul || (
-  echo LiminalHall manifest format is not rawiron-game-v1.3.5.
-  exit /b 1
-)
+findstr /c:"\"format\": \"rawiron-game-v1.3.7\"" "%MANIFEST%" >nul && goto liminal_play_fmt_ok
+findstr /c:"\"format\": \"rawiron-game-v1.3.6\"" "%MANIFEST%" >nul && goto liminal_play_fmt_ok
+findstr /c:"\"format\": \"rawiron-game-v1.3.5\"" "%MANIFEST%" >nul && goto liminal_play_fmt_ok
+echo LiminalHall manifest format must be rawiron-game-v1.3.5, v1.3.6, or v1.3.7 ^(latest^).
+exit /b 1
+:liminal_play_fmt_ok
 if not exist "%~dp0scripts\audio.riscript" (
   echo Missing required scripts/audio.riscript in LiminalHall folder.
   exit /b 1

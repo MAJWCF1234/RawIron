@@ -721,6 +721,10 @@ EditorSceneConfig ResolveSceneConfig(const ri::core::CommandLine& commandLine) {
     if (const auto workspaceRoot = commandLine.GetValue("--workspace-root");
         workspaceRoot.has_value() && !workspaceRoot->empty()) {
         defaultWorkspaceRoot = NormalizePathForConfig(*workspaceRoot);
+    } else if (const auto workspace = commandLine.GetValue("--workspace");
+               workspace.has_value() && !workspace->empty()) {
+        // Launch scripts (and UiMenu-style tools) pass --workspace=<repo root>; treat like --workspace-root.
+        defaultWorkspaceRoot = NormalizePathForConfig(*workspace);
     }
     config.workspaceRoot = defaultWorkspaceRoot;
 

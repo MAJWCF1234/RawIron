@@ -12,7 +12,7 @@ layout(location = 4) out float viewDistanceWs;
 layout(location = 5) out vec4 shadowClipPosition;
 layout(location = 6) out vec3 worldPositionWs;
 
-layout(set = 0, binding = 0) uniform CameraData {
+layout(std140, set = 0, binding = 0) uniform CameraData {
     mat4 viewProjection;
     vec4 cameraWorldPosition;
     vec4 renderTuning;
@@ -23,6 +23,7 @@ layout(set = 0, binding = 0) uniform CameraData {
     vec4 lightDirectionIntensity;
     vec4 localLightPositionRange;
     vec4 localLightColorIntensity;
+    vec4 directionalLightColorIntensity;
     vec4 viewportMetrics;
 } cameraData;
 
