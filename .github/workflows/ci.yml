@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # humbletim/install-vulkan-sdk unpacks the Windows .exe with 7z; recent LunarG layouts can omit headers
       # under VULKAN_SDK (CMake then finds no vulkan.h). jakoch runs the SDK installer and sets VULKAN_SDK correctly.
