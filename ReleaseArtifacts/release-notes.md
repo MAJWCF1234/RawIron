@@ -1,4 +1,4 @@
-# Release `full-workspace-msvc-2026-05-05`
+# Release `full-workspace-msvc-2026-05-26`
 
 Full workspace drop (sources + `build\dev-msvc` + assets) split for GitHub’s asset size limits.
 
@@ -15,7 +15,7 @@ Concatenate in order:
 ## SHA256 (joined file, before extract)
 
 ```
-b309613536dbdc0706ea4d67e271a6c3039dd0823838fb4d3ed0c6d29cdebe8e
+852c58221d1fa83607494015f96813c3e97a74a7359d54c5200566e2570e0dd7
 ```
 
 ## Installer

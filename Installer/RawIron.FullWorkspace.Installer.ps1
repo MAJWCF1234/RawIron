@@ -10,12 +10,12 @@
   .\RawIron.FullWorkspace.Installer.ps1 -NoGui -InstallRoot D:\RawIronWS
 #>
 param(
-    [string] $ReleaseTag = 'full-workspace-msvc-2026-05-05',
+    [string] $ReleaseTag = 'full-workspace-msvc-2026-05-26',
     [string] $Repo = 'MAJWCF1234/RawIron',
     [string] $InstallRoot = '',
     [string] $DownloadCache = (Join-Path $env:LOCALAPPDATA 'RawIron\release-downloads'),
     [switch] $SkipDownload,
-    [string] $ExpectedSha256 = 'b309613536dbdc0706ea4d67e271a6c3039dd0823838fb4d3ed0c6d29cdebe8e',
+    [string] $ExpectedSha256 = '852c58221d1fa83607494015f96813c3e97a74a7359d54c5200566e2570e0dd7',
     [switch] $SkipHashCheck,
     [switch] $WhatIf,
     [switch] $NoGui
@@ -199,7 +199,7 @@ function Enter-GuiInstall {
     $lblIntro.Text = @(
         "Downloads all ZIP parts for the selected GitHub release, joins them, verifies SHA256, and extracts."
         "Repository: $Repo"
-        "Default SHA256 matches release ``full-workspace-msvc-2026-05-03``; if you change the tag, update the hash from release notes or use Skip verification."
+        "Default SHA256 matches release ``full-workspace-msvc-2026-05-26``; if you change the tag, update the hash from release notes or use Skip verification."
     ) -join "`r`n"
     $form.Controls.Add($lblIntro)
 
