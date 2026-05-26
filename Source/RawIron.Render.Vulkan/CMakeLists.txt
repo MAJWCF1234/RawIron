@@ -6,6 +6,8 @@ find_program(RAWIRON_GLSLANG_VALIDATOR
 )
 
 set(RAWIRON_VULKAN_SHADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+# ReShade-style HLSL/FX reference pack (not compiled by glslang). Same tree as former Assets/Shaders.
+set(RAWIRON_VULKAN_REFERENCE_SHADER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/ReferenceShaders")
 set(RAWIRON_VULKAN_SHADER_OUTPUTS)
 
 if(RAWIRON_GLSLANG_VALIDATOR)

@@ -346,7 +346,8 @@ void CpuParticleSystem::Step(const float deltaSeconds) {
     simulationTimeSeconds_ += deltaSeconds;
 }
 
-void CpuParticleSystem::WriteInstanceTransforms(std::vector<Transform>& out) const {
+void CpuParticleSystem::WriteInstanceTransforms(std::vector<Transform>& out,
+                                              const ri::math::Vec3* cameraWorldPosition) const {
     out.clear();
     out.reserve(particles_.size());
     for (const Particle& p : particles_) {
@@ -356,7 +357,23 @@ void CpuParticleSystem::WriteInstanceTransforms(std::vector<Transform>& out) con
             config_.scaleMin + (config_.scaleMax - config_.scaleMin) * std::pow(t, curveExp);
         Transform tr{};
         tr.position = p.position;
-        tr.rotationDegrees = p.rotationDegrees;
+        if (config_.cameraFacingBillboards && cameraWorldPosition != nullptr) {
+            ri::math::Vec3 toCamera = *cameraWorldPosition - p.position;
+            const float dist = ri::math::Length(toCamera);
+            if (dist > 1.0e-4f) {
+                toCamera = toCamera * (1.0f / dist);
+                const float horiz = std::sqrt(toCamera.x * toCamera.x + toCamera.z * toCamera.z);
+                constexpr float kRadToDeg = 57.29577951308232f;
+                const float yawDegrees = std::atan2(toCamera.x, toCamera.z) * kRadToDeg;
+                const float pitchDegrees =
+                    std::atan2(-toCamera.y, std::max(horiz, 1.0e-4f)) * kRadToDeg;
+                tr.rotationDegrees = ri::math::Vec3{pitchDegrees, yawDegrees, 0.0f};
+            } else {
+                tr.rotationDegrees = p.rotationDegrees;
+            }
+        } else {
+            tr.rotationDegrees = p.rotationDegrees;
+        }
         tr.scale = ri::math::Vec3{size, size, size};
         out.push_back(tr);
     }
@@ -364,7 +381,15 @@ void CpuParticleSystem::WriteInstanceTransforms(std::vector<Transform>& out) con
 
 void CpuParticleSystem::ApplyInstanceTransforms(Scene& scene, const int meshInstanceBatchHandle) const {
     std::vector<Transform> transforms;
-    WriteInstanceTransforms(transforms);
+    WriteInstanceTransforms(transforms, nullptr);
+    scene.GetMeshInstanceBatch(meshInstanceBatchHandle).transforms = std::move(transforms);
+}
+
+void CpuParticleSystem::ApplyInstanceTransforms(Scene& scene,
+                                                const int meshInstanceBatchHandle,
+                                                const ri::math::Vec3& cameraWorldPosition) const {
+    std::vector<Transform> transforms;
+    WriteInstanceTransforms(transforms, &cameraWorldPosition);
     scene.GetMeshInstanceBatch(meshInstanceBatchHandle).transforms = std::move(transforms);
 }
 

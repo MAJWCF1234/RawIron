@@ -9,9 +9,18 @@ Manifest v1.3.7 identity:
 - `primaryLevel`: `levels/assembly.primitives.csv`
 - `editorPreviewScene`: `liminal-hall`
 
-Level layout (**v2 — fractured void**): large lower basin, reworked plaza spawn, eastern shard ascent + gallery + spire beacon, western suspended bridge into annex tower, northern monolith court with red disk, rebuilt portal ring pocket, floating plates to the south, and new zone IDs (`void_plaza`, `shard_east`, `bridge_west`, `monolith_north`, `portal_ring`, `south_basin`). Spawn sits on the cyan pad at negative Z facing the plaza.
+Level layout (**v3 — stable surreal hub**): a single **magenta checker plaza** (C++) with four flat walkable wings authored in CSV — no overlapping void basin or stress parkour tower.
 
-**Surreal parkour course (“void ladder”):** from the cyan **CourseEntryStripe** south of spawn, drop onto the **south honeycomb** hub and run **`PkHub01–04` → `PkDesc05–08`** (depth descent). **`PkZig09–12`** zig-zags through uncanny spacing; **`PkHx01–08`** is a color-shifting helix; **`PkLinkA/B`** bridge to knife-edge **`PkGn01–03`** ribbons; **`PkStressA/B/C`** is a same-height sprint-jump lane (~2.8 m); **`PkVault01–02`** + **`PkPreFinish`** climb to **`PkFinishRing`** / crown / overhead glyph. Tunables live in **`scripts/gameplay.riscript`** and **`scripts/physics.riscript`**.
+| Direction | Wing | What it demos |
+|-----------|------|----------------|
+| **Spawn** | Hub center | Cyan stripe, fractal gate, twin obelisks, logic plate demo |
+| **+X East** | `EastDeck` | PSX stone/metal ramps and pillars |
+| **−X West** | `WestDeck` + structural ring | `assembly.structural.csv` arches, torus, stairs, dome (mesh colliders on platform + stairs only) |
+| **+Z North** | `NorthDisk` | Monolith silhouettes + gold offering disk |
+| **−Z South** | `SouthPad` → `SouthFinish` | Six gentle hops (≤2.4 m), not a helix tower |
+| **NW** | `PortalDeck` | Compact portal pocket |
+
+Zones: `hub_plaza`, `wing_east`, `wing_west`, `wing_north`, `wing_south`, `portal_pocket`. Spawn: `(0, 1, -6)` on the hub facing the fractal gate.
 
 Standalone launch from repo root:
 
@@ -69,7 +78,8 @@ Game-owned content consumed by engine:
 - `assets/materials.manifest` PBR material definitions and bindings
 - `assets/audio.banks` pre-compiled audio bank references
 - `assets/fonts.manifest` typography and font atlas definitions
-- `levels/assembly.primitives.csv` primitive placements, with optional `texture,tileX,tileY`
+- `levels/assembly.primitives.csv` four stable wings (no duplicate hub geometry)
+- `levels/assembly.structural.csv` west-deck structural primitive ring
 - `levels/assembly.colliders.csv` collision assembly for trace/movement
 - `levels/assembly.navmesh` navmesh region/link descriptor baseline
 - `levels/assembly.zones.csv` sector-based streaming zone definitions

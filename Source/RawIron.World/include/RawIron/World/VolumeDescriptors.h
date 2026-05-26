@@ -731,6 +731,11 @@ struct SafeZoneVolume : RuntimeVolume {
                                                         float scanlineAmount = 0.0015f,
                                                         float barrelDistortion = 0.003f,
                                                         float chromaticAberration = 0.00025f,
+                                                        float casSharpenAmount = 0.0f,
+                                                        float casContrastAdaptation = 0.0f,
+                                                        float bloomIntensity = 0.0f,
+                                                        float bloomThreshold = 1.25f,
+                                                        float debandStrength = 0.0f,
                                                         const VolumeDefaults& defaults = {});
 [[nodiscard]] AudioReverbVolume CreateAudioReverbVolume(const RuntimeVolumeSeed& data,
                                                         float reverbMix = 0.55f,

@@ -20,13 +20,13 @@ bsp_max_depth=13
 
 # Procedural forest/field ruin scatter
 scatter_seed=41017
-scatter_extent=220.0
+scatter_extent=200.0
 scatter_clearings=10
 scatter_clearing_radius_min=11.0
 scatter_clearing_radius_max=31.0
-scatter_ruin_count=28
-scatter_rock_count=66
-scatter_bush_count=128
-scatter_tree_count=520
+scatter_ruin_count=24
+scatter_rock_count=52
+scatter_bush_count=96
+scatter_tree_count=180
 scatter_tree_proxies=1
 scatter_tree_billboards=1

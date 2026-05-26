@@ -12,7 +12,8 @@ enum class HybridPresentationStage : std::uint8_t {
     ShadowDepth = 0,
     /// Primary lit scene pass (forward PBR); renders into an HDR color target + shared depth.
     SceneForward = 1,
-    /// Screen-space pass(es): sample forward HDR + stored depth (contact AO today; SSAO/SSR hooks).
+    /// Screen-space pass(es): sample forward HDR + stored depth — contact-style AO with depth-aware
+    /// weights, per-pixel kernel spin (reduces banding), and inner/outer radius sampling (SSAO/SSR hooks).
     ScreenSpaceBundle = 2,
     /// Tonemap / bloom / color grading into swapchain — consumes processed HDR from the bundle stage.
     PostComposite = 3,

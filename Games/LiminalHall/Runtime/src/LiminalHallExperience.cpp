@@ -8,6 +8,7 @@
 #include "RawIron/Content/ScriptScalars.h"
 #include "RawIron/Audio/AudioBackendMiniaudio.h"
 #include "RawIron/Audio/AudioManager.h"
+#include "RawIron/Core/CommandLine.h"
 #include "RawIron/Core/Log.h"
 #include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Render/ScenePreview.h"
@@ -188,6 +189,7 @@ struct LiminalDemoExtensions {
     int animationGraphNodeCount = 0;
     int vfxEntryCount = 0;
     int lightingRowCount = 0;
+    int structuralRowCount = 0;
     int cinematicsRowCount = 0;
     int telemetryHeaderValid = 0;
     int entityRegistryRows = 0;
@@ -329,6 +331,7 @@ LiminalDemoExtensions LoadLiminalDemoExtensions(const ri::content::GameManifest&
     out.animationGraphNodeCount = CountNonCommentLines(root / "assets" / "animation.graph");
     out.vfxEntryCount = CountNonCommentLines(root / "assets" / "vfx.manifest");
     out.lightingRowCount = CountDataRows(root / "levels" / "assembly.lighting.csv");
+    out.structuralRowCount = CountDataRows(root / "levels" / "assembly.structural.csv");
     out.cinematicsRowCount = CountDataRows(root / "levels" / "assembly.cinematics.csv");
     out.entityRegistryRows = CountDataRows(root / "data" / "entity.registry");
     out.aiNodeRows = CountDataRows(root / "levels" / "assembly.ai.nodes");
@@ -573,6 +576,9 @@ struct RuntimeState {
     std::vector<ShowcaseCinematicRow> showcaseCinematics{};
     std::vector<ShowcaseVfxEntry> showcaseVfx{};
     int showcaseAnimationNodes = 0;
+    float voidFallSeconds = 0.0f;
+    ri::runtime::RuntimeEventBus* runtimeEvents = nullptr;
+    float lastSimulationDeltaSeconds = 1.0f / 60.0f;
 };
 
 void ApplyEnvironmentAuthoringVolumes(RuntimeState& state, const float dt) {
@@ -647,7 +653,8 @@ void ApplyEnvironmentAuthoringVolumes(RuntimeState& state, const float dt) {
     const ri::world::AuthoringPlacementState authoringPlacement =
         state.environmentService.ResolveAuthoringPlacementAt(feet, {0.0f, 0.0f, 1.0f});
     const ri::world::TriggerUpdateResult triggerUpdate =
-        state.environmentService.UpdateTriggerVolumesAt(feet, static_cast<double>(state.elapsedSeconds) + dt, nullptr, true);
+        state.environmentService.UpdateTriggerVolumesAt(
+            feet, static_cast<double>(state.elapsedSeconds) + dt, state.runtimeEvents, true);
     for (const ri::world::LaunchRequest& launch : triggerUpdate.launchRequests) {
         state.movement.body.velocity = state.movement.body.velocity + launch.impulse;
     }
@@ -1054,6 +1061,32 @@ ri::trace::MovementInput ReadMovementInput(RuntimeState& state) {
     };
 }
 
+void RespawnPlayerAtSpawn(RuntimeState& state) {
+    state.movement.body.bounds = BuildPlayerBounds(state.logicSpawnPosition);
+    state.movement.body.velocity = {};
+    state.movement.onGround = false;
+    state.playerHealth = state.playerMaxHealth;
+    state.voidFallSeconds = 0.0f;
+}
+
+void EnforceVoidRecovery(RuntimeState& state, const float dt) {
+    const ri::math::Vec3 feet = FeetFromBounds(state.movement.body.bounds);
+    if (feet.y < -2.0f) {
+        RespawnPlayerAtSpawn(state);
+        ri::core::LogInfo("Void recovery: fell below playable volume, respawned at spawn.");
+        return;
+    }
+    if (feet.y < 0.18f && !state.movement.onGround) {
+        state.voidFallSeconds += dt;
+        if (state.voidFallSeconds > 0.4f) {
+            RespawnPlayerAtSpawn(state);
+            ri::core::LogInfo("Void recovery: stuck below floor, respawned at spawn.");
+        }
+        return;
+    }
+    state.voidFallSeconds = 0.0f;
+}
+
 void SimulateAndApplyView(RuntimeState& state,
                           const ri::trace::MovementInput& input,
                           const float dt,
@@ -1066,6 +1099,7 @@ void SimulateAndApplyView(RuntimeState& state,
     state.movement = ri::trace::SimulateMovementControllerStep(
                          state.traceScene, state.movement, input, dt, state.movementOptions, state.activeVolumeModifiers)
                          .state;
+    EnforceVoidRecovery(state, dt);
     for (const ri::world::ConstraintAxis axis : state.activeConstraintState.lockAxes) {
         switch (axis) {
         case ri::world::ConstraintAxis::X:
@@ -1406,6 +1440,7 @@ void TickStandaloneFrame(RuntimeState& state) {
     state.lastTick = now;
     // Clamp to a tighter range so simulation remains stable under hitches.
     const float dt = std::clamp(static_cast<float>(elapsed.count()), 1.0f / 180.0f, 1.0f / 45.0f);
+    state.lastSimulationDeltaSeconds = dt;
 
     UpdateMouseLook(state);
     ri::trace::MovementInput input = ReadMovementInput(state);
@@ -1417,7 +1452,7 @@ void TickStandaloneFrame(RuntimeState& state) {
         const float sweepPitch = -6.0f + (std::cos(phase * 10.0f) * 5.0f);
         state.yawDegrees = WrapDegrees(state.yawDegrees + (sweepYaw * dt * 0.8f));
         state.pitchDegrees = std::clamp(state.pitchDegrees + (sweepPitch * dt * 0.65f), -40.0f, 30.0f);
-        const float cinematicPulse = std::sin(phase * 16.0f) * 2.0f;
+        const float cinematicPulse = std::sin(phase * 4.0f) * 0.6f;
         float rowPulse = 3.0f;
         if (!state.showcaseCinematics.empty()) {
             const std::size_t rowIndex = std::min<std::size_t>(
@@ -1456,7 +1491,7 @@ void TickStandaloneFrame(RuntimeState& state) {
             0.0f,
             1.8f);
         state.nativeRenderTuning.fogDensity = std::clamp(
-            state.showcaseBaseRenderTuning.fogDensity * (1.2f + (vfxWeight * 0.55f) + (std::sin(phase * 18.0f) * 0.12f)),
+            state.showcaseBaseRenderTuning.fogDensity * (1.08f + (vfxWeight * 0.35f) + (std::sin(phase * 3.0f) * 0.03f)),
             0.0f,
             0.05f);
         state.previewOptions.fogColor = ri::math::Vec3{
@@ -1507,12 +1542,11 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
         [&state, &options, &benchmarkedFrames, &runtimeFrameIndex, &runtime, &textureRootForVulkan](
             ri::render::vulkan::VulkanNativeSceneFrame& frame,
             std::string*) {
-            TickStandaloneFrame(state);
             const ri::core::FrameContext runtimeFrame = ri::games::BuildGameRuntimeFrameContext(
                 runtimeFrameIndex,
-                1.0 / 60.0,
+                static_cast<double>(state.lastSimulationDeltaSeconds),
                 static_cast<double>(state.elapsedSeconds),
-                static_cast<double>(state.elapsedSeconds));
+                static_cast<double>(GetTickCount64()) / 1000.0);
             ++runtimeFrameIndex;
             if (!runtime.Frame(runtimeFrame)) {
                 if (state.hwnd != nullptr) {
@@ -1805,6 +1839,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         + DescribeOptionalAssetState(ri::content::ResolveGameAssetPath(manifest.rootPath, "data/telemetry.db"), true));
     ri::core::LogInfo(
         "Liminal showcase rows: lighting=" + std::to_string(demoExtensions.lightingRowCount)
+        + " structural=" + std::to_string(demoExtensions.structuralRowCount)
         + " cinematics=" + std::to_string(demoExtensions.cinematicsRowCount)
         + " aiNodes=" + std::to_string(demoExtensions.aiNodeRows)
         + " entityRegistry=" + std::to_string(demoExtensions.entityRegistryRows)
@@ -2108,7 +2143,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     state.showcaseCinematics = LoadShowcaseCinematicRows(manifest.rootPath / "levels" / "assembly.cinematics.csv");
     state.showcaseVfx = LoadShowcaseVfxEntries(manifest.rootPath / "assets" / "vfx.manifest");
     state.showcaseAnimationNodes = LoadAnimationGraphNodeCount(manifest.rootPath / "assets" / "animation.graph");
-    state.showcaseEnabled = ri::content::ScriptScalarOrBool(init, "liminal_showcase_enabled", true);
+    state.showcaseEnabled = ri::content::ScriptScalarOrBool(init, "liminal_showcase_enabled", false);
     state.showcaseDurationSeconds =
         ri::content::ScriptScalarOrClamped(init, "liminal_showcase_duration_s", 10.0f, 5.0f, 15.0f);
     state.showcaseActive = state.showcaseEnabled;
@@ -2184,16 +2219,29 @@ bool RunStandalone(const StandaloneOptions& options, std::string* error) {
             options,
             manifestService,
             standaloneSupport);
-        if (!ri::games::StartupGameRuntimeCore(runtime, error)) {
+
+        RuntimeState state{};
+        InitializeRuntimeState(options, *manifest, state);
+        if (!ri::games::AttachGameSimulationTick(runtime, [&state](const ri::core::FrameContext&) {
+                TickStandaloneFrame(state);
+            })) {
+            ri::core::LogInfo("Runtime core: failed to attach game simulation tick module.");
+        }
+
+        char fallbackArgv0[] = "RawIron.LiminalGame";
+        char* fallbackArgv[] = {fallbackArgv0};
+        const int launchArgc = options.launchArgc > 0 ? options.launchArgc : 1;
+        char** const launchArgv = options.launchArgc > 0 ? options.launchArgv : fallbackArgv;
+        const ri::core::CommandLine launchCommandLine(launchArgc, launchArgv);
+        if (!ri::games::StartupGameRuntimeCore(runtime, launchCommandLine, error)) {
             return false;
         }
+        ri::games::BindRuntimeEventBus(runtime, state.runtimeEvents);
+
         ri::core::LogSection("RawIron Standalone");
         ri::core::LogInfo("Game: " + manifest->name + " (" + manifest->id + ")");
         ri::core::LogInfo("Game root: " + manifest->rootPath.string());
         ri::core::LogInfo("Presenter: " + std::string(StandaloneRendererName(options.renderer)));
-
-        RuntimeState state{};
-        InitializeRuntimeState(options, *manifest, state);
 
         std::string runtimeError;
         const bool ok = RunStandaloneNativeVulkanLoop(options, state, runtime, &runtimeError);
@@ -2248,15 +2296,48 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
             options.standalone,
             manifestService,
             headlessSupport);
-        if (!ri::games::StartupGameRuntimeCore(runtime, error)) {
-            return false;
-        }
 
         RuntimeState state{};
         StandaloneOptions runOptions = options.standalone;
         runOptions.captureMouse = false;
         runOptions.renderer = StandaloneRenderer::VulkanNative;
         InitializeRuntimeState(runOptions, *manifest, state);
+        if (!ri::games::AttachGameSimulationTick(runtime, [&state, &options](const ri::core::FrameContext& frame) {
+                const float headlessDt = std::clamp(static_cast<float>(frame.deltaSeconds), 1.0f / 240.0f, 1.0f / 15.0f);
+                state.lastSimulationDeltaSeconds = headlessDt;
+                state.elapsedSeconds += headlessDt;
+                state.lastTick = std::chrono::steady_clock::now();
+                ApplyEnvironmentAuthoringVolumes(state, headlessDt);
+                ProcessPendingDoorTransitions(state);
+                ri::trace::MovementInput input = BuildIdleHeadlessInput(state);
+                if (options.autoplay) {
+                    const HeadlessAutoplayPlan plan = BuildHeadlessAutoplayPlan(state);
+                    const ri::math::Vec3 feet = FeetFromBounds(state.movement.body.bounds);
+                    const ri::math::Vec3 eye{feet.x, feet.y + state.cameraBaseHeight, feet.z};
+                    const ri::math::Vec3 lookVector = plan.lookTarget - eye;
+                    state.yawDegrees = ApproachDegrees(state.yawDegrees, YawFromDirection(lookVector), headlessDt * 84.0f);
+                    state.pitchDegrees = std::clamp(
+                        state.pitchDegrees +
+                            std::clamp(PitchFromDirection(lookVector) - state.pitchDegrees, -(headlessDt * 48.0f), headlessDt * 48.0f),
+                        -40.0f,
+                        30.0f);
+                    input = BuildHeadlessAutoplayInput(state, plan);
+                }
+                SimulateAndApplyView(state, input, headlessDt, static_cast<double>(state.elapsedSeconds));
+                TickLogicDemo(state, headlessDt);
+            })) {
+            ri::core::LogInfo("Runtime core: failed to attach headless simulation tick module.");
+        }
+
+        char fallbackArgv0[] = "RawIron.LiminalGame.Headless";
+        char* fallbackArgv[] = {fallbackArgv0};
+        const int launchArgc = runOptions.launchArgc > 0 ? runOptions.launchArgc : 1;
+        char** const launchArgv = runOptions.launchArgc > 0 ? runOptions.launchArgv : fallbackArgv;
+        const ri::core::CommandLine launchCommandLine(launchArgc, launchArgv);
+        if (!ri::games::StartupGameRuntimeCore(runtime, launchCommandLine, error)) {
+            return false;
+        }
+        ri::games::BindRuntimeEventBus(runtime, state.runtimeEvents);
         state.previewOptions.lowSpecMode = options.softwareLowSpec;
         ri::core::LogInfo("Mouse capture forced off for headless mode.");
 
@@ -2270,26 +2351,9 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
             + (options.softwareLowSpec ? "enabled" : "disabled"));
 
         for (int frameIndex = 0; frameIndex < frames; ++frameIndex) {
-            ri::trace::MovementInput input = BuildIdleHeadlessInput(state);
-            if (options.autoplay) {
-                const HeadlessAutoplayPlan plan = BuildHeadlessAutoplayPlan(state);
-                const ri::math::Vec3 feet = FeetFromBounds(state.movement.body.bounds);
-                const ri::math::Vec3 eye{feet.x, feet.y + state.cameraBaseHeight, feet.z};
-                const ri::math::Vec3 lookVector = plan.lookTarget - eye;
-                state.yawDegrees = ApproachDegrees(state.yawDegrees, YawFromDirection(lookVector), dt * 84.0f);
-                state.pitchDegrees = std::clamp(
-                    state.pitchDegrees +
-                        std::clamp(PitchFromDirection(lookVector) - state.pitchDegrees, -(dt * 48.0f), dt * 48.0f),
-                    -40.0f,
-                    30.0f);
-                input = BuildHeadlessAutoplayInput(state, plan);
-            }
             const double animationSeconds = static_cast<double>(frameIndex) * static_cast<double>(dt);
-            ApplyEnvironmentAuthoringVolumes(state, dt);
-            ProcessPendingDoorTransitions(state);
-            SimulateAndApplyView(state, input, dt, animationSeconds);
-            TickLogicDemo(state, dt);
-            if (!runtime.Frame(ri::games::BuildGameRuntimeFrameContext(frameIndex, dt, animationSeconds, animationSeconds))) {
+            if (!runtime.Frame(ri::games::BuildGameRuntimeFrameContext(
+                    frameIndex, static_cast<double>(dt), animationSeconds, animationSeconds))) {
                 break;
             }
             ri::render::software::RenderScenePreviewInto(

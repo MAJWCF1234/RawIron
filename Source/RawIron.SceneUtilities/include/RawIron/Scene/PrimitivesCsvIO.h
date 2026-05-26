@@ -18,4 +18,17 @@ class Scene;
                                                     const std::filesystem::path& outputPath,
                                                     std::string* errorMessage);
 
+struct AssemblyPrimitivesImportResult {
+    int spawnedCount = 0;
+    int renamedCount = 0;
+    int skippedRows = 0;
+};
+
+/// Spawns cube/plane primitives under \p worldRootNodeHandle from assembly CSV rows.
+[[nodiscard]] bool TryImportAssemblyPrimitivesCsv(Scene& scene,
+                                                    int worldRootNodeHandle,
+                                                    const std::filesystem::path& inputPath,
+                                                    AssemblyPrimitivesImportResult* result,
+                                                    std::string* errorMessage);
+
 } // namespace ri::scene

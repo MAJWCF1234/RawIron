@@ -75,14 +75,14 @@ bool IsLikelyBaseColorTexture(std::string_view lowerName) {
     return ContainsAny(lowerName, prefer);
 }
 
-std::vector<std::filesystem::path> CollectTextureCandidates(const std::filesystem::path& modelPath) {
-    std::vector<std::filesystem::path> out;
-    const std::filesystem::path directory = modelPath.parent_path();
+void AppendTextureCandidatesFromDirectory(const std::filesystem::path& directory,
+                                          std::vector<std::filesystem::path>& out) {
     std::error_code ec{};
     if (!std::filesystem::is_directory(directory, ec) || ec) {
-        return out;
+        return;
     }
-    for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(directory, ec)) {
+    for (const std::filesystem::directory_entry& entry :
+         std::filesystem::directory_iterator(directory, ec)) {
         if (ec) {
             break;
         }
@@ -92,8 +92,19 @@ std::vector<std::filesystem::path> CollectTextureCandidates(const std::filesyste
         if (!IsImageExtension(entry.path())) {
             continue;
         }
-        out.push_back(entry.path().lexically_normal());
+        const std::filesystem::path normalized = entry.path().lexically_normal();
+        if (std::find(out.begin(), out.end(), normalized) == out.end()) {
+            out.push_back(normalized);
+        }
     }
+}
+
+std::vector<std::filesystem::path> CollectTextureCandidates(const std::filesystem::path& modelPath) {
+    std::vector<std::filesystem::path> out;
+    const std::filesystem::path directory = modelPath.parent_path();
+    AppendTextureCandidatesFromDirectory(directory, out);
+    AppendTextureCandidatesFromDirectory(directory / "Textures", out);
+    AppendTextureCandidatesFromDirectory(directory.parent_path() / "Textures", out);
     return out;
 }
 

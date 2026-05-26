@@ -50,8 +50,9 @@ ScriptScalarMap LoadScriptScalars(const std::filesystem::path& path) {
         }
 
         try {
-            const float value = std::stof(valueText);
-            if (std::isfinite(value)) {
+            std::size_t consumed = 0;
+            const float value = std::stof(valueText, &consumed);
+            if (consumed == valueText.size() && std::isfinite(value)) {
                 values[key] = value;
             }
         } catch (...) {

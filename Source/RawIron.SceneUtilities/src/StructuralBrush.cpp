@@ -8,7 +8,11 @@ Mesh MeshFromStructuralCompiledMesh(const ri::structural::CompiledMesh& compiled
     mesh.primitive = PrimitiveType::Custom;
     mesh.positions = compiled.positions;
     mesh.vertexCount = static_cast<int>(mesh.positions.size());
-    mesh.indexCount = static_cast<int>(mesh.positions.size());
+    if (compiled.triangleCount > 0U) {
+        mesh.indexCount = static_cast<int>(compiled.triangleCount * 3U);
+    } else if (!mesh.positions.empty()) {
+        mesh.indexCount = mesh.vertexCount;
+    }
     return mesh;
 }
 

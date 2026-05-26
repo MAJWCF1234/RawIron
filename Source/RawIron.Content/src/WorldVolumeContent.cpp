@@ -2874,7 +2874,540 @@ ri::world::PostProcessVolume BuildPostProcessVolume(const Value::Object& data) {
         static_cast<float>(ReadClampedNumber(data, {"scanlineAmount"}, 0.0015, 0.0, 0.08)),
         static_cast<float>(ReadClampedNumber(data, {"barrelDistortion"}, 0.003, 0.0, 0.1)),
         static_cast<float>(ReadClampedNumber(data, {"chromaticAberration"}, 0.00025, 0.0, 0.02)),
+        static_cast<float>(ReadClampedNumber(data, {"casSharpenAmount"}, 0.0, 0.0, 1.0)),
+        static_cast<float>(ReadClampedNumber(data, {"casContrastAdaptation"}, 0.0, 0.0, 1.0)),
+        static_cast<float>(ReadClampedNumber(data, {"bloomIntensity"}, 0.0, 0.0, 0.5)),
+        static_cast<float>(ReadClampedNumber(data, {"bloomThreshold"}, 1.25, 0.2, 4.0)),
+        static_cast<float>(ReadClampedNumber(data, {"debandStrength"}, 0.0, 0.0, 0.12)),
         defaults);
+    volume.toneCurveStrength =
+        static_cast<float>(ReadClampedNumber(data, {"toneCurveStrength"}, 0.0, 0.0, 1.0));
+    volume.outputDitherStrength =
+        static_cast<float>(ReadClampedNumber(data, {"outputDitherStrength"}, 0.0, 0.0, 1.0));
+    volume.vignetteStrength =
+        static_cast<float>(ReadClampedNumber(data, {"vignetteStrength"}, 0.0, 0.0, 1.0));
+    volume.filmGrainIntensity =
+        static_cast<float>(ReadClampedNumber(data, {"filmGrainIntensity"}, 0.0, 0.0, 0.5));
+    volume.liftRgb = ReadVec3(data, {"liftRgb", "lift_rgb"}, {1.0f, 1.0f, 1.0f});
+    volume.gammaRgb = ReadVec3(data, {"gammaRgb", "gamma_rgb"}, {1.0f, 1.0f, 1.0f});
+    volume.gainRgb = ReadVec3(data, {"gainRgb", "gain_rgb"}, {1.0f, 1.0f, 1.0f});
+    volume.liftGammaGainMix =
+        static_cast<float>(ReadClampedNumber(data, {"liftGammaGainMix", "lift_gamma_gain_mix"}, 0.0, 0.0, 1.0));
+    volume.vibrance = static_cast<float>(ReadClampedNumber(data, {"vibrance"}, 0.0, -1.0, 1.0));
+    volume.vibranceRgbBalance = ReadVec3(data, {"vibranceRgbBalance", "vibrance_rgb_balance"}, {1.0f, 1.0f, 1.0f});
+    volume.technicolorPower =
+        static_cast<float>(ReadClampedNumber(data, {"technicolorPower", "technicolor_power"}, 4.0, 0.0, 8.0));
+    volume.technicolorRgbNegative =
+        ReadVec3(data, {"technicolorRgbNegative", "technicolor_rgb_negative"}, {0.88f, 0.88f, 0.88f});
+    volume.technicolorStrength =
+        static_cast<float>(ReadClampedNumber(data, {"technicolorStrength", "technicolor_strength"}, 0.0, 0.0, 1.0));
+    volume.technicolor2ColorStrength =
+        ReadVec3(data, {"technicolor2ColorStrength", "technicolor2_color_strength"}, {0.2f, 0.2f, 0.2f});
+    volume.technicolor2Brightness =
+        static_cast<float>(ReadClampedNumber(data, {"technicolor2Brightness", "technicolor2_brightness"}, 1.0, 0.5, 1.5));
+    volume.technicolor2Saturation =
+        static_cast<float>(ReadClampedNumber(data, {"technicolor2Saturation", "technicolor2_saturation"}, 1.0, 0.0, 1.5));
+    volume.technicolor2Strength =
+        static_cast<float>(ReadClampedNumber(data, {"technicolor2Strength", "technicolor2_strength"}, 0.0, 0.0, 1.0));
+    volume.sepiaTint = ReadVec3(data, {"sepiaTint", "sepia_tint"}, {0.55f, 0.43f, 0.42f});
+    volume.sepiaStrength =
+        static_cast<float>(ReadClampedNumber(data, {"sepiaStrength", "sepia_strength"}, 0.0, 0.0, 1.0));
+    volume.monochromePreset = static_cast<int>(std::lround(
+        ReadClampedNumber(data, {"monochromePreset", "monochrome_preset"}, 0.0, 0.0, 17.0)));
+    volume.monochromeCustomCoeff =
+        ReadVec3(data, {"monochromeCustomCoeff", "monochrome_custom_coeff", "monochromeConversionValues",
+                     "monochrome_conversion_values"},
+            {0.21f, 0.72f, 0.07f});
+    volume.monochromeColorSaturation = static_cast<float>(
+        ReadClampedNumber(data, {"monochromeColorSaturation", "monochrome_color_saturation",
+                             "Monochrome_color_saturation"},
+            1.0, 0.0, 1.0));
+    volume.dpxRgbCurve = ReadVec3(data, {"dpxRgbCurve", "dpx_rgb_curve", "RGB_Curve"}, {8.0f, 8.0f, 8.0f});
+    volume.dpxRgbC = ReadVec3(data, {"dpxRgbC", "dpx_rgb_c", "RGB_C"}, {0.36f, 0.36f, 0.34f});
+    volume.dpxContrast =
+        static_cast<float>(ReadClampedNumber(data, {"dpxContrast", "dpx_contrast", "Contrast"}, 0.1, 0.0, 1.0));
+    volume.dpxSaturation =
+        static_cast<float>(ReadClampedNumber(data, {"dpxSaturation", "dpx_saturation", "DPX_Saturation"}, 3.0, 0.0, 8.0));
+    volume.dpxColorfulness = static_cast<float>(
+        ReadClampedNumber(data, {"dpxColorfulness", "dpx_colorfulness", "Colorfulness"}, 2.5, 0.1, 2.5));
+    volume.dpxStrength =
+        static_cast<float>(ReadClampedNumber(data, {"dpxStrength", "dpx_strength", "DPX_Strength"}, 0.0, 0.0, 1.0));
+    volume.colorMatrixRed =
+        ReadVec3(data, {"colorMatrixRed", "color_matrix_red", "ColorMatrix_Red"}, {0.817f, 0.183f, 0.0f});
+    volume.colorMatrixGreen =
+        ReadVec3(data, {"colorMatrixGreen", "color_matrix_green", "ColorMatrix_Green"}, {0.333f, 0.667f, 0.0f});
+    volume.colorMatrixBlue =
+        ReadVec3(data, {"colorMatrixBlue", "color_matrix_blue", "ColorMatrix_Blue"}, {0.0f, 0.125f, 0.875f});
+    volume.colorMatrixStrength = static_cast<float>(
+        ReadClampedNumber(data, {"colorMatrixStrength", "color_matrix_strength", "ColorMatrix_Strength"}, 0.0, 0.0, 1.0));
+    volume.fakeHdrPower =
+        static_cast<float>(ReadClampedNumber(data, {"fakeHdrPower", "fake_hdr_power", "HDRPower"}, 1.30, 0.0, 8.0));
+    volume.fakeHdrRadius1 =
+        static_cast<float>(ReadClampedNumber(data, {"fakeHdrRadius1", "fake_hdr_radius1", "radius1"}, 0.793, 0.0, 8.0));
+    volume.fakeHdrRadius2 =
+        static_cast<float>(ReadClampedNumber(data, {"fakeHdrRadius2", "fake_hdr_radius2", "radius2"}, 0.87, 0.0, 8.0));
+    volume.fakeHdrStrength = static_cast<float>(
+        ReadClampedNumber(data, {"fakeHdrStrength", "fake_hdr_strength"}, 0.0, 0.0, 1.0));
+    volume.levelsBlackPoint = static_cast<float>(
+        ReadClampedNumber(data, {"levelsBlackPoint", "levels_black_point", "BlackPoint"}, 16.0, 0.0, 255.0));
+    volume.levelsWhitePoint = static_cast<float>(
+        ReadClampedNumber(data, {"levelsWhitePoint", "levels_white_point", "WhitePoint"}, 235.0, 0.0, 255.0));
+    volume.levelsStrength = static_cast<float>(
+        ReadClampedNumber(data, {"levelsStrength", "levels_strength"}, 0.0, 0.0, 1.0));
+    volume.levelsClipHighlight = static_cast<float>(ReadClampedNumber(
+        data, {"levelsClipHighlight", "levels_clip_highlight", "HighlightClipping"}, 0.0, 0.0, 1.0));
+    volume.lumaSharpenStrength = static_cast<float>(
+        ReadClampedNumber(data, {"lumaSharpenStrength", "luma_sharpen_strength", "sharp_strength"}, 0.0, 0.0, 3.0));
+    volume.lumaSharpenClamp = static_cast<float>(ReadClampedNumber(
+        data, {"lumaSharpenClamp", "luma_sharpen_clamp", "sharp_clamp"}, 0.035, 0.0, 1.0));
+    volume.lumaSharpenPattern = static_cast<int>(
+        std::lround(ReadClampedNumber(data, {"lumaSharpenPattern", "luma_sharpen_pattern", "pattern"}, 1.0, 0.0, 3.0)));
+    volume.lumaSharpenPattern = std::clamp(volume.lumaSharpenPattern, 0, 3);
+    volume.lumaSharpenOffsetBias = static_cast<float>(ReadClampedNumber(
+        data, {"lumaSharpenOffsetBias", "luma_sharpen_offset_bias", "offset_bias"}, 1.0, 0.0, 6.0));
+    volume.lumaSharpenShowPattern = static_cast<float>(ReadClampedNumber(
+        data, {"lumaSharpenShowPattern", "luma_sharpen_show_pattern", "show_sharpen"}, 0.0, 0.0, 1.0));
+    volume.sweetFxCurvesMode =
+        static_cast<int>(std::lround(ReadClampedNumber(data, {"sweetFxCurvesMode", "sweet_fx_curves_mode", "Mode"}, 0.0, 0.0, 2.0)));
+    volume.sweetFxCurvesMode = std::clamp(volume.sweetFxCurvesMode, 0, 2);
+    volume.sweetFxCurvesFormula = static_cast<int>(
+        std::lround(ReadClampedNumber(data, {"sweetFxCurvesFormula", "sweet_fx_curves_formula", "Formula"}, 4.0, 0.0, 10.0)));
+    volume.sweetFxCurvesFormula = std::clamp(volume.sweetFxCurvesFormula, 0, 10);
+    volume.sweetFxCurvesContrast = static_cast<float>(
+        ReadClampedNumber(data, {"sweetFxCurvesContrast", "sweet_fx_curves_contrast", "Contrast"}, 0.65, -1.0, 1.0));
+    volume.sweetFxCurvesStrength = static_cast<float>(
+        ReadClampedNumber(data, {"sweetFxCurvesStrength", "sweet_fx_curves_strength"}, 0.0, 0.0, 1.0));
+    volume.sweetFxChromaticAberrationShiftX = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxChromaticAberrationShiftX", "sweet_fx_chromatic_aberration_shift_x", "ShiftX"},
+        2.5,
+        -10.0,
+        10.0));
+    volume.sweetFxChromaticAberrationShiftY = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxChromaticAberrationShiftY", "sweet_fx_chromatic_aberration_shift_y", "ShiftY"},
+        -0.5,
+        -10.0,
+        10.0));
+    volume.sweetFxChromaticAberrationStrength = static_cast<float>(ReadClampedNumber(
+        data, {"sweetFxChromaticAberrationStrength", "sweet_fx_chromatic_aberration_strength", "Strength"}, 0.0, 0.0, 1.0));
+    volume.sweetFxBorderWidthX = static_cast<float>(ReadClampedNumber(
+        data, {"sweetFxBorderWidthX", "sweet_fx_border_width_x", "border_width_x"}, 0.0, 0.0, 65504.0));
+    volume.sweetFxBorderWidthY = static_cast<float>(ReadClampedNumber(
+        data, {"sweetFxBorderWidthY", "sweet_fx_border_width_y", "border_width_y"}, 0.0, 0.0, 65504.0));
+    volume.sweetFxBorderRatio = static_cast<float>(ReadClampedNumber(
+        data, {"sweetFxBorderRatio", "sweet_fx_border_ratio", "border_ratio"}, 2.35, 0.25, 8.0));
+    volume.sweetFxBorderColor = ReadColor(data, {"sweetFxBorderColor", "sweet_fx_border_color", "border_color"}, {0.0f, 0.0f, 0.0f});
+    volume.sweetFxBorderStrength = static_cast<float>(ReadClampedNumber(
+        data, {"sweetFxBorderStrength", "sweet_fx_border_strength"}, 0.0, 0.0, 1.0));
+    volume.sweetFxCartoonPower = static_cast<float>(ReadClampedNumber(
+        data, {"sweetFxCartoonPower", "sweet_fx_cartoon_power", "Power"}, 1.5, 0.1, 10.0));
+    volume.sweetFxCartoonEdgeSlope = static_cast<float>(ReadClampedNumber(
+        data, {"sweetFxCartoonEdgeSlope", "sweet_fx_cartoon_edge_slope", "EdgeSlope"}, 1.5, 0.1, 6.0));
+    volume.sweetFxCartoonStrength = static_cast<float>(ReadClampedNumber(
+        data, {"sweetFxCartoonStrength", "sweet_fx_cartoon_strength"}, 0.0, 0.0, 1.0));
+    volume.sweetFxTonemapGamma = static_cast<float>(
+        ReadClampedNumber(data, {"sweetFxTonemapGamma", "sweet_fx_tonemap_gamma", "Gamma"}, 1.0, 0.0, 2.0));
+    volume.sweetFxTonemapExposure = static_cast<float>(
+        ReadClampedNumber(data, {"sweetFxTonemapExposure", "sweet_fx_tonemap_exposure", "Exposure"}, 0.0, -1.0, 1.0));
+    volume.sweetFxTonemapSaturation = static_cast<float>(
+        ReadClampedNumber(data, {"sweetFxTonemapSaturation", "sweet_fx_tonemap_saturation", "Saturation"}, 0.0, -1.0, 1.0));
+    volume.sweetFxTonemapBleach = static_cast<float>(
+        ReadClampedNumber(data, {"sweetFxTonemapBleach", "sweet_fx_tonemap_bleach", "Bleach"}, 0.0, 0.0, 1.0));
+    volume.sweetFxTonemapDefog = static_cast<float>(
+        ReadClampedNumber(data, {"sweetFxTonemapDefog", "sweet_fx_tonemap_defog", "Defog"}, 0.0, 0.0, 1.0));
+    volume.sweetFxTonemapFogColor =
+        ReadColor(data, {"sweetFxTonemapFogColor", "sweet_fx_tonemap_fog_color", "FogColor"}, {0.0f, 0.0f, 1.0f});
+    volume.sweetFxTonemapStrength = static_cast<float>(
+        ReadClampedNumber(data, {"sweetFxTonemapStrength", "sweet_fx_tonemap_strength"}, 0.0, 0.0, 1.0));
+    volume.sweetFxSplitscreenMode = std::clamp(
+        static_cast<int>(std::lround(ReadClampedNumber(
+            data,
+            {"sweetFxSplitscreenMode", "sweet_fx_splitscreen_mode", "splitscreen_mode", "Mode"},
+            0.0,
+            0.0,
+            6.0))),
+        0,
+        6);
+    volume.sweetFxSplitscreenStrength = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxSplitscreenStrength", "sweet_fx_splitscreen_strength"},
+        0.0,
+        0.0,
+        1.0));
+    volume.sweetFxNostalgiaPalette = std::clamp(
+        static_cast<int>(std::lround(ReadClampedNumber(
+            data,
+            {"sweetFxNostalgiaPalette", "sweet_fx_nostalgia_palette", "Nostalgia_palette"},
+            1.0,
+            0.0,
+            14.0))),
+        0,
+        14);
+    volume.sweetFxNostalgiaScanlines = std::clamp(
+        static_cast<int>(std::lround(ReadClampedNumber(
+            data,
+            {"sweetFxNostalgiaScanlines", "sweet_fx_nostalgia_scanlines", "Nostalgia_scanlines"},
+            1.0,
+            0.0,
+            2.0))),
+        0,
+        2);
+    volume.sweetFxNostalgiaDither = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxNostalgiaDither", "sweet_fx_nostalgia_dither", "Nostalgia_dither"},
+        0.0,
+        0.0,
+        1.0));
+    volume.sweetFxNostalgiaStrength = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxNostalgiaStrength", "sweet_fx_nostalgia_strength"},
+        0.0,
+        0.0,
+        1.0));
+    volume.sweetFxCompareMode = std::clamp(
+        static_cast<int>(std::lround(ReadClampedNumber(
+            data,
+            {"sweetFxCompareMode", "sweet_fx_compare_mode", "compare_mode"},
+            7.0,
+            0.0,
+            8.0))),
+        0,
+        8);
+    volume.sweetFxCompareDifferenceScale = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxCompareDifferenceScale", "sweet_fx_compare_difference_scale", "difference_scale"},
+        5.0,
+        1.0,
+        20.0));
+    volume.sweetFxCompareStrength = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxCompareStrength", "sweet_fx_compare_strength"},
+        0.0,
+        0.0,
+        1.0));
+    {
+        const ri::math::Vec3 layerPos = ReadVec3(
+            data,
+            {"sweetFxLayerPosition", "sweet_fx_layer_position", "Layer_Pos"},
+            {0.5f, 0.5f, 0.0f});
+        volume.sweetFxLayerPosition = {layerPos.x, layerPos.y};
+    }
+    volume.sweetFxLayerScale = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxLayerScale", "sweet_fx_layer_scale", "Layer_Scale"},
+        1.0,
+        0.01,
+        4.0));
+    volume.sweetFxLayerBlend = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxLayerBlend", "sweet_fx_layer_blend", "Layer_Blend"},
+        0.0,
+        0.0,
+        1.0));
+    volume.sweetFxLayerTexWidth = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxLayerTexWidth", "sweet_fx_layer_tex_width", "LAYER_SIZE_X"},
+        1280.0,
+        1.0,
+        8192.0));
+    volume.sweetFxLayerTexHeight = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxLayerTexHeight", "sweet_fx_layer_tex_height", "LAYER_SIZE_Y"},
+        720.0,
+        1.0,
+        8192.0));
+    volume.sweetFxFxaaSubpix = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxFxaaSubpix", "sweet_fx_fxaa_subpix", "Subpix"},
+        0.25,
+        0.0,
+        1.0));
+    volume.sweetFxFxaaEdgeThreshold = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxFxaaEdgeThreshold", "sweet_fx_fxaa_edge_threshold", "EdgeThreshold"},
+        0.125,
+        0.0,
+        1.0));
+    volume.sweetFxFxaaEdgeThresholdMin = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxFxaaEdgeThresholdMin", "sweet_fx_fxaa_edge_threshold_min", "EdgeThresholdMin"},
+        0.0,
+        0.0,
+        1.0));
+    volume.sweetFxFxaaStrength = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxFxaaStrength", "sweet_fx_fxaa_strength"},
+        0.0,
+        0.0,
+        1.0));
+    volume.sweetFxCrtAmount = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxCrtAmount", "sweet_fx_crt_amount", "Amount"},
+        0.0,
+        0.0,
+        1.0));
+    volume.sweetFxCrtResolution = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxCrtResolution", "sweet_fx_crt_resolution", "Resolution"},
+        1.15,
+        1.0,
+        8.0));
+    volume.sweetFxCrtGamma = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxCrtGamma", "sweet_fx_crt_gamma", "Gamma"},
+        2.4,
+        0.0,
+        4.0));
+    volume.sweetFxCrtMonitorGamma = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxCrtMonitorGamma", "sweet_fx_crt_monitor_gamma", "MonitorGamma"},
+        2.2,
+        0.0,
+        4.0));
+    volume.sweetFxCrtBrightness = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxCrtBrightness", "sweet_fx_crt_brightness", "Brightness"},
+        0.9,
+        0.0,
+        3.0));
+    volume.sweetFxCrtScanlineIntensity = std::clamp(
+        static_cast<int>(std::lround(ReadClampedNumber(
+            data,
+            {"sweetFxCrtScanlineIntensity", "sweet_fx_crt_scanline_intensity", "ScanlineIntensity"},
+            2.0,
+            2.0,
+            4.0))),
+        2,
+        4);
+    volume.sweetFxCrtScanlineGaussian = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxCrtScanlineGaussian", "sweet_fx_crt_scanline_gaussian", "ScanlineGaussian"},
+        1.0,
+        0.0,
+        1.0));
+    volume.sweetFxCrtCurvature = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxCrtCurvature", "sweet_fx_crt_curvature", "Curvature"},
+        0.0,
+        0.0,
+        1.0));
+    volume.sweetFxCrtCurvatureRadius = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxCrtCurvatureRadius", "sweet_fx_crt_curvature_radius", "CurvatureRadius"},
+        1.5,
+        0.0,
+        2.0));
+    volume.sweetFxCrtCornerSize = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxCrtCornerSize", "sweet_fx_crt_corner_size", "CornerSize"},
+        0.01,
+        0.0,
+        0.02));
+    volume.sweetFxCrtViewerDistance = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxCrtViewerDistance", "sweet_fx_crt_viewer_distance", "ViewerDistance"},
+        2.0,
+        0.0,
+        4.0));
+    {
+        const ri::math::Vec3 crtAngle = ReadVec3(
+            data,
+            {"sweetFxCrtAngle", "sweet_fx_crt_angle", "Angle"},
+            {0.0f, 0.0f, 0.0f});
+        volume.sweetFxCrtAngle = {crtAngle.x, crtAngle.y};
+    }
+    volume.sweetFxCrtOverscan = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxCrtOverscan", "sweet_fx_crt_overscan", "Overscan"},
+        1.01,
+        1.0,
+        1.10));
+    volume.sweetFxCrtOversample = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxCrtOversample", "sweet_fx_crt_oversample", "Oversample"},
+        1.0,
+        0.0,
+        1.0));
+    volume.sweetFxAsciiSpacing = std::clamp(
+        static_cast<int>(std::lround(ReadClampedNumber(
+            data,
+            {"sweetFxAsciiSpacing", "sweet_fx_ascii_spacing", "Ascii_spacing"},
+            1.0,
+            0.0,
+            5.0))),
+        0,
+        5);
+    volume.sweetFxAsciiFont = std::clamp(
+        static_cast<int>(std::lround(ReadClampedNumber(
+            data,
+            {"sweetFxAsciiFont", "sweet_fx_ascii_font", "Ascii_font"},
+            1.0,
+            0.0,
+            1.0))),
+        0,
+        1);
+    volume.sweetFxAsciiFontColorMode = std::clamp(
+        static_cast<int>(std::lround(ReadClampedNumber(
+            data,
+            {"sweetFxAsciiFontColorMode", "sweet_fx_ascii_font_color_mode", "Ascii_font_color_mode"},
+            1.0,
+            0.0,
+            2.0))),
+        0,
+        2);
+    volume.sweetFxAsciiFontColor = ReadColor(
+        data,
+        {"sweetFxAsciiFontColor", "sweet_fx_ascii_font_color", "Ascii_font_color"},
+        {1.0f, 1.0f, 1.0f});
+    volume.sweetFxAsciiBackgroundColor = ReadColor(
+        data,
+        {"sweetFxAsciiBackgroundColor", "sweet_fx_ascii_background_color", "Ascii_background_color"},
+        {0.0f, 0.0f, 0.0f});
+    volume.sweetFxAsciiSwapColors = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxAsciiSwapColors", "sweet_fx_ascii_swap_colors", "Ascii_swap_colors"},
+        0.0,
+        0.0,
+        1.0));
+    volume.sweetFxAsciiInvertBrightness = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxAsciiInvertBrightness", "sweet_fx_ascii_invert_brightness", "Ascii_invert_brightness"},
+        0.0,
+        0.0,
+        1.0));
+    volume.sweetFxAsciiDithering = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxAsciiDithering", "sweet_fx_ascii_dithering", "Ascii_dithering"},
+        1.0,
+        0.0,
+        1.0));
+    volume.sweetFxAsciiDitheringIntensity = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxAsciiDitheringIntensity", "sweet_fx_ascii_dithering_intensity", "Ascii_dithering_intensity"},
+        2.0,
+        0.0,
+        4.0));
+    volume.sweetFxAsciiDitheringDebugGradient = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxAsciiDitheringDebugGradient", "sweet_fx_ascii_dithering_debug_gradient", "Ascii_dithering_debug_gradient"},
+        0.0,
+        0.0,
+        1.0));
+    volume.sweetFxAsciiStrength = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxAsciiStrength", "sweet_fx_ascii_strength"},
+        0.0,
+        0.0,
+        1.0));
+    volume.sweetFxSmaaEdgeDetectionType = std::clamp(
+        static_cast<int>(std::lround(ReadClampedNumber(
+            data,
+            {"sweetFxSmaaEdgeDetectionType", "sweet_fx_smaa_edge_detection_type", "EdgeDetectionType"},
+            1.0,
+            0.0,
+            2.0))),
+        0,
+        2);
+    volume.sweetFxSmaaEdgeThreshold = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxSmaaEdgeThreshold", "sweet_fx_smaa_edge_threshold", "EdgeDetectionThreshold"},
+        0.10,
+        0.01,
+        0.50));
+    volume.sweetFxSmaaDepthThreshold = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxSmaaDepthThreshold", "sweet_fx_smaa_depth_threshold", "DepthEdgeDetectionThreshold"},
+        0.01,
+        0.001,
+        0.50));
+    volume.sweetFxSmaaMaxSearchSteps = std::clamp(
+        static_cast<int>(std::lround(ReadClampedNumber(
+            data,
+            {"sweetFxSmaaMaxSearchSteps", "sweet_fx_smaa_max_search_steps", "MaxSearchSteps"},
+            32.0,
+            0.0,
+            112.0))),
+        0,
+        112);
+    volume.sweetFxSmaaMaxSearchStepsDiagonal = std::clamp(
+        static_cast<int>(std::lround(ReadClampedNumber(
+            data,
+            {"sweetFxSmaaMaxSearchStepsDiagonal", "sweet_fx_smaa_max_search_steps_diagonal", "MaxSearchStepsDiagonal"},
+            16.0,
+            0.0,
+            20.0))),
+        0,
+        20);
+    volume.sweetFxSmaaCornerRounding = std::clamp(
+        static_cast<int>(std::lround(ReadClampedNumber(
+            data,
+            {"sweetFxSmaaCornerRounding", "sweet_fx_smaa_corner_rounding", "CornerRounding"},
+            25.0,
+            0.0,
+            100.0))),
+        0,
+        100);
+    volume.sweetFxSmaaDebugOutput = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxSmaaDebugOutput", "sweet_fx_smaa_debug_output", "DebugOutput"},
+        0.0,
+        0.0,
+        2.0));
+    volume.sweetFxSmaaStrength = static_cast<float>(ReadClampedNumber(
+        data,
+        {"sweetFxSmaaStrength", "sweet_fx_smaa_strength"},
+        0.0,
+        0.0,
+        1.0));
+    volume.reshadeDaltonizeType = std::clamp(
+        static_cast<int>(std::lround(ReadClampedNumber(
+            data,
+            {"reshadeDaltonizeType", "reshade_daltonize_type", "Type"},
+            0.0,
+            0.0,
+            2.0))),
+        0,
+        2);
+    volume.reshadeDaltonizeStrength = static_cast<float>(ReadClampedNumber(
+        data,
+        {"reshadeDaltonizeStrength", "reshade_daltonize_strength"},
+        0.0,
+        0.0,
+        1.0));
+    volume.reshadeDisplayDepthPresentType = std::clamp(
+        static_cast<int>(std::lround(ReadClampedNumber(
+            data,
+            {"reshadeDisplayDepthPresentType", "reshade_display_depth_present_type", "PresentType"},
+            2.0,
+            0.0,
+            2.0))),
+        0,
+        2);
+    volume.reshadeDisplayDepthStrength = static_cast<float>(ReadClampedNumber(
+        data,
+        {"reshadeDisplayDepthStrength", "reshade_display_depth_strength"},
+        0.0,
+        0.0,
+        1.0));
+    volume.reshadeLutAmountChroma = static_cast<float>(ReadClampedNumber(
+        data,
+        {"reshadeLutAmountChroma", "reshade_lut_amount_chroma", "fLUT_AmountChroma"},
+        1.0,
+        0.0,
+        1.0));
+    volume.reshadeLutAmountLuma = static_cast<float>(ReadClampedNumber(
+        data,
+        {"reshadeLutAmountLuma", "reshade_lut_amount_luma", "fLUT_AmountLuma"},
+        1.0,
+        0.0,
+        1.0));
+    volume.reshadeLutStrength = static_cast<float>(ReadClampedNumber(
+        data,
+        {"reshadeLutStrength", "reshade_lut_strength"},
+        0.0,
+        0.0,
+        1.0));
     volume.tintColor = ReadColor(data, {"tintColor"}, {0.624f, 1.000f, 0.616f});
     return volume;
 }

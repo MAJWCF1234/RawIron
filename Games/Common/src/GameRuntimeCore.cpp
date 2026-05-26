@@ -43,6 +43,44 @@ private:
     GameRuntimeBootServices services_;
 };
 
+class GameSimulationTickModule final : public ri::runtime::RuntimeModule {
+public:
+    explicit GameSimulationTickModule(GameSimulationTick tick)
+        : tick_(std::move(tick)) {}
+
+    [[nodiscard]] std::string_view Name() const noexcept override {
+        return "GameSimulationTick";
+    }
+
+    bool OnRuntimeFrame(ri::runtime::RuntimeContext&, const ri::core::FrameContext& frame) override {
+        if (tick_) {
+            tick_(frame);
+        }
+        return true;
+    }
+
+private:
+    GameSimulationTick tick_;
+};
+
+[[nodiscard]] ri::runtime::RuntimeCore BuildGameRuntimeCoreInstance(
+    const ri::content::GameManifest& manifest,
+    ri::runtime::RuntimePaths paths,
+    const GameRuntimeCoreOptions& options) {
+    ri::runtime::RuntimeCore runtime(
+        ri::runtime::RuntimeIdentity{
+            .id = manifest.id,
+            .displayName = manifest.name,
+            .mode = "game",
+            .instanceId = {},
+        },
+        std::move(paths));
+    if (options.registerDefaultRuntimeModules) {
+        runtime.AddDefaultModules();
+    }
+    return runtime;
+}
+
 } // namespace
 
 ri::runtime::RuntimePaths BuildGameRuntimePaths(const ri::content::GameManifest& manifest,
@@ -64,22 +102,48 @@ ri::runtime::RuntimeCore CreateGameRuntimeCore(const ri::content::GameManifest& 
                                                const std::string_view moduleName,
                                                ri::runtime::RuntimePaths paths,
                                                GameRuntimeBootServices services) {
-    ri::runtime::RuntimeCore runtime(
-        ri::runtime::RuntimeIdentity{
-            .id = manifest.id,
-            .displayName = manifest.name,
-            .mode = "game",
-            .instanceId = {},
-        },
-        std::move(paths));
-    runtime.AddModule(std::make_unique<GameRuntimeModule>(std::string(moduleName), std::move(services)));
+    return CreateGameRuntimeCore(
+        manifest,
+        moduleName,
+        std::move(paths),
+        GameRuntimeCoreOptions{
+            .services = std::move(services),
+        });
+}
+
+ri::runtime::RuntimeCore CreateGameRuntimeCore(const ri::content::GameManifest& manifest,
+                                               const std::string_view moduleName,
+                                               ri::runtime::RuntimePaths paths,
+                                               GameRuntimeCoreOptions options) {
+    ri::runtime::RuntimeCore runtime = BuildGameRuntimeCoreInstance(manifest, std::move(paths), options);
+    runtime.AddModule(std::make_unique<GameRuntimeModule>(std::string(moduleName), std::move(options.services)));
+    if (options.simulationTick) {
+        (void)AttachGameSimulationTick(runtime, std::move(options.simulationTick));
+    }
     return runtime;
+}
+
+std::unique_ptr<ri::runtime::RuntimeModule> MakeGameSimulationTickModule(GameSimulationTick tick) {
+    return std::make_unique<GameSimulationTickModule>(std::move(tick));
+}
+
+bool AttachGameSimulationTick(ri::runtime::RuntimeCore& runtime, GameSimulationTick tick) {
+    if (!tick) {
+        return false;
+    }
+    return runtime.TryAddModule(MakeGameSimulationTickModule(std::move(tick)));
 }
 
 bool StartupGameRuntimeCore(ri::runtime::RuntimeCore& runtime, std::string* error) {
     char arg0[] = "RawIron.GameRuntime";
     char* argv[] = {arg0};
     const ri::core::CommandLine commandLine(1, argv);
+    return StartupGameRuntimeCore(runtime, commandLine, error);
+}
+
+bool StartupGameRuntimeCore(ri::runtime::RuntimeCore& runtime,
+                            const ri::core::CommandLine& commandLine,
+                            std::string* error) {
     if (runtime.Startup(commandLine)) {
         return true;
     }
@@ -92,6 +156,14 @@ bool StartupGameRuntimeCore(ri::runtime::RuntimeCore& runtime, std::string* erro
     return false;
 }
 
+ri::runtime::RuntimeEventBus& RuntimeEventBusFrom(ri::runtime::RuntimeCore& runtime) noexcept {
+    return runtime.Context().Events();
+}
+
+void BindRuntimeEventBus(ri::runtime::RuntimeCore& runtime, ri::runtime::RuntimeEventBus*& slot) noexcept {
+    slot = &runtime.Context().Events();
+}
+
 ri::core::FrameContext BuildGameRuntimeFrameContext(const int frameIndex,
                                                     const double deltaSeconds,
                                                     const double elapsedSeconds,
@@ -102,6 +174,17 @@ ri::core::FrameContext BuildGameRuntimeFrameContext(const int frameIndex,
         .elapsedSeconds = elapsedSeconds,
         .realtimeSeconds = realtimeSeconds,
         .realDeltaSeconds = deltaSeconds,
+    };
+}
+
+ri::core::FrameContext BuildGameRuntimeFrameContext(const ri::runtime::RuntimeContext& context) {
+    const ri::runtime::RuntimeFrameSnapshot frame = context.Frame();
+    return ri::core::FrameContext{
+        .frameIndex = frame.frameIndex,
+        .deltaSeconds = frame.deltaSeconds,
+        .elapsedSeconds = frame.elapsedSeconds,
+        .realtimeSeconds = frame.realtimeSeconds,
+        .realDeltaSeconds = frame.realDeltaSeconds,
     };
 }
 

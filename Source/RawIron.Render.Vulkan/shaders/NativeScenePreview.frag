@@ -23,6 +23,191 @@ layout(std140, set = 0, binding = 0) uniform CameraData {
     vec4 localLightColorIntensity;
     vec4 directionalLightColorIntensity;
     vec4 viewportMetrics;
+    vec4 presentationTuning;
+    vec4 presentationColorGrading;
+    vec4 presentationExtra;
+    vec4 lggLiftMix;
+    vec4 lggGammaRgb;
+    vec4 lggGainRgb;
+    vec4 vibranceBalanceAmount;
+    vec4 technicolor1PowStrNegRg;
+    vec4 technicolor1NegBPad;
+    vec4 technicolor2ColBright;
+    vec4 technicolor2SatStrPad;
+    vec4 sepiaTintXyzStrength;
+    vec4 monochromePresetSat;
+    vec4 monochromeCustomCoeff;
+    vec4 dpxRgbCurvePad;
+    vec4 dpxRgbCPad;
+    vec4 dpxContrastSatColorStr;
+    vec4 colorMatrixRowR;
+    vec4 colorMatrixRowG;
+    vec4 colorMatrixRowBStr;
+    vec4 fakeHdrPowerR1R2Str;
+    vec4 levelsBlackWhiteStrClip;
+    vec4 lumaSharpenPack;
+    vec4 sweetFxCurvesPack;
+    vec4 sweetFxChromaticAberrationPack;
+    vec4 sweetFxBorderPack;
+    vec4 sweetFxBorderColorPad;
+    vec4 sweetFxCartoonPack;
+    vec4 sweetFxTonemapGammaExpSatBleach;
+    vec4 sweetFxTonemapFogColorDefog;
+    vec4 sweetFxTonemapStrengthPad;
+    vec4 sweetFxSplitscreenModeStrength;
+    vec4 sweetFxNostalgiaPack;
+    vec4 sweetFxComparePack;
+    vec4 sweetFxLayerPosScaleBlend;
+    vec4 sweetFxLayerTexSizePad;
+    vec4 sweetFxFxaaPack;
+    vec4 sweetFxCrtPack0;
+    vec4 sweetFxCrtPack1;
+    vec4 sweetFxCrtPack2;
+    vec4 sweetFxCrtPack3;
+    vec4 sweetFxAsciiPack0;
+    vec4 sweetFxAsciiPack1;
+    vec4 sweetFxAsciiPack2;
+    vec4 sweetFxAsciiFontColorPad;
+    vec4 sweetFxAsciiBackgroundColorPad;
+    vec4 sweetFxSmaaPack0;
+    vec4 sweetFxSmaaPack1;
+    vec4 reshadeDaltonizePack;
+    vec4 reshadeDisplayDepthPack;
+    vec4 reshadeLutPack;
+    vec4 pd80TcRedStrPad;
+    vec4 pd80TcCyanPad;
+    vec4 pd80TcKeySat2Pad;
+    vec4 pd80Tc3ColBrightPad;
+    vec4 pd80Tc3SatStrEnPad;
+    vec4 pd80ColorTempKelvinLumMixStr;
+    vec4 pd80SatLimitCapStr;
+    vec4 pd80ColorBalanceShadowPad;
+    vec4 pd80ColorBalanceMidPad;
+    vec4 pd80ColorBalanceHighPad;
+    vec4 pd80ColorBalanceOptStr;
+    vec4 pd80ColorIsolationHueRangeSatMix;
+    vec4 pd80ColorIsolationStrPad;
+    vec4 pd80LevelsIbPad;
+    vec4 pd80LevelsIwPad;
+    vec4 pd80LevelsObPad;
+    vec4 pd80LevelsOwPad;
+    vec4 pd80LevelsGammaDitherStr;
+    vec4 pd80BwPack0;
+    vec4 pd80BwPack1;
+    vec4 pd80BwPack2;
+    vec4 pd80BwPack3;
+    vec4 pd80CbsPack0;
+    vec4 pd80CbsPack1;
+    vec4 pd80CbsPack2;
+    vec4 pd80CbsPack3;
+    vec4 pd80CbsPack4;
+    vec4 pd80CbsPack5;
+    vec4 pd80CbsPack6;
+    vec4 pd80CbsPack7;
+    vec4 pd80CaPack0;
+    vec4 pd80CaPack1;
+    vec4 pd80CaPack2;
+    vec4 pd80CaPack3;
+    vec4 pd80CaPack4;
+    vec4 pd80CaPack5;
+    vec4 pd80LsPack0;
+    vec4 pd80LsPack1;
+    vec4 pd80LsPack2;
+    vec4 pd80FgPack0;
+    vec4 pd80FgPack1;
+    vec4 pd80FgPack2;
+    vec4 pd80FgPack3;
+    vec4 pd80FgPack4;
+    vec4 pd80DsPack0;
+    vec4 pd80DsPack1;
+    vec4 pd80DsPack2;
+    vec4 pd80CgPack0;
+    vec4 pd80CscPack0;
+    vec4 pd80CscPack1;
+    vec4 pd80CscPack2;
+    vec4 pd80SmhPack0;
+    vec4 pd80SmhPack1;
+    vec4 pd80SmhPack2;
+    vec4 pd80SmhPack3;
+    vec4 pd80SmhPack4;
+    vec4 pd80SmhPack5;
+    vec4 pd80SmhPack6;
+    vec4 pd80SmhPack7;
+    vec4 pd80SmhPack8;
+    vec4 pd80SmhPack9;
+    vec4 pd80SmhPack10;
+    vec4 pd80ClPack0;
+    vec4 pd80ClPack1;
+    vec4 pd80ClPack2;
+    vec4 pd80ClPack3;
+    vec4 pd80ClPack4;
+    vec4 pd80ClPack5;
+    vec4 pd80ClPack6;
+    vec4 pd80ClPack7;
+    vec4 pd80ClPack8;
+    vec4 pd80ScPack0;
+    vec4 pd80ScPack1;
+    vec4 pd80ScPack2;
+    vec4 pd80ScPack3;
+    vec4 pd80ScPack4;
+    vec4 pd80ScPack5;
+    vec4 pd80ScPack6;
+    vec4 pd80ScPack7;
+    vec4 pd80ScPack8;
+    vec4 pd80ScPack9;
+    vec4 pd80ScPack10;
+    vec4 pd80ScPack11;
+    vec4 pd80ScPack12;
+    vec4 pd80ScPack13;
+    vec4 pd80ScPack14;
+    vec4 pd80ScPack15;
+    vec4 pd80ScPack16;
+    vec4 pd80ScPack17;
+    vec4 pd80ScPack18;
+    vec4 pd80PpPack0;
+    vec4 pd80PpPack1;
+    vec4 pd80MrPack0;
+    vec4 pd80MrPack1;
+    vec4 pd80MrPack2;
+    vec4 pd80MrPack3;
+    vec4 pd80MrPack4;
+    vec4 pd80MrPack5;
+    vec4 pd80MrPack6;
+    vec4 pd80MrPack7;
+    vec4 pd80BlpPack0;
+    vec4 pd80BlpPack1;
+    vec4 pd80BlpPack2;
+    vec4 pd80BlpPack3;
+    vec4 pd80BlpPack4;
+    vec4 pd80BlpPack5;
+    vec4 pd80CltPack0;
+    vec4 pd80CltPack1;
+    vec4 pd80CltPack2;
+    vec4 pd80CltPack3;
+    vec4 pd80CltPack4;
+    vec4 pd80CltPack5;
+    vec4 pd80LcPack0;
+    vec4 pd80LfPack0;
+    vec4 pd80Cg4Pack0;
+    vec4 pd80Cg4Pack1;
+    vec4 pd80Cg4Pack2;
+    vec4 pd80Cg4Pack3;
+    vec4 pd80Cg4Pack4;
+    vec4 pd80Cg4Pack5;
+    vec4 pd80Cg4Pack6;
+    vec4 pd80Cg4Pack7;
+    vec4 pd80Cg4Pack8;
+    vec4 pd80CcPack0;
+    vec4 pd80RccPack0;
+    vec4 pd80RccPack1;
+    vec4 pd80RccPack2;
+    vec4 pd80RccPack3;
+    vec4 pd80RccPack4;
+    vec4 pd80FaPack0;
+    vec4 pd80HbPack0;
+    vec4 pd80HbPack1;
+    vec4 pd80HbPack2;
+    vec4 pd80Sc2Pack0;
 } cameraData;
 
 layout(set = 1, binding = 0) uniform sampler2D albedoTex;
@@ -90,6 +275,69 @@ float Hash11(float p) {
 
 float Hash21(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float SweetFxSrgbLumaCurve(float x) {
+    x = clamp(x, 0.0, 1.0);
+    return x * (x * (1.5 - x) + 0.5);
+}
+
+vec3 ApplySweetFxLumaCurve(vec3 rgb, float strength) {
+    float s = clamp(strength, 0.0, 1.0);
+    if (s < 1e-6) {
+        return rgb;
+    }
+    float lum = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+    float curved = SweetFxSrgbLumaCurve(lum);
+    float newLum = mix(lum, curved, s);
+    return rgb * (newLum / max(lum, 1e-5));
+}
+
+float TriD_Rand11(float x) {
+    return fract(x * 0.024390243);
+}
+float TriD_Permute(float x) {
+    return mod((34.0 * x + 1.0) * x, 289.0);
+}
+float TriD_Rand21(vec2 uv) {
+    float a = fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453);
+    float b = fract(sin(dot(uv, vec2(39.346, 11.135))) * 26974.324);
+    return (a + b) * 0.5;
+}
+
+vec3 TriangularDitherRgb(vec3 color, vec2 uv01, float timeSeconds, float strength) {
+    if (strength < 1e-5) {
+        return color;
+    }
+    const int kBits = 8;
+    float bitstep = exp2(float(kBits)) - 1.0;
+    float lsb = 1.0 / bitstep;
+    float lobit = 0.5 / bitstep;
+    float hibit = (bitstep - 0.5) / bitstep;
+
+    vec3 m = vec3(uv01, TriD_Rand21(uv01 + timeSeconds * 0.001)) + 1.0;
+    float h = TriD_Permute(TriD_Permute(TriD_Permute(m.x) + m.y) + m.z);
+
+    float n1x = TriD_Rand11(h);
+    h = TriD_Permute(h);
+    float n2x = TriD_Rand11(h);
+    h = TriD_Permute(h);
+    float n1y = TriD_Rand11(h);
+    h = TriD_Permute(h);
+    float n2y = TriD_Rand11(h);
+    h = TriD_Permute(h);
+    float n1z = TriD_Rand11(h);
+    h = TriD_Permute(h);
+    float n2z = TriD_Rand11(h);
+    vec3 noise1 = vec3(n1x, n1y, n1z);
+    vec3 noise2 = vec3(n2x, n2y, n2z);
+
+    vec3 lo = clamp(color / lobit, 0.0, 1.0);
+    vec3 hi = clamp((color - 1.0) / (hibit - 1.0), 0.0, 1.0);
+    vec3 uni = noise1 - 0.5;
+    vec3 tri = noise1 - noise2;
+    vec3 dith = mix(uni, tri, min(lo, hi)) * lsb;
+    return color + dith * clamp(strength, 0.0, 1.0);
 }
 
 vec3 ApplyPostProcessFx(vec3 color, vec2 uv01) {
@@ -174,6 +422,10 @@ void main() {
     const bool hybridHdrRadiance = cameraData.postProcessSecondary.w > 0.5;
     const vec2 postUv01 = gl_FragCoord.xy * cameraData.viewportMetrics.zw;
     vec3 normal = normalize(inNormal);
+    const vec3 viewDir = normalize(viewDirectionWs);
+    if ((drawData.litShadingModel & 8) != 0 && dot(normal, viewDir) < 0.0) {
+        normal = -normal;
+    }
     vec3 albedo = inColor.rgb;
     float sampledAlpha = 1.0;
     if (drawData.useTexture != 0) {
@@ -194,9 +446,13 @@ void main() {
     bool alphaCutout = (drawData.litShadingModel & 2) != 0;
     float outputAlpha = inColor.a * sampledAlpha;
     if (alphaCutout) {
-        if (sampledAlpha < inColor.a) {
+        const float cutoff = inColor.a;
+        const float feather = 0.20;
+        const float coverage = smoothstep(cutoff - feather, cutoff + feather * 0.45, sampledAlpha);
+        if (coverage < 0.004) {
             discard;
         }
+        albedo *= coverage;
         outputAlpha = 1.0;
     }
 
@@ -205,8 +461,23 @@ void main() {
     float contrast = cameraData.renderTuning.y;
     float saturation = cameraData.renderTuning.z;
     float fogDensity = cameraData.renderTuning.w;
+    float curveAmt = clamp(cameraData.presentationColorGrading.x, 0.0, 1.0);
+    float ditherAmt = clamp(cameraData.presentationColorGrading.y, 0.0, 1.0);
+    float debandAmt = clamp(cameraData.presentationColorGrading.z, 0.0, 0.12);
 
     if ((drawData.litShadingModel & 1) == 0) {
+        // Bit 2 (value 4): soft additive sprites — radial falloff + mild distance fade.
+        if ((drawData.litShadingModel & 4) != 0) {
+            vec2 centered = texCoord - vec2(0.5);
+            float radial = clamp(1.0 - dot(centered, centered) * 4.0, 0.0, 1.0);
+            radial *= radial;
+            if (drawData.useTexture != 0) {
+                radial *= sampledAlpha;
+            }
+            outputAlpha *= radial;
+            float distFade = clamp(1.0 - (viewDistanceWs - 1.5) / 72.0, 0.12, 1.0);
+            outputAlpha *= distFade;
+        }
         vec3 linearUnlit = (albedo + drawData.emissiveColor) * exposure;
         if (hybridHdrRadiance) {
             fragColor = vec4(linearUnlit, outputAlpha);
@@ -214,7 +485,16 @@ void main() {
         }
         vec3 unlit = TonemapAcesApprox(linearUnlit);
         unlit = ApplyColorGrade(unlit, contrast, saturation);
+        unlit = ApplySweetFxLumaCurve(unlit, curveAmt);
         unlit = ApplyPostProcessFx(unlit, postUv01);
+        if (debandAmt > 1e-5) {
+            float dl = dot(unlit, vec3(0.2126, 0.7152, 0.0722));
+            vec2 grad = vec2(dFdx(dl), dFdy(dl));
+            float gradMag = clamp(length(grad) * 96.0, 0.0, 1.0);
+            float rnd = Hash21(gl_FragCoord.xy + vec2(cameraData.postProcessSecondary.z * 13.7, cameraData.postProcessSecondary.z * 9.1)) - 0.5;
+            unlit += rnd * debandAmt * (0.12 + gradMag * 0.55);
+        }
+        unlit = TriangularDitherRgb(unlit, postUv01, cameraData.postProcessSecondary.z, ditherAmt);
         fragColor = vec4(clamp(unlit, 0.0, 1.0), outputAlpha);
         return;
     }
@@ -241,16 +521,24 @@ void main() {
 
     vec3 kS = F;
     vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
-    float diffuseTerm = mix(max(nDotL, 0.06), nDotL, 0.75);
-    vec3 diffuse = (kD * albedo / kPi) * diffuseTerm;
+    const bool foliageCard = (drawData.litShadingModel & 16) != 0;
     float shadow = ComputeShadowFactor(normal, lightDir);
-    vec3 direct = (diffuse + (specular * max(nDotL, 0.0))) * lightColor * 1.65 * shadow;
-    vec3 ambient = albedo * vec3(0.048, 0.052, 0.060) * (1.0 - metallic * 0.45);
+    if (alphaCutout) {
+        shadow = max(shadow, foliageCard ? 0.94 : 0.88);
+    }
+    if (foliageCard) {
+        shadow = 1.0;
+    }
+    float diffuseTerm = mix(max(nDotL, 0.14), nDotL, foliageCard ? 0.35 : 0.75);
+    vec3 diffuse = (kD * albedo / kPi) * diffuseTerm;
+    vec3 direct = (diffuse + (specular * max(nDotL, 0.0))) * lightColor * (foliageCard ? 1.15 : 1.65) * shadow;
+    vec3 ambientBoost = cameraData.presentationExtra.yzw;
+    vec3 ambient = albedo * (vec3(0.10, 0.11, 0.12) + ambientBoost * 0.22) * (1.0 - metallic * 0.45);
     if (tier >= 1.0) {
         float hemi = normal.y * 0.5 + 0.5;
-        vec3 sky = vec3(0.19, 0.24, 0.30);
-        vec3 ground = vec3(0.08, 0.072, 0.066);
-        ambient += albedo * mix(ground, sky, hemi) * 0.12;
+        vec3 sky = vec3(0.19, 0.24, 0.30) + ambientBoost * 0.14;
+        vec3 ground = vec3(0.08, 0.072, 0.066) + ambientBoost * 0.08;
+        ambient += albedo * mix(ground, sky, hemi) * (foliageCard ? 0.14 : 0.12);
     }
     if (tier >= 2.0) {
         vec3 coatF0 = vec3(0.04);
@@ -269,13 +557,13 @@ void main() {
     float localAtten = clamp(1.0 - (localDistance / localRange), 0.0, 1.0);
     localAtten *= localAtten;
     vec3 localColor = cameraData.localLightColorIntensity.rgb * cameraData.localLightColorIntensity.w;
-    litRgb += albedo * localColor * localNdotL * localAtten * 0.55;
-    litRgb = max(litRgb, albedo * 0.018);
+    litRgb += albedo * localColor * localNdotL * localAtten * (foliageCard ? 0.58 : 0.55);
+    litRgb = max(litRgb, albedo * (foliageCard ? 0.08 : 0.018));
 
     float fogAmount = clamp(1.0 - exp2(-viewDistanceWs * fogDensity), 0.0, 1.0);
     float horizonFactor = clamp(1.0 - max(normalize(viewDirectionWs).y, 0.0), 0.0, 1.0);
-    vec3 fogColorNear = vec3(0.34, 0.39, 0.42);
-    vec3 fogColorFar = vec3(0.40, 0.47, 0.54);
+    vec3 fogColorNear = max(cameraData.sweetFxTonemapFogColorDefog.xyz, vec3(0.0));
+    vec3 fogColorFar = fogColorNear * vec3(0.94, 1.02, 1.08);
     vec3 fogColor = mix(fogColorNear, fogColorFar, horizonFactor);
     vec3 color = mix(litRgb, fogColor, fogAmount * 0.28);
     vec3 linearLit = color * exposure;
@@ -285,6 +573,15 @@ void main() {
     }
     vec3 mapped = TonemapAcesApprox(linearLit);
     mapped = ApplyColorGrade(mapped, contrast, saturation);
+    mapped = ApplySweetFxLumaCurve(mapped, curveAmt);
     mapped = ApplyPostProcessFx(mapped, postUv01);
+    if (debandAmt > 1e-5) {
+        float dl = dot(mapped, vec3(0.2126, 0.7152, 0.0722));
+        vec2 grad = vec2(dFdx(dl), dFdy(dl));
+        float gradMag = clamp(length(grad) * 96.0, 0.0, 1.0);
+        float rnd = Hash21(gl_FragCoord.xy + vec2(cameraData.postProcessSecondary.z * 13.7, cameraData.postProcessSecondary.z * 9.1)) - 0.5;
+        mapped += rnd * debandAmt * (0.12 + gradMag * 0.55);
+    }
+    mapped = TriangularDitherRgb(mapped, postUv01, cameraData.postProcessSecondary.z, ditherAmt);
     fragColor = vec4(clamp(mapped, 0.0, 1.0), outputAlpha);
 }

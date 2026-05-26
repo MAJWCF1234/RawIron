@@ -3,6 +3,7 @@
 #include "RawIron/Core/Log.h"
 #include "RawIron/Math/Mat4.h"
 #include "RawIron/Render/ScenePreview.h"
+#include "RawIron/Render/ShaderConfig.h"
 #include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
 #include "RawIron/Scene/ModelLoader.h"
@@ -52,7 +53,10 @@ void PrintPreviewUsage() {
         << "  --photo-mode            Mild default widen (~1.18x vertical FOV) unless --photo-fov / --photo-scale\n"
         << "  --photo-fov <deg>       Absolute vertical FOV, or horizontal if --photo-horizontal\n"
         << "  --photo-scale <factor>  Multiply authored vertical FOV\n"
-        << "  --photo-horizontal      Treat --photo-fov as horizontal FOV (requires --photo-fov)\n";
+        << "  --photo-horizontal      Treat --photo-fov as horizontal FOV (requires --photo-fov)\n"
+        << "\n"
+        << "Optional `<workspace>/shader.cfg` or `<workspace>/Content/shader.cfg` (JSON) layers post-processing\n"
+        << "for native Vulkan preview; see RawIron.ParticleShowcase/shader.cfg.example.\n";
 }
 
 struct PsxWaterPreview {
@@ -544,12 +548,21 @@ ri::scene::SceneKitPreview LoadSelectedPreview(const ri::core::CommandLine& comm
 #if defined(_WIN32)
 int PresentInteractivePreview(PreviewBackend backend,
                               const ri::scene::SceneKitPreview& preview,
-                              const ri::render::software::ScenePreviewOptions& previewOptions) {
+                              const ri::render::software::ScenePreviewOptions& previewOptions,
+                              const fs::path& workspaceRoot) {
     const std::string windowTitle = "RawIron Preview - " + preview.title;
     std::string error;
+    ri::render::ShaderPresentationConfig shaderPresentation{};
+    std::string shaderCfgError;
+    if (ri::render::TryLoadShaderCfgFromRoot(workspaceRoot, &shaderPresentation, &shaderCfgError)) {
+        ri::core::LogInfo("Loaded post-process shader.cfg from workspace.");
+    } else if (!shaderCfgError.empty()) {
+        ri::core::LogInfo("shader.cfg: " + shaderCfgError);
+    }
     const ri::render::vulkan::VulkanPreviewWindowOptions windowOptions{
         .windowTitle = windowTitle,
         .scenePhotoMode = previewOptions.photoMode,
+        .shaderPresentation = shaderPresentation,
     };
     const int width = std::max(previewOptions.width, 1);
     const int height = std::max(previewOptions.height, 1);
@@ -652,7 +665,7 @@ int main(int argc, char** argv) {
         ri::core::LogInfo("Backend: " + std::string(PreviewBackendName(backend)));
         ri::core::LogInfo("Software preview remains headless-only for saved regression snapshots.");
         ri::core::LogInfo("Close the window to exit.");
-        return PresentInteractivePreview(backend, preview, options);
+        return PresentInteractivePreview(backend, preview, options, workspaceRoot);
 #else
         if (!saved) {
             savedPath = fs::current_path() / "rawiron_preview.bmp";

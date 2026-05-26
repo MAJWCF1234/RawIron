@@ -31,8 +31,10 @@ add_library(RawIron.SceneUtilities
   src/ModelLoader.cpp
   src/PhysicsPropSpawn.cpp
   src/PrimitiveTypeCanonical.cpp
+  src/StructuralAssemblyIO.cpp
   src/StructuralBrush.cpp
   src/StructuralPrimitiveBundle.cpp
+  src/StructuralPrimitivePresets.cpp
   src/PrimitivesCsvIO.cpp
   src/Raycast.cpp
   src/RuntimeMeshFactory.cpp

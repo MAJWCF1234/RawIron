@@ -45,7 +45,8 @@ target_link_libraries(rawiron_imgui_win32_dx11
     rawiron_imgui
 )
 
-target_link_libraries(rawiron_imgui_win32_dx11 PRIVATE d3d11 dxgi)
+# MinGW does not honor MSVC #pragma comment(lib, …) in imgui backends; link DWM + HLSL compiler explicitly.
+target_link_libraries(rawiron_imgui_win32_dx11 PRIVATE d3d11 dxgi dwmapi d3dcompiler)
 
 target_compile_features(rawiron_imgui_win32_dx11 PUBLIC cxx_std_11)
 
