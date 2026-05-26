@@ -146,6 +146,8 @@ public:
 
     void AddModule(std::unique_ptr<RuntimeModule> module);
     [[nodiscard]] bool TryAddModule(std::unique_ptr<RuntimeModule> module);
+    /// Registers built-in runtime modules (level schedulers, etc.).
+    void AddDefaultModules();
     [[nodiscard]] bool HasModule(std::string_view moduleName) const;
     [[nodiscard]] std::vector<std::string> ModuleNames() const;
     [[nodiscard]] std::size_t ModuleCount() const noexcept;

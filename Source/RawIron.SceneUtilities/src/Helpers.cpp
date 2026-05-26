@@ -58,6 +58,28 @@ Mesh MakeUvSphereMesh(const std::string& name) {
     return mesh;
 }
 
+Mesh MakeBillboardQuadMesh(const std::string& name) {
+    Mesh mesh{};
+    mesh.name = name;
+    mesh.primitive = PrimitiveType::Custom;
+    mesh.positions = {
+        ri::math::Vec3{-0.5f, -0.5f, 0.0f},
+        ri::math::Vec3{0.5f, -0.5f, 0.0f},
+        ri::math::Vec3{0.5f, 0.5f, 0.0f},
+        ri::math::Vec3{-0.5f, 0.5f, 0.0f},
+    };
+    mesh.texCoords = {
+        ri::math::Vec2{0.0f, 0.0f},
+        ri::math::Vec2{1.0f, 0.0f},
+        ri::math::Vec2{1.0f, 1.0f},
+        ri::math::Vec2{0.0f, 1.0f},
+    };
+    mesh.indices = {0, 1, 2, 0, 2, 3};
+    mesh.vertexCount = static_cast<int>(mesh.positions.size());
+    mesh.indexCount = static_cast<int>(mesh.indices.size());
+    return mesh;
+}
+
 namespace {
 
 constexpr float kRadiansToDegrees = 57.29577951308232f;
@@ -91,18 +113,22 @@ Mesh MakeProceduralTerrainMesh(const ProceduralTerrainOptions& options, const st
     mesh.texCoords.reserve(static_cast<std::size_t>(vertsX * vertsZ));
     mesh.indices.reserve(static_cast<std::size_t>(resolutionX * resolutionZ * 6));
 
+    const auto sampleHeight = [&](const float worldX, const float worldZ) -> float {
+        const float ridge = std::sin(worldX * freq) * std::cos(worldZ * freq * 0.78f);
+        const float swell = std::sin((worldX + worldZ) * freq * 0.45f);
+        const float detail = std::sin(worldX * detailFreq) * std::sin(worldZ * detailFreq * 1.31f);
+        return (ridge * amp) + (swell * amp * 0.55f) + (detail * detailAmp);
+    };
+
     for (int z = 0; z <= resolutionZ; ++z) {
         const float vz = static_cast<float>(z) / static_cast<float>(resolutionZ);
         const float worldZ = (vz - 0.5f) * sizeZ;
         for (int x = 0; x <= resolutionX; ++x) {
             const float vx = static_cast<float>(x) / static_cast<float>(resolutionX);
             const float worldX = (vx - 0.5f) * sizeX;
-            const float ridge = std::sin(worldX * freq) * std::cos(worldZ * freq * 0.78f);
-            const float swell = std::sin((worldX + worldZ) * freq * 0.45f);
-            const float detail = std::sin(worldX * detailFreq) * std::sin(worldZ * detailFreq * 1.31f);
-            const float height = (ridge * amp) + (swell * amp * 0.55f) + (detail * detailAmp);
+            const float height = sampleHeight(worldX, worldZ);
             mesh.positions.push_back(ri::math::Vec3{worldX, height, worldZ});
-            mesh.texCoords.push_back(ri::math::Vec2{vx, vz});
+            mesh.texCoords.push_back(ri::math::Vec2{vx * options.textureTiling.x, vz * options.textureTiling.y});
         }
     }
 
@@ -191,6 +217,8 @@ int AddPrimitiveNode(Scene& scene, const PrimitiveNodeOptions& options) {
         .alphaCutoff = options.alphaCutoff,
         .doubleSided = options.doubleSided,
         .transparent = options.transparent,
+        .additiveBlend = false,
+        .normalTexture = options.normalTexture,
     });
     const int mesh = scene.AddMesh(MakePrimitiveMesh(options.primitive, options.nodeName + "Mesh"));
     const int node = scene.CreateNode(options.nodeName, options.parent);
@@ -206,6 +234,15 @@ int AddProceduralTerrainNode(Scene& scene, const ProceduralTerrainOptions& optio
         .baseColor = options.baseColor,
         .baseColorTexture = options.baseColorTexture,
         .textureTiling = options.textureTiling,
+        .emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f},
+        .metallic = 0.0f,
+        .roughness = 1.0f,
+        .opacity = 1.0f,
+        .alphaCutoff = 1.0f,
+        .doubleSided = false,
+        .transparent = false,
+        .additiveBlend = false,
+        .normalTexture = options.normalTexture,
     });
     const int mesh = scene.AddMesh(MakeProceduralTerrainMesh(options, options.nodeName + "Mesh"));
     const int node = scene.CreateNode(options.nodeName, options.parent);

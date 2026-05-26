@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
 
     ri::games::forestruins::StandaloneOptions options{};
     options.gameId = "wilderness-ruins";
-    options.windowTitle = "RawIron Forest Ruins";
+    options.windowTitle = "Wilderness Ruins";
 
     if (const auto game = commandLine.GetValue("--game"); game.has_value() && !game->empty()) {
         options.gameId = *game;
@@ -78,6 +78,31 @@ int main(int argc, char** argv) {
     const auto workspaceRoot = commandLine.GetValue("--workspace-root");
     if (gameRoot.has_value() && !gameRoot->empty()) {
         options.gameRoot = std::filesystem::path(*gameRoot);
+    } else {
+        const fs::path exePath = fs::weakly_canonical(fs::path(argv[0]));
+        fs::path probe = exePath.parent_path();
+        for (int guard = 0; guard < 12; ++guard) {
+            std::error_code ec{};
+            const fs::path manifestPath = probe / "manifest.json";
+            if (fs::exists(manifestPath, ec)) {
+                if (const std::optional<ri::content::GameManifest> manifest =
+                        ri::content::LoadGameManifest(manifestPath);
+                    manifest.has_value() && manifest->id == options.gameId) {
+                    options.gameRoot = fs::weakly_canonical(probe);
+                    break;
+                }
+            }
+            const fs::path sibling = probe / "Games" / "WildernessRuins" / "manifest.json";
+            if (fs::exists(sibling, ec)) {
+                options.gameRoot = fs::weakly_canonical(probe / "Games" / "WildernessRuins");
+                break;
+            }
+            const fs::path parent = probe.parent_path();
+            if (parent == probe) {
+                break;
+            }
+            probe = parent;
+        }
     }
     options.workspaceRoot = ResolveWorkspaceRoot(workspaceRoot, gameRoot);
 

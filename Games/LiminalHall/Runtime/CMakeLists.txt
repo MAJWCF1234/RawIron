@@ -36,3 +36,7 @@ if (WIN32)
 endif()
 
 target_compile_features(RawIron.Game.LiminalHall PUBLIC cxx_std_20)
+
+if (WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  target_compile_options(RawIron.Game.LiminalHall PRIVATE "-Wa,-mbig-obj")
+endif()

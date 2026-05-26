@@ -1,6 +1,8 @@
 add_library(RawIron.Runtime
   src/EntityIoTelemetry.cpp
   src/ExperiencePresets.cpp
+  src/LevelSchedulerBundle.cpp
+  src/LevelSchedulerRuntimeModule.cpp
   src/LevelScopedSchedulers.cpp
   src/RuntimeCore.cpp
   src/RuntimeEventBus.cpp

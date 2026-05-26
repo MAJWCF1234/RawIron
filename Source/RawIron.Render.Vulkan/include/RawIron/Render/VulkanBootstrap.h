@@ -6,6 +6,10 @@
 
 namespace ri::render::vulkan {
 
+// When adding new VkInstance paths: use VkApplicationInfo::apiVersion >= VK_API_VERSION_1_1 unless you must
+// target legacy loaders only. Layers (validation, ReShade, etc.) often assume 1.1+ and can break vkCreateDevice
+// with VK_ERROR_FEATURE_NOT_PRESENT if the instance advertises 1.0 only.
+
 struct VulkanDeviceSummary {
     std::string name;
     std::string type;

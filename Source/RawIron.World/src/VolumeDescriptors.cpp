@@ -2237,6 +2237,11 @@ PostProcessVolume CreatePostProcessVolume(const RuntimeVolumeSeed& data,
                                           float scanlineAmount,
                                           float barrelDistortion,
                                           float chromaticAberration,
+                                          float casSharpenAmount,
+                                          float casContrastAdaptation,
+                                          float bloomIntensity,
+                                          float bloomThreshold,
+                                          float debandStrength,
                                           const VolumeDefaults& defaults) {
     PostProcessVolume volume{};
     static_cast<RuntimeVolume&>(volume) = CreateRuntimeVolume(data, defaults);
@@ -2246,6 +2251,11 @@ PostProcessVolume CreatePostProcessVolume(const RuntimeVolumeSeed& data,
     volume.scanlineAmount = ClampFiniteFloat(scanlineAmount, 0.0015f, 0.0f, 0.08f);
     volume.barrelDistortion = ClampFiniteFloat(barrelDistortion, 0.003f, 0.0f, 0.1f);
     volume.chromaticAberration = ClampFiniteFloat(chromaticAberration, 0.00025f, 0.0f, 0.02f);
+    volume.casSharpenAmount = ClampFiniteFloat(casSharpenAmount, 0.0f, 0.0f, 1.0f);
+    volume.casContrastAdaptation = ClampFiniteFloat(casContrastAdaptation, 0.0f, 0.0f, 1.0f);
+    volume.bloomIntensity = ClampFiniteFloat(bloomIntensity, 0.0f, 0.0f, 0.5f);
+    volume.bloomThreshold = ClampFiniteFloat(bloomThreshold, 1.25f, 0.2f, 4.0f);
+    volume.debandStrength = ClampFiniteFloat(debandStrength, 0.0f, 0.0f, 0.12f);
     return volume;
 }
 

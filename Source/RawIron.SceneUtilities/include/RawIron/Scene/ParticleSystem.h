@@ -79,6 +79,8 @@ struct CpuParticleSystemConfig {
     float fountainConeHalfAngleDegrees = 0.0f;
     /// Cone axis (normalized internally); default world +Y.
     ri::math::Vec3 fountainEmitAxis{0.0f, 1.0f, 0.0f};
+    /// When true, instance transforms yaw/pitch toward `cameraWorldPosition` (billboard quads).
+    bool cameraFacingBillboards = false;
 };
 
 class CpuParticleSystem {
@@ -89,10 +91,15 @@ public:
     void Step(float deltaSeconds);
 
     /// Writes one transform per live particle (world positions under the batch parent).
-    void WriteInstanceTransforms(std::vector<Transform>& out) const;
+    void WriteInstanceTransforms(std::vector<Transform>& out, const ri::math::Vec3* cameraWorldPosition) const;
 
     /// Copies current simulated transforms into an existing mesh-instance batch (replaces all instances).
     void ApplyInstanceTransforms(Scene& scene, int meshInstanceBatchHandle) const;
+
+    /// Billboard mode: pass the active camera world position each frame.
+    void ApplyInstanceTransforms(Scene& scene,
+                                 int meshInstanceBatchHandle,
+                                 const ri::math::Vec3& cameraWorldPosition) const;
 
     [[nodiscard]] std::size_t ParticleCount() const noexcept { return particles_.size(); }
     [[nodiscard]] const CpuParticleSystemConfig& Config() const noexcept { return config_; }

@@ -102,8 +102,11 @@ void UiFlowSession::MaybeAppendHistory(std::string_view fingerprint, UiHistoryLi
     }
     history_.push_back(std::move(line));
     constexpr std::size_t kMaxHistory = 160U;
-    while (history_.size() > kMaxHistory) {
-        history_.erase(history_.begin());
+    if (history_.size() > kMaxHistory) {
+        const std::size_t overflow = history_.size() - kMaxHistory;
+        history_.erase(
+            history_.begin(),
+            history_.begin() + static_cast<std::vector<UiHistoryLine>::difference_type>(overflow));
     }
 }
 

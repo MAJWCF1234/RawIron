@@ -7,6 +7,7 @@
   ],
   "editor": [
     "levels/assembly.primitives.csv",
+    "levels/assembly.structural.csv",
     "levels/assembly.colliders.csv",
     "levels/assembly.navmesh"
   ],

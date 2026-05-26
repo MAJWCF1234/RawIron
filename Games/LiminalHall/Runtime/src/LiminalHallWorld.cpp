@@ -5,6 +5,7 @@
 
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Scene/ModelLoader.h"
+#include "RawIron/Scene/StructuralAssemblyIO.h"
 #include "RawIron/Scene/SceneUtils.h"
 
 #include <algorithm>
@@ -333,9 +334,9 @@ void AnimateSceneMood(ri::scene::Scene& scene, const double elapsedSeconds) {
                      0.4,
                      180.0f);
 
-    PulseLight(scene, handles.gateLight, 8.0f, 15.0f, elapsedSeconds, 10.0);
-    PulseLight(scene, handles.brainLight, 12.0f, 6.0f, elapsedSeconds, 5.0);
-    PulseLight(scene, handles.sunLight, 20.0f, 8.0f, elapsedSeconds, 1.5);
+    PulseLight(scene, handles.gateLight, 14.0f, 2.5f, elapsedSeconds, 0.35);
+    PulseLight(scene, handles.brainLight, 16.0f, 1.5f, elapsedSeconds, 0.25);
+    PulseLight(scene, handles.sunLight, 22.0f, 2.0f, elapsedSeconds, 0.18);
 }
 
 } // namespace
@@ -563,27 +564,19 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
         return AddPrimitiveNode(scene, primitiveOptions);
     };
 
-    auto addCollider = [&](const std::string& id, const ri::math::Vec3& min, const ri::math::Vec3& max) {
-        world.colliders.push_back(ri::trace::TraceCollider{
-            .id = id,
-            .bounds = ri::spatial::Aabb{.min = min, .max = max},
-            .structural = true,
-        });
-    };
-
-    world.handles.orbitCamera.orbit.target = ri::math::Vec3{0.0f, 5.0f, 0.0f};
+    world.handles.orbitCamera.orbit.target = ri::math::Vec3{0.0f, 2.0f, -4.0f};
     SetOrbitCameraState(scene, world.handles.orbitCamera, world.handles.orbitCamera.orbit);
 
-    // --- LSD Dream Emulator 90s CGI Open Void ---
+    // --- Hub: late-90s checker void (wings authored in assembly.primitives.csv) ---
 
     world.handles.floor = addAnimatedPrimitive("AcidSea",
                                                PrimitiveType::Plane,
-                                               ri::math::Vec3{0.0f, -4.0f, 0.0f},
-                                               ri::math::Vec3{800.0f, 1.0f, 800.0f},
-                                               ri::math::Vec3{0.2f, 1.0f, 0.0f},
+                                               ri::math::Vec3{0.0f, -8.0f, 0.0f},
+                                               ri::math::Vec3{400.0f, 1.0f, 400.0f},
+                                               ri::math::Vec3{0.12f, 0.55f, 0.22f},
                                                importedAnimFrames,
-                                               24.0f,
-                                               ri::math::Vec2{128.0f, 128.0f},
+                                               18.0f,
+                                               ri::math::Vec2{64.0f, 64.0f},
                                                "lsd-acid-sea",
                                                ShadingModel::Unlit);
 
@@ -591,31 +584,11 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
                        PrimitiveType::Plane,
                        ri::math::Vec3{0.0f, 0.0f, 0.0f},
                        ri::math::Vec3{40.0f, 1.0f, 40.0f},
-                       ri::math::Vec3{1.0f, 0.1f, 0.8f},
+                       ri::math::Vec3{1.0f, 0.12f, 0.82f},
                        "ri_prototype_checkers_04.png",
                        ri::math::Vec2{10.0f, 10.0f},
                        "lsd-main-plaza",
                        ShadingModel::Unlit);
-    (void)addPrimitive("FleshRamp",
-                       PrimitiveType::Cube,
-                       ri::math::Vec3{0.0f, 6.0f, 35.0f},
-                       ri::math::Vec3{8.0f, 1.0f, 40.0f},
-                       ri::math::Vec3{0.9f, 0.5f, 0.5f},
-                       "ri_psx_official_stone_08.png",
-                       ri::math::Vec2{2.0f, 10.0f},
-                       "lsd-flesh-ramp",
-                       ShadingModel::Lit,
-                       ri::math::Vec3{25.0f, 0.0f, 0.0f});
-    (void)addPrimitive("SkyBridgeYellow",
-                       PrimitiveType::Cube,
-                       ri::math::Vec3{-45.0f, 12.0f, 15.0f},
-                       ri::math::Vec3{30.0f, 0.5f, 6.0f},
-                       ri::math::Vec3{1.0f, 0.9f, 0.1f},
-                       "ri_psx_official_tile_21.png",
-                       ri::math::Vec2{15.0f, 3.0f},
-                       "lsd-yellow-bridge",
-                       ShadingModel::Lit,
-                       ri::math::Vec3{0.0f, -30.0f, 15.0f});
     (void)addPrimitive("CheckerObeliskLeft",
                        PrimitiveType::Cube,
                        ri::math::Vec3{-12.0f, 4.0f, 8.0f},
@@ -654,8 +627,8 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
                        ShadingModel::Unlit);
     (void)addPrimitive("PulsingBrainSphere",
                        PrimitiveType::Sphere,
-                       ri::math::Vec3{25.0f, 15.0f, -20.0f},
-                       ri::math::Vec3{10.0f, 10.0f, 10.0f},
+                       ri::math::Vec3{20.0f, 10.0f, -14.0f},
+                       ri::math::Vec3{6.0f, 6.0f, 6.0f},
                        ri::math::Vec3{0.9f, 0.2f, 0.4f},
                        "ri_psx_engine_caustics_atlas.png",
                        ri::math::Vec2{4.0f, 4.0f},
@@ -663,26 +636,16 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
                        ShadingModel::Lit);
     (void)addPrimitive("BrainHalo",
                        PrimitiveType::Cube,
-                       ri::math::Vec3{25.0f, 15.0f, -20.0f},
-                       ri::math::Vec3{16.0f, 0.2f, 16.0f},
+                       ri::math::Vec3{20.0f, 10.0f, -14.0f},
+                       ri::math::Vec3{10.0f, 0.15f, 10.0f},
                        ri::math::Vec3{1.0f, 1.0f, 0.0f},
                        "ri_prototype_yellow.png",
                        ri::math::Vec2{1.0f, 1.0f},
                        "lsd-brain-halo",
                        ShadingModel::Unlit);
-    (void)addPrimitive("GlitchPyramid",
-                       PrimitiveType::Cube,
-                       ri::math::Vec3{-30.0f, 8.0f, 35.0f},
-                       ri::math::Vec3{6.0f, 6.0f, 6.0f},
-                       ri::math::Vec3{0.1f, 0.1f, 0.9f},
-                       "ri_psx_official_metal_06.png",
-                       ri::math::Vec2{1.0f, 1.0f},
-                       "lsd-glitch-pyramid",
-                       ShadingModel::Unlit,
-                       ri::math::Vec3{45.0f, 45.0f, 0.0f});
     (void)addPrimitive("NeonSun",
                        PrimitiveType::Sphere,
-                       ri::math::Vec3{0.0f, 30.0f, 80.0f},
+                       ri::math::Vec3{0.0f, 28.0f, 64.0f},
                        ri::math::Vec3{15.0f, 15.0f, 15.0f},
                        ri::math::Vec3{1.0f, 0.5f, 0.0f},
                        "ri_prototype_orange_ochre.png",
@@ -691,7 +654,7 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
                        ShadingModel::Unlit);
     (void)addPrimitive("NeonSunShell",
                        PrimitiveType::Sphere,
-                       ri::math::Vec3{0.0f, 30.0f, 80.0f},
+                       ri::math::Vec3{0.0f, 28.0f, 64.0f},
                        ri::math::Vec3{18.0f, 18.0f, 18.0f},
                        ri::math::Vec3{1.0f, 0.0f, 0.0f},
                        "ri_psx_wall_vent.png",
@@ -1016,31 +979,6 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
     spawnIoStyle("door_io", world.logicDemo.doorClosedPosition + ri::math::Vec3{-2.8f, 0.0f, 0.0f});
     spawnIoStyle("portal_io", portalPos + ri::math::Vec3{-2.6f, 0.0f, 0.0f});
 
-    for (int i = 0; i < 4; ++i) {
-        const float t = static_cast<float>(i) * 1.570796f;
-        const float radius = 18.0f;
-        const float x = std::cos(t) * radius;
-        const float z = std::sin(t) * radius;
-        LightNodeOptions wildLight{};
-        wildLight.nodeName = "TripLight" + std::to_string(i);
-        wildLight.parent = world.handles.root;
-        wildLight.transform.position = ri::math::Vec3{x, 2.0f, z};
-        std::array<ri::math::Vec3, 4> colors = {
-            ri::math::Vec3{1.0f, 0.0f, 1.0f},
-            ri::math::Vec3{0.0f, 1.0f, 1.0f},
-            ri::math::Vec3{0.0f, 1.0f, 0.0f},
-            ri::math::Vec3{1.0f, 1.0f, 0.0f},
-        };
-        wildLight.light = Light{
-            .name = "TripLight" + std::to_string(i),
-            .type = LightType::Point,
-            .color = colors[static_cast<std::size_t>(i)],
-            .intensity = 15.0f,
-            .range = 30.0f,
-        };
-        (void)AddLightNode(scene, wildLight);
-    }
-
     LightNodeOptions gateLight{};
     gateLight.nodeName = "GateLight";
     gateLight.parent = world.handles.root;
@@ -1057,7 +995,7 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
     LightNodeOptions brainLight{};
     brainLight.nodeName = "BrainLight";
     brainLight.parent = world.handles.root;
-    brainLight.transform.position = ri::math::Vec3{25.0f, 15.0f, -20.0f};
+    brainLight.transform.position = ri::math::Vec3{20.0f, 10.0f, -14.0f};
     brainLight.light = Light{
         .name = "BrainLight",
         .type = LightType::Point,
@@ -1070,7 +1008,7 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
     LightNodeOptions sunLight{};
     sunLight.nodeName = "SunLight";
     sunLight.parent = world.handles.root;
-    sunLight.transform.position = ri::math::Vec3{0.0f, 30.0f, 80.0f};
+    sunLight.transform.position = ri::math::Vec3{0.0f, 28.0f, 64.0f};
     sunLight.light = Light{
         .name = "SunLight",
         .type = LightType::Point,
@@ -1081,14 +1019,9 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
     (void)AddLightNode(scene, sunLight);
 
     world.colliders.clear();
-    addCollider("acid-sea-death-plane", ri::math::Vec3{-400.0f, -4.5f, -400.0f}, ri::math::Vec3{400.0f, -3.8f, 400.0f});
-    addCollider("main-plaza", ri::math::Vec3{-20.0f, -0.5f, -20.0f}, ri::math::Vec3{20.0f, 0.5f, 20.0f});
-    addCollider("flesh-ramp-base", ri::math::Vec3{-4.0f, 0.0f, 15.0f}, ri::math::Vec3{4.0f, 1.5f, 25.0f});
-    addCollider("flesh-ramp-mid", ri::math::Vec3{-4.0f, 1.5f, 25.0f}, ri::math::Vec3{4.0f, 4.5f, 35.0f});
-    addCollider("flesh-ramp-top", ri::math::Vec3{-4.0f, 4.5f, 35.0f}, ri::math::Vec3{4.0f, 8.5f, 45.0f});
 
     world.playerRig = scene.CreateNode("PlayerRig", world.handles.root);
-    scene.GetNode(world.playerRig).localTransform.position = ri::math::Vec3{0.0f, 1.0f, 0.0f};
+    scene.GetNode(world.playerRig).localTransform.position = ri::math::Vec3{0.0f, 1.0f, -6.0f};
     world.playerCameraNode = scene.CreateNode("PlayerCameraNode", world.playerRig);
     const int playerCamera = scene.AddCamera(Camera{
         .name = "PlayerCamera",
@@ -1145,6 +1078,31 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
         }
     }
 
+    (void)scene.CreateNode("StructuralPrimitiveGallery", world.handles.root);
+    {
+        const ri::scene::StructuralAssemblySpawnResult structuralSpawn = ri::scene::SpawnStructuralAssemblyFromCsv(
+            scene,
+            gameRoot / "levels" / "assembly.structural.csv",
+            ri::scene::StructuralAssemblySpawnOptions{
+                .parent = world.handles.root,
+                .materialNamePrefix = "liminal_struct",
+            });
+        (void)structuralSpawn;
+    }
+
+    LightNodeOptions galleryLight{};
+    galleryLight.nodeName = "StructuralGalleryLight";
+    galleryLight.parent = world.handles.root;
+    galleryLight.transform.position = ri::math::Vec3{-28.0f, 10.0f, 0.0f};
+    galleryLight.light = Light{
+        .name = "StructuralGalleryLight",
+        .type = LightType::Point,
+        .color = ri::math::Vec3{0.85f, 0.92f, 1.0f},
+        .intensity = 22.0f,
+        .range = 55.0f,
+    };
+    (void)AddLightNode(scene, galleryLight);
+
     {
         std::ifstream colliders(gameRoot / "levels" / "assembly.colliders.csv");
         std::string line;
@@ -1181,9 +1139,9 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
                                    .parent = world.handles.root,
                                    .transform =
                                        Transform{
-                                           .position = ri::math::Vec3{0.0f, 8.0f, 0.0f},
-                                           .rotationDegrees = ri::math::Vec3{0.0f, 90.0f, 45.0f},
-                                           .scale = ri::math::Vec3{15.0f, 15.0f, 15.0f},
+                                           .position = ri::math::Vec3{0.0f, 5.5f, -2.0f},
+                                           .rotationDegrees = ri::math::Vec3{0.0f, 45.0f, 20.0f},
+                                           .scale = ri::math::Vec3{8.0f, 8.0f, 8.0f},
                                        },
                                },
                                &importError);
@@ -1194,9 +1152,9 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
 }
 
 void AnimateWorld(World& world, double elapsedSeconds) {
-    const float lightSwing = static_cast<float>(std::fmod(elapsedSeconds * 45.0, 360.0));
+    (void)elapsedSeconds;
     world.scene.GetNode(world.handles.sun).localTransform.rotationDegrees =
-        ri::math::Vec3{-60.0f, lightSwing, 0.0f};
+        ri::math::Vec3{-58.0f, 42.0f, 0.0f};
     AnimateSceneMood(world.scene, elapsedSeconds);
 }
 
@@ -1209,9 +1167,9 @@ StarterScene BuildEditorStarterScene(std::string_view sceneName, const fs::path&
 }
 
 void AnimateEditorStarterScene(StarterScene& starterScene, double elapsedSeconds) {
-    const float lightSwing = static_cast<float>(std::fmod(elapsedSeconds * 45.0, 360.0));
+    (void)elapsedSeconds;
     starterScene.scene.GetNode(starterScene.handles.sun).localTransform.rotationDegrees =
-        ri::math::Vec3{-60.0f, lightSwing, 0.0f};
+        ri::math::Vec3{-58.0f, 42.0f, 0.0f};
     AnimateSceneMood(starterScene.scene, elapsedSeconds);
 }
 

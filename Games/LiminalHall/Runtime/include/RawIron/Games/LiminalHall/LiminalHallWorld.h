@@ -90,6 +90,9 @@ struct StandaloneOptions {
     std::string checkpointSlot = "autosave";
     std::optional<std::string> resumeQuery;
     std::filesystem::path checkpointStorageRoot;
+    /// When set, passed to \ref ri::games::StartupGameRuntimeCore for runtime startup.
+    int launchArgc = 0;
+    char** launchArgv = nullptr;
 };
 
 bool RunStandalone(const StandaloneOptions& options = {}, std::string* error = nullptr);

@@ -15,6 +15,7 @@ add_library(RawIron.Core
   src/RenderRecorder.cpp
   src/RenderSubmissionPlan.cpp
   src/Scene.cpp
+  src/ShaderConfig.cpp
 )
 
 add_library(RawIron::Core ALIAS RawIron.Core)

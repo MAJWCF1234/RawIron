@@ -1551,6 +1551,9 @@ PostProcessState RuntimeEnvironmentService::GetActivePostProcessStateAt(const ri
     PostProcessState state{};
     ri::math::Vec3 tintAccumulator{};
     float tintWeight = 0.0f;
+    const auto pickDominantSignedAbs = [](float a, float b) {
+        return (std::fabs(a) >= std::fabs(b)) ? a : b;
+    };
 
     for (const PostProcessVolume& volume : postProcessVolumes_) {
         if (!IsPointInsideVolume(position, volume)) {
@@ -1563,6 +1566,257 @@ PostProcessState RuntimeEnvironmentService::GetActivePostProcessStateAt(const ri
         state.scanlineAmount += volume.scanlineAmount;
         state.barrelDistortion += volume.barrelDistortion;
         state.chromaticAberration += volume.chromaticAberration;
+        state.casSharpenAmount = std::max(state.casSharpenAmount, volume.casSharpenAmount);
+        state.casContrastAdaptation = std::max(state.casContrastAdaptation, volume.casContrastAdaptation);
+        state.bloomIntensity = std::max(state.bloomIntensity, volume.bloomIntensity);
+        state.bloomThreshold = std::max(state.bloomThreshold, volume.bloomThreshold);
+        state.debandStrength = std::max(state.debandStrength, volume.debandStrength);
+        state.toneCurveStrength = std::max(state.toneCurveStrength, volume.toneCurveStrength);
+        state.outputDitherStrength = std::max(state.outputDitherStrength, volume.outputDitherStrength);
+        state.vignetteStrength = std::max(state.vignetteStrength, volume.vignetteStrength);
+        state.filmGrainIntensity = std::max(state.filmGrainIntensity, volume.filmGrainIntensity);
+        state.liftRgb = {
+            std::max(state.liftRgb.x, volume.liftRgb.x),
+            std::max(state.liftRgb.y, volume.liftRgb.y),
+            std::max(state.liftRgb.z, volume.liftRgb.z),
+        };
+        state.gammaRgb = {
+            std::max(state.gammaRgb.x, volume.gammaRgb.x),
+            std::max(state.gammaRgb.y, volume.gammaRgb.y),
+            std::max(state.gammaRgb.z, volume.gammaRgb.z),
+        };
+        state.gainRgb = {
+            std::max(state.gainRgb.x, volume.gainRgb.x),
+            std::max(state.gainRgb.y, volume.gainRgb.y),
+            std::max(state.gainRgb.z, volume.gainRgb.z),
+        };
+        state.liftGammaGainMix = std::max(state.liftGammaGainMix, volume.liftGammaGainMix);
+        state.vibrance =
+            std::clamp(state.vibrance + volume.vibrance, -1.0f, 1.0f);
+        state.vibranceRgbBalance = {
+            std::max(state.vibranceRgbBalance.x, volume.vibranceRgbBalance.x),
+            std::max(state.vibranceRgbBalance.y, volume.vibranceRgbBalance.y),
+            std::max(state.vibranceRgbBalance.z, volume.vibranceRgbBalance.z),
+        };
+        state.technicolorPower = std::max(state.technicolorPower, volume.technicolorPower);
+        state.technicolorRgbNegative = {
+            std::max(state.technicolorRgbNegative.x, volume.technicolorRgbNegative.x),
+            std::max(state.technicolorRgbNegative.y, volume.technicolorRgbNegative.y),
+            std::max(state.technicolorRgbNegative.z, volume.technicolorRgbNegative.z),
+        };
+        state.technicolorStrength = std::max(state.technicolorStrength, volume.technicolorStrength);
+        state.technicolor2ColorStrength = {
+            std::max(state.technicolor2ColorStrength.x, volume.technicolor2ColorStrength.x),
+            std::max(state.technicolor2ColorStrength.y, volume.technicolor2ColorStrength.y),
+            std::max(state.technicolor2ColorStrength.z, volume.technicolor2ColorStrength.z),
+        };
+        state.technicolor2Brightness = std::max(state.technicolor2Brightness, volume.technicolor2Brightness);
+        state.technicolor2Saturation = std::max(state.technicolor2Saturation, volume.technicolor2Saturation);
+        state.technicolor2Strength = std::max(state.technicolor2Strength, volume.technicolor2Strength);
+        state.sepiaTint = {
+            std::max(state.sepiaTint.x, volume.sepiaTint.x),
+            std::max(state.sepiaTint.y, volume.sepiaTint.y),
+            std::max(state.sepiaTint.z, volume.sepiaTint.z),
+        };
+        state.sepiaStrength = std::max(state.sepiaStrength, volume.sepiaStrength);
+        state.monochromePreset = std::max(state.monochromePreset, volume.monochromePreset);
+        state.monochromeCustomCoeff = {
+            std::max(state.monochromeCustomCoeff.x, volume.monochromeCustomCoeff.x),
+            std::max(state.monochromeCustomCoeff.y, volume.monochromeCustomCoeff.y),
+            std::max(state.monochromeCustomCoeff.z, volume.monochromeCustomCoeff.z),
+        };
+        state.monochromeColorSaturation =
+            std::max(state.monochromeColorSaturation, volume.monochromeColorSaturation);
+        state.dpxRgbCurve = {
+            std::max(state.dpxRgbCurve.x, volume.dpxRgbCurve.x),
+            std::max(state.dpxRgbCurve.y, volume.dpxRgbCurve.y),
+            std::max(state.dpxRgbCurve.z, volume.dpxRgbCurve.z),
+        };
+        state.dpxRgbC = {
+            std::max(state.dpxRgbC.x, volume.dpxRgbC.x),
+            std::max(state.dpxRgbC.y, volume.dpxRgbC.y),
+            std::max(state.dpxRgbC.z, volume.dpxRgbC.z),
+        };
+        state.dpxContrast = std::max(state.dpxContrast, volume.dpxContrast);
+        state.dpxSaturation = std::max(state.dpxSaturation, volume.dpxSaturation);
+        state.dpxColorfulness = std::max(state.dpxColorfulness, volume.dpxColorfulness);
+        state.dpxStrength = std::max(state.dpxStrength, volume.dpxStrength);
+        state.colorMatrixRed = {
+            std::max(state.colorMatrixRed.x, volume.colorMatrixRed.x),
+            std::max(state.colorMatrixRed.y, volume.colorMatrixRed.y),
+            std::max(state.colorMatrixRed.z, volume.colorMatrixRed.z),
+        };
+        state.colorMatrixGreen = {
+            std::max(state.colorMatrixGreen.x, volume.colorMatrixGreen.x),
+            std::max(state.colorMatrixGreen.y, volume.colorMatrixGreen.y),
+            std::max(state.colorMatrixGreen.z, volume.colorMatrixGreen.z),
+        };
+        state.colorMatrixBlue = {
+            std::max(state.colorMatrixBlue.x, volume.colorMatrixBlue.x),
+            std::max(state.colorMatrixBlue.y, volume.colorMatrixBlue.y),
+            std::max(state.colorMatrixBlue.z, volume.colorMatrixBlue.z),
+        };
+        state.colorMatrixStrength = std::max(state.colorMatrixStrength, volume.colorMatrixStrength);
+        state.fakeHdrPower = std::max(state.fakeHdrPower, volume.fakeHdrPower);
+        state.fakeHdrRadius1 = std::max(state.fakeHdrRadius1, volume.fakeHdrRadius1);
+        state.fakeHdrRadius2 = std::max(state.fakeHdrRadius2, volume.fakeHdrRadius2);
+        state.fakeHdrStrength = std::max(state.fakeHdrStrength, volume.fakeHdrStrength);
+        state.levelsBlackPoint = std::max(state.levelsBlackPoint, volume.levelsBlackPoint);
+        state.levelsWhitePoint = std::max(state.levelsWhitePoint, volume.levelsWhitePoint);
+        state.levelsStrength = std::max(state.levelsStrength, volume.levelsStrength);
+        state.levelsClipHighlight = std::max(state.levelsClipHighlight, volume.levelsClipHighlight);
+        state.lumaSharpenStrength = std::max(state.lumaSharpenStrength, volume.lumaSharpenStrength);
+        state.lumaSharpenClamp = std::max(state.lumaSharpenClamp, volume.lumaSharpenClamp);
+        state.lumaSharpenPattern = std::max(state.lumaSharpenPattern, volume.lumaSharpenPattern);
+        state.lumaSharpenOffsetBias = std::max(state.lumaSharpenOffsetBias, volume.lumaSharpenOffsetBias);
+        state.lumaSharpenShowPattern = std::max(state.lumaSharpenShowPattern, volume.lumaSharpenShowPattern);
+        state.sweetFxCurvesMode = std::max(state.sweetFxCurvesMode, volume.sweetFxCurvesMode);
+        state.sweetFxCurvesFormula = std::max(state.sweetFxCurvesFormula, volume.sweetFxCurvesFormula);
+        state.sweetFxCurvesContrast = std::max(state.sweetFxCurvesContrast, volume.sweetFxCurvesContrast);
+        state.sweetFxCurvesStrength = std::max(state.sweetFxCurvesStrength, volume.sweetFxCurvesStrength);
+        state.sweetFxChromaticAberrationShiftX =
+            pickDominantSignedAbs(state.sweetFxChromaticAberrationShiftX, volume.sweetFxChromaticAberrationShiftX);
+        state.sweetFxChromaticAberrationShiftY =
+            pickDominantSignedAbs(state.sweetFxChromaticAberrationShiftY, volume.sweetFxChromaticAberrationShiftY);
+        state.sweetFxChromaticAberrationStrength =
+            std::max(state.sweetFxChromaticAberrationStrength, volume.sweetFxChromaticAberrationStrength);
+        state.sweetFxBorderWidthX = std::max(state.sweetFxBorderWidthX, volume.sweetFxBorderWidthX);
+        state.sweetFxBorderWidthY = std::max(state.sweetFxBorderWidthY, volume.sweetFxBorderWidthY);
+        state.sweetFxBorderRatio = std::max(state.sweetFxBorderRatio, volume.sweetFxBorderRatio);
+        state.sweetFxBorderColor = {
+            std::max(state.sweetFxBorderColor.x, volume.sweetFxBorderColor.x),
+            std::max(state.sweetFxBorderColor.y, volume.sweetFxBorderColor.y),
+            std::max(state.sweetFxBorderColor.z, volume.sweetFxBorderColor.z),
+        };
+        state.sweetFxBorderStrength = std::max(state.sweetFxBorderStrength, volume.sweetFxBorderStrength);
+        state.sweetFxCartoonPower = std::max(state.sweetFxCartoonPower, volume.sweetFxCartoonPower);
+        state.sweetFxCartoonEdgeSlope = std::max(state.sweetFxCartoonEdgeSlope, volume.sweetFxCartoonEdgeSlope);
+        state.sweetFxCartoonStrength = std::max(state.sweetFxCartoonStrength, volume.sweetFxCartoonStrength);
+        state.sweetFxTonemapGamma = std::max(state.sweetFxTonemapGamma, volume.sweetFxTonemapGamma);
+        state.sweetFxTonemapExposure =
+            pickDominantSignedAbs(state.sweetFxTonemapExposure, volume.sweetFxTonemapExposure);
+        state.sweetFxTonemapSaturation =
+            pickDominantSignedAbs(state.sweetFxTonemapSaturation, volume.sweetFxTonemapSaturation);
+        state.sweetFxTonemapBleach = std::max(state.sweetFxTonemapBleach, volume.sweetFxTonemapBleach);
+        state.sweetFxTonemapDefog = std::max(state.sweetFxTonemapDefog, volume.sweetFxTonemapDefog);
+        state.sweetFxTonemapFogColor = {
+            std::max(state.sweetFxTonemapFogColor.x, volume.sweetFxTonemapFogColor.x),
+            std::max(state.sweetFxTonemapFogColor.y, volume.sweetFxTonemapFogColor.y),
+            std::max(state.sweetFxTonemapFogColor.z, volume.sweetFxTonemapFogColor.z),
+        };
+        state.sweetFxTonemapStrength = std::max(state.sweetFxTonemapStrength, volume.sweetFxTonemapStrength);
+        state.sweetFxSplitscreenMode = std::clamp(
+            std::max(state.sweetFxSplitscreenMode, volume.sweetFxSplitscreenMode),
+            0,
+            6);
+        state.sweetFxSplitscreenStrength =
+            std::max(state.sweetFxSplitscreenStrength, volume.sweetFxSplitscreenStrength);
+        state.sweetFxNostalgiaPalette = std::clamp(
+            std::max(state.sweetFxNostalgiaPalette, volume.sweetFxNostalgiaPalette),
+            0,
+            14);
+        state.sweetFxNostalgiaScanlines = std::clamp(
+            std::max(state.sweetFxNostalgiaScanlines, volume.sweetFxNostalgiaScanlines),
+            0,
+            2);
+        state.sweetFxNostalgiaDither = std::max(state.sweetFxNostalgiaDither, volume.sweetFxNostalgiaDither);
+        state.sweetFxNostalgiaStrength = std::max(state.sweetFxNostalgiaStrength, volume.sweetFxNostalgiaStrength);
+        state.sweetFxCompareMode = std::clamp(
+            std::max(state.sweetFxCompareMode, volume.sweetFxCompareMode),
+            0,
+            8);
+        state.sweetFxCompareDifferenceScale =
+            std::max(state.sweetFxCompareDifferenceScale, volume.sweetFxCompareDifferenceScale);
+        state.sweetFxCompareStrength = std::max(state.sweetFxCompareStrength, volume.sweetFxCompareStrength);
+        {
+            const float prevLayerBlend = state.sweetFxLayerBlend;
+            state.sweetFxLayerBlend = std::max(state.sweetFxLayerBlend, volume.sweetFxLayerBlend);
+            if (volume.sweetFxLayerBlend > prevLayerBlend) {
+                state.sweetFxLayerPosition = volume.sweetFxLayerPosition;
+                state.sweetFxLayerScale = volume.sweetFxLayerScale;
+                state.sweetFxLayerTexWidth = volume.sweetFxLayerTexWidth;
+                state.sweetFxLayerTexHeight = volume.sweetFxLayerTexHeight;
+            }
+        }
+        {
+            const float prevFxaaStrength = state.sweetFxFxaaStrength;
+            state.sweetFxFxaaStrength = std::max(state.sweetFxFxaaStrength, volume.sweetFxFxaaStrength);
+            if (volume.sweetFxFxaaStrength > prevFxaaStrength) {
+                state.sweetFxFxaaSubpix = volume.sweetFxFxaaSubpix;
+                state.sweetFxFxaaEdgeThreshold = volume.sweetFxFxaaEdgeThreshold;
+                state.sweetFxFxaaEdgeThresholdMin = volume.sweetFxFxaaEdgeThresholdMin;
+            }
+        }
+        {
+            const float prevCrtAmount = state.sweetFxCrtAmount;
+            state.sweetFxCrtAmount = std::max(state.sweetFxCrtAmount, volume.sweetFxCrtAmount);
+            if (volume.sweetFxCrtAmount > prevCrtAmount) {
+                state.sweetFxCrtResolution = volume.sweetFxCrtResolution;
+                state.sweetFxCrtGamma = volume.sweetFxCrtGamma;
+                state.sweetFxCrtMonitorGamma = volume.sweetFxCrtMonitorGamma;
+                state.sweetFxCrtBrightness = volume.sweetFxCrtBrightness;
+                state.sweetFxCrtScanlineIntensity = volume.sweetFxCrtScanlineIntensity;
+                state.sweetFxCrtScanlineGaussian = volume.sweetFxCrtScanlineGaussian;
+                state.sweetFxCrtCurvature = volume.sweetFxCrtCurvature;
+                state.sweetFxCrtCurvatureRadius = volume.sweetFxCrtCurvatureRadius;
+                state.sweetFxCrtCornerSize = volume.sweetFxCrtCornerSize;
+                state.sweetFxCrtViewerDistance = volume.sweetFxCrtViewerDistance;
+                state.sweetFxCrtAngle = volume.sweetFxCrtAngle;
+                state.sweetFxCrtOverscan = volume.sweetFxCrtOverscan;
+                state.sweetFxCrtOversample = volume.sweetFxCrtOversample;
+            }
+        }
+        {
+            const float prevAsciiStrength = state.sweetFxAsciiStrength;
+            state.sweetFxAsciiStrength = std::max(state.sweetFxAsciiStrength, volume.sweetFxAsciiStrength);
+            if (volume.sweetFxAsciiStrength > prevAsciiStrength) {
+                state.sweetFxAsciiSpacing = volume.sweetFxAsciiSpacing;
+                state.sweetFxAsciiFont = volume.sweetFxAsciiFont;
+                state.sweetFxAsciiFontColorMode = volume.sweetFxAsciiFontColorMode;
+                state.sweetFxAsciiFontColor = volume.sweetFxAsciiFontColor;
+                state.sweetFxAsciiBackgroundColor = volume.sweetFxAsciiBackgroundColor;
+                state.sweetFxAsciiSwapColors = volume.sweetFxAsciiSwapColors;
+                state.sweetFxAsciiInvertBrightness = volume.sweetFxAsciiInvertBrightness;
+                state.sweetFxAsciiDithering = volume.sweetFxAsciiDithering;
+                state.sweetFxAsciiDitheringIntensity = volume.sweetFxAsciiDitheringIntensity;
+                state.sweetFxAsciiDitheringDebugGradient = volume.sweetFxAsciiDitheringDebugGradient;
+            }
+        }
+        {
+            const float prevSmaaStrength = state.sweetFxSmaaStrength;
+            state.sweetFxSmaaStrength = std::max(state.sweetFxSmaaStrength, volume.sweetFxSmaaStrength);
+            if (volume.sweetFxSmaaStrength > prevSmaaStrength) {
+                state.sweetFxSmaaEdgeDetectionType = volume.sweetFxSmaaEdgeDetectionType;
+                state.sweetFxSmaaEdgeThreshold = volume.sweetFxSmaaEdgeThreshold;
+                state.sweetFxSmaaDepthThreshold = volume.sweetFxSmaaDepthThreshold;
+                state.sweetFxSmaaMaxSearchSteps = volume.sweetFxSmaaMaxSearchSteps;
+                state.sweetFxSmaaMaxSearchStepsDiagonal = volume.sweetFxSmaaMaxSearchStepsDiagonal;
+                state.sweetFxSmaaCornerRounding = volume.sweetFxSmaaCornerRounding;
+                state.sweetFxSmaaDebugOutput = volume.sweetFxSmaaDebugOutput;
+            }
+        }
+        {
+            const float prevDaltonizeStrength = state.reshadeDaltonizeStrength;
+            state.reshadeDaltonizeStrength = std::max(state.reshadeDaltonizeStrength, volume.reshadeDaltonizeStrength);
+            if (volume.reshadeDaltonizeStrength > prevDaltonizeStrength) {
+                state.reshadeDaltonizeType = volume.reshadeDaltonizeType;
+            }
+        }
+        {
+            const float prevDisplayDepthStrength = state.reshadeDisplayDepthStrength;
+            state.reshadeDisplayDepthStrength = std::max(state.reshadeDisplayDepthStrength, volume.reshadeDisplayDepthStrength);
+            if (volume.reshadeDisplayDepthStrength > prevDisplayDepthStrength) {
+                state.reshadeDisplayDepthPresentType = volume.reshadeDisplayDepthPresentType;
+            }
+        }
+        {
+            const float prevLutStrength = state.reshadeLutStrength;
+            state.reshadeLutStrength = std::max(state.reshadeLutStrength, volume.reshadeLutStrength);
+            if (volume.reshadeLutStrength > prevLutStrength) {
+                state.reshadeLutAmountChroma = volume.reshadeLutAmountChroma;
+                state.reshadeLutAmountLuma = volume.reshadeLutAmountLuma;
+            }
+        }
         tintAccumulator = tintAccumulator + (volume.tintColor * std::max(0.0f, volume.tintStrength));
         tintWeight += std::max(0.0f, volume.tintStrength);
     }
@@ -1605,6 +1859,211 @@ PostProcessState RuntimeEnvironmentService::GetActivePostProcessStateAt(const ri
     state.scanlineAmount = ClampFloat(state.scanlineAmount, 0.0f, 0.12f);
     state.barrelDistortion = ClampFloat(state.barrelDistortion, 0.0f, 0.15f);
     state.chromaticAberration = ClampFloat(state.chromaticAberration, 0.0f, 0.03f);
+    state.casSharpenAmount = ClampFloat(state.casSharpenAmount, 0.0f, 1.0f);
+    state.casContrastAdaptation = ClampFloat(state.casContrastAdaptation, 0.0f, 1.0f);
+    state.bloomIntensity = ClampFloat(state.bloomIntensity, 0.0f, 0.5f);
+    state.bloomThreshold = ClampFloat(state.bloomThreshold, 0.2f, 4.0f);
+    state.debandStrength = ClampFloat(state.debandStrength, 0.0f, 0.12f);
+    state.toneCurveStrength = ClampFloat(state.toneCurveStrength, 0.0f, 1.0f);
+    state.outputDitherStrength = ClampFloat(state.outputDitherStrength, 0.0f, 1.0f);
+    state.vignetteStrength = ClampFloat(state.vignetteStrength, 0.0f, 1.0f);
+    state.filmGrainIntensity = ClampFloat(state.filmGrainIntensity, 0.0f, 0.5f);
+    state.liftRgb = {
+        ClampFloat(state.liftRgb.x, 0.02f, 2.0f),
+        ClampFloat(state.liftRgb.y, 0.02f, 2.0f),
+        ClampFloat(state.liftRgb.z, 0.02f, 2.0f),
+    };
+    state.gammaRgb = {
+        ClampFloat(state.gammaRgb.x, 0.02f, 2.0f),
+        ClampFloat(state.gammaRgb.y, 0.02f, 2.0f),
+        ClampFloat(state.gammaRgb.z, 0.02f, 2.0f),
+    };
+    state.gainRgb = {
+        ClampFloat(state.gainRgb.x, 0.02f, 2.0f),
+        ClampFloat(state.gainRgb.y, 0.02f, 2.0f),
+        ClampFloat(state.gainRgb.z, 0.02f, 2.0f),
+    };
+    state.liftGammaGainMix = ClampFloat(state.liftGammaGainMix, 0.0f, 1.0f);
+    state.vibrance = ClampFloat(state.vibrance, -1.0f, 1.0f);
+    state.vibranceRgbBalance = {
+        ClampFloat(state.vibranceRgbBalance.x, 0.0f, 10.0f),
+        ClampFloat(state.vibranceRgbBalance.y, 0.0f, 10.0f),
+        ClampFloat(state.vibranceRgbBalance.z, 0.0f, 10.0f),
+    };
+    state.technicolorPower = ClampFloat(state.technicolorPower, 0.0f, 8.0f);
+    state.technicolorRgbNegative = {
+        ClampFloat(state.technicolorRgbNegative.x, 0.05f, 1.0f),
+        ClampFloat(state.technicolorRgbNegative.y, 0.05f, 1.0f),
+        ClampFloat(state.technicolorRgbNegative.z, 0.05f, 1.0f),
+    };
+    state.technicolorStrength = ClampFloat(state.technicolorStrength, 0.0f, 1.0f);
+    state.technicolor2ColorStrength = {
+        ClampFloat(state.technicolor2ColorStrength.x, 0.0f, 2.0f),
+        ClampFloat(state.technicolor2ColorStrength.y, 0.0f, 2.0f),
+        ClampFloat(state.technicolor2ColorStrength.z, 0.0f, 2.0f),
+    };
+    state.technicolor2Brightness = ClampFloat(state.technicolor2Brightness, 0.5f, 1.5f);
+    state.technicolor2Saturation = ClampFloat(state.technicolor2Saturation, 0.0f, 1.5f);
+    state.technicolor2Strength = ClampFloat(state.technicolor2Strength, 0.0f, 1.0f);
+    state.sepiaTint = {
+        ClampFloat(state.sepiaTint.x, 0.0f, 1.0f),
+        ClampFloat(state.sepiaTint.y, 0.0f, 1.0f),
+        ClampFloat(state.sepiaTint.z, 0.0f, 1.0f),
+    };
+    state.sepiaStrength = ClampFloat(state.sepiaStrength, 0.0f, 1.0f);
+    state.monochromePreset = std::clamp(state.monochromePreset, 0, 17);
+    state.monochromeCustomCoeff = {
+        ClampFloat(state.monochromeCustomCoeff.x, 0.0f, 1.0f),
+        ClampFloat(state.monochromeCustomCoeff.y, 0.0f, 1.0f),
+        ClampFloat(state.monochromeCustomCoeff.z, 0.0f, 1.0f),
+    };
+    state.monochromeColorSaturation = ClampFloat(state.monochromeColorSaturation, 0.0f, 1.0f);
+    state.dpxRgbCurve = {
+        ClampFloat(state.dpxRgbCurve.x, 1.0f, 15.0f),
+        ClampFloat(state.dpxRgbCurve.y, 1.0f, 15.0f),
+        ClampFloat(state.dpxRgbCurve.z, 1.0f, 15.0f),
+    };
+    state.dpxRgbC = {
+        ClampFloat(state.dpxRgbC.x, 0.2f, 0.5f),
+        ClampFloat(state.dpxRgbC.y, 0.2f, 0.5f),
+        ClampFloat(state.dpxRgbC.z, 0.2f, 0.5f),
+    };
+    state.dpxContrast = ClampFloat(state.dpxContrast, 0.0f, 1.0f);
+    state.dpxSaturation = ClampFloat(state.dpxSaturation, 0.0f, 8.0f);
+    state.dpxColorfulness = ClampFloat(state.dpxColorfulness, 0.1f, 2.5f);
+    state.dpxStrength = ClampFloat(state.dpxStrength, 0.0f, 1.0f);
+    state.colorMatrixRed = {
+        ClampFloat(state.colorMatrixRed.x, 0.0f, 1.0f),
+        ClampFloat(state.colorMatrixRed.y, 0.0f, 1.0f),
+        ClampFloat(state.colorMatrixRed.z, 0.0f, 1.0f),
+    };
+    state.colorMatrixGreen = {
+        ClampFloat(state.colorMatrixGreen.x, 0.0f, 1.0f),
+        ClampFloat(state.colorMatrixGreen.y, 0.0f, 1.0f),
+        ClampFloat(state.colorMatrixGreen.z, 0.0f, 1.0f),
+    };
+    state.colorMatrixBlue = {
+        ClampFloat(state.colorMatrixBlue.x, 0.0f, 1.0f),
+        ClampFloat(state.colorMatrixBlue.y, 0.0f, 1.0f),
+        ClampFloat(state.colorMatrixBlue.z, 0.0f, 1.0f),
+    };
+    state.colorMatrixStrength = ClampFloat(state.colorMatrixStrength, 0.0f, 1.0f);
+    state.fakeHdrPower = ClampFloat(state.fakeHdrPower, 0.0f, 8.0f);
+    state.fakeHdrRadius1 = ClampFloat(state.fakeHdrRadius1, 0.0f, 8.0f);
+    state.fakeHdrRadius2 = ClampFloat(state.fakeHdrRadius2, 0.0f, 8.0f);
+    state.fakeHdrStrength = ClampFloat(state.fakeHdrStrength, 0.0f, 1.0f);
+    state.levelsBlackPoint = ClampFloat(state.levelsBlackPoint, 0.0f, 255.0f);
+    state.levelsWhitePoint = ClampFloat(state.levelsWhitePoint, 0.0f, 255.0f);
+    state.levelsStrength = ClampFloat(state.levelsStrength, 0.0f, 1.0f);
+    state.levelsClipHighlight = ClampFloat(state.levelsClipHighlight, 0.0f, 1.0f);
+    state.lumaSharpenStrength = ClampFloat(state.lumaSharpenStrength, 0.0f, 3.0f);
+    state.lumaSharpenClamp = std::max(ClampFloat(state.lumaSharpenClamp, 0.0f, 1.0f), 1e-5f);
+    state.lumaSharpenPattern = std::clamp(state.lumaSharpenPattern, 0, 3);
+    state.lumaSharpenOffsetBias = ClampFloat(state.lumaSharpenOffsetBias, 0.0f, 6.0f);
+    state.lumaSharpenShowPattern = ClampFloat(state.lumaSharpenShowPattern, 0.0f, 1.0f);
+    state.sweetFxCurvesMode = std::clamp(state.sweetFxCurvesMode, 0, 2);
+    state.sweetFxCurvesFormula = std::clamp(state.sweetFxCurvesFormula, 0, 10);
+    state.sweetFxCurvesContrast = ClampFloat(state.sweetFxCurvesContrast, -1.0f, 1.0f);
+    state.sweetFxCurvesStrength = ClampFloat(state.sweetFxCurvesStrength, 0.0f, 1.0f);
+    state.sweetFxChromaticAberrationShiftX = ClampFloat(state.sweetFxChromaticAberrationShiftX, -10.0f, 10.0f);
+    state.sweetFxChromaticAberrationShiftY = ClampFloat(state.sweetFxChromaticAberrationShiftY, -10.0f, 10.0f);
+    state.sweetFxChromaticAberrationStrength =
+        ClampFloat(state.sweetFxChromaticAberrationStrength, 0.0f, 1.0f);
+    state.sweetFxBorderWidthX = ClampFloat(state.sweetFxBorderWidthX, 0.0f, 65504.0f);
+    state.sweetFxBorderWidthY = ClampFloat(state.sweetFxBorderWidthY, 0.0f, 65504.0f);
+    state.sweetFxBorderRatio = ClampFloat(state.sweetFxBorderRatio, 0.25f, 8.0f);
+    state.sweetFxBorderColor = {
+        ClampFloat(state.sweetFxBorderColor.x, 0.0f, 1.0f),
+        ClampFloat(state.sweetFxBorderColor.y, 0.0f, 1.0f),
+        ClampFloat(state.sweetFxBorderColor.z, 0.0f, 1.0f),
+    };
+    state.sweetFxBorderStrength = ClampFloat(state.sweetFxBorderStrength, 0.0f, 1.0f);
+    state.sweetFxCartoonPower = ClampFloat(state.sweetFxCartoonPower, 0.1f, 10.0f);
+    state.sweetFxCartoonEdgeSlope = ClampFloat(state.sweetFxCartoonEdgeSlope, 0.1f, 6.0f);
+    state.sweetFxCartoonStrength = ClampFloat(state.sweetFxCartoonStrength, 0.0f, 1.0f);
+    state.sweetFxTonemapGamma = ClampFloat(state.sweetFxTonemapGamma, 0.0f, 2.0f);
+    state.sweetFxTonemapExposure = ClampFloat(state.sweetFxTonemapExposure, -1.0f, 1.0f);
+    state.sweetFxTonemapSaturation = ClampFloat(state.sweetFxTonemapSaturation, -1.0f, 1.0f);
+    state.sweetFxTonemapBleach = ClampFloat(state.sweetFxTonemapBleach, 0.0f, 1.0f);
+    state.sweetFxTonemapDefog = ClampFloat(state.sweetFxTonemapDefog, 0.0f, 1.0f);
+    state.sweetFxTonemapFogColor = {
+        ClampFloat(state.sweetFxTonemapFogColor.x, 0.0f, 1.0f),
+        ClampFloat(state.sweetFxTonemapFogColor.y, 0.0f, 1.0f),
+        ClampFloat(state.sweetFxTonemapFogColor.z, 0.0f, 1.0f),
+    };
+    state.sweetFxTonemapStrength = ClampFloat(state.sweetFxTonemapStrength, 0.0f, 1.0f);
+    state.sweetFxSplitscreenMode = std::clamp(state.sweetFxSplitscreenMode, 0, 6);
+    state.sweetFxSplitscreenStrength = ClampFloat(state.sweetFxSplitscreenStrength, 0.0f, 1.0f);
+    state.sweetFxNostalgiaPalette = std::clamp(state.sweetFxNostalgiaPalette, 0, 14);
+    state.sweetFxNostalgiaScanlines = std::clamp(state.sweetFxNostalgiaScanlines, 0, 2);
+    state.sweetFxNostalgiaDither = ClampFloat(state.sweetFxNostalgiaDither, 0.0f, 1.0f);
+    state.sweetFxNostalgiaStrength = ClampFloat(state.sweetFxNostalgiaStrength, 0.0f, 1.0f);
+    state.sweetFxCompareMode = std::clamp(state.sweetFxCompareMode, 0, 8);
+    state.sweetFxCompareDifferenceScale = ClampFloat(state.sweetFxCompareDifferenceScale, 1.0f, 20.0f);
+    state.sweetFxCompareStrength = ClampFloat(state.sweetFxCompareStrength, 0.0f, 1.0f);
+    state.sweetFxLayerPosition = {
+        ClampFloat(state.sweetFxLayerPosition.x, 0.0f, 1.0f),
+        ClampFloat(state.sweetFxLayerPosition.y, 0.0f, 1.0f),
+    };
+    state.sweetFxLayerScale = ClampFloat(state.sweetFxLayerScale, 0.01f, 4.0f);
+    state.sweetFxLayerBlend = ClampFloat(state.sweetFxLayerBlend, 0.0f, 1.0f);
+    state.sweetFxLayerTexWidth = ClampFloat(state.sweetFxLayerTexWidth, 1.0f, 8192.0f);
+    state.sweetFxLayerTexHeight = ClampFloat(state.sweetFxLayerTexHeight, 1.0f, 8192.0f);
+    state.sweetFxFxaaSubpix = ClampFloat(state.sweetFxFxaaSubpix, 0.0f, 1.0f);
+    state.sweetFxFxaaEdgeThreshold = ClampFloat(state.sweetFxFxaaEdgeThreshold, 0.0f, 1.0f);
+    state.sweetFxFxaaEdgeThresholdMin = ClampFloat(state.sweetFxFxaaEdgeThresholdMin, 0.0f, 1.0f);
+    state.sweetFxFxaaStrength = ClampFloat(state.sweetFxFxaaStrength, 0.0f, 1.0f);
+    state.sweetFxCrtAmount = ClampFloat(state.sweetFxCrtAmount, 0.0f, 1.0f);
+    state.sweetFxCrtResolution = ClampFloat(state.sweetFxCrtResolution, 1.0f, 8.0f);
+    state.sweetFxCrtGamma = ClampFloat(state.sweetFxCrtGamma, 0.0f, 4.0f);
+    state.sweetFxCrtMonitorGamma = ClampFloat(state.sweetFxCrtMonitorGamma, 0.0f, 4.0f);
+    state.sweetFxCrtBrightness = ClampFloat(state.sweetFxCrtBrightness, 0.0f, 3.0f);
+    state.sweetFxCrtScanlineIntensity = std::clamp(state.sweetFxCrtScanlineIntensity, 2, 4);
+    state.sweetFxCrtScanlineGaussian = ClampFloat(state.sweetFxCrtScanlineGaussian, 0.0f, 1.0f);
+    state.sweetFxCrtCurvature = ClampFloat(state.sweetFxCrtCurvature, 0.0f, 1.0f);
+    state.sweetFxCrtCurvatureRadius = ClampFloat(state.sweetFxCrtCurvatureRadius, 0.0f, 2.0f);
+    state.sweetFxCrtCornerSize = ClampFloat(state.sweetFxCrtCornerSize, 0.0f, 0.02f);
+    state.sweetFxCrtViewerDistance = ClampFloat(state.sweetFxCrtViewerDistance, 0.0f, 4.0f);
+    state.sweetFxCrtAngle = {
+        ClampFloat(state.sweetFxCrtAngle.x, -0.2f, 0.2f),
+        ClampFloat(state.sweetFxCrtAngle.y, -0.2f, 0.2f),
+    };
+    state.sweetFxCrtOverscan = ClampFloat(state.sweetFxCrtOverscan, 1.0f, 1.10f);
+    state.sweetFxCrtOversample = ClampFloat(state.sweetFxCrtOversample, 0.0f, 1.0f);
+    state.sweetFxAsciiSpacing = std::clamp(state.sweetFxAsciiSpacing, 0, 5);
+    state.sweetFxAsciiFont = std::clamp(state.sweetFxAsciiFont, 0, 1);
+    state.sweetFxAsciiFontColorMode = std::clamp(state.sweetFxAsciiFontColorMode, 0, 2);
+    state.sweetFxAsciiFontColor = {
+        ClampFloat(state.sweetFxAsciiFontColor.x, 0.0f, 1.0f),
+        ClampFloat(state.sweetFxAsciiFontColor.y, 0.0f, 1.0f),
+        ClampFloat(state.sweetFxAsciiFontColor.z, 0.0f, 1.0f),
+    };
+    state.sweetFxAsciiBackgroundColor = {
+        ClampFloat(state.sweetFxAsciiBackgroundColor.x, 0.0f, 1.0f),
+        ClampFloat(state.sweetFxAsciiBackgroundColor.y, 0.0f, 1.0f),
+        ClampFloat(state.sweetFxAsciiBackgroundColor.z, 0.0f, 1.0f),
+    };
+    state.sweetFxAsciiSwapColors = ClampFloat(state.sweetFxAsciiSwapColors, 0.0f, 1.0f);
+    state.sweetFxAsciiInvertBrightness = ClampFloat(state.sweetFxAsciiInvertBrightness, 0.0f, 1.0f);
+    state.sweetFxAsciiDithering = ClampFloat(state.sweetFxAsciiDithering, 0.0f, 1.0f);
+    state.sweetFxAsciiDitheringIntensity = ClampFloat(state.sweetFxAsciiDitheringIntensity, 0.0f, 4.0f);
+    state.sweetFxAsciiDitheringDebugGradient = ClampFloat(state.sweetFxAsciiDitheringDebugGradient, 0.0f, 1.0f);
+    state.sweetFxAsciiStrength = ClampFloat(state.sweetFxAsciiStrength, 0.0f, 1.0f);
+    state.sweetFxSmaaEdgeDetectionType = std::clamp(state.sweetFxSmaaEdgeDetectionType, 0, 2);
+    state.sweetFxSmaaEdgeThreshold = ClampFloat(state.sweetFxSmaaEdgeThreshold, 0.01f, 0.50f);
+    state.sweetFxSmaaDepthThreshold = ClampFloat(state.sweetFxSmaaDepthThreshold, 0.001f, 0.50f);
+    state.sweetFxSmaaMaxSearchSteps = std::clamp(state.sweetFxSmaaMaxSearchSteps, 0, 112);
+    state.sweetFxSmaaMaxSearchStepsDiagonal = std::clamp(state.sweetFxSmaaMaxSearchStepsDiagonal, 0, 20);
+    state.sweetFxSmaaCornerRounding = std::clamp(state.sweetFxSmaaCornerRounding, 0, 100);
+    state.sweetFxSmaaDebugOutput = ClampFloat(state.sweetFxSmaaDebugOutput, 0.0f, 2.0f);
+    state.sweetFxSmaaStrength = ClampFloat(state.sweetFxSmaaStrength, 0.0f, 1.0f);
+    state.reshadeDaltonizeType = std::clamp(state.reshadeDaltonizeType, 0, 2);
+    state.reshadeDaltonizeStrength = ClampFloat(state.reshadeDaltonizeStrength, 0.0f, 1.0f);
+    state.reshadeDisplayDepthPresentType = std::clamp(state.reshadeDisplayDepthPresentType, 0, 2);
+    state.reshadeDisplayDepthStrength = ClampFloat(state.reshadeDisplayDepthStrength, 0.0f, 1.0f);
+    state.reshadeLutAmountChroma = ClampFloat(state.reshadeLutAmountChroma, 0.0f, 1.0f);
+    state.reshadeLutAmountLuma = ClampFloat(state.reshadeLutAmountLuma, 0.0f, 1.0f);
+    state.reshadeLutStrength = ClampFloat(state.reshadeLutStrength, 0.0f, 1.0f);
     FinalizeLabel(state.activeVolumes, state.label);
     return state;
 }
@@ -5550,6 +6009,136 @@ ri::render::PostProcessParameters BuildPostProcessParameters(
         .tintStrength = state.tintStrength,
         .blurAmount = state.blurAmount,
         .staticFadeAmount = staticFadeAmount,
+        .casSharpenAmount = state.casSharpenAmount,
+        .casContrastAdaptation = state.casContrastAdaptation,
+        .bloomIntensity = state.bloomIntensity,
+        .bloomThreshold = state.bloomThreshold,
+        .debandStrength = state.debandStrength,
+        .toneCurveStrength = state.toneCurveStrength,
+        .outputDitherStrength = state.outputDitherStrength,
+        .vignetteStrength = state.vignetteStrength,
+        .filmGrainIntensity = state.filmGrainIntensity,
+        .liftRgb = state.liftRgb,
+        .gammaRgb = state.gammaRgb,
+        .gainRgb = state.gainRgb,
+        .liftGammaGainMix = state.liftGammaGainMix,
+        .vibrance = state.vibrance,
+        .vibranceRgbBalance = state.vibranceRgbBalance,
+        .technicolorPower = state.technicolorPower,
+        .technicolorRgbNegative = state.technicolorRgbNegative,
+        .technicolorStrength = state.technicolorStrength,
+        .technicolor2ColorStrength = state.technicolor2ColorStrength,
+        .technicolor2Brightness = state.technicolor2Brightness,
+        .technicolor2Saturation = state.technicolor2Saturation,
+        .technicolor2Strength = state.technicolor2Strength,
+        .sepiaTint = state.sepiaTint,
+        .sepiaStrength = state.sepiaStrength,
+        .monochromePreset = state.monochromePreset,
+        .monochromeCustomCoeff = state.monochromeCustomCoeff,
+        .monochromeColorSaturation = state.monochromeColorSaturation,
+        .dpxRgbCurve = state.dpxRgbCurve,
+        .dpxRgbC = state.dpxRgbC,
+        .dpxContrast = state.dpxContrast,
+        .dpxSaturation = state.dpxSaturation,
+        .dpxColorfulness = state.dpxColorfulness,
+        .dpxStrength = state.dpxStrength,
+        .colorMatrixRed = state.colorMatrixRed,
+        .colorMatrixGreen = state.colorMatrixGreen,
+        .colorMatrixBlue = state.colorMatrixBlue,
+        .colorMatrixStrength = state.colorMatrixStrength,
+        .fakeHdrPower = state.fakeHdrPower,
+        .fakeHdrRadius1 = state.fakeHdrRadius1,
+        .fakeHdrRadius2 = state.fakeHdrRadius2,
+        .fakeHdrStrength = state.fakeHdrStrength,
+        .levelsBlackPoint = state.levelsBlackPoint,
+        .levelsWhitePoint = state.levelsWhitePoint,
+        .levelsStrength = state.levelsStrength,
+        .levelsClipHighlight = state.levelsClipHighlight,
+        .lumaSharpenStrength = state.lumaSharpenStrength,
+        .lumaSharpenClamp = state.lumaSharpenClamp,
+        .lumaSharpenPattern = state.lumaSharpenPattern,
+        .lumaSharpenOffsetBias = state.lumaSharpenOffsetBias,
+        .lumaSharpenShowPattern = state.lumaSharpenShowPattern,
+        .sweetFxCurvesMode = state.sweetFxCurvesMode,
+        .sweetFxCurvesFormula = state.sweetFxCurvesFormula,
+        .sweetFxCurvesContrast = state.sweetFxCurvesContrast,
+        .sweetFxCurvesStrength = state.sweetFxCurvesStrength,
+        .sweetFxChromaticAberrationShiftX = state.sweetFxChromaticAberrationShiftX,
+        .sweetFxChromaticAberrationShiftY = state.sweetFxChromaticAberrationShiftY,
+        .sweetFxChromaticAberrationStrength = state.sweetFxChromaticAberrationStrength,
+        .sweetFxBorderWidthX = state.sweetFxBorderWidthX,
+        .sweetFxBorderWidthY = state.sweetFxBorderWidthY,
+        .sweetFxBorderRatio = state.sweetFxBorderRatio,
+        .sweetFxBorderColor = state.sweetFxBorderColor,
+        .sweetFxBorderStrength = state.sweetFxBorderStrength,
+        .sweetFxCartoonPower = state.sweetFxCartoonPower,
+        .sweetFxCartoonEdgeSlope = state.sweetFxCartoonEdgeSlope,
+        .sweetFxCartoonStrength = state.sweetFxCartoonStrength,
+        .sweetFxTonemapGamma = state.sweetFxTonemapGamma,
+        .sweetFxTonemapExposure = state.sweetFxTonemapExposure,
+        .sweetFxTonemapSaturation = state.sweetFxTonemapSaturation,
+        .sweetFxTonemapBleach = state.sweetFxTonemapBleach,
+        .sweetFxTonemapDefog = state.sweetFxTonemapDefog,
+        .sweetFxTonemapFogColor = state.sweetFxTonemapFogColor,
+        .sweetFxTonemapStrength = state.sweetFxTonemapStrength,
+        .sweetFxSplitscreenMode = state.sweetFxSplitscreenMode,
+        .sweetFxSplitscreenStrength = state.sweetFxSplitscreenStrength,
+        .sweetFxNostalgiaPalette = state.sweetFxNostalgiaPalette,
+        .sweetFxNostalgiaScanlines = state.sweetFxNostalgiaScanlines,
+        .sweetFxNostalgiaDither = state.sweetFxNostalgiaDither,
+        .sweetFxNostalgiaStrength = state.sweetFxNostalgiaStrength,
+        .sweetFxCompareMode = state.sweetFxCompareMode,
+        .sweetFxCompareDifferenceScale = state.sweetFxCompareDifferenceScale,
+        .sweetFxCompareStrength = state.sweetFxCompareStrength,
+        .sweetFxLayerPosition = state.sweetFxLayerPosition,
+        .sweetFxLayerScale = state.sweetFxLayerScale,
+        .sweetFxLayerBlend = state.sweetFxLayerBlend,
+        .sweetFxLayerTexWidth = state.sweetFxLayerTexWidth,
+        .sweetFxLayerTexHeight = state.sweetFxLayerTexHeight,
+        .sweetFxFxaaSubpix = state.sweetFxFxaaSubpix,
+        .sweetFxFxaaEdgeThreshold = state.sweetFxFxaaEdgeThreshold,
+        .sweetFxFxaaEdgeThresholdMin = state.sweetFxFxaaEdgeThresholdMin,
+        .sweetFxFxaaStrength = state.sweetFxFxaaStrength,
+        .sweetFxCrtAmount = state.sweetFxCrtAmount,
+        .sweetFxCrtResolution = state.sweetFxCrtResolution,
+        .sweetFxCrtGamma = state.sweetFxCrtGamma,
+        .sweetFxCrtMonitorGamma = state.sweetFxCrtMonitorGamma,
+        .sweetFxCrtBrightness = state.sweetFxCrtBrightness,
+        .sweetFxCrtScanlineIntensity = state.sweetFxCrtScanlineIntensity,
+        .sweetFxCrtScanlineGaussian = state.sweetFxCrtScanlineGaussian,
+        .sweetFxCrtCurvature = state.sweetFxCrtCurvature,
+        .sweetFxCrtCurvatureRadius = state.sweetFxCrtCurvatureRadius,
+        .sweetFxCrtCornerSize = state.sweetFxCrtCornerSize,
+        .sweetFxCrtViewerDistance = state.sweetFxCrtViewerDistance,
+        .sweetFxCrtAngle = state.sweetFxCrtAngle,
+        .sweetFxCrtOverscan = state.sweetFxCrtOverscan,
+        .sweetFxCrtOversample = state.sweetFxCrtOversample,
+        .sweetFxAsciiSpacing = state.sweetFxAsciiSpacing,
+        .sweetFxAsciiFont = state.sweetFxAsciiFont,
+        .sweetFxAsciiFontColorMode = state.sweetFxAsciiFontColorMode,
+        .sweetFxAsciiFontColor = state.sweetFxAsciiFontColor,
+        .sweetFxAsciiBackgroundColor = state.sweetFxAsciiBackgroundColor,
+        .sweetFxAsciiSwapColors = state.sweetFxAsciiSwapColors,
+        .sweetFxAsciiInvertBrightness = state.sweetFxAsciiInvertBrightness,
+        .sweetFxAsciiDithering = state.sweetFxAsciiDithering,
+        .sweetFxAsciiDitheringIntensity = state.sweetFxAsciiDitheringIntensity,
+        .sweetFxAsciiDitheringDebugGradient = state.sweetFxAsciiDitheringDebugGradient,
+        .sweetFxAsciiStrength = state.sweetFxAsciiStrength,
+        .sweetFxSmaaEdgeDetectionType = state.sweetFxSmaaEdgeDetectionType,
+        .sweetFxSmaaEdgeThreshold = state.sweetFxSmaaEdgeThreshold,
+        .sweetFxSmaaDepthThreshold = state.sweetFxSmaaDepthThreshold,
+        .sweetFxSmaaMaxSearchSteps = state.sweetFxSmaaMaxSearchSteps,
+        .sweetFxSmaaMaxSearchStepsDiagonal = state.sweetFxSmaaMaxSearchStepsDiagonal,
+        .sweetFxSmaaCornerRounding = state.sweetFxSmaaCornerRounding,
+        .sweetFxSmaaDebugOutput = state.sweetFxSmaaDebugOutput,
+        .sweetFxSmaaStrength = state.sweetFxSmaaStrength,
+        .reshadeDaltonizeType = state.reshadeDaltonizeType,
+        .reshadeDaltonizeStrength = state.reshadeDaltonizeStrength,
+        .reshadeDisplayDepthPresentType = state.reshadeDisplayDepthPresentType,
+        .reshadeDisplayDepthStrength = state.reshadeDisplayDepthStrength,
+        .reshadeLutAmountChroma = state.reshadeLutAmountChroma,
+        .reshadeLutAmountLuma = state.reshadeLutAmountLuma,
+        .reshadeLutStrength = state.reshadeLutStrength,
     });
 }
 

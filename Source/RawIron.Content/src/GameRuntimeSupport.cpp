@@ -65,7 +65,9 @@ namespace {
         return fallback;
     }
     try {
-        return std::stof(trimmed);
+        std::size_t consumed = 0;
+        const float parsed = std::stof(trimmed, &consumed);
+        return consumed == trimmed.size() ? parsed : fallback;
     } catch (...) {
         return fallback;
     }
@@ -73,10 +75,16 @@ namespace {
 
 [[nodiscard]] int FindColumnIndex(const std::vector<std::string>& headerParts,
                                   std::initializer_list<std::string_view> aliases) {
+    std::vector<std::string> normalizedAliases;
+    normalizedAliases.reserve(aliases.size());
+    for (const std::string_view alias : aliases) {
+        normalizedAliases.push_back(NormalizeKey(std::string(alias)));
+    }
+
     for (std::size_t index = 0; index < headerParts.size(); ++index) {
         const std::string normalizedHeader = NormalizeKey(headerParts[index]);
-        for (const std::string_view alias : aliases) {
-            if (normalizedHeader == NormalizeKey(std::string(alias))) {
+        for (const std::string& alias : normalizedAliases) {
+            if (normalizedHeader == alias) {
                 return static_cast<int>(index);
             }
         }

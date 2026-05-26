@@ -802,6 +802,9 @@ const RgbaImage* ResolveTexture(TextureCache& cache,
                 static_cast<long long>(frameCursor) % static_cast<long long>(material.baseColorTextureFrames.size()));
         }
         textureName = material.baseColorTextureFrames[frameIndex];
+        if (textureName.empty()) {
+            textureName = material.baseColorTexture;
+        }
     }
 
     if (textureName.empty()) {

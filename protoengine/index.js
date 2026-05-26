@@ -378,6 +378,12 @@ class Player {
         return groundHit;
     }
 
+    zeroLateralVelocityFromSlideHits(hits) {
+        if (!hits?.length) return;
+        if (hits.some((hit) => Math.abs(hit?.normal?.x || 0) > 0.3)) this.velocity.x = 0;
+        if (hits.some((hit) => Math.abs(hit?.normal?.z || 0) > 0.3)) this.velocity.z = 0;
+    }
+
     update(delta, moveState) {
         if (this.controls.isLocked === true) {
             const dt = (!Number.isFinite(delta) || delta <= 0) ? 1 / 60 : Math.min(0.2, delta);
@@ -493,25 +499,13 @@ class Player {
                 if (!canStepUp || !this.tryStepUp(prevPosition) || this.checkCollision()) {
                     this.feetPosition.y = prevPosition.y;
                     this.syncCameraToBody();
-                    if (horizontalResult.hits?.some((hit) => Math.abs(hit.normal?.x || 0) > 0.3)) {
-                        this.velocity.x = 0;
-                    }
-                    if (horizontalResult.hits?.some((hit) => Math.abs(hit.normal?.z || 0) > 0.3)) {
-                        this.velocity.z = 0;
-                    }
+                    this.zeroLateralVelocityFromSlideHits(horizontalResult.hits);
                 } else {
                     this.feetPosition.x = prevPosition.x;
                     this.feetPosition.z = prevPosition.z;
                     this.syncCameraToBody();
                     const steppedResult = this.moveWithSlide(horizontalMotion);
-                    if (steppedResult?.blocked) {
-                        if (steppedResult.hits?.some((hit) => Math.abs(hit.normal?.x || 0) > 0.3)) {
-                            this.velocity.x = 0;
-                        }
-                        if (steppedResult.hits?.some((hit) => Math.abs(hit.normal?.z || 0) > 0.3)) {
-                            this.velocity.z = 0;
-                        }
-                    }
+                    if (steppedResult?.blocked) this.zeroLateralVelocityFromSlideHits(steppedResult.hits);
                 }
             }
 
@@ -530,9 +524,9 @@ class Player {
             }
 
             this.camera.rotation.z = 0;
-            if (!Number.isFinite(this.velocity.x)) this.velocity.x = 0;
-            if (!Number.isFinite(this.velocity.y)) this.velocity.y = 0;
-            if (!Number.isFinite(this.velocity.z)) this.velocity.z = 0;
+            for (const k of ['x', 'y', 'z']) {
+                if (!Number.isFinite(this.velocity[k])) this.velocity[k] = 0;
+            }
         }
     }
 }
@@ -671,11 +665,8 @@ export class AnomalousEchoGame {
             hud: document.getElementById('hud')
         };
 
-        this.ui.startMenu?.addEventListener('click', () => {
-            this.requestGameplayEnter();
-        });
-        this.ui.pauseMenu?.addEventListener('click', () => {
-            this.requestGameplayEnter();
+        [this.ui.startMenu, this.ui.pauseMenu].forEach((el) => {
+            el?.addEventListener('click', () => this.requestGameplayEnter());
         });
         this.ui.gameOverScreen?.addEventListener('click', () => {
             this.reloadGameFromBestAvailableStart();
@@ -694,7 +685,11 @@ export class AnomalousEchoGame {
         this.setupInputListeners();
     }
 
-    
+    _setLoadingProgressUI(progress) {
+        const p = Math.max(0, Math.min(100, Math.round(Number(progress) || 0)));
+        if (this.ui.loadingProgressFill) this.ui.loadingProgressFill.style.width = `${p}%`;
+        if (this.ui.loadingProgressBar) this.ui.loadingProgressBar.setAttribute('aria-valuenow', String(p));
+    }
 
     getElapsedTime() {
         return this._elapsedTimeOverride ?? this.clock.getElapsedTime();
@@ -707,8 +702,7 @@ export class AnomalousEchoGame {
         }
     }
 
-    emitRuntimeEvent(eventName, payload = {}) {
-        void eventName;
+    emitRuntimeEvent(_eventName, payload = {}) {
         return payload && typeof payload === 'object' ? payload : {};
     }
 
@@ -716,7 +710,7 @@ export class AnomalousEchoGame {
         this.clearPendingGameplayEnter();
         try {
             if (!this.controls.isLocked && document.pointerLockElement !== this.controls.domElement) {
-            this.controls.lock();
+                this.controls.lock();
             }
         } catch (_) {}
         this._pendingGameplayEnterTimeout = window.setTimeout(() => {
@@ -731,8 +725,9 @@ export class AnomalousEchoGame {
     async handleLock() {
         this.clearPendingGameplayEnter();
         if (this.gameState.isGameOver) return;
-        if (this.ui.startMenu) this.ui.startMenu.style.display = 'none';
-        if (this.ui.pauseMenu) this.ui.pauseMenu.style.display = 'none';
+        [this.ui.startMenu, this.ui.pauseMenu].forEach((el) => {
+            if (el) el.style.display = 'none';
+        });
 
         if (!this.gameStarted) await this.startGame();
         this.ui.hud?.classList.add('visible');
@@ -744,9 +739,9 @@ export class AnomalousEchoGame {
         if (!this.gameState.isLoaded || this.gameState.isGameOver) return;
 
         this.ui.hud?.classList.remove('visible');
-            if (this.ui.pauseMenu) this.ui.pauseMenu.style.display = 'flex';
-        this.gameState.isPaused = true; 
-        
+        if (this.ui.pauseMenu) this.ui.pauseMenu.style.display = 'flex';
+        this.gameState.isPaused = true;
+
         this.setShaderIntensity('menu'); 
         this.emitRuntimeEvent('stateChanged', { id: createRuntimeId('state'), key: 'isPaused', value: true, reason: 'unlock' });
     }
@@ -764,10 +759,7 @@ export class AnomalousEchoGame {
         this.keyUpHandler = this.handleKeyUp.bind(this);
         this.resizeHandler = this.onWindowResize.bind(this);
         this.visibilityChangeHandler = this.handleVisibilityChange.bind(this);
-        this.pointerLockErrorHandler = () => {
-            if (!this.controls.isLocked) {
-            }
-        };
+        this.pointerLockErrorHandler = () => {};
 
         document.addEventListener('keydown', this.keyDownHandler);
         document.addEventListener('keyup', this.keyUpHandler);
@@ -888,11 +880,16 @@ export class AnomalousEchoGame {
             return String(explicit).trim().toLowerCase();
         }
         const hint = `${spawnData?.name || ''} ${spawnData?.id || ''} ${modelName || ''}`.toLowerCase();
-        if (/(doctor|medic|surgeon|nurse|medical)/.test(hint)) return 'doctor';
-        if (/(firefighter|fireman|rescue|ems)/.test(hint)) return 'firefighter';
-        if (/(police|officer|cop|security|guard)/.test(hint)) return 'police';
-        if (/(hazmat|radiation|containment)/.test(hint)) return 'hazmat';
-        if (/(soldier|military|marine)/.test(hint)) return 'soldier';
+        const rules = [
+            [/(doctor|medic|surgeon|nurse|medical)/, 'doctor'],
+            [/(firefighter|fireman|rescue|ems)/, 'firefighter'],
+            [/(police|officer|cop|security|guard)/, 'police'],
+            [/(hazmat|radiation|containment)/, 'hazmat'],
+            [/(soldier|military|marine)/, 'soldier']
+        ];
+        for (const [pattern, role] of rules) {
+            if (pattern.test(hint)) return role;
+        }
         return 'civilian';
     }
 
@@ -922,10 +919,7 @@ export class AnomalousEchoGame {
         manager.onProgress = (url, loaded, total) => {
             const progress = total > 0 ? Math.round((loaded / total) * 100) : 100;
             if (this.ui.loadingProgress) this.ui.loadingProgress.textContent = `LOADING... ${progress}%`;
-            if (this.ui.loadingProgressFill) this.ui.loadingProgressFill.style.width = progress + '%';
-            if (this.ui.loadingProgressBar) {
-                this.ui.loadingProgressBar.setAttribute('aria-valuenow', String(progress));
-            }
+            this._setLoadingProgressUI(progress);
         };
         manager.onLoad = async () => {
             this.gameState.isLoaded = true;
@@ -933,8 +927,7 @@ export class AnomalousEchoGame {
             this.emitRuntimeEvent('stateChanged', { id: createRuntimeId('state'), key: 'isLoaded', value: true });
 
             this.animate();
-
-                await this.autoLaunchDevMode();
+            await this.autoLaunchDevMode();
         };
 
         const explicitTextureManifest = GameAssets.textureManifest || {};
@@ -1002,8 +995,9 @@ export class AnomalousEchoGame {
         this.completedEventIds = new Set();
         await this.startGame();
         if (this.ui.loadingScreen) this.ui.loadingScreen.style.display = 'none';
-        if (this.ui.startMenu) this.ui.startMenu.style.display = 'none';
-        if (this.ui.pauseMenu) this.ui.pauseMenu.style.display = 'none';
+        [this.ui.startMenu, this.ui.pauseMenu].forEach((el) => {
+            if (el) el.style.display = 'none';
+        });
         this.ui.hud?.classList.add('visible');
         this.gameState.isPaused = true;
         if (this.ui.startMenu) {
@@ -1067,13 +1061,11 @@ export class AnomalousEchoGame {
     }
 
     queryStructuralCollidablesForBox(box) {
-        const statics = this.structuralCollisionIndex ? this.structuralCollisionIndex.queryBox(box) : [...this.structuralCollidableMeshes];
-        return statics;
+        return this.structuralCollisionIndex ? this.structuralCollisionIndex.queryBox(box) : [...this.structuralCollidableMeshes];
     }
 
     queryStructuralCollidablesForRay(origin, direction, far) {
-        const statics = this.structuralCollisionIndex ? this.structuralCollisionIndex.queryRay(origin, direction, far) : [...this.structuralCollidableMeshes];
-        return statics;
+        return this.structuralCollisionIndex ? this.structuralCollisionIndex.queryRay(origin, direction, far) : [...this.structuralCollidableMeshes];
     }
 
     objectContainsObject(root, object) {
@@ -1177,8 +1169,7 @@ export class AnomalousEchoGame {
                 }
             }
         }
-        if (bestHit) return bestHit;
-        return null;
+        return bestHit;
     }
 
     slideMoveBox(queryBox, delta, options = {}) {
@@ -1308,9 +1299,9 @@ export class AnomalousEchoGame {
 
     disposeMaterial(material) {
         if (!material) return;
-        if (material.map) material.map.dispose();
-        if (material.normalMap) material.normalMap.dispose();
-        if (material.emissiveMap) material.emissiveMap.dispose();
+        for (const key of ['map', 'normalMap', 'emissiveMap']) {
+            if (material[key]) material[key].dispose();
+        }
         material.dispose();
     }
 
@@ -1336,11 +1327,11 @@ export class AnomalousEchoGame {
     }
 
     clearLevel() {
-        this.flickerIntervals.forEach(interval => clearInterval(interval));
+        this.flickerIntervals.forEach(clearInterval);
         this.flickerIntervals = [];
-        this.levelTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
-        this.levelIntervals.forEach(intervalId => clearInterval(intervalId));
+        this.levelTimeouts.forEach(clearTimeout);
         this.levelTimeouts = [];
+        this.levelIntervals.forEach(clearInterval);
         this.levelIntervals = [];
 
         if (this.hudDismissTimers?.size) {
@@ -1450,8 +1441,7 @@ export class AnomalousEchoGame {
     
         if (modelsToLoad.length > 0) {
             if (this.ui.loadingProgress) this.ui.loadingProgress.textContent = `Loading ${levelFilename}...`;
-            if (this.ui.loadingProgressFill) this.ui.loadingProgressFill.style.width = '10%';
-            if (this.ui.loadingProgressBar) this.ui.loadingProgressBar.setAttribute('aria-valuenow', '10');
+            this._setLoadingProgressUI(10);
             await Promise.all(modelsToLoad.map(async (modelName) => {
                 try {
                     await this.loadModelAsset(modelName);
@@ -1461,8 +1451,7 @@ export class AnomalousEchoGame {
             }));
         }
 
-        if (this.ui.loadingProgressFill) this.ui.loadingProgressFill.style.width = '100%';
-        if (this.ui.loadingProgressBar) this.ui.loadingProgressBar.setAttribute('aria-valuenow', '100');
+        this._setLoadingProgressUI(100);
         this.ui.loadingProgress && (this.ui.loadingProgress.textContent = 'Ready.');
         if (levelData.settings && levelData.settings.backgroundColor) this.scene.background = new Color(levelData.settings.backgroundColor);
         levelData.lights?.forEach((d) => this.createLightFromData(d));
@@ -1533,9 +1522,6 @@ export class AnomalousEchoGame {
             activeRadialForces: []
         };
         if (!position) return modifiers;
-        modifiers.drag = MathUtils.clamp(modifiers.drag, 0, 8);
-        modifiers.buoyancy = MathUtils.clamp(modifiers.buoyancy, 0, 3);
-        modifiers.gravityScale = MathUtils.clamp(modifiers.gravityScale, -2, 4);
         return modifiers;
     }
 
@@ -1654,8 +1640,8 @@ export class AnomalousEchoGame {
         let minX = Infinity, minY = Infinity, minZ = Infinity;
         let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
         for (const [x, y, z] of points) {
-            if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z;
-            if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z;
+            minX = Math.min(minX, x); minY = Math.min(minY, y); minZ = Math.min(minZ, z);
+            maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); maxZ = Math.max(maxZ, z);
         }
         const sx = Math.max(0.01, maxX - minX);
         const sy = Math.max(0.01, maxY - minY);
@@ -1698,22 +1684,21 @@ export class AnomalousEchoGame {
         return merged;
     }
 
+    _finishSimpleExtrudedProfile(shape, rotateGeometry) {
+        const geometry = new ExtrudeGeometry(shape, { depth: 1, bevelEnabled: false, steps: 1, curveSegments: 1 });
+        rotateGeometry(geometry);
+        geometry.center();
+        geometry.computeVertexNormals();
+        return geometry;
+    }
+
     createRampPrimitiveGeometry() {
         const shape = new Shape();
         shape.moveTo(-0.5, -0.5);
         shape.lineTo(-0.5, 0.5);
         shape.lineTo(0.5, -0.5);
         shape.lineTo(-0.5, -0.5);
-        const geometry = new ExtrudeGeometry(shape, {
-            depth: 1,
-            bevelEnabled: false,
-            steps: 1,
-            curveSegments: 1
-        });
-        geometry.rotateY(Math.PI / 2);
-        geometry.center();
-        geometry.computeVertexNormals();
-        return geometry;
+        return this._finishSimpleExtrudedProfile(shape, (g) => g.rotateY(Math.PI / 2));
     }
 
     createWedgePrimitiveGeometry() {
@@ -1722,16 +1707,7 @@ export class AnomalousEchoGame {
         shape.lineTo(0.5, -0.5);
         shape.lineTo(-0.5, 0.5);
         shape.lineTo(-0.5, -0.5);
-        const geometry = new ExtrudeGeometry(shape, {
-            depth: 1,
-            bevelEnabled: false,
-            steps: 1,
-            curveSegments: 1
-        });
-        geometry.rotateX(-Math.PI / 2);
-        geometry.center();
-        geometry.computeVertexNormals();
-        return geometry;
+        return this._finishSimpleExtrudedProfile(shape, (g) => g.rotateX(-Math.PI / 2));
     }
 
     createCylinderPrimitiveGeometry(data) {
@@ -1753,28 +1729,24 @@ export class AnomalousEchoGame {
         return points;
     }
 
-    createShapeFromPointLoop(points) {
+    _planarLoopFromPoints(points, LoopClass) {
         const safePoints = Array.isArray(points) ? points.filter(Boolean) : [];
-        const shape = new Shape();
-        if (safePoints.length === 0) return shape;
-        shape.moveTo(safePoints[0].x, safePoints[0].y);
+        const loop = new LoopClass();
+        if (safePoints.length === 0) return loop;
+        loop.moveTo(safePoints[0].x, safePoints[0].y);
         for (let index = 1; index < safePoints.length; index += 1) {
-            shape.lineTo(safePoints[index].x, safePoints[index].y);
+            loop.lineTo(safePoints[index].x, safePoints[index].y);
         }
-        shape.lineTo(safePoints[0].x, safePoints[0].y);
-        return shape;
+        loop.lineTo(safePoints[0].x, safePoints[0].y);
+        return loop;
+    }
+
+    createShapeFromPointLoop(points) {
+        return this._planarLoopFromPoints(points, Shape);
     }
 
     createPathFromPointLoop(points) {
-        const safePoints = Array.isArray(points) ? points.filter(Boolean) : [];
-        const path = new Path();
-        if (safePoints.length === 0) return path;
-        path.moveTo(safePoints[0].x, safePoints[0].y);
-        for (let index = 1; index < safePoints.length; index += 1) {
-            path.lineTo(safePoints[index].x, safePoints[index].y);
-        }
-        path.lineTo(safePoints[0].x, safePoints[0].y);
-        return path;
+        return this._planarLoopFromPoints(points, Path);
     }
 
     createExtrudedStructuralShapeGeometry(shape, {
@@ -2533,18 +2505,14 @@ export class AnomalousEchoGame {
             else delta = Math.min(0.2, delta);
             if (!this.gameState.isPaused) {
                 this.setShaderIntensity('gameplay');
-            }
-
-            if (!this.gameState.isPaused) {
-
-                    this.player.update(delta, this.moveState);
+                this.player.update(delta, this.moveState);
                 this.updateEnvironmentalVolumes();
                 this.updateSoundscape(delta);
                 this.updateHUD(delta);
             } else {
                 this.updateEnvironmentalVolumes();
             }
-            
+
             this.renderFrame();
         } finally {
             this._elapsedTimeOverride = previousElapsedOverride;
@@ -2574,11 +2542,11 @@ export class AnomalousEchoGame {
         this.updateTriggerVolumes();
     }
 
-     cleanup() {
-        this.flickerIntervals.forEach((id) => clearInterval(id));
+    cleanup() {
+        this.flickerIntervals.forEach(clearInterval);
         this.flickerIntervals = [];
-        this.levelTimeouts.forEach((id) => clearTimeout(id));
-        this.levelIntervals.forEach((id) => clearInterval(id));
+        this.levelTimeouts.forEach(clearTimeout);
+        this.levelIntervals.forEach(clearInterval);
         this.levelTimeouts = [];
         this.levelIntervals = [];
         if (this.hudDismissTimers?.size) {
@@ -2608,7 +2576,7 @@ export class AnomalousEchoGame {
             cancelAnimationFrame(this.animationFrameId);
             this.animationFrameId = null;
         }
-     }
+    }
 }
 
 let gameInstance = new AnomalousEchoGame();

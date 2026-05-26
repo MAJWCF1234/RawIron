@@ -2,6 +2,7 @@
 
 #include "RawIron/Core/CommandLine.h"
 #include "RawIron/Core/Log.h"
+#include "RawIron/Runtime/LevelSchedulerRuntimeModule.h"
 #include "RawIron/Runtime/RuntimeId.h"
 
 #include <algorithm>
@@ -125,6 +126,10 @@ void RuntimeModule::OnRuntimeShutdown(RuntimeContext&) {}
 RuntimeCore::RuntimeCore(RuntimeIdentity identity, RuntimePaths paths)
     : context_(std::move(identity), std::move(paths)) {}
 
+void RuntimeCore::AddDefaultModules() {
+    (void)TryAddModule(std::make_unique<LevelSchedulerRuntimeModule>());
+}
+
 RuntimeContext& RuntimeCore::Context() noexcept {
     return context_;
 }
@@ -134,7 +139,9 @@ const RuntimeContext& RuntimeCore::Context() const noexcept {
 }
 
 void RuntimeCore::AddModule(std::unique_ptr<RuntimeModule> module) {
-    (void)TryAddModule(std::move(module));
+    if (!TryAddModule(std::move(module))) {
+        ri::core::LogInfo("Runtime module registration failed (null, unnamed, or duplicate module).");
+    }
 }
 
 bool RuntimeCore::TryAddModule(std::unique_ptr<RuntimeModule> module) {

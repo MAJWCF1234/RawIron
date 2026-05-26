@@ -199,6 +199,8 @@ int main(int argc, char** argv) {
         }
         return 0;
     }
+    options.launchArgc = argc;
+    options.launchArgv = argv;
     if (!ri::games::liminal::RunStandalone(options, &error)) {
         if (!error.empty()) {
             ri::core::LogSection("Liminal Game Failure");

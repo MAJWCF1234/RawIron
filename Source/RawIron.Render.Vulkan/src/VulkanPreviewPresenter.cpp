@@ -419,13 +419,14 @@ bool PresentPreviewImageWindow(const PreviewImageData& inputImage,
             VK_KHR_SURFACE_EXTENSION_NAME,
             VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
         };
+        // Match native preview: Vulkan 1.1 instance avoids layer/device create failures (e.g. ReShade vkCreateDevice -8).
         const VkApplicationInfo applicationInfo{
             .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
             .pApplicationName = "RawIron Vulkan Preview",
             .applicationVersion = VK_MAKE_VERSION(0, 1, 0),
             .pEngineName = "RawIron",
             .engineVersion = VK_MAKE_VERSION(0, 1, 0),
-            .apiVersion = VK_API_VERSION_1_0,
+            .apiVersion = VK_API_VERSION_1_1,
         };
         const VkInstanceCreateInfo instanceInfo{
             .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -813,7 +814,7 @@ bool RunVulkanSoftwarePreviewLoop(const int windowWidth,
             .applicationVersion = VK_MAKE_VERSION(0, 1, 0),
             .pEngineName = "RawIron",
             .engineVersion = VK_MAKE_VERSION(0, 1, 0),
-            .apiVersion = VK_API_VERSION_1_0,
+            .apiVersion = VK_API_VERSION_1_1,
         };
         const VkInstanceCreateInfo instanceInfo{
             .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,

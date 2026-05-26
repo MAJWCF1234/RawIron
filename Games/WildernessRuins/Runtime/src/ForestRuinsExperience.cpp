@@ -305,6 +305,8 @@ struct RuntimeState {
     float playerMaxHealth = 100.0f;
     float playerHealth = 100.0f;
     std::size_t previousActiveSpawnerCount = 0U;
+    ri::runtime::RuntimeEventBus* runtimeEvents = nullptr;
+    float lastSimulationDeltaSeconds = 1.0f / 60.0f;
 };
 
 void ApplyEnvironmentAuthoringVolumes(RuntimeState& state, const float dt) {
@@ -361,7 +363,8 @@ void ApplyEnvironmentAuthoringVolumes(RuntimeState& state, const float dt) {
     const ri::world::AuthoringPlacementState authoringPlacement =
         state.environmentService.ResolveAuthoringPlacementAt(feet, {0.0f, 0.0f, 1.0f});
     const ri::world::TriggerUpdateResult triggerUpdate =
-        state.environmentService.UpdateTriggerVolumesAt(feet, static_cast<double>(state.elapsedSeconds) + dt, nullptr, true);
+        state.environmentService.UpdateTriggerVolumesAt(
+            feet, static_cast<double>(state.elapsedSeconds) + dt, state.runtimeEvents, true);
     for (const ri::world::LaunchRequest& launch : triggerUpdate.launchRequests) {
         state.movement.body.velocity = state.movement.body.velocity + launch.impulse;
     }
@@ -905,6 +908,7 @@ void TickStandaloneFrame(RuntimeState& state) {
     state.lastTick = now;
     // Clamp to a tighter range so simulation remains stable under hitches.
     const float dt = std::clamp(static_cast<float>(elapsed.count()), 1.0f / 180.0f, 1.0f / 45.0f);
+    state.lastSimulationDeltaSeconds = dt;
 
     UpdateMouseLook(state);
     const ri::trace::MovementInput input = ReadMovementInput(state);
@@ -938,12 +942,11 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
         [&state, &options, &benchmarkedFrames, &runtimeFrameIndex, &runtime, &textureRootForVulkan](
             ri::render::vulkan::VulkanNativeSceneFrame& frame,
             std::string*) {
-            TickStandaloneFrame(state);
             const ri::core::FrameContext runtimeFrame = ri::games::BuildGameRuntimeFrameContext(
                 runtimeFrameIndex,
-                1.0 / 60.0,
+                static_cast<double>(state.lastSimulationDeltaSeconds),
                 static_cast<double>(state.elapsedSeconds),
-                static_cast<double>(state.elapsedSeconds));
+                static_cast<double>(GetTickCount64()) / 1000.0);
             ++runtimeFrameIndex;
             if (!runtime.Frame(runtimeFrame)) {
                 if (state.hwnd != nullptr) {
@@ -961,6 +964,12 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
             frame.renderContrast = state.nativeRenderTuning.contrast;
             frame.renderSaturation = state.nativeRenderTuning.saturation;
             frame.renderFogDensity = state.nativeRenderTuning.fogDensity;
+            frame.useEnvironmentClear = true;
+            frame.environmentClearTop = state.previewOptions.clearTop;
+            frame.environmentClearBottom = state.previewOptions.clearBottom;
+            frame.nativeFogColorNear = state.previewOptions.fogColor;
+            frame.nativeFogColorFar = state.previewOptions.fogColor * 1.08f;
+            frame.nativeAmbientLight = state.previewOptions.ambientLight;
             if (options.benchmarkFrames > 0) {
                 ++benchmarkedFrames;
                 if (benchmarkedFrames >= options.benchmarkFrames && state.hwnd != nullptr) {
@@ -1332,9 +1341,9 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         ri::content::ScriptScalarOr(rendering, "clear_top_b", 0.19f),
     };
     state.previewOptions.clearBottom = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_r", 0.35f),
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_g", 0.34f),
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_b", 0.30f),
+        ri::content::ScriptScalarOr(rendering, "clear_bottom_r", 0.06f),
+        ri::content::ScriptScalarOr(rendering, "clear_bottom_g", 0.10f),
+        ri::content::ScriptScalarOr(rendering, "clear_bottom_b", 0.07f),
     };
     state.previewOptions.fogColor = ri::math::Vec3{
         ri::content::ScriptScalarOr(rendering, "fog_r", 0.62f),
@@ -1485,16 +1494,23 @@ bool RunStandalone(const StandaloneOptions& options, std::string* error) {
             options,
             manifestService,
             standaloneSupport);
+
+        RuntimeState state{};
+        InitializeRuntimeState(options, *manifest, state);
+        if (!ri::games::AttachGameSimulationTick(runtime, [&state](const ri::core::FrameContext&) {
+                TickStandaloneFrame(state);
+            })) {
+            ri::core::LogInfo("Runtime core: failed to attach game simulation tick module.");
+        }
         if (!ri::games::StartupGameRuntimeCore(runtime, error)) {
             return false;
         }
+        ri::games::BindRuntimeEventBus(runtime, state.runtimeEvents);
+
         ri::core::LogSection("RawIron Standalone");
         ri::core::LogInfo("Game: " + manifest->name + " (" + manifest->id + ")");
         ri::core::LogInfo("Game root: " + manifest->rootPath.string());
         ri::core::LogInfo("Presenter: " + std::string(StandaloneRendererName(options.renderer)));
-
-        RuntimeState state{};
-        InitializeRuntimeState(options, *manifest, state);
 
         std::string runtimeError;
         const bool ok = RunStandaloneNativeVulkanLoop(options, state, runtime, &runtimeError);
@@ -1552,15 +1568,15 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
             options.standalone,
             manifestService,
             headlessSupport);
-        if (!ri::games::StartupGameRuntimeCore(runtime, error)) {
-            return false;
-        }
-
         RuntimeState state{};
         StandaloneOptions runOptions = options.standalone;
         runOptions.captureMouse = false;
         runOptions.renderer = StandaloneRenderer::VulkanNative;
         InitializeRuntimeState(runOptions, *manifest, state);
+        if (!ri::games::StartupGameRuntimeCore(runtime, error)) {
+            return false;
+        }
+        ri::games::BindRuntimeEventBus(runtime, state.runtimeEvents);
         state.previewOptions.lowSpecMode = options.softwareLowSpec;
         ri::core::LogInfo("Mouse capture forced off for headless mode.");
 

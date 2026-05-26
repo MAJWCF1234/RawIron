@@ -31,6 +31,7 @@ struct PrimitiveNodeOptions {
     float alphaCutoff = 0.5f;
     bool doubleSided = false;
     bool transparent = false;
+    std::string normalTexture{};
 };
 
 struct LightNodeOptions {
@@ -95,6 +96,7 @@ struct ProceduralTerrainOptions {
     ShadingModel shadingModel = ShadingModel::Lit;
     ri::math::Vec3 baseColor{0.44f, 0.49f, 0.40f};
     std::string baseColorTexture{};
+    std::string normalTexture{};
     ri::math::Vec2 textureTiling{24.0f, 24.0f};
     int resolutionX = 96;
     int resolutionZ = 96;
@@ -107,6 +109,9 @@ struct ProceduralTerrainOptions {
 };
 
 [[nodiscard]] Mesh MakeUvSphereMesh(const std::string& name);
+
+/// Unit quad in the XY plane (normal +Z), UV 0–1 — used for camera-facing particle billboards.
+[[nodiscard]] Mesh MakeBillboardQuadMesh(const std::string& name);
 
 int AddPrimitiveNode(Scene& scene, const PrimitiveNodeOptions& options);
 int AddProceduralTerrainNode(Scene& scene, const ProceduralTerrainOptions& options);

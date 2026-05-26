@@ -1,0 +1,4 @@
+// Copy or symlink to ../../Assets/shader.cfg — that path is what ResolveShaderCfgPath prefers for workspace runs.
+// The repo ships an epic multi-effect stack there (presets + CAS + bloom + vibrance + fake_hdr + technicolor2 +
+// dpx + LGG + vignette + grade + film + tonemap + luma sharpen + chromatic aberration + deband + low-dose cartoon).
+// Edit Assets/shader.cfg while Particle Showcase is running; it hot-reloads.

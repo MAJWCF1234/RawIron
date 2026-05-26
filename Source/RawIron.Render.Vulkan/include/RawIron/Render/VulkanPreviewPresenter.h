@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RawIron/Render/PostProcessProfiles.h"
+#include "RawIron/Render/ShaderConfig.h"
 #include "RawIron/Scene/PhotoModeCamera.h"
 
 #include <cstdint>
@@ -62,6 +63,8 @@ struct VulkanPreviewWindowOptions {
     /// When true, native preview renders scene-linear HDR into an offscreen target and runs a fullscreen
     /// composite (tonemap + existing post chain) to the swapchain — foundation for SSAO/SSR/bloom masks.
     bool enableHybridHdrPresentation = false;
+    /// Optional `shader.cfg` layer applied after each `VulkanNativeSceneFrameCallback` (see `ShaderConfig.h`).
+    ShaderPresentationConfig shaderPresentation{};
 };
 
 struct VulkanNativeSceneFrame {
@@ -81,6 +84,14 @@ struct VulkanNativeSceneFrame {
     float renderContrast = 1.0f;
     float renderSaturation = 1.0f;
     float renderFogDensity = 0.0095f;
+    /// When true, `environmentClearTop` / `environmentClearBottom` replace the default dark clear.
+    bool useEnvironmentClear = false;
+    ri::math::Vec3 environmentClearTop{0.20f, 0.29f, 0.34f};
+    ri::math::Vec3 environmentClearBottom{0.05f, 0.08f, 0.06f};
+    /// Outdoor fog / ambient tints for the native lit pass (`NativeScenePreview.frag`).
+    ri::math::Vec3 nativeFogColorNear{0.34f, 0.39f, 0.42f};
+    ri::math::Vec3 nativeFogColorFar{0.40f, 0.47f, 0.54f};
+    ri::math::Vec3 nativeAmbientLight{0.14f, 0.17f, 0.12f};
     /// Optional post-process shaping consumed by the native Vulkan preview shader.
     ri::render::PostProcessParameters postProcess{};
 };

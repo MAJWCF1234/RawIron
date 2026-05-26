@@ -11,7 +11,9 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ri::games::forestruins {
@@ -128,6 +130,391 @@ struct Clearing {
     return mesh;
 }
 
+[[nodiscard]] std::string ToAbsoluteAssetPath(const fs::path& path) {
+    std::error_code ec{};
+    const fs::path absolute = fs::absolute(path, ec);
+    return absolute.lexically_normal().generic_string();
+}
+
+[[nodiscard]] bool IsMeshExtension(const fs::path& path) {
+    const std::string ext = ToLowerAscii(path.extension().string());
+    return ext == ".fbx" || ext == ".obj" || ext == ".gltf" || ext == ".glb";
+}
+
+struct ScatterAsset {
+    std::string namePrefix{};
+    fs::path sourcePath{};
+    float minScale = 1.0f;
+    float maxScale = 1.0f;
+    float colliderRadius = 0.0f;
+    float colliderHeight = 0.0f;
+};
+
+[[nodiscard]] bool ShouldSkipPostApocalypseScatter(const fs::path& meshPath) {
+    const std::string lower = ToLowerAscii(meshPath.generic_string());
+    if (lower.find("/decals/") != std::string::npos || lower.find("\\decals\\") != std::string::npos) {
+        return true;
+    }
+    const std::string stem = ToLowerAscii(meshPath.stem().string());
+    if (stem == "ms_decal" || stem == "ms_candle") {
+        return true;
+    }
+    return false;
+}
+
+void ApplyPostApocalypseScatterHeuristics(ScatterAsset& asset) {
+    const std::string lower = ToLowerAscii(asset.sourcePath.generic_string());
+    asset.minScale = 1.7f;
+    asset.maxScale = 3.1f;
+    asset.colliderRadius = 1.4f;
+    asset.colliderHeight = 2.0f;
+    if (lower.find("bus_stop") != std::string::npos || lower.find("billboard") != std::string::npos
+        || lower.find("fireplace_tower") != std::string::npos || lower.find("tent_civilian") != std::string::npos) {
+        asset.minScale = 2.4f;
+        asset.maxScale = 4.2f;
+        asset.colliderRadius = 2.8f;
+        asset.colliderHeight = 4.8f;
+    } else if (lower.find("pole") != std::string::npos) {
+        asset.minScale = 2.2f;
+        asset.maxScale = 3.6f;
+        asset.colliderRadius = 1.2f;
+        asset.colliderHeight = 5.0f;
+    } else if (lower.find("fence") != std::string::npos || lower.find("barrier") != std::string::npos) {
+        asset.minScale = 2.0f;
+        asset.maxScale = 3.6f;
+        asset.colliderRadius = 2.2f;
+        asset.colliderHeight = 2.4f;
+    } else if (lower.find("plank") != std::string::npos || lower.find("brick") != std::string::npos
+               || lower.find("crate") != std::string::npos || lower.find("pallet") != std::string::npos) {
+        asset.minScale = 1.6f;
+        asset.maxScale = 2.8f;
+        asset.colliderRadius = 1.2f;
+        asset.colliderHeight = 1.4f;
+    } else if (lower.find("sign") != std::string::npos || lower.find("mailbox") != std::string::npos) {
+        asset.minScale = 2.0f;
+        asset.maxScale = 3.4f;
+        asset.colliderRadius = 1.0f;
+        asset.colliderHeight = 2.6f;
+    }
+}
+
+[[nodiscard]] std::vector<ScatterAsset> DiscoverPostApocalypseScatterAssets(const fs::path& postApocRoot) {
+    std::vector<ScatterAsset> assets;
+    std::error_code ec{};
+    if (!fs::is_directory(postApocRoot, ec) || ec) {
+        return assets;
+    }
+    for (const fs::directory_entry& entry :
+         fs::recursive_directory_iterator(postApocRoot, fs::directory_options::skip_permission_denied, ec)) {
+        if (ec || !entry.is_regular_file()) {
+            continue;
+        }
+        const fs::path meshPath = entry.path();
+        if (!IsMeshExtension(meshPath)) {
+            continue;
+        }
+        const std::string stem = meshPath.stem().string();
+        if (stem.rfind("MS_", 0) != 0 && stem.rfind("ms_", 0) != 0) {
+            continue;
+        }
+        if (ShouldSkipPostApocalypseScatter(meshPath)) {
+            continue;
+        }
+        ScatterAsset asset{
+            .namePrefix = meshPath.parent_path().filename().string(),
+            .sourcePath = meshPath,
+        };
+        ApplyPostApocalypseScatterHeuristics(asset);
+        assets.push_back(std::move(asset));
+    }
+    std::sort(assets.begin(), assets.end(), [](const ScatterAsset& a, const ScatterAsset& b) {
+        return a.sourcePath.generic_string() < b.sourcePath.generic_string();
+    });
+    assets.erase(std::unique(assets.begin(),
+                             assets.end(),
+                             [](const ScatterAsset& a, const ScatterAsset& b) {
+                                 return a.sourcePath == b.sourcePath;
+                             }),
+                assets.end());
+    return assets;
+}
+
+[[nodiscard]] std::vector<ScatterAsset> DiscoverRockScatterAssets(const fs::path& rocksRoot) {
+    std::vector<ScatterAsset> assets;
+    std::error_code ec{};
+    if (!fs::is_directory(rocksRoot, ec) || ec) {
+        return assets;
+    }
+    for (const fs::directory_entry& entry : fs::directory_iterator(rocksRoot, ec)) {
+        if (ec || !entry.is_regular_file()) {
+            continue;
+        }
+        const fs::path meshPath = entry.path();
+        if (!IsMeshExtension(meshPath)) {
+            continue;
+        }
+        const std::string stemLower = ToLowerAscii(meshPath.stem().string());
+        if (stemLower == "box") {
+            continue;
+        }
+        if (stemLower.rfind("rock", 0) != 0) {
+            continue;
+        }
+        assets.push_back(ScatterAsset{
+            .namePrefix = std::string{"Rock"},
+            .sourcePath = meshPath,
+            .minScale = 2.2f,
+            .maxScale = 5.6f,
+            .colliderRadius = 1.8f,
+            .colliderHeight = 2.6f,
+        });
+    }
+    std::sort(assets.begin(), assets.end(), [](const ScatterAsset& a, const ScatterAsset& b) {
+        return a.sourcePath.generic_string() < b.sourcePath.generic_string();
+    });
+    return assets;
+}
+
+[[nodiscard]] std::vector<ScatterAsset> MergeScatterAssets(std::vector<ScatterAsset> preferred,
+                                                           const std::vector<ScatterAsset>& fallback) {
+    std::vector<ScatterAsset> merged = std::move(preferred);
+    for (const ScatterAsset& asset : fallback) {
+        if (!fs::exists(asset.sourcePath)) {
+            continue;
+        }
+        const bool alreadyListed = std::any_of(merged.begin(), merged.end(), [&](const ScatterAsset& existing) {
+            return existing.sourcePath == asset.sourcePath;
+        });
+        if (!alreadyListed) {
+            merged.push_back(asset);
+        }
+    }
+    return merged;
+}
+
+struct ForestSceneLayout {
+    fs::path sceneRoot{};
+    fs::path assetsRoot{};
+    fs::path packRoot{};
+    fs::path astra113Root{};
+    fs::path texturesRoot{};
+    fs::path botdRoot{};
+    fs::path botdBillboardsRoot{};
+    fs::path botdMeshesRoot{};
+    fs::path botdSharedTexturesRoot{};
+    fs::path botdTrunkDiffuse{};
+    fs::path exportedMeshesRoot{};
+    fs::path rocksRoot{};
+    fs::path bushesMeshesRoot{};
+    fs::path groundDiffuse{};
+    fs::path groundNormal{};
+    fs::path barkDiffuse{};
+    bool usesSortedAssetPack = false;
+};
+
+[[nodiscard]] fs::path PreferExistingPath(const fs::path& preferred, const fs::path& fallback) {
+    std::error_code ec{};
+    if (fs::exists(preferred, ec) && !ec) {
+        return preferred;
+    }
+    return fallback;
+}
+
+[[nodiscard]] ForestSceneLayout MakeForestSceneLayout(const fs::path& workspaceRoot, const fs::path& gameRoot) {
+    ForestSceneLayout layout{};
+    const fs::path legacySceneRoot = workspaceRoot / "Assets" / "Source" / "Forest Scene";
+    const fs::path sortedPackRoot = workspaceRoot / "Assets" / "Source" / "Forest Scene Assets";
+    const fs::path legacyAssetsRoot = legacySceneRoot / "Assets";
+    const fs::path legacyPackRoot = legacyAssetsRoot / "Assets";
+    const fs::path legacyAstraRoot = legacyAssetsRoot / "Astra113 Assets";
+
+    const fs::path sortedModelsRoot = sortedPackRoot / "Models";
+    const fs::path sortedTexturesRoot = sortedPackRoot / "Textures";
+    const bool sortedPackReady = fs::is_directory(sortedModelsRoot) && fs::is_directory(sortedTexturesRoot);
+
+    layout.usesSortedAssetPack = sortedPackReady;
+    layout.sceneRoot = sortedPackReady ? sortedPackRoot : legacySceneRoot;
+    layout.assetsRoot = sortedPackReady ? sortedPackRoot : legacyAssetsRoot;
+    layout.packRoot = sortedPackReady ? (sortedModelsRoot / "Assets") : legacyPackRoot;
+    layout.astra113Root =
+        sortedPackReady ? (sortedModelsRoot / "Astra113 Assets") : legacyAstraRoot;
+    layout.texturesRoot =
+        sortedPackReady ? (sortedTexturesRoot / "Astra113 Assets" / "Textures")
+                        : (legacyAstraRoot / "Textures");
+
+    const fs::path legacyBotdRoot = legacyPackRoot / "Conifers [BOTD]";
+    const fs::path sortedBotdRoot = sortedTexturesRoot / "Assets" / "Conifers [BOTD]";
+    layout.botdRoot = PreferExistingPath(sortedBotdRoot, legacyBotdRoot);
+    layout.botdBillboardsRoot = layout.botdRoot / "Sources" / "Billboards";
+    layout.botdMeshesRoot = PreferExistingPath(
+        sortedPackRoot / "UnityOnly" / "Assets" / "Conifers [BOTD]" / "Sources" / "Meshes",
+        layout.botdRoot / "Sources" / "Meshes");
+    layout.botdSharedTexturesRoot = layout.botdRoot / "Sources" / "Shared Textures";
+    layout.botdTrunkDiffuse = layout.botdSharedTexturesRoot / "BODT Conifer Trunk [Albedo] [Smoothness].tif";
+    layout.exportedMeshesRoot = gameRoot / "Assets" / "Generated" / "ForestScene" / "Meshes";
+
+    layout.rocksRoot = PreferExistingPath(
+        sortedModelsRoot / "Assets" / "Rocks and Boulders 2" / "Rocks" / "Source" / "Models",
+        legacyPackRoot / "Rocks and Boulders 2" / "Rocks" / "Source" / "Models");
+    layout.bushesMeshesRoot = PreferExistingPath(
+        sortedModelsRoot / "Astra113 Assets" / "YughuesFreeBushes2018" / "Meshes",
+        legacyAstraRoot / "YughuesFreeBushes2018" / "Meshes");
+
+    layout.groundDiffuse =
+        PreferExistingPath(layout.texturesRoot / "Forest_Ground_diffuseOriginal.png",
+                           legacyAstraRoot / "Textures" / "Forest_Ground_diffuseOriginal.png");
+    layout.groundNormal =
+        PreferExistingPath(layout.texturesRoot / "Forest_Ground_normal.png",
+                           legacyAstraRoot / "Textures" / "Forest_Ground_normal.png");
+    layout.barkDiffuse =
+        PreferExistingPath(layout.texturesRoot / "Bark.tif", legacyAstraRoot / "Textures" / "Bark.tif");
+    return layout;
+}
+
+struct BotdBillboardVariant {
+    std::string label{};
+    fs::path albedoPath{};
+    float width = 3.2f;
+    float height = 8.8f;
+};
+
+[[nodiscard]] std::optional<BotdBillboardVariant> TryResolveBotdBillboardFolder(const fs::path& folderPath,
+                                                                                const std::string& folderName) {
+    std::error_code ec{};
+    if (!fs::is_directory(folderPath, ec) || ec) {
+        return std::nullopt;
+    }
+    for (const fs::directory_entry& entry : fs::directory_iterator(folderPath, ec)) {
+        if (ec || !entry.is_regular_file()) {
+            continue;
+        }
+        const std::string fileName = entry.path().filename().string();
+        const std::string lower = ToLowerAscii(fileName);
+        if (!lower.ends_with(".png")) {
+            continue;
+        }
+        if (lower.find("albedo") == std::string::npos) {
+            continue;
+        }
+        BotdBillboardVariant variant{
+            .label = folderName,
+            .albedoPath = entry.path(),
+        };
+        const std::string folderLower = ToLowerAscii(folderName);
+        if (folderLower.find("bare") != std::string::npos) {
+            variant.width = 2.9f;
+            variant.height = 8.2f;
+        } else if (folderLower.find("small") != std::string::npos) {
+            variant.width = 3.0f;
+            variant.height = 7.6f;
+        } else if (folderLower.find("medium") != std::string::npos) {
+            variant.width = 3.4f;
+            variant.height = 9.2f;
+        } else if (folderLower.find("tall") != std::string::npos) {
+            variant.width = 4.0f;
+            variant.height = 12.4f;
+        }
+        return variant;
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::vector<BotdBillboardVariant> DiscoverBotdBillboardVariants(const fs::path& billboardsRoot) {
+    static const std::array<const char*, 4> kPreferredOrder{
+        "Billboard Bare",
+        "Billboard Small",
+        "Billboard Medium",
+        "Billboard Tall",
+    };
+    std::vector<BotdBillboardVariant> variants;
+    variants.reserve(kPreferredOrder.size());
+    for (const char* folderName : kPreferredOrder) {
+        const fs::path folderPath = billboardsRoot / folderName;
+        if (const std::optional<BotdBillboardVariant> variant = TryResolveBotdBillboardFolder(folderPath, folderName);
+            variant.has_value()) {
+            variants.push_back(*variant);
+        }
+    }
+    if (!variants.empty()) {
+        return variants;
+    }
+    std::error_code ec{};
+    if (!fs::is_directory(billboardsRoot, ec) || ec) {
+        return variants;
+    }
+    for (const fs::directory_entry& entry : fs::directory_iterator(billboardsRoot, ec)) {
+        if (ec || !entry.is_directory()) {
+            continue;
+        }
+        if (const std::optional<BotdBillboardVariant> variant =
+                TryResolveBotdBillboardFolder(entry.path(), entry.path().filename().string());
+            variant.has_value()) {
+            variants.push_back(*variant);
+        }
+    }
+    return variants;
+}
+
+[[nodiscard]] std::vector<ScatterAsset> DiscoverBushScatterAssets(const fs::path& bushesRoot) {
+    std::vector<ScatterAsset> assets;
+    std::error_code ec{};
+    if (!fs::is_directory(bushesRoot, ec) || ec) {
+        return assets;
+    }
+    for (const fs::directory_entry& entry : fs::directory_iterator(bushesRoot, ec)) {
+        if (ec || !entry.is_regular_file()) {
+            continue;
+        }
+        if (!IsMeshExtension(entry.path())) {
+            continue;
+        }
+        const std::string stemLower = ToLowerAscii(entry.path().stem().string());
+        if (stemLower.rfind("bush", 0) != 0) {
+            continue;
+        }
+        assets.push_back(ScatterAsset{
+            .namePrefix = "Bush",
+            .sourcePath = entry.path(),
+            .minScale = 1.8f,
+            .maxScale = 3.7f,
+            .colliderRadius = 1.4f,
+            .colliderHeight = 1.6f,
+        });
+    }
+    std::sort(assets.begin(), assets.end(), [](const ScatterAsset& a, const ScatterAsset& b) {
+        return a.sourcePath.generic_string() < b.sourcePath.generic_string();
+    });
+    return assets;
+}
+
+[[nodiscard]] std::vector<fs::path> DiscoverExportedConiferMeshes(const fs::path& exportedMeshesRoot) {
+    std::vector<fs::path> meshes;
+    std::error_code ec{};
+    if (!fs::is_directory(exportedMeshesRoot, ec) || ec) {
+        return meshes;
+    }
+    for (const fs::directory_entry& entry : fs::directory_iterator(exportedMeshesRoot, ec)) {
+        if (ec || !entry.is_regular_file()) {
+            continue;
+        }
+        if (!IsMeshExtension(entry.path())) {
+            continue;
+        }
+        const std::string stemLower = ToLowerAscii(entry.path().stem().string());
+        if (stemLower.find("conifer") == std::string::npos) {
+            continue;
+        }
+        meshes.push_back(entry.path());
+    }
+    std::sort(meshes.begin(), meshes.end());
+    return meshes;
+}
+
+[[nodiscard]] bool SourceForestPackReady(const ForestSceneLayout& forest) {
+    return fs::exists(forest.groundDiffuse) && fs::exists(forest.rocksRoot / "Rock1A.fbx")
+        && !DiscoverBotdBillboardVariants(forest.botdBillboardsRoot).empty();
+}
+
 } // namespace
 
 bool IsForestRuinsGameRoot(const fs::path& gameRoot) {
@@ -140,6 +527,11 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     world.scene = Scene(std::string(sceneName));
     Scene& scene = world.scene;
     const fs::path workspaceRoot = ri::content::DetectWorkspaceRoot(gameRoot);
+    const ForestSceneLayout forest = MakeForestSceneLayout(workspaceRoot, gameRoot);
+    const std::vector<BotdBillboardVariant> botdTreeVariants = DiscoverBotdBillboardVariants(forest.botdBillboardsRoot);
+    const std::vector<fs::path> exportedConiferMeshes = DiscoverExportedConiferMeshes(forest.exportedMeshesRoot);
+    const bool useBotdForestTrees = !botdTreeVariants.empty();
+    const bool useExportedConiferMeshes = !exportedConiferMeshes.empty();
     const bool editorWorkspaceScene = sceneName.find("EditorWorkspace") != std::string_view::npos;
     const ri::content::ScriptScalarMap gameplay = ri::content::LoadScriptScalars(gameRoot / "scripts" / "gameplay.riscript");
 
@@ -152,8 +544,8 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     sun.light = Light{
         .name = "SunLight",
         .type = LightType::Directional,
-        .color = ri::math::Vec3{1.00f, 0.92f, 0.74f},
-        .intensity = 3.05f,
+        .color = ri::math::Vec3{1.00f, 0.94f, 0.82f},
+        .intensity = 2.45f,
     };
     world.handles.sun = AddLightNode(scene, sun);
 
@@ -164,9 +556,9 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     bounce.light = Light{
         .name = "BounceFill",
         .type = LightType::Point,
-        .color = ri::math::Vec3{0.36f, 0.50f, 0.42f},
-        .intensity = 2.15f,
-        .range = 96.0f,
+        .color = ri::math::Vec3{0.42f, 0.56f, 0.48f},
+        .intensity = 2.85f,
+        .range = 120.0f,
     };
     (void)AddLightNode(scene, bounce);
 
@@ -215,9 +607,10 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     terrain.parent = world.handles.root;
     terrain.materialName = "wilderness-ground";
     terrain.baseColor = ri::math::Vec3{0.30f, 0.37f, 0.24f};
-    terrain.baseColorTexture = (workspaceRoot / "Assets" / "Source" / "Forest Scene" / "Assets"
-                                / "Astra113 Assets" / "Textures" / "Forest_Ground_diffuseOriginal.png")
-                                   .generic_string();
+    terrain.baseColorTexture = ToAbsoluteAssetPath(forest.groundDiffuse);
+    if (fs::exists(forest.groundNormal)) {
+        terrain.normalTexture = ToAbsoluteAssetPath(forest.groundNormal);
+    }
     terrain.textureTiling = ri::math::Vec2{168.0f, 168.0f};
     terrain.resolutionX = 96;
     terrain.resolutionZ = 96;
@@ -255,8 +648,10 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
         float importScale = 0.025f;
         if (PathContainsAscii(sourcePath, "forest scene")) {
             importScale = 0.055f;
+        } else if (PathContainsAscii(sourcePath, "generated/forestscene")) {
+            importScale = 0.055f;
         } else if (PathContainsAscii(sourcePath, "post apocalypse")) {
-            importScale = 0.012f;
+            importScale = 0.018f;
         }
         const ri::math::Vec3 calibratedScale = scale * importScale;
         (void)AddModelNode(scene,
@@ -319,79 +714,83 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                             materialName);
     };
 
-    const int coniferTrunkMesh = scene.AddMesh(Mesh{
-        .name = "instanced-conifer-trunk",
-        .primitive = PrimitiveType::Cube,
-        .positions = {},
-        .texCoords = {},
-        .indices = {},
-    });
-    const int coniferTrunkMaterial = scene.AddMaterial(Material{
-        .name = "wet-conifer-bark",
-        .shadingModel = ShadingModel::Lit,
-        .baseColor = ri::math::Vec3{0.20f, 0.13f, 0.075f},
-        .roughness = 0.98f,
-    });
-    const int coniferTrunkBatch = scene.AddMeshInstanceBatch(MeshInstanceBatch{
-        .name = "ConiferTrunkInstances",
-        .parent = world.handles.root,
-        .mesh = coniferTrunkMesh,
-        .material = coniferTrunkMaterial,
-        .transforms = {},
-    });
-    const fs::path speedTreeConiferBillboardTexture =
-        gameRoot / "Assets" / "Generated" / "conifer_desktop_atlas_billboards.png";
-    const int coniferBillboardMaterial = scene.AddMaterial(Material{
-        .name = "speedtree-conifer-atlas",
-        .shadingModel = ShadingModel::Unlit,
-        .baseColor = ri::math::Vec3{0.34f, 0.48f, 0.30f},
-        .baseColorTexture = speedTreeConiferBillboardTexture.generic_string(),
-        .emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f},
-        .roughness = 0.98f,
-        .alphaCutoff = 0.18f,
-        .doubleSided = true,
-    });
-    const std::array<int, 4> coniferBillboardMeshes{
-        scene.AddMesh(MakeVerticalBillboardMesh(0.00f, 0.25f)),
-        scene.AddMesh(MakeVerticalBillboardMesh(0.25f, 0.50f)),
-        scene.AddMesh(MakeVerticalBillboardMesh(0.50f, 0.75f)),
-        scene.AddMesh(MakeVerticalBillboardMesh(0.75f, 1.00f)),
+    const fs::path preferredBarkDiffuse =
+        fs::exists(forest.botdTrunkDiffuse) ? forest.botdTrunkDiffuse : forest.barkDiffuse;
+    const std::string barkTexturePath =
+        fs::exists(preferredBarkDiffuse) ? ToAbsoluteAssetPath(preferredBarkDiffuse) : std::string{};
+    int coniferTrunkBatch = ri::scene::kInvalidHandle;
+    std::array<int, 4> coniferBillboardBatches{
+        ri::scene::kInvalidHandle,
+        ri::scene::kInvalidHandle,
+        ri::scene::kInvalidHandle,
+        ri::scene::kInvalidHandle,
     };
-    const std::array<int, 4> coniferBillboardBatches{
-        scene.AddMeshInstanceBatch(MeshInstanceBatch{
-            .name = "ConiferAtlasBillboardA",
+    if (!useBotdForestTrees) {
+        const int coniferTrunkMesh = scene.AddMesh(Mesh{
+            .name = "instanced-conifer-trunk",
+            .primitive = PrimitiveType::Cube,
+            .positions = {},
+            .texCoords = {},
+            .indices = {},
+        });
+        Material trunkMaterial{
+            .name = "wet-conifer-bark",
+            .shadingModel = ShadingModel::Lit,
+            .baseColor = ri::math::Vec3{0.20f, 0.13f, 0.075f},
+            .roughness = 0.98f,
+        };
+        if (!barkTexturePath.empty()) {
+            trunkMaterial.baseColorTexture = barkTexturePath;
+        }
+        const int coniferTrunkMaterial = scene.AddMaterial(trunkMaterial);
+        coniferTrunkBatch = scene.AddMeshInstanceBatch(MeshInstanceBatch{
+            .name = "ConiferTrunkInstances",
             .parent = world.handles.root,
-            .mesh = coniferBillboardMeshes[0],
-            .material = coniferBillboardMaterial,
+            .mesh = coniferTrunkMesh,
+            .material = coniferTrunkMaterial,
             .transforms = {},
-        }),
-        scene.AddMeshInstanceBatch(MeshInstanceBatch{
-            .name = "ConiferAtlasBillboardB",
-            .parent = world.handles.root,
-            .mesh = coniferBillboardMeshes[1],
-            .material = coniferBillboardMaterial,
-            .transforms = {},
-        }),
-        scene.AddMeshInstanceBatch(MeshInstanceBatch{
-            .name = "ConiferAtlasBillboardC",
-            .parent = world.handles.root,
-            .mesh = coniferBillboardMeshes[2],
-            .material = coniferBillboardMaterial,
-            .transforms = {},
-        }),
-        scene.AddMeshInstanceBatch(MeshInstanceBatch{
-            .name = "ConiferAtlasBillboardD",
-            .parent = world.handles.root,
-            .mesh = coniferBillboardMeshes[3],
-            .material = coniferBillboardMaterial,
-            .transforms = {},
-        }),
-    };
+        });
+        const fs::path atlasPath = gameRoot / "Assets" / "Generated" / "conifer_desktop_atlas_billboards.png";
+        const int coniferBillboardMaterial = scene.AddMaterial(Material{
+            .name = "speedtree-conifer-atlas-fallback",
+            .shadingModel = ShadingModel::Lit,
+            .baseColor = ri::math::Vec3{0.34f, 0.48f, 0.30f},
+            .baseColorTexture = fs::exists(atlasPath) ? ToAbsoluteAssetPath(atlasPath) : std::string{},
+            .roughness = 0.96f,
+            .alphaCutoff = 0.42f,
+            .doubleSided = true,
+        });
+        const std::array<int, 4> coniferBillboardMeshes{
+            scene.AddMesh(MakeVerticalBillboardMesh(0.00f, 0.25f)),
+            scene.AddMesh(MakeVerticalBillboardMesh(0.25f, 0.50f)),
+            scene.AddMesh(MakeVerticalBillboardMesh(0.50f, 0.75f)),
+            scene.AddMesh(MakeVerticalBillboardMesh(0.75f, 1.00f)),
+        };
+        const std::array<const char*, 4> batchNames{
+            "ConiferAtlasBillboardA",
+            "ConiferAtlasBillboardB",
+            "ConiferAtlasBillboardC",
+            "ConiferAtlasBillboardD",
+        };
+        for (std::size_t slot = 0; slot < coniferBillboardBatches.size(); ++slot) {
+            coniferBillboardBatches[slot] = scene.AddMeshInstanceBatch(MeshInstanceBatch{
+                .name = batchNames[slot],
+                .parent = world.handles.root,
+                .mesh = coniferBillboardMeshes[slot],
+                .material = coniferBillboardMaterial,
+                .transforms = {},
+            });
+        }
+    }
+
     auto addInstancedConiferTree = [&](const ri::math::Vec3& root,
                                        const float height,
                                        const float crownRadius,
                                        const float yawDegrees,
                                        const int colorVariant) {
+        if (coniferTrunkBatch == ri::scene::kInvalidHandle) {
+            return;
+        }
         const float safeHeight = std::max(height, 1.0f);
         const float safeRadius = std::max(crownRadius, 0.35f);
         const float trunkHeight = safeHeight * 0.43f;
@@ -403,6 +802,9 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                               });
         const std::size_t variantIndex = static_cast<std::size_t>(std::abs(colorVariant) % 4);
         const float billboardWidth = std::max(safeRadius * 1.75f, safeHeight * 0.38f);
+        if (coniferBillboardBatches[variantIndex] == ri::scene::kInvalidHandle) {
+            return;
+        }
         scene.AddMeshInstance(coniferBillboardBatches[variantIndex],
                               Transform{
                                   .position = root,
@@ -418,109 +820,202 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     };
 
     const fs::path postApocRoot = workspaceRoot / "Assets" / "Source" / "Post apocalypse";
-    const fs::path forestRocksRoot = workspaceRoot / "Assets" / "Source" / "Forest Scene" / "Assets" / "Assets"
-        / "Rocks and Boulders 2" / "Rocks" / "Source" / "Models";
-    const fs::path bushesRoot = workspaceRoot / "Assets" / "Source" / "Forest Scene" / "Assets"
-        / "Astra113 Assets" / "YughuesFreeBushes2018" / "Meshes";
+    const fs::path forestRocksRoot = forest.rocksRoot;
+    const fs::path bushesRoot = forest.bushesMeshesRoot;
+    const bool sourcePackReady = SourceForestPackReady(forest);
 
-    struct ScatterAsset {
-        const char* namePrefix = "";
-        fs::path sourcePath{};
-        float minScale = 1.0f;
-        float maxScale = 1.0f;
-        float colliderRadius = 0.0f;
-        float colliderHeight = 0.0f;
-    };
-
-    std::vector<ScatterAsset> ruinAssets{
-        {"RuinBusStop", postApocRoot / "Bus_Stop_Rural" / "MS_Bus_Stop_Rural.fbx", 2.8f, 4.2f, 3.2f, 4.2f},
-        {"RuinBarrier", postApocRoot / "Barrier_Road" / "MS_Barrier_Road.fbx", 2.1f, 3.4f, 1.8f, 2.3f},
-        {"RuinFence", postApocRoot / "Fence_Wood" / "MS_Fence_Wood.fbx", 3.4f, 5.0f, 2.5f, 3.4f},
-        {"RuinPole", postApocRoot / "Pole_Light_Rural" / "MS_Pole_Light_Rural.fbx", 2.6f, 3.6f, 1.5f, 5.0f},
-        {"RuinBrickPile", postApocRoot / "Brick_Pile" / "MS_Brick_Pile.fbx", 1.8f, 3.0f, 1.6f, 1.8f},
-        {"RuinCableReel", postApocRoot / "Cable_Reel" / "MS_Cable_Reel.fbx", 1.8f, 2.8f, 1.3f, 1.8f},
-        {"RuinTower", postApocRoot / "Fireplace_Tower" / "MS_Fireplace_Tower.fbx", 2.4f, 3.7f, 2.7f, 5.2f},
-        {"RuinTent", postApocRoot / "Tent_Civilian" / "MS_Tent_Civilian.fbx", 2.4f, 3.8f, 2.4f, 2.5f},
-        {"RuinBillboard", postApocRoot / "Sign_Billboard" / "MS_Sign_Billboard.fbx", 2.7f, 4.2f, 3.3f, 4.8f},
-        {"RuinTransformer", postApocRoot / "Transformer_Box" / "MS_Transformer_Box.fbx", 1.8f, 3.1f, 1.8f, 2.5f},
-        {"RuinCrate", postApocRoot / "Crate" / "MS_Crate.fbx", 1.7f, 2.8f, 1.1f, 1.6f},
-    };
-    std::vector<ScatterAsset> rockAssets{
-        {"Rock", forestRocksRoot / "Rock1A.fbx", 2.4f, 5.0f, 1.9f, 2.4f},
-        {"Rock", forestRocksRoot / "Rock1B.fbx", 2.2f, 4.8f, 1.8f, 2.3f},
-        {"Rock", forestRocksRoot / "Rock2.fbx", 2.4f, 5.1f, 2.0f, 2.6f},
-        {"Rock", forestRocksRoot / "Rock3.fbx", 2.6f, 5.6f, 2.2f, 2.8f},
-        {"Rock", forestRocksRoot / "Rock4A.fbx", 2.3f, 4.9f, 1.9f, 2.4f},
-        {"Rock", forestRocksRoot / "Rock5A.fbx", 2.4f, 5.0f, 2.0f, 2.5f},
-        {"Rock", forestRocksRoot / "Rock6C.fbx", 2.8f, 5.8f, 2.3f, 3.0f},
-    };
-    std::vector<ScatterAsset> bushAssets{
-        {"Bush", bushesRoot / "Bush01.FBX", 1.8f, 3.4f, 1.4f, 1.5f},
-        {"Bush", bushesRoot / "Bush02.FBX", 1.8f, 3.5f, 1.4f, 1.5f},
-        {"Bush", bushesRoot / "Bush03.FBX", 1.8f, 3.6f, 1.4f, 1.6f},
-        {"Bush", bushesRoot / "Bush04.FBX", 1.8f, 3.6f, 1.4f, 1.6f},
-        {"Bush", bushesRoot / "Bush05.FBX", 1.8f, 3.7f, 1.4f, 1.7f},
-    };
-
-    struct TreeBillboardVariant {
-        fs::path texturePath{};
-        float width = 3.2f;
-        float height = 8.8f;
-        ri::math::Vec3 tint{0.92f, 1.0f, 0.86f};
-    };
-    const std::array<TreeBillboardVariant, 4> treeVariants{
-        TreeBillboardVariant{
-            workspaceRoot / "Assets" / "Source" / "Forest Scene" / "Assets" / "Assets" / "Conifers [BOTD]"
-                / "Sources" / "Billboards" / "Billboard Bare" / "Conifer Bare [Albedo].png",
-            2.9f,
-            8.2f,
-            ri::math::Vec3{0.45f, 0.52f, 0.34f},
+    const std::vector<ScatterAsset> fallbackRuinAssets{
+        ScatterAsset{
+            .namePrefix = "RuinBusStop",
+            .sourcePath = postApocRoot / "Bus_Stop_Rural" / "MS_Bus_Stop_Rural.fbx",
+            .minScale = 2.8f,
+            .maxScale = 4.2f,
+            .colliderRadius = 3.2f,
+            .colliderHeight = 4.2f,
         },
-        TreeBillboardVariant{
-            workspaceRoot / "Assets" / "Source" / "Forest Scene" / "Assets" / "Assets" / "Conifers [BOTD]"
-                / "Sources" / "Billboards" / "Billboard Small" / "Conifer Small [Albedo].png",
-            3.0f,
-            7.6f,
-            ri::math::Vec3{0.40f, 0.56f, 0.34f},
+        ScatterAsset{
+            .namePrefix = "RuinBarrier",
+            .sourcePath = postApocRoot / "Barrier_Road" / "MS_Barrier_Road.fbx",
+            .minScale = 2.1f,
+            .maxScale = 3.4f,
+            .colliderRadius = 1.8f,
+            .colliderHeight = 2.3f,
         },
-        TreeBillboardVariant{
-            workspaceRoot / "Assets" / "Source" / "Forest Scene" / "Assets" / "Assets" / "Conifers [BOTD]"
-                / "Sources" / "Billboards" / "Billboard Medium" / "Conifer Medium [Albedo].png",
-            3.4f,
-            9.2f,
-            ri::math::Vec3{0.36f, 0.50f, 0.30f},
+        ScatterAsset{
+            .namePrefix = "RuinFence",
+            .sourcePath = postApocRoot / "Fence_Wood" / "MS_Fence_Wood.fbx",
+            .minScale = 3.4f,
+            .maxScale = 5.0f,
+            .colliderRadius = 2.5f,
+            .colliderHeight = 3.4f,
         },
-        TreeBillboardVariant{
-            workspaceRoot / "Assets" / "Source" / "Forest Scene" / "Assets" / "Assets" / "Conifers [BOTD]"
-                / "Sources" / "Billboards" / "Billboard Tall" / "Conifer Tall [Albedo].png",
-            4.0f,
-            12.4f,
-            ri::math::Vec3{0.32f, 0.44f, 0.28f},
+        ScatterAsset{
+            .namePrefix = "RuinPole",
+            .sourcePath = postApocRoot / "Pole_Light_Rural" / "MS_Pole_Light_Rural.fbx",
+            .minScale = 2.6f,
+            .maxScale = 3.6f,
+            .colliderRadius = 1.5f,
+            .colliderHeight = 5.0f,
+        },
+        ScatterAsset{
+            .namePrefix = "RuinBrickPile",
+            .sourcePath = postApocRoot / "Brick_Pile" / "MS_Brick_Pile.fbx",
+            .minScale = 1.8f,
+            .maxScale = 3.0f,
+            .colliderRadius = 1.6f,
+            .colliderHeight = 1.8f,
+        },
+        ScatterAsset{
+            .namePrefix = "RuinCableReel",
+            .sourcePath = postApocRoot / "Cable_Reel" / "MS_Cable_Reel.fbx",
+            .minScale = 1.8f,
+            .maxScale = 2.8f,
+            .colliderRadius = 1.3f,
+            .colliderHeight = 1.8f,
+        },
+        ScatterAsset{
+            .namePrefix = "RuinTower",
+            .sourcePath = postApocRoot / "Fireplace_Tower" / "MS_Fireplace_Tower.fbx",
+            .minScale = 2.4f,
+            .maxScale = 3.7f,
+            .colliderRadius = 2.7f,
+            .colliderHeight = 5.2f,
+        },
+        ScatterAsset{
+            .namePrefix = "RuinTent",
+            .sourcePath = postApocRoot / "Tent_Civilian" / "MS_Tent_Civilian.fbx",
+            .minScale = 2.4f,
+            .maxScale = 3.8f,
+            .colliderRadius = 2.4f,
+            .colliderHeight = 2.5f,
+        },
+        ScatterAsset{
+            .namePrefix = "RuinBillboard",
+            .sourcePath = postApocRoot / "Sign_Billboard" / "MS_Sign_Billboard.fbx",
+            .minScale = 2.7f,
+            .maxScale = 4.2f,
+            .colliderRadius = 3.3f,
+            .colliderHeight = 4.8f,
+        },
+        ScatterAsset{
+            .namePrefix = "RuinTransformer",
+            .sourcePath = postApocRoot / "Transformer_Box" / "MS_Transformer_Box.fbx",
+            .minScale = 1.8f,
+            .maxScale = 3.1f,
+            .colliderRadius = 1.8f,
+            .colliderHeight = 2.5f,
+        },
+        ScatterAsset{
+            .namePrefix = "RuinCrate",
+            .sourcePath = postApocRoot / "Crate" / "MS_Crate.fbx",
+            .minScale = 1.7f,
+            .maxScale = 2.8f,
+            .colliderRadius = 1.1f,
+            .colliderHeight = 1.6f,
         },
     };
+    const std::vector<ScatterAsset> fallbackRockAssets{
+        ScatterAsset{
+            .namePrefix = "Rock",
+            .sourcePath = forestRocksRoot / "Rock1A.fbx",
+            .minScale = 2.4f,
+            .maxScale = 5.0f,
+            .colliderRadius = 1.9f,
+            .colliderHeight = 2.4f,
+        },
+        ScatterAsset{
+            .namePrefix = "Rock",
+            .sourcePath = forestRocksRoot / "Rock1B.fbx",
+            .minScale = 2.2f,
+            .maxScale = 4.8f,
+            .colliderRadius = 1.8f,
+            .colliderHeight = 2.3f,
+        },
+        ScatterAsset{
+            .namePrefix = "Rock",
+            .sourcePath = forestRocksRoot / "Rock2.fbx",
+            .minScale = 2.4f,
+            .maxScale = 5.1f,
+            .colliderRadius = 2.0f,
+            .colliderHeight = 2.6f,
+        },
+        ScatterAsset{
+            .namePrefix = "Rock",
+            .sourcePath = forestRocksRoot / "Rock3.fbx",
+            .minScale = 2.6f,
+            .maxScale = 5.6f,
+            .colliderRadius = 2.2f,
+            .colliderHeight = 2.8f,
+        },
+        ScatterAsset{
+            .namePrefix = "Rock",
+            .sourcePath = forestRocksRoot / "Rock4A.fbx",
+            .minScale = 2.3f,
+            .maxScale = 4.9f,
+            .colliderRadius = 1.9f,
+            .colliderHeight = 2.4f,
+        },
+        ScatterAsset{
+            .namePrefix = "Rock",
+            .sourcePath = forestRocksRoot / "Rock5A.fbx",
+            .minScale = 2.4f,
+            .maxScale = 5.0f,
+            .colliderRadius = 2.0f,
+            .colliderHeight = 2.5f,
+        },
+        ScatterAsset{
+            .namePrefix = "Rock",
+            .sourcePath = forestRocksRoot / "Rock6C.fbx",
+            .minScale = 2.8f,
+            .maxScale = 5.8f,
+            .colliderRadius = 2.3f,
+            .colliderHeight = 3.0f,
+        },
+    };
+    std::vector<ScatterAsset> ruinAssets =
+        MergeScatterAssets(DiscoverPostApocalypseScatterAssets(postApocRoot), fallbackRuinAssets);
+    std::vector<ScatterAsset> rockAssets =
+        MergeScatterAssets(DiscoverRockScatterAssets(forestRocksRoot), fallbackRockAssets);
+    const std::vector<ScatterAsset> fallbackBushAssets{
+        ScatterAsset{.namePrefix = "Bush", .sourcePath = bushesRoot / "Bush01.FBX", .minScale = 1.8f, .maxScale = 3.4f, .colliderRadius = 1.4f, .colliderHeight = 1.5f},
+        ScatterAsset{.namePrefix = "Bush", .sourcePath = bushesRoot / "Bush02.FBX", .minScale = 1.8f, .maxScale = 3.5f, .colliderRadius = 1.4f, .colliderHeight = 1.5f},
+        ScatterAsset{.namePrefix = "Bush", .sourcePath = bushesRoot / "Bush03.FBX", .minScale = 1.8f, .maxScale = 3.6f, .colliderRadius = 1.4f, .colliderHeight = 1.6f},
+        ScatterAsset{.namePrefix = "Bush", .sourcePath = bushesRoot / "Bush04.FBX", .minScale = 1.8f, .maxScale = 3.6f, .colliderRadius = 1.4f, .colliderHeight = 1.6f},
+        ScatterAsset{.namePrefix = "Bush", .sourcePath = bushesRoot / "Bush05.FBX", .minScale = 1.8f, .maxScale = 3.7f, .colliderRadius = 1.4f, .colliderHeight = 1.7f},
+    };
+    std::vector<ScatterAsset> bushAssets = MergeScatterAssets(DiscoverBushScatterAssets(bushesRoot), fallbackBushAssets);
 
     auto addConiferBillboardCluster = [&](const std::string& nodeName,
                                           const ri::math::Vec3& root,
-                                          const TreeBillboardVariant& variant,
+                                          const BotdBillboardVariant& variant,
                                           const float scale,
                                           const float yawBase,
                                           const float alphaCutoff,
                                           const bool addTrunk) {
-        if (!fs::exists(variant.texturePath)) {
+        if (!fs::exists(variant.albedoPath)) {
             return;
         }
         const float treeWidth = variant.width * scale;
         const float treeHeight = variant.height * scale;
-        if (addTrunk) {
-            addPrimitive(nodeName + "_Trunk",
-                         PrimitiveType::Cube,
-                         {root.x, root.y + (treeHeight * 0.31f), root.z},
-                         {0.0f, yawBase, 0.0f},
-                         {treeWidth * 0.10f, treeHeight * 0.62f, treeWidth * 0.10f},
-                         {0.27f, 0.17f, 0.10f},
-                         "conifer-trunk");
+        const bool placeTrunk = addTrunk && !useExportedConiferMeshes;
+        if (placeTrunk) {
+            PrimitiveNodeOptions trunk{};
+            trunk.nodeName = nodeName + "_Trunk";
+            trunk.parent = world.handles.root;
+            trunk.primitive = PrimitiveType::Cube;
+            trunk.materialName = "forest-bark-trunk";
+            trunk.shadingModel = ShadingModel::Lit;
+            trunk.baseColor = ri::math::Vec3{0.55f, 0.48f, 0.40f};
+            if (!barkTexturePath.empty()) {
+                trunk.baseColorTexture = barkTexturePath;
+            }
+            trunk.roughness = 0.98f;
+            trunk.transform.position = {root.x, root.y + (treeHeight * 0.28f), root.z};
+            trunk.transform.rotationDegrees = {0.0f, yawBase, 0.0f};
+            trunk.transform.scale = {treeWidth * 0.07f, treeHeight * 0.48f, treeWidth * 0.07f};
+            (void)AddPrimitiveNode(scene, trunk);
         }
-        const int planeCount = addTrunk ? 3 : 2;
+        const int planeCount = 2;
         for (int planeIndex = 0; planeIndex < planeCount; ++planeIndex) {
             PrimitiveNodeOptions billboard{};
             billboard.nodeName = nodeName + "_Billboard_" + std::to_string(planeIndex + 1);
@@ -528,8 +1023,8 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
             billboard.primitive = PrimitiveType::Plane;
             billboard.materialName = "conifer-billboard";
             billboard.shadingModel = ShadingModel::Lit;
-            billboard.baseColor = variant.tint;
-            billboard.baseColorTexture = variant.texturePath.generic_string();
+            billboard.baseColor = ri::math::Vec3{1.0f, 1.0f, 1.0f};
+            billboard.baseColorTexture = ToAbsoluteAssetPath(variant.albedoPath);
             billboard.textureTiling = ri::math::Vec2{1.0f, 1.0f};
             billboard.alphaCutoff = alphaCutoff;
             billboard.doubleSided = true;
@@ -542,6 +1037,41 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
             billboard.transform.scale = ri::math::Vec3{treeWidth, 1.0f, treeHeight};
             (void)AddPrimitiveNode(scene, billboard);
         }
+    };
+
+    auto addForestConiferTree = [&](const ri::math::Vec3& root,
+                                    const float targetHeight,
+                                    const float yawDegrees,
+                                    const int variantIndex,
+                                    const std::string& nodePrefix,
+                                    const bool preferMesh = false) {
+        if (useExportedConiferMeshes && preferMesh) {
+            const fs::path& meshPath =
+                exportedConiferMeshes[static_cast<std::size_t>(std::abs(variantIndex))
+                                      % exportedConiferMeshes.size()];
+            const float meshScale = std::clamp(targetHeight / 9.0f, 0.45f, 2.2f);
+            addImported(nodePrefix + "_Mesh",
+                        meshPath,
+                        root,
+                        ri::math::Vec3{0.0f, yawDegrees, 0.0f},
+                        ri::math::Vec3{meshScale, meshScale, meshScale});
+            return;
+        }
+        if (useBotdForestTrees) {
+            const BotdBillboardVariant& variant =
+                botdTreeVariants[static_cast<std::size_t>(std::abs(variantIndex))
+                                 % botdTreeVariants.size()];
+            const float heightScale = std::clamp(targetHeight / std::max(variant.height, 1.0f), 0.35f, 2.4f);
+            addConiferBillboardCluster(nodePrefix,
+                                     root,
+                                     variant,
+                                     heightScale,
+                                     yawDegrees,
+                                     0.28f,
+                                     false);
+            return;
+        }
+        addInstancedConiferTree(root, targetHeight, targetHeight * 0.22f, yawDegrees, variantIndex);
     };
 
     const int scatterSeed = ri::content::ScriptScalarOrInt(gameplay, "scatter_seed", 1337);
@@ -628,8 +1158,8 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
             }
             const ri::math::Vec3 rotation{0.0f, rng.NextRange(-180.0f, 180.0f), 0.0f};
             const ri::math::Vec3 scale{scaleUniform, scaleUniform, scaleUniform};
-            const std::string nodeName =
-                std::string(asset.namePrefix) + "_" + std::to_string(i + 1) + "_" + std::to_string(scatterSeed);
+            const std::string nodeName = asset.namePrefix + "_" + std::to_string(i + 1) + "_"
+                + std::to_string(scatterSeed);
             addImported(nodeName, asset.sourcePath, position, rotation, scale);
             if (asset.colliderRadius > 0.0f && asset.colliderHeight > 0.0f) {
                 addCollider("scatter-" + nodeName,
@@ -647,7 +1177,13 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
         }
     };
 
-    for (int i = 0; i < 27; ++i) {
+    const int roadSegmentCount = sourcePackReady ? 10 : 27;
+    const int roadCrackCount = sourcePackReady ? 6 : 42;
+    const int floorShadowPatchCount = sourcePackReady ? 0 : 76;
+    const int roadEdgeStoneCount = sourcePackReady ? 8 : 34;
+    const int heroRubbleCount = sourcePackReady ? 5 : 18;
+
+    for (int i = 0; i < roadSegmentCount; ++i) {
         const float z = 77.0f - (static_cast<float>(i) * 4.8f);
         const float x = RuinPathCenterX(z);
         const float width = (RuinPathHalfWidth(z) * 1.12f) + ((i % 3 == 0) ? 0.75f : 0.0f);
@@ -660,7 +1196,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                                     : ri::math::Vec3{0.070f, 0.078f, 0.068f},
                        "old-road-moss-dirt");
     }
-    for (int i = 0; i < 42; ++i) {
+    for (int i = 0; i < roadCrackCount; ++i) {
         const float z = 75.0f - (static_cast<float>(i) * 3.1f);
         const float x = RuinPathCenterX(z) + (std::sin(static_cast<float>(i) * 1.9f) * 1.5f);
         addBoxOnGround("RoadMossCrack_" + std::to_string(i + 1),
@@ -672,7 +1208,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                                     : ri::math::Vec3{0.025f, 0.035f, 0.030f},
                        "road-crack-moss");
     }
-    for (int i = 0; i < 76; ++i) {
+    for (int i = 0; i < floorShadowPatchCount; ++i) {
         const float z = 77.0f - (static_cast<float>(i) * 2.25f);
         const float side = (i % 2 == 0) ? -1.0f : 1.0f;
         const float x = RuinPathCenterX(z)
@@ -690,7 +1226,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                                     : ri::math::Vec3{0.050f, 0.045f, 0.032f},
                        "leaf-litter-shadow");
     }
-    for (int i = 0; i < 34; ++i) {
+    for (int i = 0; i < roadEdgeStoneCount; ++i) {
         const float z = 72.0f - (static_cast<float>(i) * 3.2f);
         const float side = (i % 2 == 0) ? -1.0f : 1.0f;
         const float x = RuinPathCenterX(z) + (side * (RuinPathHalfWidth(z) + 1.8f + (static_cast<float>(i % 4) * 0.35f)));
@@ -725,7 +1261,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
         addBoxOnGround("CrackedStep_1", 0.0f, 33.8f, {6.4f, 0.22f, 1.5f}, {0.0f, 1.5f, 0.0f}, darkStone, "hero-ruin-dark-stone");
         addBoxOnGround("CrackedStep_2", -0.4f, 35.3f, {5.0f, 0.24f, 1.3f}, {0.0f, -2.0f, 0.0f}, darkStone, "hero-ruin-dark-stone");
 
-        for (int i = 0; i < 18; ++i) {
+        for (int i = 0; i < heroRubbleCount; ++i) {
             const float angle = static_cast<float>(i) * 37.0f;
             const float radius = 5.0f + static_cast<float>((i * 5) % 7) * 0.95f;
             const float x = std::sin(ri::math::DegreesToRadians(angle)) * radius;
@@ -741,7 +1277,8 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                            "hero-ruin-rubble");
         }
 
-        for (int i = 0; i < 11; ++i) {
+        const int mossCushionCount = sourcePackReady ? 4 : 11;
+        for (int i = 0; i < mossCushionCount; ++i) {
             const float x = -6.0f + static_cast<float>(i) * 1.25f;
             const float z = 27.0f + std::sin(static_cast<float>(i) * 1.7f) * 4.0f;
             addPrimitive("MossCushion_" + std::to_string(i + 1),
@@ -751,7 +1288,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                          {1.2f, 0.32f, 0.9f},
                          moss,
                          "moss-cushion",
-                         ShadingModel::Unlit);
+                         ShadingModel::Lit);
         }
 
         const auto heroImport = [&](const std::string& nodeName,
@@ -795,41 +1332,47 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     spawnScatter(rockAssets, rockCount, false);
     spawnScatter(bushAssets, bushCount, false);
 
-    for (int i = 0; i < 86; ++i) {
-        const float z = 78.0f - (static_cast<float>(i) * 1.95f);
+    const int pathWallTreeCount = sourcePackReady ? 34 : 86;
+    const int pathTallTreeCount = sourcePackReady ? 6 : 14;
+    const int pathSmallTreeCount = sourcePackReady ? 22 : 68;
+    for (int i = 0; i < pathWallTreeCount; ++i) {
+        const float z = 78.0f - (static_cast<float>(i) * (sourcePackReady ? 2.35f : 1.95f));
         const float side = (i % 2 == 0) ? -1.0f : 1.0f;
         const float forestWallOffset = RuinPathHalfWidth(z) + 7.0f + static_cast<float>((i * 11) % 7) * 1.05f;
         const float x = RuinPathCenterX(z) + side * forestWallOffset;
         const ri::math::Vec3 root{x, sampleTerrainHeight(x, z), z};
-        addInstancedConiferTree(root,
-                                9.8f + static_cast<float>((i * 17) % 9) * 0.72f,
-                                2.35f + static_cast<float>((i * 13) % 6) * 0.32f,
-                                static_cast<float>((i * 29) % 360),
-                                i);
+        addForestConiferTree(root,
+                             9.8f + static_cast<float>((i * 17) % 9) * 0.72f,
+                             static_cast<float>((i * 29) % 360),
+                             i,
+                             "PathConifer_" + std::to_string(i + 1),
+                             useExportedConiferMeshes && (i % 5 == 0));
     }
 
-    for (int i = 0; i < 14; ++i) {
+    for (int i = 0; i < pathTallTreeCount; ++i) {
         const float z = 74.0f - (static_cast<float>(i) * 3.8f);
         const float side = (i % 2 == 0) ? -1.0f : 1.0f;
         const float x = RuinPathCenterX(z) + side * (14.0f + static_cast<float>((i * 5) % 4) * 2.6f);
         const ri::math::Vec3 root{x, sampleTerrainHeight(x, z), z};
-        addInstancedConiferTree(root,
-                                11.6f + static_cast<float>((i * 19) % 5) * 0.9f,
-                                2.7f + static_cast<float>((i * 7) % 4) * 0.36f,
-                                static_cast<float>((i * 43) % 360),
-                                i + 1);
+        addForestConiferTree(root,
+                             11.6f + static_cast<float>((i * 19) % 5) * 0.9f,
+                             static_cast<float>((i * 43) % 360),
+                             i + 1,
+                             "PathConiferTall_" + std::to_string(i + 1),
+                             useExportedConiferMeshes);
     }
 
-    for (int i = 0; i < 68; ++i) {
+    for (int i = 0; i < pathSmallTreeCount; ++i) {
         const float z = 74.0f - (static_cast<float>(i) * 2.15f);
         const float side = (i % 2 == 0) ? -1.0f : 1.0f;
         const float x = RuinPathCenterX(z) + side * (RuinPathHalfWidth(z) + 2.2f + static_cast<float>((i * 5) % 4) * 0.48f);
         const ri::math::Vec3 root{x, sampleTerrainHeight(x, z), z};
-        addInstancedConiferTree(root,
-                                2.8f + static_cast<float>((i * 7) % 5) * 0.46f,
-                                0.85f + static_cast<float>((i * 11) % 4) * 0.18f,
-                                static_cast<float>((i * 47) % 360),
-                                i + 2);
+        addForestConiferTree(root,
+                             2.8f + static_cast<float>((i * 7) % 5) * 0.46f,
+                             static_cast<float>((i * 47) % 360),
+                             i + 2,
+                             "PathConiferSmall_" + std::to_string(i + 1),
+                             false);
     }
 
     for (int i = 0; i < 18; ++i) {
@@ -851,22 +1394,12 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
             const ri::math::Vec3 root = PickScatterPoint(rng, scatterExtent, false, clearings);
             const float groundY = sampleTerrainHeight(root.x, root.z);
             const float yawBase = rng.NextRange(-180.0f, 180.0f);
-            addInstancedConiferTree(ri::math::Vec3{root.x, groundY, root.z},
-                                    rng.NextRange(7.2f, 15.5f),
-                                    rng.NextRange(1.85f, 3.75f),
-                                    yawBase,
-                                    rng.NextIndex(3));
-            if ((i % 7) == 0) {
-                const TreeBillboardVariant& variant =
-                    treeVariants[static_cast<std::size_t>(rng.NextIndex(static_cast<int>(treeVariants.size())))];
-                addConiferBillboardCluster("DistantConiferBillboard_" + std::to_string(i + 1),
-                                           ri::math::Vec3{root.x + rng.NextRange(-1.1f, 1.1f), groundY, root.z},
-                                           variant,
-                                           rng.NextRange(0.62f, 0.92f),
-                                           yawBase + 37.0f,
-                                           0.46f,
-                                           false);
-            }
+            addForestConiferTree(ri::math::Vec3{root.x, groundY, root.z},
+                                 rng.NextRange(7.2f, 15.5f),
+                                 yawBase,
+                                 rng.NextIndex(static_cast<int>(botdTreeVariants.empty() ? 4 : botdTreeVariants.size())),
+                                 "ScatterConifer_" + std::to_string(i + 1),
+                                 false);
         }
     }
 

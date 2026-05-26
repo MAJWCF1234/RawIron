@@ -2,6 +2,7 @@
 #include "RawIron/Audio/AudioManager.h"
 #include "RawIron/Core/CommandLine.h"
 #include "RawIron/Core/Log.h"
+#include "RawIron/Render/ShaderConfig.h"
 #include "RawIron/Math/Vec3.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
 #include "RawIron/Scene/Components.h"
@@ -16,8 +17,10 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #if defined(_WIN32)
@@ -37,6 +40,17 @@
 namespace {
 
 namespace fs = std::filesystem;
+
+/// World-space layout: hero content sits slightly toward the back wall (–Z) for a clear backdrop and sight lines.
+struct ShowcaseLayout {
+    static constexpr ri::math::Vec3 kFocus{0.0f, 0.0f, -2.2f};
+    static constexpr float kOrbitTargetY = 2.45f;
+    static constexpr float kDefaultYaw = 124.0f;
+    static constexpr float kDefaultPitch = -15.0f;
+    static constexpr float kDefaultOrbitDistance = 15.25f;
+    static constexpr float kEmberPillarY = 4.95f;
+    static constexpr float kAmbientHazeY = 9.6f;
+};
 
 struct DecodedPcmMono {
     std::vector<float> mono;
@@ -196,16 +210,22 @@ struct ShowcaseRuntime {
     int particleBatch = ri::scene::kInvalidHandle;
     std::optional<ri::scene::CpuParticleSystem> particlesAmbient;
     int particleAmbientBatch = ri::scene::kInvalidHandle;
+    std::optional<ri::scene::CpuParticleSystem> particlesKick;
+    int particleKickBatch = ri::scene::kInvalidHandle;
+    float kickBurstEnergy = 0.0f;
     /// Baseline configs for audio-driven modulation (rest frames match BuildDevRoom).
     ri::scene::CpuParticleSystemConfig primaryRest{};
     ri::scene::CpuParticleSystemConfig ambientRest{};
     int primaryMaterial = ri::scene::kInvalidHandle;
     int ambientMaterial = ri::scene::kInvalidHandle;
+    int kickMaterial = ri::scene::kInvalidHandle;
     std::vector<int> pointLights;
     int keySunNode = ri::scene::kInvalidHandle;
     int spotWarm = ri::scene::kInvalidHandle;
     int spotCool = ri::scene::kInvalidHandle;
     DecodedPcmMono pcm{};
+    /// Decode WAV analysis buffer on a side thread so Vulkan can open immediately (large tracks block for seconds).
+    std::mutex pcmMutex;
     std::shared_ptr<ri::audio::AudioManager> audio;
     std::shared_ptr<ri::audio::ManagedSound> music;
     std::chrono::steady_clock::time_point lastTick{};
@@ -214,20 +234,27 @@ struct ShowcaseRuntime {
     float phaseHue = 0.0f;
     float kickSmooth = 0.0f;
     float snapSmooth = 0.0f;
+    fs::path shaderCfgPath{};
+    ri::render::ShaderPresentationConfig shaderCfg{};
+    std::optional<fs::file_time_type> shaderCfgLastWrite{};
+    double musicVolumeLinear = 0.82;
+    ri::scene::OrbitCameraState orbitBaseline{};
+    bool orbitFrozen = false;
 };
 
 void BuildDevRoom(ShowcaseRuntime& run) {
     const int root = run.scene.CreateNode("DevRoom");
+    const ri::math::Vec3 P = ShowcaseLayout::kFocus;
 
     ri::scene::LightNodeOptions sun{};
     sun.nodeName = "KeySun";
     sun.parent = root;
-    sun.transform.rotationDegrees = ri::math::Vec3{-58.0f, 32.0f, 0.0f};
+    sun.transform.rotationDegrees = ri::math::Vec3{-56.0f, 36.0f, 0.0f};
     sun.light = ri::scene::Light{
         .name = "KeySun",
         .type = ri::scene::LightType::Directional,
         .color = ri::math::Vec3{1.0f, 0.95f, 0.88f},
-        .intensity = 2.4f,
+        .intensity = 1.05f,
     };
     run.keySunNode = ri::scene::AddLightNode(run.scene, sun);
 
@@ -241,101 +268,136 @@ void BuildDevRoom(ShowcaseRuntime& run) {
             .type = ri::scene::LightType::Point,
             .color = color,
             .intensity = intensity,
-            .range = 32.0f,
+            .range = 34.0f,
         };
         run.pointLights.push_back(ri::scene::AddLightNode(run.scene, L));
     };
 
-    addPoint("FillMagenta", ri::math::Vec3{-11.2f, 7.3f, 4.5f}, ri::math::Vec3{0.95f, 0.35f, 0.95f}, 11.0f);
-    addPoint("FillCyan", ri::math::Vec3{11.0f, 6.9f, -3.9f}, ri::math::Vec3{0.25f, 0.85f, 1.0f}, 10.5f);
-    addPoint("RimGold", ri::math::Vec3{0.0f, 11.8f, -12.9f}, ri::math::Vec3{1.0f, 0.82f, 0.35f}, 9.0f);
+    /// Keys pulled slightly toward the stage focus so the pillar reads against geometry.
+    addPoint("FillMagenta", ri::math::Vec3{-11.4f, 7.35f, 2.2f}, ri::math::Vec3{0.95f, 0.35f, 0.95f}, 4.2f);
+    addPoint("FillCyan", ri::math::Vec3{11.2f, 6.85f, -6.2f}, ri::math::Vec3{0.25f, 0.85f, 1.0f}, 4.0f);
+    addPoint("RimGold", ri::math::Vec3{0.2f, 11.9f, -14.5f}, ri::math::Vec3{1.0f, 0.82f, 0.35f}, 3.4f);
 
     ri::scene::LightNodeOptions spotA{};
     spotA.nodeName = "SpotWarmStage";
     spotA.parent = root;
-    spotA.transform.position = ri::math::Vec3{-7.8f, 12.5f, 9.0f};
-    spotA.transform.rotationDegrees = ri::math::Vec3{-72.0f, -28.0f, 0.0f};
+    spotA.transform.position = ri::math::Vec3{-7.6f, 12.6f, 7.2f};
+    spotA.transform.rotationDegrees = ri::math::Vec3{-71.0f, -30.0f, 0.0f};
     spotA.light = ri::scene::Light{
         .name = "SpotWarmStage",
         .type = ri::scene::LightType::Spot,
         .color = ri::math::Vec3{1.0f, 0.72f, 0.38f},
-        .intensity = 48.0f,
-        .range = 48.0f,
-        .spotAngleDegrees = 38.0f,
+        .intensity = 14.0f,
+        .range = 50.0f,
+        .spotAngleDegrees = 36.0f,
     };
     run.spotWarm = ri::scene::AddLightNode(run.scene, spotA);
 
     ri::scene::LightNodeOptions spotB{};
     spotB.nodeName = "SpotCoolStage";
     spotB.parent = root;
-    spotB.transform.position = ri::math::Vec3{8.2f, 12.0f, 8.6f};
-    spotB.transform.rotationDegrees = ri::math::Vec3{-70.0f, 26.0f, 0.0f};
+    spotB.transform.position = ri::math::Vec3{8.4f, 12.1f, 6.8f};
+    spotB.transform.rotationDegrees = ri::math::Vec3{-69.5f, 27.5f, 0.0f};
     spotB.light = ri::scene::Light{
         .name = "SpotCoolStage",
         .type = ri::scene::LightType::Spot,
         .color = ri::math::Vec3{0.55f, 0.78f, 1.0f},
-        .intensity = 42.0f,
-        .range = 46.0f,
-        .spotAngleDegrees = 34.0f,
+        .intensity = 12.0f,
+        .range = 48.0f,
+        .spotAngleDegrees = 33.0f,
     };
     run.spotCool = ri::scene::AddLightNode(run.scene, spotB);
 
     auto addWall = [&](const char* name, const ri::math::Vec3& pos, const ri::math::Vec3& scale,
-                       const ri::math::Vec3& color) {
+                       const ri::math::Vec3& color, float metallic = 0.08f, float roughness = 0.42f) {
         ri::scene::PrimitiveNodeOptions wall{};
         wall.nodeName = name;
         wall.parent = root;
         wall.primitive = ri::scene::PrimitiveType::Cube;
         wall.materialName = std::string(name) + "Mat";
         wall.baseColor = color;
-        wall.roughness = 0.42f;
-        wall.metallic = 0.08f;
+        wall.roughness = roughness;
+        wall.metallic = metallic;
         wall.transform.position = pos;
         wall.transform.scale = scale;
         (void)ri::scene::AddPrimitiveNode(run.scene, wall);
     };
 
     addWall("Floor", ri::math::Vec3{0.0f, -0.06f, 0.0f}, ri::math::Vec3{52.0f, 0.35f, 40.0f},
-            ri::math::Vec3{0.12f, 0.13f, 0.15f});
+            ri::math::Vec3{0.11f, 0.12f, 0.14f});
     addWall("WallNorth", ri::math::Vec3{0.0f, 8.6f, -19.9f}, ri::math::Vec3{52.0f, 18.5f, 0.38f},
-            ri::math::Vec3{0.18f, 0.19f, 0.22f});
+            ri::math::Vec3{0.17f, 0.18f, 0.21f});
     addWall("WallSouth", ri::math::Vec3{0.0f, 8.6f, 19.9f}, ri::math::Vec3{52.0f, 18.5f, 0.38f},
-            ri::math::Vec3{0.16f, 0.17f, 0.20f});
-    addWall("WallWest", ri::math::Vec3{-25.1f, 8.6f, 0.0f}, ri::math::Vec3{0.38f, 18.5f, 40.0f},
             ri::math::Vec3{0.14f, 0.15f, 0.18f});
+    addWall("WallWest", ri::math::Vec3{-25.1f, 8.6f, 0.0f}, ri::math::Vec3{0.38f, 18.5f, 40.0f},
+            ri::math::Vec3{0.13f, 0.14f, 0.17f});
     addWall("WallEast", ri::math::Vec3{25.1f, 8.6f, 0.0f}, ri::math::Vec3{0.38f, 18.5f, 40.0f},
-            ri::math::Vec3{0.15f, 0.16f, 0.19f});
+            ri::math::Vec3{0.14f, 0.15f, 0.18f});
     addWall("Ceiling", ri::math::Vec3{0.0f, 17.7f, 0.0f}, ri::math::Vec3{52.0f, 0.32f, 40.0f},
-            ri::math::Vec3{0.10f, 0.11f, 0.13f});
+            ri::math::Vec3{0.09f, 0.10f, 0.12f});
 
-    ri::scene::PrimitiveNodeOptions pedestal{};
-    pedestal.nodeName = "EmitterPedestal";
-    pedestal.parent = root;
-    pedestal.primitive = ri::scene::PrimitiveType::Cube;
-    pedestal.materialName = "PedestalMat";
-    pedestal.baseColor = ri::math::Vec3{0.22f, 0.24f, 0.28f};
-    pedestal.metallic = 0.65f;
-    pedestal.roughness = 0.35f;
-    pedestal.transform.position = ri::math::Vec3{0.0f, 0.65f, 0.0f};
-    pedestal.transform.scale = ri::math::Vec3{3.2f, 0.65f, 3.2f};
-    (void)ri::scene::AddPrimitiveNode(run.scene, pedestal);
+    /// Dark “stage apron” under the hero — reads as a dedicated floor zone without changing outer bounds.
+    addWall("StageApron", ri::math::Vec3{P.x, -0.03f, P.z + 0.15f}, ri::math::Vec3{20.0f, 0.12f, 15.0f},
+            ri::math::Vec3{0.07f, 0.075f, 0.09f}, 0.12f, 0.55f);
+
+    /// Horizontal band on the back wall to break up the large plane and anchor the composition.
+    addWall("NorthAccentBand", ri::math::Vec3{P.x, 11.2f, -19.78f}, ri::math::Vec3{48.0f, 1.1f, 0.28f},
+            ri::math::Vec3{0.22f, 0.23f, 0.27f}, 0.18f, 0.38f);
+
+    /// Thin vertical posts frame the stage volume from the sides.
+    addWall("StageFrameL", ri::math::Vec3{-10.2f, 5.4f, P.z - 0.4f}, ri::math::Vec3{0.55f, 9.2f, 0.55f},
+            ri::math::Vec3{0.16f, 0.17f, 0.2f}, 0.15f, 0.4f);
+    addWall("StageFrameR", ri::math::Vec3{10.2f, 5.4f, P.z - 0.4f}, ri::math::Vec3{0.55f, 9.2f, 0.55f},
+            ri::math::Vec3{0.16f, 0.17f, 0.2f}, 0.15f, 0.4f);
+
+    /// Tiered pedestal: wide pad + main block + thin cap (focus sits slightly back in the room).
+    addWall("PedestalPad", ri::math::Vec3{P.x, 0.11f, P.z}, ri::math::Vec3{5.8f, 0.22f, 4.9f},
+            ri::math::Vec3{0.14f, 0.15f, 0.17f}, 0.35f, 0.48f);
+    addWall("PedestalCore", ri::math::Vec3{P.x, 0.62f, P.z}, ri::math::Vec3{3.0f, 0.72f, 3.0f},
+            ri::math::Vec3{0.2f, 0.22f, 0.26f}, 0.72f, 0.34f);
+    addWall("PedestalCap", ri::math::Vec3{P.x, 1.08f, P.z}, ri::math::Vec3{2.15f, 0.13f, 2.15f},
+            ri::math::Vec3{0.28f, 0.3f, 0.34f}, 0.58f, 0.28f);
+
+    /// Small reflective sphere as a focal anchor where the pillar emerges.
+    {
+        ri::scene::PrimitiveNodeOptions core{};
+        core.nodeName = "EmitterCore";
+        core.parent = root;
+        core.primitive = ri::scene::PrimitiveType::Sphere;
+        core.materialName = "EmitterCoreMat";
+        core.baseColor = ri::math::Vec3{0.35f, 0.38f, 0.42f};
+        core.emissiveColor = ri::math::Vec3{0.02f, 0.03f, 0.04f};
+        core.metallic = 0.78f;
+        core.roughness = 0.22f;
+        core.transform.position = ri::math::Vec3{P.x, 1.34f, P.z};
+        core.transform.scale = ri::math::Vec3{0.42f, 0.42f, 0.42f};
+        (void)ri::scene::AddPrimitiveNode(run.scene, core);
+    }
 
     ri::scene::OrbitCameraOptions cam{};
     cam.parent = root;
-    cam.camera.fieldOfViewDegrees = 62.0f;
+    cam.camera.fieldOfViewDegrees = 60.0f;
     cam.camera.nearClip = 0.08f;
     cam.camera.farClip = 220.0f;
-    cam.orbit.target = ri::math::Vec3{0.0f, 2.8f, 0.0f};
-    cam.orbit.distance = 14.5f;
-    cam.orbit.yawDegrees = 132.0f;
-    cam.orbit.pitchDegrees = -16.0f;
+    cam.orbit.target =
+        ri::math::Vec3{ShowcaseLayout::kFocus.x, ShowcaseLayout::kOrbitTargetY, ShowcaseLayout::kFocus.z};
+    cam.orbit.distance = ShowcaseLayout::kDefaultOrbitDistance;
+    cam.orbit.yawDegrees = ShowcaseLayout::kDefaultYaw;
+    cam.orbit.pitchDegrees = ShowcaseLayout::kDefaultPitch;
     run.orbit = ri::scene::AddOrbitCamera(run.scene, cam);
+    run.orbitBaseline = ri::scene::OrbitCameraState{
+        .target = cam.orbit.target,
+        .distance = cam.orbit.distance,
+        .yawDegrees = cam.orbit.yawDegrees,
+        .pitchDegrees = cam.orbit.pitchDegrees,
+    };
 
     ri::scene::CpuParticleSystemConfig cfg{};
     cfg.simulationMode = ri::scene::CpuParticleSimulationMode::FloatingAmbient;
     cfg.maxParticles = 1760;
     /// Tall narrow volume: swirling ember pillar above the pedestal (not an outward cone fountain).
-    cfg.emitterCenter = ri::math::Vec3{0.0f, 5.2f, 0.0f};
+    cfg.emitterCenter =
+        ri::math::Vec3{ShowcaseLayout::kFocus.x, ShowcaseLayout::kEmberPillarY, ShowcaseLayout::kFocus.z};
     cfg.emitterRadius = 0.72f;
     cfg.emitterVolumeHalfExtents = ri::math::Vec3{0.5f, 6.1f, 0.5f};
     cfg.velocityMin = ri::math::Vec3{-2.0f, 0.85f, -2.0f};
@@ -361,16 +423,17 @@ void BuildDevRoom(ShowcaseRuntime& run) {
     cfg.bounceRestitution = 0.44f;
     cfg.bounceXZVelocityScale = 0.78f;
     cfg.bounceCeilingWorldY = 16.1f;
+    cfg.cameraFacingBillboards = true;
     cfg.seed = 0xDEADBEEFu;
     run.particles.emplace(cfg);
 
-    const int mesh = run.scene.AddMesh(ri::scene::MakeUvSphereMesh("ShowcaseParticleMesh"));
+    const int mesh = run.scene.AddMesh(ri::scene::MakeBillboardQuadMesh("ShowcaseParticleBillboard"));
     run.primaryMaterial = run.scene.AddMaterial(ri::scene::Material{
         .name = "ShowcaseParticleMat",
         .shadingModel = ri::scene::ShadingModel::Unlit,
-        .baseColor = ri::math::Vec3{0.98f, 0.52f, 0.18f},
-        .emissiveColor = ri::math::Vec3{0.95f, 0.38f, 0.12f},
-        .opacity = 0.38f,
+        .baseColor = ri::math::Vec3{0.85f, 0.45f, 0.14f},
+        .emissiveColor = ri::math::Vec3{0.22f, 0.09f, 0.03f},
+        .opacity = 0.32f,
         .additiveBlend = true,
     });
 
@@ -385,8 +448,9 @@ void BuildDevRoom(ShowcaseRuntime& run) {
     ri::scene::CpuParticleSystemConfig ambientCfg{};
     ambientCfg.simulationMode = ri::scene::CpuParticleSimulationMode::FloatingAmbient;
     ambientCfg.maxParticles = 1200;
-    ambientCfg.emitterCenter = ri::math::Vec3{0.0f, 9.8f, 0.0f};
-    ambientCfg.emitterVolumeHalfExtents = ri::math::Vec3{19.0f, 5.8f, 14.5f};
+    ambientCfg.emitterCenter =
+        ri::math::Vec3{0.0f, ShowcaseLayout::kAmbientHazeY, -1.4f + ShowcaseLayout::kFocus.z * 0.35f};
+    ambientCfg.emitterVolumeHalfExtents = ri::math::Vec3{18.5f, 5.6f, 15.0f};
     ambientCfg.bounceCeilingWorldY = 17.48f;
     ambientCfg.velocityMin = ri::math::Vec3{-0.32f, -0.26f, -0.32f};
     ambientCfg.velocityMax = ri::math::Vec3{0.32f, 0.38f, 0.32f};
@@ -406,15 +470,38 @@ void BuildDevRoom(ShowcaseRuntime& run) {
     ambientCfg.scaleLifetimeExponent = 0.38f;
     ambientCfg.spinAngularVelocityMin = ri::math::Vec3{-72.0f, -95.0f, -72.0f};
     ambientCfg.spinAngularVelocityMax = ri::math::Vec3{72.0f, 95.0f, 72.0f};
+    ambientCfg.cameraFacingBillboards = true;
     ambientCfg.seed = 0xF10A7EEDu;
     run.particlesAmbient.emplace(ambientCfg);
+
+    ri::scene::CpuParticleSystemConfig kickCfg{};
+    kickCfg.simulationMode = ri::scene::CpuParticleSimulationMode::Fountain;
+    kickCfg.maxParticles = 420;
+    kickCfg.emitterCenter = ri::math::Vec3{ShowcaseLayout::kFocus.x, 1.34f, ShowcaseLayout::kFocus.z};
+    kickCfg.emitterRadius = 0.38f;
+    kickCfg.fountainConeHalfAngleDegrees = 42.0f;
+    kickCfg.velocityMin = ri::math::Vec3{-1.4f, 7.5f, -1.4f};
+    kickCfg.velocityMax = ri::math::Vec3{1.4f, 14.0f, 1.4f};
+    kickCfg.particleLifeSeconds = 0.92f;
+    kickCfg.gravityY = -13.5f;
+    kickCfg.scaleMin = 0.05f;
+    kickCfg.scaleMax = 0.24f;
+    kickCfg.scaleLifetimeExponent = 0.72f;
+    kickCfg.linearDragPerSecond = 0.18f;
+    kickCfg.fountainTurbulenceAcceleration = 5.2f;
+    kickCfg.turbulenceSpatialFrequency = 0.62f;
+    kickCfg.bouncePlaneWorldY = 0.115f;
+    kickCfg.bounceRestitution = 0.28f;
+    kickCfg.cameraFacingBillboards = true;
+    kickCfg.seed = 0xB00C5EEDu;
+    run.particlesKick.emplace(kickCfg);
 
     run.ambientMaterial = run.scene.AddMaterial(ri::scene::Material{
         .name = "ShowcaseAmbientParticleMat",
         .shadingModel = ri::scene::ShadingModel::Unlit,
-        .baseColor = ri::math::Vec3{0.42f, 0.82f, 1.0f},
-        .emissiveColor = ri::math::Vec3{0.22f, 0.55f, 0.95f},
-        .opacity = 0.26f,
+        .baseColor = ri::math::Vec3{0.35f, 0.65f, 0.85f},
+        .emissiveColor = ri::math::Vec3{0.08f, 0.18f, 0.28f},
+        .opacity = 0.22f,
         .additiveBlend = true,
     });
     run.particleAmbientBatch = run.scene.AddMeshInstanceBatch(ri::scene::MeshInstanceBatch{
@@ -422,6 +509,22 @@ void BuildDevRoom(ShowcaseRuntime& run) {
         .parent = root,
         .mesh = mesh,
         .material = run.ambientMaterial,
+        .transforms = {},
+    });
+
+    run.kickMaterial = run.scene.AddMaterial(ri::scene::Material{
+        .name = "ShowcaseKickParticleMat",
+        .shadingModel = ri::scene::ShadingModel::Unlit,
+        .baseColor = ri::math::Vec3{1.0f, 0.92f, 0.72f},
+        .emissiveColor = ri::math::Vec3{0.35f, 0.22f, 0.08f},
+        .opacity = 0.48f,
+        .additiveBlend = true,
+    });
+    run.particleKickBatch = run.scene.AddMeshInstanceBatch(ri::scene::MeshInstanceBatch{
+        .name = "ShowcaseKickParticles",
+        .parent = root,
+        .mesh = mesh,
+        .material = run.kickMaterial,
         .transforms = {},
     });
 
@@ -443,7 +546,8 @@ void TickShowcase(ShowcaseRuntime& run,
                   const float transient,
                   const double wallSeconds,
                   const float kickShortRms,
-                  const float onsetDelta) {
+                  const float onsetDelta,
+                  const bool holdBeatPhase) {
     if (run.audio != nullptr) {
         run.audio->Tick(static_cast<double>(dt) * 1000.0);
     }
@@ -461,7 +565,9 @@ void TickShowcase(ShowcaseRuntime& run,
         0.0f,
         3.8f);
 
-    run.phaseHue += dt * (0.55f + punch * 2.4f + run.smoothRms * 5.5f + run.snapSmooth * 3.2f);
+    if (!holdBeatPhase) {
+        run.phaseHue += dt * (0.55f + punch * 2.4f + run.smoothRms * 5.5f + run.snapSmooth * 3.2f);
+    }
 
     auto hueToRgb = [](float h) -> ri::math::Vec3 {
         h = std::fmod(h, 6.28f);
@@ -475,7 +581,9 @@ void TickShowcase(ShowcaseRuntime& run,
     const ri::math::Vec3 mood = hueToRgb(run.phaseHue);
 
     if (run.keySunNode != ri::scene::kInvalidHandle) {
-        SetLightIntensity(run.scene, run.keySunNode, 1.35f + run.smoothRms * 2.8f + run.snapSmooth * 5.5f);
+        SetLightIntensity(run.scene,
+                          run.keySunNode,
+                          std::clamp(0.95f + run.smoothRms * 0.75f + run.snapSmooth * 1.35f, 0.72f, 2.6f));
         SetLightColor(run.scene,
                       run.keySunNode,
                       ri::math::Vec3{
@@ -505,25 +613,40 @@ void TickShowcase(ShowcaseRuntime& run,
                           mood.x * 0.25f + 0.12f,
                       });
 
-        SetLightIntensity(run.scene, run.pointLights[0], 8.0f + run.smoothRms * 62.0f + punch * 22.0f + run.snapSmooth * 35.0f);
-        SetLightIntensity(run.scene, run.pointLights[1], 7.0f + transient * 85.0f + run.peakTracker * 32.0f + run.kickSmooth * 28.0f);
-        SetLightIntensity(run.scene, run.pointLights[2], 6.0f + wide * 38.0f + run.snapSmooth * 18.0f);
+        SetLightIntensity(
+            run.scene,
+            run.pointLights[0],
+            std::clamp(3.2f + run.smoothRms * 9.0f + punch * 3.5f + run.snapSmooth * 5.5f, 2.2f, 26.0f));
+        SetLightIntensity(
+            run.scene,
+            run.pointLights[1],
+            std::clamp(2.8f + transient * 11.0f + run.peakTracker * 7.5f + run.kickSmooth * 6.0f, 2.2f, 30.0f));
+        SetLightIntensity(
+            run.scene,
+            run.pointLights[2],
+            std::clamp(2.5f + wide * 7.0f + run.snapSmooth * 5.0f, 2.0f, 20.0f));
     }
 
-    SetLightIntensity(run.scene, run.spotWarm, 32.0f + punch * 140.0f + run.peakTracker * 48.0f + run.snapSmooth * 55.0f);
-    SetLightIntensity(run.scene, run.spotCool, 26.0f + run.smoothRms * 98.0f + run.kickSmooth * 40.0f);
+    SetLightIntensity(
+        run.scene,
+        run.spotWarm,
+        std::clamp(9.5f + punch * 16.0f + run.peakTracker * 11.0f + run.snapSmooth * 12.0f, 8.0f, 48.0f));
+    SetLightIntensity(
+        run.scene,
+        run.spotCool,
+        std::clamp(8.5f + run.smoothRms * 12.0f + run.kickSmooth * 9.0f, 7.5f, 40.0f));
 
     if (run.spotWarm != ri::scene::kInvalidHandle) {
         auto& n = run.scene.GetNode(run.spotWarm);
         n.localTransform.rotationDegrees.y =
-            -28.0f + static_cast<float>(std::sin(wallSeconds * 1.7 + punch + run.snapSmooth * 3.0f)) * 14.0f;
+            -30.0f + static_cast<float>(std::sin(wallSeconds * 1.7 + punch + run.snapSmooth * 3.0f)) * 14.0f;
         n.localTransform.rotationDegrees.x =
-            -72.0f + static_cast<float>(std::sin(wallSeconds * 2.1)) * 8.0f;
+            -71.0f + static_cast<float>(std::sin(wallSeconds * 2.1)) * 8.0f;
     }
     if (run.spotCool != ri::scene::kInvalidHandle) {
         auto& n = run.scene.GetNode(run.spotCool);
         n.localTransform.rotationDegrees.y =
-            26.0f + static_cast<float>(std::cos(wallSeconds * 1.5 + run.smoothRms * 6.0f)) * 14.0f;
+            27.5f + static_cast<float>(std::cos(wallSeconds * 1.5 + run.smoothRms * 6.0f)) * 14.0f;
     }
 
     if (run.particles.has_value()) {
@@ -574,64 +697,98 @@ void TickShowcase(ShowcaseRuntime& run,
 
     if (run.primaryMaterial != ri::scene::kInvalidHandle) {
         ri::scene::Material& mat = run.scene.GetMaterial(run.primaryMaterial);
-        const float strobe = run.snapSmooth * 1.5f + transient * 1.05f;
+        const float strobe = run.snapSmooth * 0.55f + transient * 0.38f;
         mat.emissiveColor = ri::math::Vec3{
-            0.62f + mood.x * 0.42f + strobe * 0.55f,
-            0.28f + mood.y * 0.28f + strobe * 0.22f,
-            0.1f + mood.z * 0.18f + strobe * 0.08f,
+            std::clamp(0.18f + mood.x * 0.14f + strobe * 0.12f, 0.0f, 0.42f),
+            std::clamp(0.08f + mood.y * 0.1f + strobe * 0.09f, 0.0f, 0.32f),
+            std::clamp(0.03f + mood.z * 0.06f + strobe * 0.05f, 0.0f, 0.22f),
         };
-        mat.opacity = std::clamp(0.26f + run.smoothRms * 0.48f + run.snapSmooth * 0.32f, 0.12f, 0.88f);
+        mat.opacity = std::clamp(0.22f + run.smoothRms * 0.28f + run.snapSmooth * 0.2f, 0.1f, 0.55f);
     }
     if (run.ambientMaterial != ri::scene::kInvalidHandle) {
         ri::scene::Material& mat = run.scene.GetMaterial(run.ambientMaterial);
-        const float haze = run.smoothRms * 0.65f + epic * 0.35f;
+        const float haze = run.smoothRms * 0.28f + epic * 0.16f;
         mat.emissiveColor = ri::math::Vec3{
-            0.18f + mood.z * 0.22f + haze * 0.15f,
-            0.42f + mood.x * 0.35f + haze * 0.28f,
-            0.85f + mood.y * 0.15f + run.snapSmooth * 0.35f,
+            std::clamp(0.06f + mood.z * 0.08f + haze * 0.07f, 0.0f, 0.28f),
+            std::clamp(0.12f + mood.x * 0.12f + haze * 0.12f, 0.0f, 0.35f),
+            std::clamp(0.22f + mood.y * 0.1f + run.snapSmooth * 0.12f, 0.0f, 0.42f),
         };
-        mat.opacity = std::clamp(0.22f + run.smoothRms * 0.38f + run.snapSmooth * 0.22f, 0.1f, 0.78f);
+        mat.opacity = std::clamp(0.18f + run.smoothRms * 0.22f + run.snapSmooth * 0.16f, 0.08f, 0.45f);
     }
 
+    const ri::scene::OrbitCameraState& base = run.orbitBaseline;
     ri::scene::OrbitCameraState oc = run.orbit.orbit;
-    const float t = static_cast<float>(wallSeconds);
-    const float m = static_cast<float>(musicTimeSec);
-    oc.yawDegrees = 132.0f + std::sin(t * 0.31f) * 48.0f + std::sin(m * 0.078f) * 30.0f
-        + std::sin(t * 1.65f + punch * 2.1f) * 14.0f + run.snapSmooth * 18.0f;
-    oc.pitchDegrees = std::clamp(
-        -13.0f + run.smoothRms * 13.0f + std::sin(t * 0.42f) * 8.0f + std::cos(m * 0.048f) * 6.0f
-            - run.snapSmooth * 5.0f,
-        -34.0f,
-        -6.0f);
-    oc.distance = std::clamp(
-        13.5f + std::sin(t * 0.21f) * 3.0f + punch * 1.85f + run.smoothRms * 1.9f + std::sin(m * 0.031f) * 1.2f
-            - epic * 0.85f,
-        10.5f,
-        19.5f);
+    if (!run.orbitFrozen) {
+        const float t = static_cast<float>(wallSeconds);
+        const float m = static_cast<float>(musicTimeSec);
+        oc.yawDegrees = base.yawDegrees + std::sin(t * 0.31f) * 48.0f + std::sin(m * 0.078f) * 30.0f
+            + std::sin(t * 1.65f + punch * 2.1f) * 14.0f + run.snapSmooth * 18.0f;
+        oc.pitchDegrees = std::clamp(
+            base.pitchDegrees + 3.0f + run.smoothRms * 13.0f + std::sin(t * 0.42f) * 8.0f + std::cos(m * 0.048f) * 6.0f
+                - run.snapSmooth * 5.0f,
+            base.pitchDegrees - 21.0f,
+            base.pitchDegrees + 10.0f);
+        oc.distance = std::clamp(
+            base.distance - 1.0f + std::sin(t * 0.21f) * 3.0f + punch * 1.85f + run.smoothRms * 1.9f
+                + std::sin(m * 0.031f) * 1.2f - epic * 0.85f,
+            base.distance - 4.0f,
+            base.distance + 5.0f);
+    }
 
     if (run.orbit.camera != ri::scene::kInvalidHandle) {
         ri::scene::Camera& cam = run.scene.GetCamera(run.orbit.camera);
-        cam.fieldOfViewDegrees = std::clamp(56.0f + epic * 20.0f + run.kickSmooth * 14.0f + run.snapSmooth * 18.0f, 44.0f, 99.0f);
+        cam.fieldOfViewDegrees =
+            std::clamp(56.0f + epic * 10.0f + run.kickSmooth * 8.0f + run.snapSmooth * 10.0f, 48.0f, 82.0f);
     }
 
     ri::scene::SetOrbitCameraState(run.scene, run.orbit, oc);
 
+    const ri::math::Vec3 cameraWorld = run.scene.ComputeWorldPosition(run.orbit.cameraNode);
+
     if (run.particles.has_value()) {
         run.particles->Step(dt);
-        run.particles->ApplyInstanceTransforms(run.scene, run.particleBatch);
+        run.particles->ApplyInstanceTransforms(run.scene, run.particleBatch, cameraWorld);
     }
     if (run.particlesAmbient.has_value()) {
         run.particlesAmbient->Step(dt);
-        run.particlesAmbient->ApplyInstanceTransforms(run.scene, run.particleAmbientBatch);
+        run.particlesAmbient->ApplyInstanceTransforms(run.scene, run.particleAmbientBatch, cameraWorld);
+    }
+    if (run.particlesKick.has_value() && run.particleKickBatch != ri::scene::kInvalidHandle) {
+        run.kickBurstEnergy = static_cast<float>(std::max(
+            static_cast<double>(run.kickBurstEnergy) * std::exp(-static_cast<double>(dt) * 5.8),
+            static_cast<double>(run.kickSmooth) * 1.35 + static_cast<double>(run.snapSmooth) * 1.75));
+        const float burst = run.kickBurstEnergy;
+        if (burst > 0.16f) {
+            ri::scene::CpuParticleSystemConfig& kickLive = run.particlesKick->MutableConfig();
+            kickLive.velocityMax = ri::math::Vec3{
+                1.4f + burst * 0.8f,
+                14.0f + burst * 26.0f + transient * 18.0f,
+                1.4f + burst * 0.8f,
+            };
+            kickLive.fountainConeHalfAngleDegrees = 42.0f + burst * 18.0f;
+            run.particlesKick->Step(dt);
+            run.particlesKick->ApplyInstanceTransforms(run.scene, run.particleKickBatch, cameraWorld);
+            if (run.kickMaterial != ri::scene::kInvalidHandle) {
+                ri::scene::Material& kickMat = run.scene.GetMaterial(run.kickMaterial);
+                kickMat.opacity = std::clamp(0.28f + burst * 0.42f, 0.18f, 0.72f);
+                kickMat.emissiveColor = ri::math::Vec3{
+                    std::clamp(0.28f + mood.x * 0.2f + burst * 0.18f, 0.0f, 0.75f),
+                    std::clamp(0.16f + mood.y * 0.14f + burst * 0.12f, 0.0f, 0.55f),
+                    std::clamp(0.06f + mood.z * 0.1f, 0.0f, 0.35f),
+                };
+            }
+        } else {
+            run.scene.GetMeshInstanceBatch(run.particleKickBatch).transforms.clear();
+        }
     }
     ri::scene::MeshInstanceBatch& batch = run.scene.GetMeshInstanceBatch(run.particleBatch);
-    const float pulse = 1.0f + run.smoothRms * 3.3f + punch * 1.05f + run.peakTracker * 1.25f + run.snapSmooth * 2.4f;
+    const float pulse = 1.0f + run.smoothRms * 1.25f + punch * 0.45f + run.peakTracker * 0.55f + run.snapSmooth * 0.85f;
     for (ri::scene::Transform& tr : batch.transforms) {
         tr.scale = tr.scale * pulse;
     }
     if (run.particleAmbientBatch != ri::scene::kInvalidHandle) {
         ri::scene::MeshInstanceBatch& ambBatch = run.scene.GetMeshInstanceBatch(run.particleAmbientBatch);
-        const float pulseAmb = 1.0f + run.smoothRms * 2.35f + punch * 0.72f + run.peakTracker * 0.85f + run.snapSmooth * 1.65f;
+        const float pulseAmb = 1.0f + run.smoothRms * 0.95f + punch * 0.35f + run.peakTracker * 0.42f + run.snapSmooth * 0.65f;
         for (ri::scene::Transform& tr : ambBatch.transforms) {
             tr.scale = tr.scale * pulseAmb;
         }
@@ -643,11 +800,27 @@ void TickShowcase(ShowcaseRuntime& run,
 int main(int argc, char** argv) {
     const ri::core::CommandLine commandLine(argc, argv);
     if (commandLine.HasFlag("--help") || commandLine.HasFlag("-h")) {
-        ri::core::LogInfo("RawIron.ParticleShowcase — Vulkan native dev room: HDR + PBR, music-reactive fill/rim, CPU particles.");
+        ri::core::LogInfo(
+            "RawIron.ParticleShowcase — Vulkan native dev room: HDR + PBR, music-reactive fill/rim, soft billboard CPU particles.");
         ri::core::LogInfo("  --workspace=<path>   Repository root (auto-detected when omitted)");
         ri::core::LogInfo("  --audio=<path>       WAV file (PCM 16-bit). Default: <workspace>/Assets/audio/Porter Robinson - Polygon Dust.wav");
         ri::core::LogInfo("  --width / --height   Window size (default 1920x1080)");
         ri::core::LogInfo("  --silent             Visualizer motion without decoding WAV (time-based only)");
+        ri::core::LogInfo("  Win32 while running: Esc quit | Space pause/resume | M mute | Up/Down volume | "
+                          "O orbit lock | R reset camera | H controls help");
+        ri::core::LogInfo(
+            "  SPIR-V: set RAWIRON_VULKAN_SHADER_DIR to a folder containing *.spv if the app was moved off the "
+            "build machine; otherwise shaders are resolved next to the exe or under Source/RawIron.Render.Vulkan/shaders.");
+        ri::core::LogInfo(
+            "  shader.cfg: Vulkan composite post stack (CAS, bloom, grading). Search: exe dir, then "
+            "<workspace>/Assets/shader.cfg, <workspace>/shader.cfg, Content/shader.cfg.");
+        ri::core::LogInfo(
+            "  --no-shader-cfg      Skip shader.cfg (fixes blown-out / white image if the stack is too hot on your GPU).");
+        ri::core::LogInfo(
+            "  --hybrid-hdr         Enable multi-pass HDR + heavy composite (slower startup; can stall weak GPUs). "
+            "Default is off for fast, stable loading.");
+        ri::core::LogInfo(
+            "  Reference HLSL packs live under vulkan/reference-shaders next to the exe; runtime tuning is shader.cfg.");
         return 0;
     }
 
@@ -665,15 +838,48 @@ int main(int argc, char** argv) {
     const int width = std::clamp(commandLine.GetIntOr("--width", 1920), 480, 3840);
     const int height = std::clamp(commandLine.GetIntOr("--height", 1080), 270, 2160);
     const bool silent = commandLine.HasFlag("--silent");
+    const bool noShaderCfg = commandLine.HasFlag("--no-shader-cfg");
+    const bool hybridHdr = commandLine.HasFlag("--hybrid-hdr");
 
     auto runtime = std::make_shared<ShowcaseRuntime>();
     BuildDevRoom(*runtime);
 
-    if (!silent && fs::exists(audioPath)) {
-        if (!DecodeWavFilePcm16Mono(audioPath, runtime->pcm)) {
-            ri::core::LogInfo("Could not decode WAV for analysis; continuing with time-based motion only.");
-            runtime->pcm.valid = false;
+    const fs::path exeDir = fs::weakly_canonical(fs::path(argv[0])).parent_path();
+    if (!noShaderCfg) {
+        if (const std::optional<fs::path> shaderResolved = ri::render::ResolveShaderCfgPath(workspace, exeDir)) {
+            runtime->shaderCfgPath = *shaderResolved;
+            std::string cfgErr;
+            if (ri::render::LoadShaderCfg(*shaderResolved, &runtime->shaderCfg, &cfgErr)) {
+                ri::core::LogInfo("Using shader.cfg (edit while running for hot-reload): "
+                                   + shaderResolved->generic_string());
+            } else if (!cfgErr.empty()) {
+                ri::core::LogInfo(cfgErr);
+                runtime->shaderCfg = {};
+            }
+            std::error_code wtEc;
+            const auto initialWt = fs::last_write_time(*shaderResolved, wtEc);
+            if (!wtEc) {
+                runtime->shaderCfgLastWrite = initialWt;
+            }
         }
+    } else {
+        ri::core::LogInfo("shader.cfg disabled (--no-shader-cfg); using music-reactive post values only.");
+    }
+
+    if (!silent && fs::exists(audioPath)) {
+        const fs::path pcmPath = audioPath;
+        std::weak_ptr<ShowcaseRuntime> pcmRuntime = runtime;
+        std::thread([pcmPath, pcmRuntime]() {
+            DecodedPcmMono local;
+            if (!DecodeWavFilePcm16Mono(pcmPath, local)) {
+                ri::core::LogInfo("Could not decode WAV for analysis; continuing with time-based motion only.");
+                return;
+            }
+            if (const std::shared_ptr<ShowcaseRuntime> rt = pcmRuntime.lock()) {
+                std::lock_guard<std::mutex> lock(rt->pcmMutex);
+                rt->pcm = std::move(local);
+            }
+        }).detach();
     } else {
         runtime->pcm.valid = false;
         if (!silent) {
@@ -686,7 +892,7 @@ int main(int argc, char** argv) {
     if (backend != nullptr) {
         runtime->audio = std::make_shared<ri::audio::AudioManager>(backend);
         if (!silent && fs::exists(audioPath)) {
-            runtime->music = runtime->audio->CreateManagedSound(audioPath.string(), 0.82, false, 1.0);
+            runtime->music = runtime->audio->CreateManagedSound(audioPath.string(), runtime->musicVolumeLinear, false, 1.0);
             if (runtime->music != nullptr) {
                 runtime->music->Play();
             }
@@ -701,13 +907,18 @@ int main(int argc, char** argv) {
     HWND showcaseHwnd = nullptr;
 #endif
     ri::render::vulkan::VulkanPreviewWindowOptions windowOptions{
-        .windowTitle = "RawIron Particle Showcase — Vulkan HDR (loading…)",
+        .windowTitle = hybridHdr ? "RawIron Particle Showcase — Vulkan Hybrid HDR" : "RawIron Particle Showcase — Vulkan",
         .textureRoot = frameTextureRoot,
 #if defined(_WIN32)
         .outClientHwnd = &showcaseHwnd,
 #endif
-        .enableHybridHdrPresentation = true,
+        // Hybrid HDR builds extra render passes + the heavy NativeComposite path; default off so the window and
+        // first frames appear quickly and weak GPUs do not appear "frozen" during init.
+        .enableHybridHdrPresentation = hybridHdr,
     };
+
+    ri::core::LogInfo(std::string("ParticleShowcase: hybrid HDR composite ") + (hybridHdr ? "ON (--hybrid-hdr)"
+                                                                                          : "OFF (default; faster startup)"));
 
     const auto wallStart = std::chrono::steady_clock::now();
 
@@ -722,6 +933,36 @@ int main(int argc, char** argv) {
             if ((GetAsyncKeyState(VK_ESCAPE) & 0x0001) != 0) {
                 PostQuitMessage(0);
             }
+            if ((GetAsyncKeyState(VK_SPACE) & 0x0001) != 0 && runtime->music != nullptr) {
+                if (runtime->music->IsPlaying()) {
+                    runtime->music->Pause();
+                } else {
+                    runtime->music->Play();
+                }
+            }
+            if ((GetAsyncKeyState('M') & 0x0001) != 0 && runtime->audio != nullptr) {
+                runtime->audio->SetMuted(!runtime->audio->IsMuted());
+            }
+            if ((GetAsyncKeyState(VK_UP) & 0x0001) != 0 && runtime->music != nullptr) {
+                runtime->musicVolumeLinear = std::min(1.0, runtime->musicVolumeLinear + 0.05);
+                runtime->music->SetVolume(runtime->musicVolumeLinear);
+            }
+            if ((GetAsyncKeyState(VK_DOWN) & 0x0001) != 0 && runtime->music != nullptr) {
+                runtime->musicVolumeLinear = std::max(0.0, runtime->musicVolumeLinear - 0.05);
+                runtime->music->SetVolume(runtime->musicVolumeLinear);
+            }
+            if ((GetAsyncKeyState('O') & 0x0001) != 0) {
+                runtime->orbitFrozen = !runtime->orbitFrozen;
+            }
+            if ((GetAsyncKeyState('R') & 0x0001) != 0) {
+                runtime->orbitFrozen = false;
+                ri::scene::SetOrbitCameraState(runtime->scene, runtime->orbit, runtime->orbitBaseline);
+            }
+            if ((GetAsyncKeyState('H') & 0x0001) != 0) {
+                ri::core::LogInfo(
+                    "ParticleShowcase keys: Esc quit | Space pause/resume music | M mute | Up/Down volume | O orbit "
+                    "lock | R reset camera");
+            }
 #endif
             const auto now = std::chrono::steady_clock::now();
             const float dt = std::clamp(
@@ -731,7 +972,8 @@ int main(int argc, char** argv) {
             runtime->lastTick = now;
 
             double musicTime = 0.0;
-            if (runtime->music != nullptr && runtime->music->IsPlaying()) {
+            if (runtime->music != nullptr) {
+                // Use cursor position even while paused so analysis matches the frozen playback position.
                 musicTime = runtime->music->GetCurrentTime();
             }
 
@@ -742,13 +984,19 @@ int main(int argc, char** argv) {
             float transient = 0.0f;
             float kickShort = 0.08f;
             float onsetDelta = 0.05f;
-            if (runtime->pcm.valid) {
-                rmsTight = WindowRms(runtime->pcm, musicTime, 900);
-                rmsWide = WindowRms(runtime->pcm, musicTime, 6000);
-                transient = std::max(0.0f, rmsTight - rmsWide * 1.25f);
-                kickShort = WindowRms(runtime->pcm, musicTime, 420);
-                onsetDelta = WindowMaxAbsDelta(runtime->pcm, musicTime, 960);
-            } else {
+            bool usedPcmAnalysis = false;
+            {
+                std::lock_guard<std::mutex> lock(runtime->pcmMutex);
+                if (runtime->pcm.valid) {
+                    usedPcmAnalysis = true;
+                    rmsTight = WindowRms(runtime->pcm, musicTime, 900);
+                    rmsWide = WindowRms(runtime->pcm, musicTime, 6000);
+                    transient = std::max(0.0f, rmsTight - rmsWide * 1.25f);
+                    kickShort = WindowRms(runtime->pcm, musicTime, 420);
+                    onsetDelta = WindowMaxAbsDelta(runtime->pcm, musicTime, 960);
+                }
+            }
+            if (!usedPcmAnalysis) {
                 const float t = static_cast<float>(wallSeconds);
                 rmsTight = 0.08f + 0.06f * std::sin(t * 6.2f) + 0.04f * std::sin(t * 2.1f);
                 rmsWide = 0.06f + 0.03f * std::sin(t * 0.8f);
@@ -757,12 +1005,23 @@ int main(int argc, char** argv) {
                 onsetDelta = 0.04f + 0.08f * std::abs(std::sin(t * 17.3f)) * std::abs(std::sin(t * 5.1f));
             }
 
-            TickShowcase(*runtime, dt, musicTime, rmsTight, rmsWide, transient, wallSeconds, kickShort, onsetDelta);
+            const bool holdBeatPhase = runtime->music != nullptr && !runtime->music->IsPlaying();
+            TickShowcase(*runtime,
+                         dt,
+                         musicTime,
+                         rmsTight,
+                         rmsWide,
+                         transient,
+                         wallSeconds,
+                         kickShort,
+                         onsetDelta,
+                         holdBeatPhase);
 
 #if defined(_WIN32)
             if (showcaseHwnd != nullptr) {
                 unsigned primaryCount = 0;
                 unsigned ambientCount = 0;
+                unsigned kickCount = 0;
                 if (runtime->particleBatch != ri::scene::kInvalidHandle) {
                     primaryCount = static_cast<unsigned>(
                         runtime->scene.GetMeshInstanceBatch(runtime->particleBatch).transforms.size());
@@ -771,13 +1030,24 @@ int main(int argc, char** argv) {
                     ambientCount = static_cast<unsigned>(
                         runtime->scene.GetMeshInstanceBatch(runtime->particleAmbientBatch).transforms.size());
                 }
+                if (runtime->particleKickBatch != ri::scene::kInvalidHandle) {
+                    kickCount = static_cast<unsigned>(
+                        runtime->scene.GetMeshInstanceBatch(runtime->particleKickBatch).transforms.size());
+                }
+                const bool playing = runtime->music != nullptr && runtime->music->IsPlaying();
+                const bool muted = runtime->audio != nullptr && runtime->audio->IsMuted();
                 wchar_t title[384]{};
                 swprintf_s(title,
-                           L"Particle Showcase — Vulkan HDR | RMS %.2f | peak %.2f | particles %u + %u | Esc quit",
+                           L"Particle Showcase | rms=%.2f pk=%.2f | %u+%u+%u | vol %.0f%%%ls%ls%ls | Esc H",
                            static_cast<double>(runtime->smoothRms),
                            static_cast<double>(runtime->peakTracker),
                            primaryCount,
-                           ambientCount);
+                           ambientCount,
+                           kickCount,
+                           static_cast<double>(runtime->musicVolumeLinear * 100.0),
+                           playing ? L"" : L" pause",
+                           muted ? L" mute" : L"",
+                           runtime->orbitFrozen ? L" orbit-lock" : L"");
                 SetWindowTextW(showcaseHwnd, title);
             }
 #endif
@@ -785,30 +1055,60 @@ int main(int argc, char** argv) {
             frame.scene = &runtime->scene;
             frame.cameraNode = runtime->orbit.cameraNode;
             frame.textureRoot = frameTextureRoot;
-            frame.animationTimeSeconds = musicTime > 0.0 ? musicTime : wallSeconds;
+            frame.animationTimeSeconds =
+                runtime->music != nullptr ? static_cast<float>(musicTime) : static_cast<float>(wallSeconds);
             frame.renderQualityTier = 2;
-            frame.renderExposure =
-                1.05f + runtime->smoothRms * 1.55f + runtime->peakTracker * 0.55f + runtime->snapSmooth * 0.95f;
+            // Scene-linear grade — keep modest; lights + unlit particles already add a lot of energy.
+            frame.renderExposure = std::clamp(
+                0.72f + runtime->smoothRms * 0.48f + runtime->peakTracker * 0.22f + runtime->snapSmooth * 0.32f,
+                0.58f,
+                1.12f);
             frame.renderContrast = 1.04f + runtime->smoothRms * 0.1f + runtime->snapSmooth * 0.12f;
-            frame.renderSaturation = 1.05f + runtime->peakTracker * 0.2f + runtime->kickSmooth * 0.12f;
-            frame.renderFogDensity = 0.0009f + runtime->smoothRms * 0.0055f - runtime->snapSmooth * 0.0008f;
+            frame.renderSaturation = 1.06f + runtime->peakTracker * 0.22f + runtime->kickSmooth * 0.13f;
+            frame.renderFogDensity = 0.0011f + runtime->smoothRms * 0.0058f - runtime->snapSmooth * 0.0007f;
             frame.postProcess.timeSeconds = static_cast<float>(wallSeconds);
-            // Lighter “VJ” post so the image stays sharp; music still modulates the same channels.
             frame.postProcess.barrelDistortion =
-                0.006f + runtime->smoothRms * 0.04f + transient * 0.04f + runtime->peakTracker * 0.02f
+                0.007f + runtime->smoothRms * 0.04f + transient * 0.04f + runtime->peakTracker * 0.022f
                 + runtime->snapSmooth * 0.032f;
-            frame.postProcess.noiseAmount = 0.004f + runtime->peakTracker * 0.04f + runtime->smoothRms * 0.014f
-                + runtime->snapSmooth * 0.028f;
-            frame.postProcess.scanlineAmount = 0.0025f + runtime->smoothRms * 0.032f + transient * 0.022f;
-            frame.postProcess.chromaticAberration = 0.001f + transient * 0.038f + runtime->snapSmooth * 0.026f;
-            frame.postProcess.blurAmount = runtime->smoothRms * 0.0035f + transient * 0.01f + runtime->snapSmooth * 0.012f;
-            frame.postProcess.tintStrength = 0.035f + runtime->smoothRms * 0.18f + runtime->snapSmooth * 0.14f;
+            frame.postProcess.noiseAmount = 0.0042f + runtime->peakTracker * 0.04f + runtime->smoothRms * 0.014f
+                + runtime->snapSmooth * 0.027f;
+            frame.postProcess.scanlineAmount = 0.0026f + runtime->smoothRms * 0.032f + transient * 0.022f;
+            frame.postProcess.chromaticAberration = 0.001f + transient * 0.036f + runtime->snapSmooth * 0.024f;
+            frame.postProcess.blurAmount = runtime->smoothRms * 0.0038f + transient * 0.01f + runtime->snapSmooth * 0.012f;
+            frame.postProcess.tintStrength = 0.038f + runtime->smoothRms * 0.17f + runtime->snapSmooth * 0.14f;
             const float hue = runtime->phaseHue;
             frame.postProcess.tintColor = ri::math::Vec3{
                 0.88f + 0.14f * std::sin(hue),
                 0.90f + 0.12f * std::sin(hue + 2.1f),
                 1.02f + 0.14f * std::sin(hue + 4.2f),
             };
+            frame.postProcess.casSharpenAmount =
+                0.26f + runtime->smoothRms * 0.2f + runtime->peakTracker * 0.1f + runtime->snapSmooth * 0.08f;
+            frame.postProcess.casContrastAdaptation =
+                0.2f + transient * 0.22f + runtime->kickSmooth * 0.14f;
+            frame.postProcess.bloomIntensity =
+                0.022f + runtime->peakTracker * 0.055f + runtime->smoothRms * 0.028f + transient * 0.038f;
+            frame.postProcess.bloomThreshold =
+                0.58f + runtime->kickSmooth * 0.28f + runtime->smoothRms * 0.12f;
+            frame.postProcess.debandStrength =
+                0.06f + runtime->smoothRms * 0.13f + transient * 0.1f + runtime->snapSmooth * 0.078f;
+
+            if (!runtime->shaderCfgPath.empty() && runtime->shaderCfgLastWrite.has_value()) {
+                std::error_code wtEc;
+                const auto wt = fs::last_write_time(runtime->shaderCfgPath, wtEc);
+                if (!wtEc && wt != *runtime->shaderCfgLastWrite) {
+                    std::string relErr;
+                    ri::render::ShaderPresentationConfig fresh{};
+                    if (ri::render::LoadShaderCfg(runtime->shaderCfgPath, &fresh, &relErr)) {
+                        runtime->shaderCfgLastWrite = wt;
+                        runtime->shaderCfg = std::move(fresh);
+                        ri::core::LogInfo("shader.cfg reloaded.");
+                    } else if (!relErr.empty()) {
+                        ri::core::LogInfo(relErr);
+                    }
+                }
+            }
+            ri::render::ApplyShaderConfig(frame.postProcess, runtime->shaderCfg);
             return true;
         };
 

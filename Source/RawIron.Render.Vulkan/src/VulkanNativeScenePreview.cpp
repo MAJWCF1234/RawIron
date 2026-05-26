@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -76,6 +77,7 @@ struct NativeSceneDraw {
     bool useTexture = false;
     bool litShadingModel = false;
     bool alphaCutout = false;
+    bool doubleSided = false;
     /// Resolved path under `textureRoot` for this frame (animated sequences); empty falls back to material lookup.
     std::string resolvedAlbedoRelPath{};
     bool nativeWaterUvMotion = false;
@@ -116,10 +118,260 @@ struct NativeScenePreviewData {
     std::array<float, 4> localLightPositionRange{{0.0f, 1.8f, 0.0f, 20.0f}};
     /// rgb=local light color, w=intensity multiplier
     std::array<float, 4> localLightColorIntensity{{1.0f, 0.92f, 0.82f, 2.0f}};
-    /// rgb=directional light color * intensity (linear); w optional scale (defaults to 1 in shader when unused).
+    /// rgb=directional light color * intensity (linear); w reserved (keep 1 for future sun scale use).
     std::array<float, 4> directionalLightColorIntensity{{1.0f, 0.98f, 0.94f, 1.0f}};
     /// x=width px, y=height px, z=1/width, w=1/height (post radial / vignette).
     std::array<float, 4> viewportMetrics{{1920.0f, 1080.0f, 1.0f / 1920.0f, 1.0f / 1080.0f}};
+    /// x=CAS sharpen mix, y=CAS contrast adaptation, z=bloom intensity, w=bloom threshold (linear HDR).
+    std::array<float, 4> presentationTuning{{0.0f, 0.0f, 0.0f, 0.65f}};
+    /// x=tone curve, y=TriDither output, z=deband, w=SweetFX vignette (type 0) strength.
+    std::array<float, 4> presentationColorGrading{{0.0f, 0.0f, 0.0f, 0.0f}};
+    /// x=film grain (SweetFX-style), yzw reserved.
+    std::array<float, 4> presentationExtra{{0.0f, 0.0f, 0.0f, 0.0f}};
+    /// SweetFX LiftGammaGain: xyz=RGB_Lift, w=mix (0..1). Gamma/Gain in following vec4s.
+    std::array<float, 4> lggLiftMix{{1.0f, 1.0f, 1.0f, 0.0f}};
+    std::array<float, 4> lggGammaRgb{{1.0f, 1.0f, 1.0f, 0.0f}};
+    std::array<float, 4> lggGainRgb{{1.0f, 1.0f, 1.0f, 0.0f}};
+    /// xyz=VibranceRGBBalance, w=Vibrance amount (-1..1).
+    std::array<float, 4> vibranceBalanceAmount{{1.0f, 1.0f, 1.0f, 0.0f}};
+    /// Technicolor v1: x=Power, y=Strength, zw=RGBNegative.rg; second vec4 x=B negative.
+    std::array<float, 4> technicolor1PowStrNegRg{{4.0f, 0.0f, 0.88f, 0.88f}};
+    std::array<float, 4> technicolor1NegBPad{{0.88f, 0.0f, 0.0f, 0.0f}};
+    /// Technicolor2: xyz=ColorStrength, w=Brightness; second vec4 xy=Saturation,Strength.
+    std::array<float, 4> technicolor2ColBright{{0.2f, 0.2f, 0.2f, 1.0f}};
+    std::array<float, 4> technicolor2SatStrPad{{1.0f, 0.0f, 0.0f, 0.0f}};
+    /// SweetFX Sepia.fx (`Tint`): xyz=tint, w=strength.
+    std::array<float, 4> sepiaTintXyzStrength{{0.55f, 0.43f, 0.42f, 0.0f}};
+    /// x=preset index (0–17 as float), y=color saturation (1=off), zw=0.
+    std::array<float, 4> monochromePresetSat{{0.0f, 1.0f, 0.0f, 0.0f}};
+    /// xyz=custom conversion coefficients when preset==0.
+    std::array<float, 4> monochromeCustomCoeff{{0.21f, 0.72f, 0.07f, 0.0f}};
+    /// SweetFX DPX.fx: xyz=RGB_Curve.
+    std::array<float, 4> dpxRgbCurvePad{{8.0f, 8.0f, 8.0f, 0.0f}};
+    /// xyz=RGB_C.
+    std::array<float, 4> dpxRgbCPad{{0.36f, 0.36f, 0.34f, 0.0f}};
+    /// x=Contrast, y=Saturation, z=Colorfulness, w=Strength.
+    std::array<float, 4> dpxContrastSatColorStr{{0.1f, 3.0f, 2.5f, 0.0f}};
+    /// SweetFX ColorMatrix.fx row R (new red channel mix).
+    std::array<float, 4> colorMatrixRowR{{0.817f, 0.183f, 0.0f, 0.0f}};
+    std::array<float, 4> colorMatrixRowG{{0.333f, 0.667f, 0.0f, 0.0f}};
+    /// xyz=row B, w=Strength.
+    std::array<float, 4> colorMatrixRowBStr{{0.0f, 0.125f, 0.875f, 0.0f}};
+    /// SweetFX FakeHDR.fx: x=HDRPower, y=radius1, z=radius2, w=strength (0=off).
+    std::array<float, 4> fakeHdrPowerR1R2Str{{1.30f, 0.793f, 0.87f, 0.0f}};
+    /// SweetFX Levels.fx: x=black (0–255), y=white (0–255), z=strength, w=clip highlight (0/1).
+    std::array<float, 4> levelsBlackWhiteStrClip{{16.0f, 235.0f, 0.0f, 0.0f}};
+    /// SweetFX LumaSharpen.fx: xyz=strength,clamp,offset_bias; w=pattern(0–3)+4*show_debug.
+    std::array<float, 4> lumaSharpenPack{{0.0f, 0.035f, 1.0f, 1.0f}};
+    /// SweetFX Curves.fx: x=Contrast, y=Mode(0-2), z=Formula(0-10), w=strength.
+    std::array<float, 4> sweetFxCurvesPack{{0.65f, 0.0f, 4.0f, 0.0f}};
+    /// SweetFX ChromaticAberration.fx: xy=Shift (pixels), z=strength, w=0.
+    std::array<float, 4> sweetFxChromaticAberrationPack{{2.5f, -0.5f, 0.0f, 0.0f}};
+    /// SweetFX Border.fx: x=widthX px, y=widthY px, z=border_ratio, w=strength (0=off).
+    std::array<float, 4> sweetFxBorderPack{{0.0f, 0.0f, 2.35f, 0.0f}};
+    /// SweetFX Border.fx: xyz=border color, w=0.
+    std::array<float, 4> sweetFxBorderColorPad{{0.0f, 0.0f, 0.0f, 0.0f}};
+    /// SweetFX Cartoon.fx: x=Power, y=EdgeSlope, z=strength, w=0.
+    std::array<float, 4> sweetFxCartoonPack{{1.5f, 1.5f, 0.0f, 0.0f}};
+    /// SweetFX Tonemap.fx v1.1: xyzw = Gamma, Exposure, Saturation, Bleach.
+    std::array<float, 4> sweetFxTonemapGammaExpSatBleach{{1.0f, 0.0f, 0.0f, 0.0f}};
+    /// xyz=FogColor, w=Defog.
+    std::array<float, 4> sweetFxTonemapFogColorDefog{{0.0f, 0.0f, 1.0f, 0.0f}};
+    /// x=strength (0=skip), yzw=0.
+    std::array<float, 4> sweetFxTonemapStrengthPad{{0.0f, 0.0f, 0.0f, 0.0f}};
+    /// x=mode (0..6 as float), y=strength, zw=0.
+    std::array<float, 4> sweetFxSplitscreenModeStrength{{0.0f, 0.0f, 0.0f, 0.0f}};
+    /// x=palette 0..14, y=scanlines 0..2, z=dither, w=strength.
+    std::array<float, 4> sweetFxNostalgiaPack{{1.0f, 1.0f, 0.0f, 0.0f}};
+    /// x=mode 0..8, y=difference_scale, z=strength, w=0.
+    std::array<float, 4> sweetFxComparePack{{7.0f, 5.0f, 0.0f, 0.0f}};
+    /// SweetFX Layer.fx: xy=Layer_Pos, z=Layer_Scale, w=Layer_Blend.
+    std::array<float, 4> sweetFxLayerPosScaleBlend{{0.5f, 0.5f, 1.0f, 0.0f}};
+    /// x=LAYER_SIZE_X, y=LAYER_SIZE_Y, zw=0.
+    std::array<float, 4> sweetFxLayerTexSizePad{{1280.0f, 720.0f, 0.0f, 0.0f}};
+    /// SweetFX FXAA 3.11: x=Subpix, y=EdgeThreshold, z=EdgeThresholdMin, w=Strength.
+    std::array<float, 4> sweetFxFxaaPack{{0.25f, 0.125f, 0.0f, 0.0f}};
+    /// SweetFX CRT.fx: x=Amount, y=Resolution, z=Gamma, w=MonitorGamma.
+    std::array<float, 4> sweetFxCrtPack0{{0.0f, 1.15f, 2.4f, 2.2f}};
+    /// x=Brightness, y=ScanlineIntensity, z=ScanlineGaussian, w=Curvature.
+    std::array<float, 4> sweetFxCrtPack1{{0.9f, 2.0f, 1.0f, 0.0f}};
+    /// x=CurvatureRadius, y=CornerSize, z=ViewerDistance, w=Overscan.
+    std::array<float, 4> sweetFxCrtPack2{{1.5f, 0.01f, 2.0f, 1.01f}};
+    /// xy=Angle, z=Oversample, w=0.
+    std::array<float, 4> sweetFxCrtPack3{{0.0f, 0.0f, 1.0f, 0.0f}};
+    /// SweetFX ASCII.fx: x=spacing, y=font (0:3x5,1:5x5), z=colorMode, w=strength.
+    std::array<float, 4> sweetFxAsciiPack0{{1.0f, 1.0f, 1.0f, 0.0f}};
+    /// x=swapColors, y=invertBrightness, z=dithering, w=ditheringIntensity.
+    std::array<float, 4> sweetFxAsciiPack1{{0.0f, 0.0f, 1.0f, 2.0f}};
+    /// x=ditherDebugGradient, yzw=0.
+    std::array<float, 4> sweetFxAsciiPack2{{0.0f, 0.0f, 0.0f, 0.0f}};
+    /// xyz=fontColor, w=0.
+    std::array<float, 4> sweetFxAsciiFontColorPad{{1.0f, 1.0f, 1.0f, 0.0f}};
+    /// xyz=backgroundColor, w=0.
+    std::array<float, 4> sweetFxAsciiBackgroundColorPad{{0.0f, 0.0f, 0.0f, 0.0f}};
+    /// SweetFX SMAA.fx: x=edgeType, y=edgeThreshold, z=depthThreshold, w=strength.
+    std::array<float, 4> sweetFxSmaaPack0{{1.0f, 0.10f, 0.01f, 0.0f}};
+    /// x=maxSearch, y=maxSearchDiag, z=cornerRounding, w=debugOutput.
+    std::array<float, 4> sweetFxSmaaPack1{{32.0f, 16.0f, 25.0f, 0.0f}};
+    /// x=type, y=strength, zw=0.
+    std::array<float, 4> reshadeDaltonizePack{{0.0f, 0.0f, 0.0f, 0.0f}};
+    /// x=presentType, y=strength, zw=0.
+    std::array<float, 4> reshadeDisplayDepthPack{{2.0f, 0.0f, 0.0f, 0.0f}};
+    /// x=amountChroma, y=amountLuma, z=strength, w=0.
+    std::array<float, 4> reshadeLutPack{{1.0f, 1.0f, 0.0f, 0.0f}};
+    /// PD80_04_Technicolor.fx packs (see `NativeComposite.frag`).
+    std::array<float, 4> pd80TcRedStrPad{{1.0f, 0.098f, 0.0f, 0.0f}};
+    std::array<float, 4> pd80TcCyanPad{{0.0f, 0.988f, 1.0f, 0.0f}};
+    std::array<float, 4> pd80TcKeySat2Pad{{1.0f, 1.0f, 1.0f, 1.5f}};
+    std::array<float, 4> pd80Tc3ColBrightPad{{0.2f, 0.2f, 0.2f, 1.0f}};
+    std::array<float, 4> pd80Tc3SatStrEnPad{{1.0f, 1.0f, 0.0f, 0.0f}};
+    /// PD80_04_Color_Temperature.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80ColorTempKelvinLumMixStr{{6500.0f, 1.0f, 1.0f, 0.0f}};
+    /// PD80_04_Saturation_Limit.fx: x=limit, y=strength.
+    std::array<float, 4> pd80SatLimitCapStr{{1.0f, 0.0f, 0.0f, 0.0f}};
+    /// PD80_04_Color_Balance.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80ColorBalanceShadowPad{{0.0f, 0.0f, 0.0f, 0.0f}};
+    std::array<float, 4> pd80ColorBalanceMidPad{{0.0f, 0.0f, 0.0f, 0.0f}};
+    std::array<float, 4> pd80ColorBalanceHighPad{{0.0f, 0.0f, 0.0f, 0.0f}};
+    std::array<float, 4> pd80ColorBalanceOptStr{{1.0f, 0.0f, 0.0f, 0.0f}};
+    /// PD80_04_Color_Isolation.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80ColorIsolationHueRangeSatMix{{0.0f, 0.167f, 1.0f, 1.0f}};
+    std::array<float, 4> pd80ColorIsolationStrPad{{0.0f, 0.0f, 0.0f, 0.0f}};
+    /// PD80_03_Levels.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80LevelsIbPad{{0.0f, 0.0f, 0.0f, 0.0f}};
+    std::array<float, 4> pd80LevelsIwPad{{1.0f, 1.0f, 1.0f, 0.0f}};
+    std::array<float, 4> pd80LevelsObPad{{0.0f, 0.0f, 0.0f, 0.0f}};
+    std::array<float, 4> pd80LevelsOwPad{{1.0f, 1.0f, 1.0f, 0.0f}};
+    std::array<float, 4> pd80LevelsGammaDitherStr{{1.0f, 1.0f, 1.0f, 0.0f}};
+    /// PD80_04_BlacknWhite.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80BwPack0{{13.0f, 1.5f, 1.0f, 1.0f}};
+    std::array<float, 4> pd80BwPack1{{0.2f, 0.4f, 0.6f, 0.0f}};
+    std::array<float, 4> pd80BwPack2{{-0.6f, -0.2f, 0.0f, 0.0f}};
+    std::array<float, 4> pd80BwPack3{{0.0f, 0.083f, 0.12f, 0.0f}};
+    /// PD80_04_Contrast_Brightness_Saturation.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80CbsPack0{{1.0f, 1.0f, 0.0f, 0.0f}};
+    std::array<float, 4> pd80CbsPack1{};
+    std::array<float, 4> pd80CbsPack2{{0.0f, 0.167f, 0.0f, 0.0f}};
+    std::array<float, 4> pd80CbsPack3{};
+    std::array<float, 4> pd80CbsPack4{};
+    std::array<float, 4> pd80CbsPack5{{0.0f, 0.0f, 0.1f, 1.0f}};
+    std::array<float, 4> pd80CbsPack6{};
+    std::array<float, 4> pd80CbsPack7{};
+    /// PD80_06_Chromatic_Aberration.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80CaPack0{{0.0f, 1.0f, -12.0f, 24.0f}};
+    std::array<float, 4> pd80CaPack1{{0.0f, 135.0f, 1.0f, 1.0f}};
+    std::array<float, 4> pd80CaPack2{{0.0f, 0.0f, 1.0f, 1.0f}};
+    std::array<float, 4> pd80CaPack3{};
+    std::array<float, 4> pd80CaPack4{};
+    std::array<float, 4> pd80CaPack5{{0.0f, 0.1f, 1.0f, 0.0f}};
+    /// PD80_05_Sharpening.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80LsPack0{{0.0f, 0.45f, 1.7f, 0.0f}};
+    std::array<float, 4> pd80LsPack1{{0.03f, 0.0f, 0.0f, 0.0f}};
+    std::array<float, 4> pd80LsPack2{{0.0f, 0.0f, 0.1f, 1.0f}};
+    /// PD80_06_Film_Grain.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80FgPack0{{0.0f, 1.0f, 1.0f, 1.0f}};
+    std::array<float, 4> pd80FgPack1{{1.0f, 0.0f, 1.0f, 0.333f}};
+    std::array<float, 4> pd80FgPack2{{0.65f, 10.0f, 1.0f, 1.0f}};
+    std::array<float, 4> pd80FgPack3{};
+    std::array<float, 4> pd80FgPack4{{0.0f, 0.1f, 1.0f, 0.0f}};
+    /// PD80_06_Depth_Slicer.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80DsPack0{{0.0f, 0.0f, 0.015f, 0.0f}};
+    std::array<float, 4> pd80DsPack1{{0.005f, 0.0f, 0.083f, 0.0f}};
+    std::array<float, 4> pd80DsPack2{{0.0f, 1.0f, 0.0f, 0.0f}};
+    /// PD80_01_Color_Gamut.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80CgPack0{};
+    /// PD80_03_Color_Space_Curves.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80CscPack0{{0.0f, 1.0f, 1.0f, 1.0f}};
+    std::array<float, 4> pd80CscPack1{{0.2f, 0.2f, 0.8f, 0.8f}};
+    std::array<float, 4> pd80CscPack2{};
+    /// PD80_03_Shadows_Midtones_Highlights.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80SmhPack0{{0.0f, 2.0f, 0.0f, 1.0f}};
+    std::array<float, 4> pd80SmhPack1{{2.0f, 0.0f, 0.0f, 0.0f}};
+    std::array<float, 4> pd80SmhPack2{};
+    std::array<float, 4> pd80SmhPack3{};
+    std::array<float, 4> pd80SmhPack4{};
+    std::array<float, 4> pd80SmhPack5{};
+    std::array<float, 4> pd80SmhPack6{};
+    std::array<float, 4> pd80SmhPack7{};
+    std::array<float, 4> pd80SmhPack8{};
+    std::array<float, 4> pd80SmhPack9{};
+    std::array<float, 4> pd80SmhPack10{};
+    /// PD80_03_Curved_Levels.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80ClPack0{{0.0f, 1.0f, 1.0f, 0.0f}};
+    /// Grey: black_in, white_in, black_out, white_out (0–255 as float).
+    std::array<float, 4> pd80ClPack1{{0.0f, 255.0f, 0.0f, 255.0f}};
+    /// Grey: pos0_shoulder, pos1_shoulder, pos0_toe, pos1_toe.
+    std::array<float, 4> pd80ClPack2{{0.75f, 0.75f, 0.25f, 0.25f}};
+    std::array<float, 4> pd80ClPack3{{0.0f, 255.0f, 0.0f, 255.0f}};
+    std::array<float, 4> pd80ClPack4{{0.75f, 0.75f, 0.25f, 0.25f}};
+    std::array<float, 4> pd80ClPack5{{0.0f, 255.0f, 0.0f, 255.0f}};
+    std::array<float, 4> pd80ClPack6{{0.75f, 0.75f, 0.25f, 0.25f}};
+    std::array<float, 4> pd80ClPack7{{0.0f, 255.0f, 0.0f, 255.0f}};
+    std::array<float, 4> pd80ClPack8{{0.75f, 0.75f, 0.25f, 0.25f}};
+    /// PD80_04_Selective_Color.fx (see `NativeComposite.frag`).
+    std::array<float, 4> pd80ScPack0{{0.0f, 1.0f, 1.0f, 0.0f}};
+    std::array<float, 4> pd80ScPack1{};
+    std::array<float, 4> pd80ScPack2{};
+    std::array<float, 4> pd80ScPack3{};
+    std::array<float, 4> pd80ScPack4{};
+    std::array<float, 4> pd80ScPack5{};
+    std::array<float, 4> pd80ScPack6{};
+    std::array<float, 4> pd80ScPack7{};
+    std::array<float, 4> pd80ScPack8{};
+    std::array<float, 4> pd80ScPack9{};
+    std::array<float, 4> pd80ScPack10{};
+    std::array<float, 4> pd80ScPack11{};
+    std::array<float, 4> pd80ScPack12{};
+    std::array<float, 4> pd80ScPack13{};
+    std::array<float, 4> pd80ScPack14{};
+    std::array<float, 4> pd80ScPack15{};
+    std::array<float, 4> pd80ScPack16{};
+    std::array<float, 4> pd80ScPack17{};
+    std::array<float, 4> pd80ScPack18{};
+    std::array<float, 4> pd80PpPack0{};
+    std::array<float, 4> pd80PpPack1{};
+    std::array<float, 4> pd80MrPack0{};
+    std::array<float, 4> pd80MrPack1{};
+    std::array<float, 4> pd80MrPack2{};
+    std::array<float, 4> pd80MrPack3{};
+    std::array<float, 4> pd80MrPack4{};
+    std::array<float, 4> pd80MrPack5{};
+    std::array<float, 4> pd80MrPack6{};
+    std::array<float, 4> pd80MrPack7{};
+    std::array<float, 4> pd80BlpPack0{};
+    std::array<float, 4> pd80BlpPack1{};
+    std::array<float, 4> pd80BlpPack2{};
+    std::array<float, 4> pd80BlpPack3{};
+    std::array<float, 4> pd80BlpPack4{};
+    std::array<float, 4> pd80BlpPack5{};
+    std::array<float, 4> pd80CltPack0{};
+    std::array<float, 4> pd80CltPack1{};
+    std::array<float, 4> pd80CltPack2{};
+    std::array<float, 4> pd80CltPack3{};
+    std::array<float, 4> pd80CltPack4{};
+    std::array<float, 4> pd80CltPack5{};
+    std::array<float, 4> pd80LcPack0{};
+    std::array<float, 4> pd80LfPack0{};
+    std::array<float, 4> pd80Cg4Pack0{};
+    std::array<float, 4> pd80Cg4Pack1{};
+    std::array<float, 4> pd80Cg4Pack2{};
+    std::array<float, 4> pd80Cg4Pack3{};
+    std::array<float, 4> pd80Cg4Pack4{};
+    std::array<float, 4> pd80Cg4Pack5{};
+    std::array<float, 4> pd80Cg4Pack6{};
+    std::array<float, 4> pd80Cg4Pack7{};
+    std::array<float, 4> pd80Cg4Pack8{};
+    std::array<float, 4> pd80CcPack0{};
+    std::array<float, 4> pd80RccPack0{};
+    std::array<float, 4> pd80RccPack1{};
+    std::array<float, 4> pd80RccPack2{};
+    std::array<float, 4> pd80RccPack3{};
+    std::array<float, 4> pd80RccPack4{};
+    std::array<float, 4> pd80FaPack0{};
+    std::array<float, 4> pd80HbPack0{};
+    std::array<float, 4> pd80HbPack1{};
+    std::array<float, 4> pd80HbPack2{};
+    std::array<float, 4> pd80Sc2Pack0{};
     /// Column-major `mat4` for `NativeSkybox.vert` (`projection * skyRotation`).
     std::array<float, 16> skyClipFromLocal{};
     /// Column-major `mat4`; upper 3x3 maps eye-space directions to world for equirect sampling.
@@ -152,9 +404,194 @@ struct alignas(16) CameraUniformStd140 {
     float localLightColorIntensity[4]{};
     float directionalLightColorIntensity[4]{};
     float viewportMetrics[4]{};
+    float presentationTuning[4]{};
+    float presentationColorGrading[4]{};
+    float presentationExtra[4]{};
+    float lggLiftMix[4]{};
+    float lggGammaRgb[4]{};
+    float lggGainRgb[4]{};
+    float vibranceBalanceAmount[4]{};
+    float technicolor1PowStrNegRg[4]{};
+    float technicolor1NegBPad[4]{};
+    float technicolor2ColBright[4]{};
+    float technicolor2SatStrPad[4]{};
+    float sepiaTintXyzStrength[4]{};
+    float monochromePresetSat[4]{};
+    float monochromeCustomCoeff[4]{};
+    float dpxRgbCurvePad[4]{};
+    float dpxRgbCPad[4]{};
+    float dpxContrastSatColorStr[4]{};
+    float colorMatrixRowR[4]{};
+    float colorMatrixRowG[4]{};
+    float colorMatrixRowBStr[4]{};
+    float fakeHdrPowerR1R2Str[4]{};
+    float levelsBlackWhiteStrClip[4]{};
+    float lumaSharpenPack[4]{};
+    float sweetFxCurvesPack[4]{};
+    float sweetFxChromaticAberrationPack[4]{};
+    float sweetFxBorderPack[4]{};
+    float sweetFxBorderColorPad[4]{};
+    float sweetFxCartoonPack[4]{};
+    float sweetFxTonemapGammaExpSatBleach[4]{};
+    float sweetFxTonemapFogColorDefog[4]{};
+    float sweetFxTonemapStrengthPad[4]{};
+    float sweetFxSplitscreenModeStrength[4]{};
+    float sweetFxNostalgiaPack[4]{};
+    float sweetFxComparePack[4]{};
+    float sweetFxLayerPosScaleBlend[4]{};
+    float sweetFxLayerTexSizePad[4]{};
+    float sweetFxFxaaPack[4]{};
+    float sweetFxCrtPack0[4]{};
+    float sweetFxCrtPack1[4]{};
+    float sweetFxCrtPack2[4]{};
+    float sweetFxCrtPack3[4]{};
+    float sweetFxAsciiPack0[4]{};
+    float sweetFxAsciiPack1[4]{};
+    float sweetFxAsciiPack2[4]{};
+    float sweetFxAsciiFontColorPad[4]{};
+    float sweetFxAsciiBackgroundColorPad[4]{};
+    float sweetFxSmaaPack0[4]{};
+    float sweetFxSmaaPack1[4]{};
+    float reshadeDaltonizePack[4]{};
+    float reshadeDisplayDepthPack[4]{};
+    float reshadeLutPack[4]{};
+    float pd80TcRedStrPad[4]{};
+    float pd80TcCyanPad[4]{};
+    float pd80TcKeySat2Pad[4]{};
+    float pd80Tc3ColBrightPad[4]{};
+    float pd80Tc3SatStrEnPad[4]{};
+    float pd80ColorTempKelvinLumMixStr[4]{};
+    float pd80SatLimitCapStr[4]{};
+    float pd80ColorBalanceShadowPad[4]{};
+    float pd80ColorBalanceMidPad[4]{};
+    float pd80ColorBalanceHighPad[4]{};
+    float pd80ColorBalanceOptStr[4]{};
+    float pd80ColorIsolationHueRangeSatMix[4]{};
+    float pd80ColorIsolationStrPad[4]{};
+    float pd80LevelsIbPad[4]{};
+    float pd80LevelsIwPad[4]{};
+    float pd80LevelsObPad[4]{};
+    float pd80LevelsOwPad[4]{};
+    float pd80LevelsGammaDitherStr[4]{};
+    float pd80BwPack0[4]{};
+    float pd80BwPack1[4]{};
+    float pd80BwPack2[4]{};
+    float pd80BwPack3[4]{};
+    float pd80CbsPack0[4]{};
+    float pd80CbsPack1[4]{};
+    float pd80CbsPack2[4]{};
+    float pd80CbsPack3[4]{};
+    float pd80CbsPack4[4]{};
+    float pd80CbsPack5[4]{};
+    float pd80CbsPack6[4]{};
+    float pd80CbsPack7[4]{};
+    float pd80CaPack0[4]{};
+    float pd80CaPack1[4]{};
+    float pd80CaPack2[4]{};
+    float pd80CaPack3[4]{};
+    float pd80CaPack4[4]{};
+    float pd80CaPack5[4]{};
+    float pd80LsPack0[4]{};
+    float pd80LsPack1[4]{};
+    float pd80LsPack2[4]{};
+    float pd80FgPack0[4]{};
+    float pd80FgPack1[4]{};
+    float pd80FgPack2[4]{};
+    float pd80FgPack3[4]{};
+    float pd80FgPack4[4]{};
+    float pd80DsPack0[4]{};
+    float pd80DsPack1[4]{};
+    float pd80DsPack2[4]{};
+    float pd80CgPack0[4]{};
+    float pd80CscPack0[4]{};
+    float pd80CscPack1[4]{};
+    float pd80CscPack2[4]{};
+    float pd80SmhPack0[4]{};
+    float pd80SmhPack1[4]{};
+    float pd80SmhPack2[4]{};
+    float pd80SmhPack3[4]{};
+    float pd80SmhPack4[4]{};
+    float pd80SmhPack5[4]{};
+    float pd80SmhPack6[4]{};
+    float pd80SmhPack7[4]{};
+    float pd80SmhPack8[4]{};
+    float pd80SmhPack9[4]{};
+    float pd80SmhPack10[4]{};
+    float pd80ClPack0[4]{};
+    float pd80ClPack1[4]{};
+    float pd80ClPack2[4]{};
+    float pd80ClPack3[4]{};
+    float pd80ClPack4[4]{};
+    float pd80ClPack5[4]{};
+    float pd80ClPack6[4]{};
+    float pd80ClPack7[4]{};
+    float pd80ClPack8[4]{};
+    float pd80ScPack0[4]{};
+    float pd80ScPack1[4]{};
+    float pd80ScPack2[4]{};
+    float pd80ScPack3[4]{};
+    float pd80ScPack4[4]{};
+    float pd80ScPack5[4]{};
+    float pd80ScPack6[4]{};
+    float pd80ScPack7[4]{};
+    float pd80ScPack8[4]{};
+    float pd80ScPack9[4]{};
+    float pd80ScPack10[4]{};
+    float pd80ScPack11[4]{};
+    float pd80ScPack12[4]{};
+    float pd80ScPack13[4]{};
+    float pd80ScPack14[4]{};
+    float pd80ScPack15[4]{};
+    float pd80ScPack16[4]{};
+    float pd80ScPack17[4]{};
+    float pd80ScPack18[4]{};
+    float pd80PpPack0[4]{};
+    float pd80PpPack1[4]{};
+    float pd80MrPack0[4]{};
+    float pd80MrPack1[4]{};
+    float pd80MrPack2[4]{};
+    float pd80MrPack3[4]{};
+    float pd80MrPack4[4]{};
+    float pd80MrPack5[4]{};
+    float pd80MrPack6[4]{};
+    float pd80MrPack7[4]{};
+    float pd80BlpPack0[4]{};
+    float pd80BlpPack1[4]{};
+    float pd80BlpPack2[4]{};
+    float pd80BlpPack3[4]{};
+    float pd80BlpPack4[4]{};
+    float pd80BlpPack5[4]{};
+    float pd80CltPack0[4]{};
+    float pd80CltPack1[4]{};
+    float pd80CltPack2[4]{};
+    float pd80CltPack3[4]{};
+    float pd80CltPack4[4]{};
+    float pd80CltPack5[4]{};
+    float pd80LcPack0[4]{};
+    float pd80LfPack0[4]{};
+    float pd80Cg4Pack0[4]{};
+    float pd80Cg4Pack1[4]{};
+    float pd80Cg4Pack2[4]{};
+    float pd80Cg4Pack3[4]{};
+    float pd80Cg4Pack4[4]{};
+    float pd80Cg4Pack5[4]{};
+    float pd80Cg4Pack6[4]{};
+    float pd80Cg4Pack7[4]{};
+    float pd80Cg4Pack8[4]{};
+    float pd80CcPack0[4]{};
+    float pd80RccPack0[4]{};
+    float pd80RccPack1[4]{};
+    float pd80RccPack2[4]{};
+    float pd80RccPack3[4]{};
+    float pd80RccPack4[4]{};
+    float pd80FaPack0[4]{};
+    float pd80HbPack0[4]{};
+    float pd80HbPack1[4]{};
+    float pd80HbPack2[4]{};
+    float pd80Sc2Pack0[4]{};
 };
 
-static_assert(sizeof(CameraUniformStd140) == 288, "Must match NativeScenePreview shader CameraData std140 layout.");
+static_assert(sizeof(CameraUniformStd140) == 3248, "Must match NativeScenePreview shader CameraData std140 layout.");
 
 void StoreMat4ColumnMajorGlsl(const ri::math::Mat4& matrix, float destination[16]) {
     for (int column = 0; column < 4; ++column) {
@@ -640,6 +1077,69 @@ ri::math::Mat4 BuildOrthographicMatrix(const float left,
     return projection;
 }
 
+[[nodiscard]] bool NativeShaderBundleMarkerExists(const fs::path& directory) {
+    std::error_code ec{};
+    return fs::exists(directory / "NativeScenePreview.vert.spv", ec);
+}
+
+/// SPIR-V was historically loaded only from the compile-time `RAWIRON_VULKAN_SHADER_DIR` (absolute).
+/// That breaks when the build tree moves drives/machines. Prefer env / next to exe / walk up to
+/// `Source/RawIron.Render.Vulkan/shaders` under the same CMake build prefix.
+[[nodiscard]] fs::path ResolveVulkanNativeShaderDirectory() {
+    if (const char* env = std::getenv("RAWIRON_VULKAN_SHADER_DIR"); env != nullptr && env[0] != '\0') {
+        const fs::path fromEnv(env);
+        if (NativeShaderBundleMarkerExists(fromEnv)) {
+            return fromEnv;
+        }
+    }
+#if defined(RAWIRON_VULKAN_SHADER_DIR)
+    {
+        const fs::path compileTime(RAWIRON_VULKAN_SHADER_DIR);
+        if (NativeShaderBundleMarkerExists(compileTime)) {
+            return compileTime;
+        }
+    }
+#endif
+#if defined(_WIN32)
+    {
+        std::wstring module(4096, L'\0');
+        const DWORD n = GetModuleFileNameW(nullptr, module.data(), static_cast<DWORD>(module.size() - 1U));
+        if (n != 0U) {
+            module.resize(n);
+            const fs::path exeDir = fs::path(module).parent_path();
+            const fs::path besideVulkan = exeDir / "vulkan" / "shaders";
+            if (NativeShaderBundleMarkerExists(besideVulkan)) {
+                return besideVulkan;
+            }
+            const fs::path beside = exeDir / "shaders";
+            if (NativeShaderBundleMarkerExists(beside)) {
+                return beside;
+            }
+            fs::path walk = exeDir;
+            for (int depth = 0; depth < 28; ++depth) {
+                const fs::path candidate = walk / "Source" / "RawIron.Render.Vulkan" / "shaders";
+                if (NativeShaderBundleMarkerExists(candidate)) {
+                    return candidate;
+                }
+                if (!walk.has_parent_path()) {
+                    break;
+                }
+                const fs::path parent = walk.parent_path();
+                if (parent == walk) {
+                    break;
+                }
+                walk = parent;
+            }
+        }
+    }
+#endif
+#if defined(RAWIRON_VULKAN_SHADER_DIR)
+    return fs::path(RAWIRON_VULKAN_SHADER_DIR);
+#else
+    return {};
+#endif
+}
+
 std::vector<char> ReadBinaryFile(const fs::path& path) {
     std::ifstream stream(path, std::ios::binary | std::ios::ate);
     if (!stream) {
@@ -682,9 +1182,15 @@ ri::math::Vec3 ClampColor(const ri::math::Vec3& color) {
 void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
                                        const ri::math::Vec3& cameraWorldPos,
                                        NativeScenePreviewData& data) {
-    constexpr ri::math::Vec3 kFillAnchor{0.0f, 3.35f, 0.0f};
-    constexpr float kDirectionalRgbScale = 0.52f;
-    constexpr float kFillRgbScale = 0.085f;
+    constexpr float kDirectionalRgbScale = 1.0f;
+    constexpr float kFillRgbScale = 0.32f;
+    constexpr float kFillSwitchMargin = 1.14f;
+
+    const ri::math::Vec3 fillAnchor{
+        cameraWorldPos.x,
+        cameraWorldPos.y + 1.6f,
+        cameraWorldPos.z,
+    };
 
     ri::math::Vec3 sunToSurface = ri::math::Normalize(ri::math::Vec3{0.34f, 0.86f, 0.31f});
     ri::math::Vec3 sunRgb = ClampColor(ri::math::Vec3{1.0f, 0.98f, 0.94f}) * kDirectionalRgbScale;
@@ -694,6 +1200,13 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
     ri::math::Vec3 bestFillRgb = ri::math::Vec3{1.0f, 0.93f, 0.84f};
     float bestFillRange = 24.0f;
     float bestFillStrength = -1.0f;
+    int bestFillNode = ri::scene::kInvalidHandle;
+
+    static int lockedFillNode = ri::scene::kInvalidHandle;
+    ri::math::Vec3 lockedFillPos = bestFillPos;
+    ri::math::Vec3 lockedFillRgb = bestFillRgb;
+    float lockedFillRange = bestFillRange;
+    float lockedFillStrength = -1.0f;
 
     const std::vector<int> lightNodes = ri::scene::CollectLightNodes(scene);
     for (const int nodeHandle : lightNodes) {
@@ -724,7 +1237,7 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
             continue;
         }
 
-        ri::math::Vec3 offsetLightMinusAnchor = position - kFillAnchor;
+        ri::math::Vec3 offsetLightMinusAnchor = position - fillAnchor;
         const float distance = ri::math::Length(offsetLightMinusAnchor);
         if (distance <= 1.0e-4f) {
             continue;
@@ -751,8 +1264,19 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
         }
 
         const float strength = attenuation * std::max(light.intensity, 0.001f);
+        if (nodeHandle == lockedFillNode) {
+            lockedFillStrength = strength;
+            lockedFillPos = position;
+            lockedFillRgb = ri::math::Vec3{
+                light.color.x * light.intensity * kFillRgbScale,
+                light.color.y * light.intensity * kFillRgbScale,
+                light.color.z * light.intensity * kFillRgbScale,
+            };
+            lockedFillRange = std::max(light.range, 6.0f);
+        }
         if (strength > bestFillStrength) {
             bestFillStrength = strength;
+            bestFillNode = nodeHandle;
             bestFillPos = position;
             bestFillRgb = ri::math::Vec3{
                 light.color.x * light.intensity * kFillRgbScale,
@@ -761,6 +1285,17 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
             };
             bestFillRange = std::max(light.range, 6.0f);
         }
+    }
+
+    if (lockedFillNode != ri::scene::kInvalidHandle && lockedFillStrength > 0.0f &&
+        lockedFillStrength * kFillSwitchMargin >= bestFillStrength) {
+        bestFillPos = lockedFillPos;
+        bestFillRgb = lockedFillRgb;
+        bestFillRange = lockedFillRange;
+        bestFillStrength = lockedFillStrength;
+        bestFillNode = lockedFillNode;
+    } else if (bestFillNode != ri::scene::kInvalidHandle) {
+        lockedFillNode = bestFillNode;
     }
 
     if (!foundSun) {
@@ -987,6 +1522,7 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                                  const fs::path& textureRoot,
                                  const fs::path& skyEquirectRelativeToTextureRoot,
                                  double animationTimeSeconds,
+                                 const std::optional<ri::math::Vec3>& environmentClearColor,
                                  NativeScenePreviewData* outData,
                                  std::string* error) {
     try {
@@ -1008,6 +1544,9 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
         ri::scene::SceneRenderSubmissionOptions submissionOptions{};
         submissionOptions.viewportWidth = std::max(width, 1);
         submissionOptions.viewportHeight = std::max(height, 1);
+        if (environmentClearColor.has_value()) {
+            submissionOptions.clearColor = *environmentClearColor;
+        }
         // Native Vulkan draws the full authored scene each frame; distance/occlusion LOD from the software
         // preview path causes visible popping on large void levels, so keep those toggles off here.
         submissionOptions.enableFarHorizon = false;
@@ -1138,6 +1677,7 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                     draw.nativeWaterUvMotion = NativePreviewIsWaterLikeMaterial(material);
                 }
                 draw.litShadingModel = material.shadingModel == ri::scene::ShadingModel::Lit;
+                draw.doubleSided = material.doubleSided;
                 draw.additiveBlend = material.additiveBlend;
                 data.draws.push_back(draw);
                 break;
@@ -1185,6 +1725,10 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
     const ri::scene::PhotoModeCameraOverrides* const photoMode =
         frame.photoModeEnabled && ri::scene::PhotoModeFieldOfViewActive(frame.photoMode) ? &frame.photoMode : nullptr;
     const fs::path textureRoot = !frame.textureRoot.empty() ? frame.textureRoot : fs::path{};
+    std::optional<ri::math::Vec3> environmentClearColor{};
+    if (frame.useEnvironmentClear) {
+        environmentClearColor = (frame.environmentClearTop + frame.environmentClearBottom) * 0.5f;
+    }
     const bool ok = BuildNativeScenePreviewData(*frame.scene,
                                                 frame.cameraNode,
                                                 width,
@@ -1193,6 +1737,7 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
                                                 textureRoot,
                                                 frame.skyEquirectTextureRelative,
                                                 frame.animationTimeSeconds,
+                                                environmentClearColor,
                                                 outData,
                                                 error);
     if (!ok) {
@@ -1204,6 +1749,9 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
         std::clamp(frame.renderSaturation, 0.0f, 1.8f),
         std::clamp(frame.renderFogDensity, 0.0f, 0.05f),
     };
+    const ri::math::Vec3 fogNear = ClampColor(frame.nativeFogColorNear);
+    const ri::math::Vec3 fogFar = ClampColor(frame.nativeFogColorFar);
+    const ri::math::Vec3 ambient = ClampColor(frame.nativeAmbientLight);
     const ri::render::PostProcessParameters sanitizedPost = ri::render::SanitizePostProcessParameters(frame.postProcess);
     outData->postProcessPrimary = {
         sanitizedPost.noiseAmount,
@@ -1222,6 +1770,1066 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
         sanitizedPost.staticFadeAmount,
         sanitizedPost.timeSeconds,
         0.0f,
+    };
+    outData->presentationTuning = {
+        sanitizedPost.casSharpenAmount,
+        sanitizedPost.casContrastAdaptation,
+        sanitizedPost.bloomIntensity,
+        sanitizedPost.bloomThreshold,
+    };
+    outData->presentationColorGrading = {
+        sanitizedPost.toneCurveStrength,
+        sanitizedPost.outputDitherStrength,
+        sanitizedPost.debandStrength,
+        sanitizedPost.vignetteStrength,
+    };
+    outData->presentationExtra = {
+        sanitizedPost.filmGrainIntensity,
+        ambient.x,
+        ambient.y,
+        ambient.z,
+    };
+    outData->lggLiftMix = {
+        sanitizedPost.liftRgb.x,
+        sanitizedPost.liftRgb.y,
+        sanitizedPost.liftRgb.z,
+        sanitizedPost.liftGammaGainMix,
+    };
+    outData->lggGammaRgb = {
+        sanitizedPost.gammaRgb.x,
+        sanitizedPost.gammaRgb.y,
+        sanitizedPost.gammaRgb.z,
+        0.0f,
+    };
+    outData->lggGainRgb = {
+        sanitizedPost.gainRgb.x,
+        sanitizedPost.gainRgb.y,
+        sanitizedPost.gainRgb.z,
+        0.0f,
+    };
+    outData->vibranceBalanceAmount = {
+        sanitizedPost.vibranceRgbBalance.x,
+        sanitizedPost.vibranceRgbBalance.y,
+        sanitizedPost.vibranceRgbBalance.z,
+        sanitizedPost.vibrance,
+    };
+    outData->technicolor1PowStrNegRg = {
+        sanitizedPost.technicolorPower,
+        sanitizedPost.technicolorStrength,
+        sanitizedPost.technicolorRgbNegative.x,
+        sanitizedPost.technicolorRgbNegative.y,
+    };
+    outData->technicolor1NegBPad = {
+        sanitizedPost.technicolorRgbNegative.z,
+        0.0f,
+        0.0f,
+        0.0f,
+    };
+    outData->technicolor2ColBright = {
+        sanitizedPost.technicolor2ColorStrength.x,
+        sanitizedPost.technicolor2ColorStrength.y,
+        sanitizedPost.technicolor2ColorStrength.z,
+        sanitizedPost.technicolor2Brightness,
+    };
+    outData->technicolor2SatStrPad = {
+        sanitizedPost.technicolor2Saturation,
+        sanitizedPost.technicolor2Strength,
+        0.0f,
+        0.0f,
+    };
+    outData->sepiaTintXyzStrength = {
+        sanitizedPost.sepiaTint.x,
+        sanitizedPost.sepiaTint.y,
+        sanitizedPost.sepiaTint.z,
+        sanitizedPost.sepiaStrength,
+    };
+    outData->monochromePresetSat = {
+        static_cast<float>(sanitizedPost.monochromePreset),
+        sanitizedPost.monochromeColorSaturation,
+        0.0f,
+        0.0f,
+    };
+    outData->monochromeCustomCoeff = {
+        sanitizedPost.monochromeCustomCoeff.x,
+        sanitizedPost.monochromeCustomCoeff.y,
+        sanitizedPost.monochromeCustomCoeff.z,
+        0.0f,
+    };
+    outData->dpxRgbCurvePad = {
+        sanitizedPost.dpxRgbCurve.x,
+        sanitizedPost.dpxRgbCurve.y,
+        sanitizedPost.dpxRgbCurve.z,
+        0.0f,
+    };
+    outData->dpxRgbCPad = {
+        sanitizedPost.dpxRgbC.x,
+        sanitizedPost.dpxRgbC.y,
+        sanitizedPost.dpxRgbC.z,
+        0.0f,
+    };
+    outData->dpxContrastSatColorStr = {
+        sanitizedPost.dpxContrast,
+        sanitizedPost.dpxSaturation,
+        sanitizedPost.dpxColorfulness,
+        sanitizedPost.dpxStrength,
+    };
+    outData->colorMatrixRowR = {
+        sanitizedPost.colorMatrixRed.x,
+        sanitizedPost.colorMatrixRed.y,
+        sanitizedPost.colorMatrixRed.z,
+        0.0f,
+    };
+    outData->colorMatrixRowG = {
+        sanitizedPost.colorMatrixGreen.x,
+        sanitizedPost.colorMatrixGreen.y,
+        sanitizedPost.colorMatrixGreen.z,
+        0.0f,
+    };
+    outData->colorMatrixRowBStr = {
+        sanitizedPost.colorMatrixBlue.x,
+        sanitizedPost.colorMatrixBlue.y,
+        sanitizedPost.colorMatrixBlue.z,
+        sanitizedPost.colorMatrixStrength,
+    };
+    outData->fakeHdrPowerR1R2Str = {
+        sanitizedPost.fakeHdrPower,
+        sanitizedPost.fakeHdrRadius1,
+        sanitizedPost.fakeHdrRadius2,
+        sanitizedPost.fakeHdrStrength,
+    };
+    outData->levelsBlackWhiteStrClip = {
+        sanitizedPost.levelsBlackPoint,
+        sanitizedPost.levelsWhitePoint,
+        sanitizedPost.levelsStrength,
+        sanitizedPost.levelsClipHighlight,
+    };
+    {
+        const int pat = std::clamp(sanitizedPost.lumaSharpenPattern, 0, 3);
+        const int showPacked =
+            (sanitizedPost.lumaSharpenShowPattern >= 0.5f && std::isfinite(sanitizedPost.lumaSharpenShowPattern))
+            ? 1
+            : 0;
+        outData->lumaSharpenPack = {
+            sanitizedPost.lumaSharpenStrength,
+            sanitizedPost.lumaSharpenClamp,
+            sanitizedPost.lumaSharpenOffsetBias,
+            static_cast<float>(pat + 4 * showPacked),
+        };
+    }
+    outData->sweetFxCurvesPack = {
+        sanitizedPost.sweetFxCurvesContrast,
+        static_cast<float>(sanitizedPost.sweetFxCurvesMode),
+        static_cast<float>(sanitizedPost.sweetFxCurvesFormula),
+        sanitizedPost.sweetFxCurvesStrength,
+    };
+    outData->sweetFxChromaticAberrationPack = {
+        sanitizedPost.sweetFxChromaticAberrationShiftX,
+        sanitizedPost.sweetFxChromaticAberrationShiftY,
+        sanitizedPost.sweetFxChromaticAberrationStrength,
+        0.0f,
+    };
+    outData->sweetFxBorderPack = {
+        sanitizedPost.sweetFxBorderWidthX,
+        sanitizedPost.sweetFxBorderWidthY,
+        sanitizedPost.sweetFxBorderRatio,
+        sanitizedPost.sweetFxBorderStrength,
+    };
+    outData->sweetFxBorderColorPad = {
+        sanitizedPost.sweetFxBorderColor.x,
+        sanitizedPost.sweetFxBorderColor.y,
+        sanitizedPost.sweetFxBorderColor.z,
+        0.0f,
+    };
+    outData->sweetFxCartoonPack = {
+        sanitizedPost.sweetFxCartoonPower,
+        sanitizedPost.sweetFxCartoonEdgeSlope,
+        sanitizedPost.sweetFxCartoonStrength,
+        0.0f,
+    };
+    outData->sweetFxTonemapGammaExpSatBleach = {
+        sanitizedPost.sweetFxTonemapGamma,
+        sanitizedPost.sweetFxTonemapExposure,
+        sanitizedPost.sweetFxTonemapSaturation,
+        sanitizedPost.sweetFxTonemapBleach,
+    };
+    outData->sweetFxTonemapFogColorDefog = {
+        fogNear.x,
+        fogNear.y,
+        fogNear.z,
+        sanitizedPost.sweetFxTonemapDefog,
+    };
+    outData->sweetFxTonemapStrengthPad = {
+        sanitizedPost.sweetFxTonemapStrength,
+        0.0f,
+        0.0f,
+        0.0f,
+    };
+    outData->sweetFxSplitscreenModeStrength = {
+        static_cast<float>(sanitizedPost.sweetFxSplitscreenMode),
+        sanitizedPost.sweetFxSplitscreenStrength,
+        0.0f,
+        0.0f,
+    };
+    outData->sweetFxNostalgiaPack = {
+        static_cast<float>(sanitizedPost.sweetFxNostalgiaPalette),
+        static_cast<float>(sanitizedPost.sweetFxNostalgiaScanlines),
+        sanitizedPost.sweetFxNostalgiaDither,
+        sanitizedPost.sweetFxNostalgiaStrength,
+    };
+    outData->sweetFxComparePack = {
+        static_cast<float>(sanitizedPost.sweetFxCompareMode),
+        sanitizedPost.sweetFxCompareDifferenceScale,
+        sanitizedPost.sweetFxCompareStrength,
+        0.0f,
+    };
+    outData->sweetFxLayerPosScaleBlend = {
+        sanitizedPost.sweetFxLayerPosition.x,
+        sanitizedPost.sweetFxLayerPosition.y,
+        sanitizedPost.sweetFxLayerScale,
+        sanitizedPost.sweetFxLayerBlend,
+    };
+    outData->sweetFxLayerTexSizePad = {
+        sanitizedPost.sweetFxLayerTexWidth,
+        sanitizedPost.sweetFxLayerTexHeight,
+        0.0f,
+        0.0f,
+    };
+    outData->sweetFxFxaaPack = {
+        sanitizedPost.sweetFxFxaaSubpix,
+        sanitizedPost.sweetFxFxaaEdgeThreshold,
+        sanitizedPost.sweetFxFxaaEdgeThresholdMin,
+        sanitizedPost.sweetFxFxaaStrength,
+    };
+    outData->sweetFxCrtPack0 = {
+        sanitizedPost.sweetFxCrtAmount,
+        sanitizedPost.sweetFxCrtResolution,
+        sanitizedPost.sweetFxCrtGamma,
+        sanitizedPost.sweetFxCrtMonitorGamma,
+    };
+    outData->sweetFxCrtPack1 = {
+        sanitizedPost.sweetFxCrtBrightness,
+        static_cast<float>(sanitizedPost.sweetFxCrtScanlineIntensity),
+        sanitizedPost.sweetFxCrtScanlineGaussian,
+        sanitizedPost.sweetFxCrtCurvature,
+    };
+    outData->sweetFxCrtPack2 = {
+        sanitizedPost.sweetFxCrtCurvatureRadius,
+        sanitizedPost.sweetFxCrtCornerSize,
+        sanitizedPost.sweetFxCrtViewerDistance,
+        sanitizedPost.sweetFxCrtOverscan,
+    };
+    outData->sweetFxCrtPack3 = {
+        sanitizedPost.sweetFxCrtAngle.x,
+        sanitizedPost.sweetFxCrtAngle.y,
+        sanitizedPost.sweetFxCrtOversample,
+        0.0f,
+    };
+    outData->sweetFxAsciiPack0 = {
+        static_cast<float>(sanitizedPost.sweetFxAsciiSpacing),
+        static_cast<float>(sanitizedPost.sweetFxAsciiFont),
+        static_cast<float>(sanitizedPost.sweetFxAsciiFontColorMode),
+        sanitizedPost.sweetFxAsciiStrength,
+    };
+    outData->sweetFxAsciiPack1 = {
+        sanitizedPost.sweetFxAsciiSwapColors,
+        sanitizedPost.sweetFxAsciiInvertBrightness,
+        sanitizedPost.sweetFxAsciiDithering,
+        sanitizedPost.sweetFxAsciiDitheringIntensity,
+    };
+    outData->sweetFxAsciiPack2 = {
+        sanitizedPost.sweetFxAsciiDitheringDebugGradient,
+        0.0f,
+        0.0f,
+        0.0f,
+    };
+    outData->sweetFxAsciiFontColorPad = {
+        sanitizedPost.sweetFxAsciiFontColor.x,
+        sanitizedPost.sweetFxAsciiFontColor.y,
+        sanitizedPost.sweetFxAsciiFontColor.z,
+        0.0f,
+    };
+    outData->sweetFxAsciiBackgroundColorPad = {
+        sanitizedPost.sweetFxAsciiBackgroundColor.x,
+        sanitizedPost.sweetFxAsciiBackgroundColor.y,
+        sanitizedPost.sweetFxAsciiBackgroundColor.z,
+        0.0f,
+    };
+    outData->sweetFxSmaaPack0 = {
+        static_cast<float>(sanitizedPost.sweetFxSmaaEdgeDetectionType),
+        sanitizedPost.sweetFxSmaaEdgeThreshold,
+        sanitizedPost.sweetFxSmaaDepthThreshold,
+        sanitizedPost.sweetFxSmaaStrength,
+    };
+    outData->sweetFxSmaaPack1 = {
+        static_cast<float>(sanitizedPost.sweetFxSmaaMaxSearchSteps),
+        static_cast<float>(sanitizedPost.sweetFxSmaaMaxSearchStepsDiagonal),
+        static_cast<float>(sanitizedPost.sweetFxSmaaCornerRounding),
+        sanitizedPost.sweetFxSmaaDebugOutput,
+    };
+    outData->reshadeDaltonizePack = {
+        static_cast<float>(sanitizedPost.reshadeDaltonizeType),
+        sanitizedPost.reshadeDaltonizeStrength,
+        0.0f,
+        0.0f,
+    };
+    outData->reshadeDisplayDepthPack = {
+        static_cast<float>(sanitizedPost.reshadeDisplayDepthPresentType),
+        sanitizedPost.reshadeDisplayDepthStrength,
+        0.0f,
+        0.0f,
+    };
+    outData->reshadeLutPack = {
+        sanitizedPost.reshadeLutAmountChroma,
+        sanitizedPost.reshadeLutAmountLuma,
+        sanitizedPost.reshadeLutStrength,
+        0.0f,
+    };
+    outData->pd80TcRedStrPad = {
+        sanitizedPost.pd80TechnicolorRed2strip.x,
+        sanitizedPost.pd80TechnicolorRed2strip.y,
+        sanitizedPost.pd80TechnicolorRed2strip.z,
+        sanitizedPost.pd80TechnicolorStrength,
+    };
+    outData->pd80TcCyanPad = {
+        sanitizedPost.pd80TechnicolorCyan2strip.x,
+        sanitizedPost.pd80TechnicolorCyan2strip.y,
+        sanitizedPost.pd80TechnicolorCyan2strip.z,
+        0.0f,
+    };
+    outData->pd80TcKeySat2Pad = {
+        sanitizedPost.pd80TechnicolorColorKey.x,
+        sanitizedPost.pd80TechnicolorColorKey.y,
+        sanitizedPost.pd80TechnicolorColorKey.z,
+        sanitizedPost.pd80TechnicolorSaturation2,
+    };
+    outData->pd80Tc3ColBrightPad = {
+        sanitizedPost.pd80Technicolor3ColorStrength.x,
+        sanitizedPost.pd80Technicolor3ColorStrength.y,
+        sanitizedPost.pd80Technicolor3ColorStrength.z,
+        sanitizedPost.pd80Technicolor3Brightness,
+    };
+    outData->pd80Tc3SatStrEnPad = {
+        sanitizedPost.pd80Technicolor3Saturation,
+        sanitizedPost.pd80Technicolor3Strength,
+        sanitizedPost.pd80TechnicolorEnable3strip,
+        0.0f,
+    };
+    outData->pd80ColorTempKelvinLumMixStr = {
+        sanitizedPost.pd80ColorTemperatureKelvin,
+        sanitizedPost.pd80ColorTemperatureLuminancePreservation,
+        sanitizedPost.pd80ColorTemperatureMix,
+        sanitizedPost.pd80ColorTemperatureStrength,
+    };
+    outData->pd80SatLimitCapStr = {
+        sanitizedPost.pd80SaturationLimit,
+        sanitizedPost.pd80SaturationLimitStrength,
+        0.0f,
+        0.0f,
+    };
+    outData->pd80ColorBalanceShadowPad = {
+        sanitizedPost.pd80ColorBalanceShadow.x,
+        sanitizedPost.pd80ColorBalanceShadow.y,
+        sanitizedPost.pd80ColorBalanceShadow.z,
+        0.0f,
+    };
+    outData->pd80ColorBalanceMidPad = {
+        sanitizedPost.pd80ColorBalanceMid.x,
+        sanitizedPost.pd80ColorBalanceMid.y,
+        sanitizedPost.pd80ColorBalanceMid.z,
+        0.0f,
+    };
+    outData->pd80ColorBalanceHighPad = {
+        sanitizedPost.pd80ColorBalanceHigh.x,
+        sanitizedPost.pd80ColorBalanceHigh.y,
+        sanitizedPost.pd80ColorBalanceHigh.z,
+        0.0f,
+    };
+    outData->pd80ColorBalanceOptStr = {
+        sanitizedPost.pd80ColorBalancePreserveLuma,
+        sanitizedPost.pd80ColorBalanceSeparationMode,
+        sanitizedPost.pd80ColorBalanceStrength,
+        0.0f,
+    };
+    outData->pd80ColorIsolationHueRangeSatMix = {
+        sanitizedPost.pd80ColorIsolationHueMid,
+        sanitizedPost.pd80ColorIsolationHueRange,
+        sanitizedPost.pd80ColorIsolationSatLimit,
+        sanitizedPost.pd80ColorIsolationFxMix,
+    };
+    outData->pd80ColorIsolationStrPad = {
+        sanitizedPost.pd80ColorIsolationStrength,
+        0.0f,
+        0.0f,
+        0.0f,
+    };
+    outData->pd80LevelsIbPad = {
+        sanitizedPost.pd80LevelsBlackIn.x,
+        sanitizedPost.pd80LevelsBlackIn.y,
+        sanitizedPost.pd80LevelsBlackIn.z,
+        0.0f,
+    };
+    outData->pd80LevelsIwPad = {
+        sanitizedPost.pd80LevelsWhiteIn.x,
+        sanitizedPost.pd80LevelsWhiteIn.y,
+        sanitizedPost.pd80LevelsWhiteIn.z,
+        0.0f,
+    };
+    outData->pd80LevelsObPad = {
+        sanitizedPost.pd80LevelsBlackOut.x,
+        sanitizedPost.pd80LevelsBlackOut.y,
+        sanitizedPost.pd80LevelsBlackOut.z,
+        0.0f,
+    };
+    outData->pd80LevelsOwPad = {
+        sanitizedPost.pd80LevelsWhiteOut.x,
+        sanitizedPost.pd80LevelsWhiteOut.y,
+        sanitizedPost.pd80LevelsWhiteOut.z,
+        0.0f,
+    };
+    outData->pd80LevelsGammaDitherStr = {
+        sanitizedPost.pd80LevelsGamma,
+        sanitizedPost.pd80LevelsEnableDither,
+        sanitizedPost.pd80LevelsDitherStrength,
+        sanitizedPost.pd80LevelsStrength,
+    };
+    outData->pd80BwPack0 = {
+        sanitizedPost.pd80BlackWhiteMode,
+        sanitizedPost.pd80BlackWhiteCurveStr,
+        sanitizedPost.pd80BlackWhiteEnableDither,
+        sanitizedPost.pd80BlackWhiteDitherStrength,
+    };
+    outData->pd80BwPack1 = {
+        sanitizedPost.pd80BlackWhiteRedChannel,
+        sanitizedPost.pd80BlackWhiteYellowChannel,
+        sanitizedPost.pd80BlackWhiteGreenChannel,
+        sanitizedPost.pd80BlackWhiteCyanChannel,
+    };
+    outData->pd80BwPack2 = {
+        sanitizedPost.pd80BlackWhiteBlueChannel,
+        sanitizedPost.pd80BlackWhiteMagentaChannel,
+        sanitizedPost.pd80BlackWhiteStrength,
+        sanitizedPost.pd80BlackWhiteShowClip,
+    };
+    outData->pd80BwPack3 = {
+        sanitizedPost.pd80BlackWhiteUseTint,
+        sanitizedPost.pd80BlackWhiteTintHue,
+        sanitizedPost.pd80BlackWhiteTintSat,
+        0.0f,
+    };
+    outData->pd80CbsPack0 = {
+        sanitizedPost.pd80CbsEnableDither,
+        sanitizedPost.pd80CbsDitherStrength,
+        sanitizedPost.pd80CbsTint,
+        sanitizedPost.pd80CbsExposure,
+    };
+    outData->pd80CbsPack1 = {
+        sanitizedPost.pd80CbsContrast,
+        sanitizedPost.pd80CbsBrightness,
+        sanitizedPost.pd80CbsSaturation,
+        sanitizedPost.pd80CbsVibrance,
+    };
+    outData->pd80CbsPack2 = {
+        sanitizedPost.pd80CbsHueMid,
+        sanitizedPost.pd80CbsHueRange,
+        sanitizedPost.pd80CbsSatCustom,
+        sanitizedPost.pd80CbsStrength,
+    };
+    outData->pd80CbsPack3 = {
+        sanitizedPost.pd80CbsSatR,
+        sanitizedPost.pd80CbsSatY,
+        sanitizedPost.pd80CbsSatG,
+        sanitizedPost.pd80CbsSatA,
+    };
+    outData->pd80CbsPack4 = {
+        sanitizedPost.pd80CbsSatB,
+        sanitizedPost.pd80CbsSatP,
+        sanitizedPost.pd80CbsSatM,
+        sanitizedPost.pd80CbsEnableDepth,
+    };
+    outData->pd80CbsPack5 = {
+        sanitizedPost.pd80CbsDisplayDepth,
+        sanitizedPost.pd80CbsDepthStart,
+        sanitizedPost.pd80CbsDepthEnd,
+        sanitizedPost.pd80CbsDepthCurve,
+    };
+    outData->pd80CbsPack6 = {
+        sanitizedPost.pd80CbsExposureFar,
+        sanitizedPost.pd80CbsContrastFar,
+        sanitizedPost.pd80CbsBrightnessFar,
+        sanitizedPost.pd80CbsSaturationFar,
+    };
+    outData->pd80CbsPack7 = {sanitizedPost.pd80CbsVibranceFar, 0.0f, 0.0f, 0.0f};
+    outData->pd80CaPack0 = {
+        sanitizedPost.pd80CaMasterStrength,
+        sanitizedPost.pd80CaEffectStrength,
+        sanitizedPost.pd80CaGlobalWidth,
+        sanitizedPost.pd80CaSampleSteps,
+    };
+    outData->pd80CaPack1 = {
+        sanitizedPost.pd80CaType,
+        sanitizedPost.pd80CaDegrees,
+        sanitizedPost.pd80CaWidth,
+        sanitizedPost.pd80CaCurve,
+    };
+    outData->pd80CaPack2 = {
+        sanitizedPost.pd80CaOX,
+        sanitizedPost.pd80CaOY,
+        sanitizedPost.pd80CaShapeX,
+        sanitizedPost.pd80CaShapeY,
+    };
+    outData->pd80CaPack3 = {
+        sanitizedPost.pd80CaVignetteColor.x,
+        sanitizedPost.pd80CaVignetteColor.y,
+        sanitizedPost.pd80CaVignetteColor.z,
+        sanitizedPost.pd80CaShowCa,
+    };
+    outData->pd80CaPack4 = {
+        sanitizedPost.pd80CaEnableDepthInt,
+        sanitizedPost.pd80CaEnableDepthWidth,
+        sanitizedPost.pd80CaDisplayDepth,
+        0.0f,
+    };
+    outData->pd80CaPack5 = {
+        sanitizedPost.pd80CaDepthStart,
+        sanitizedPost.pd80CaDepthEnd,
+        sanitizedPost.pd80CaDepthCurve,
+        0.0f,
+    };
+    outData->pd80LsPack0 = {
+        sanitizedPost.pd80LsMasterStrength,
+        sanitizedPost.pd80LsBlurSigma,
+        sanitizedPost.pd80LsSharpening,
+        sanitizedPost.pd80LsThreshold,
+    };
+    outData->pd80LsPack1 = {
+        sanitizedPost.pd80LsLimiter,
+        sanitizedPost.pd80LsShowEdges,
+        sanitizedPost.pd80LsEnableDepth,
+        sanitizedPost.pd80LsEnableReverse,
+    };
+    outData->pd80LsPack2 = {
+        sanitizedPost.pd80LsDisplayDepth,
+        sanitizedPost.pd80LsDepthStart,
+        sanitizedPost.pd80LsDepthEnd,
+        sanitizedPost.pd80LsDepthCurve,
+    };
+    outData->pd80FgPack0 = {
+        sanitizedPost.pd80FgMasterStrength,
+        sanitizedPost.pd80FgGrainAdjust,
+        sanitizedPost.pd80FgGrainSize,
+        sanitizedPost.pd80FgGrainMotion,
+    };
+    outData->pd80FgPack1 = {
+        sanitizedPost.pd80FgGrainOrigColor,
+        sanitizedPost.pd80FgUseNegnoise,
+        sanitizedPost.pd80FgGrainColor,
+        sanitizedPost.pd80FgGrainAmount,
+    };
+    outData->pd80FgPack2 = {
+        sanitizedPost.pd80FgGrainIntensity,
+        sanitizedPost.pd80FgGrainDensity,
+        sanitizedPost.pd80FgGrainIntHigh,
+        sanitizedPost.pd80FgGrainIntLow,
+    };
+    outData->pd80FgPack3 = {
+        sanitizedPost.pd80FgEnableTest,
+        sanitizedPost.pd80FgEnableDepth,
+        sanitizedPost.pd80FgDisplayDepth,
+        0.0f,
+    };
+    outData->pd80FgPack4 = {
+        sanitizedPost.pd80FgDepthStart,
+        sanitizedPost.pd80FgDepthEnd,
+        sanitizedPost.pd80FgDepthCurve,
+        0.0f,
+    };
+    outData->pd80DsPack0 = {
+        sanitizedPost.pd80DsMasterStrength,
+        sanitizedPost.pd80DsDepthNear,
+        sanitizedPost.pd80DsDepthPos,
+        sanitizedPost.pd80DsDepthFar,
+    };
+    outData->pd80DsPack1 = {
+        sanitizedPost.pd80DsDepthSmoothing,
+        sanitizedPost.pd80DsIntensity,
+        sanitizedPost.pd80DsHue,
+        sanitizedPost.pd80DsSaturation,
+    };
+    outData->pd80DsPack2 = {
+        sanitizedPost.pd80DsBlendMode,
+        sanitizedPost.pd80DsOpacity,
+        0.0f,
+        0.0f,
+    };
+    outData->pd80CgPack0 = {
+        sanitizedPost.pd80CgMasterStrength,
+        sanitizedPost.pd80ColorGamut,
+        0.0f,
+        0.0f,
+    };
+    outData->pd80CscPack0 = {
+        sanitizedPost.pd80CscMasterStrength,
+        sanitizedPost.pd80CscEnableDither,
+        sanitizedPost.pd80CscDitherStrength,
+        sanitizedPost.pd80CscColorSpace,
+    };
+    outData->pd80CscPack1 = {
+        sanitizedPost.pd80CscPos0ToeGrey,
+        sanitizedPost.pd80CscPos1ToeGrey,
+        sanitizedPost.pd80CscPos0ShoulderGrey,
+        sanitizedPost.pd80CscPos1ShoulderGrey,
+    };
+    outData->pd80CscPack2 = {
+        sanitizedPost.pd80CscColorSat,
+        0.0f,
+        0.0f,
+        0.0f,
+    };
+    outData->pd80SmhPack0 = {
+        sanitizedPost.pd80SmhMasterStrength,
+        sanitizedPost.pd80SmhLumaMode,
+        sanitizedPost.pd80SmhSeparationMode,
+        sanitizedPost.pd80SmhEnableDither,
+    };
+    outData->pd80SmhPack1 = {
+        sanitizedPost.pd80SmhDitherStrength,
+        0.0f,
+        0.0f,
+        0.0f,
+    };
+    outData->pd80SmhPack2 = {
+        sanitizedPost.pd80SmhShadowExposure,
+        sanitizedPost.pd80SmhShadowContrast,
+        sanitizedPost.pd80SmhShadowBrightness,
+        sanitizedPost.pd80SmhShadowOpacity,
+    };
+    outData->pd80SmhPack3 = {
+        sanitizedPost.pd80SmhBlendColorShadow.x,
+        sanitizedPost.pd80SmhBlendColorShadow.y,
+        sanitizedPost.pd80SmhBlendColorShadow.z,
+        sanitizedPost.pd80SmhShadowBlendMode,
+    };
+    outData->pd80SmhPack4 = {
+        sanitizedPost.pd80SmhShadowTint,
+        sanitizedPost.pd80SmhShadowSaturation,
+        sanitizedPost.pd80SmhShadowVibrance,
+        0.0f,
+    };
+    outData->pd80SmhPack5 = {
+        sanitizedPost.pd80SmhMidExposure,
+        sanitizedPost.pd80SmhMidContrast,
+        sanitizedPost.pd80SmhMidBrightness,
+        sanitizedPost.pd80SmhMidOpacity,
+    };
+    outData->pd80SmhPack6 = {
+        sanitizedPost.pd80SmhBlendColorMid.x,
+        sanitizedPost.pd80SmhBlendColorMid.y,
+        sanitizedPost.pd80SmhBlendColorMid.z,
+        sanitizedPost.pd80SmhMidBlendMode,
+    };
+    outData->pd80SmhPack7 = {
+        sanitizedPost.pd80SmhMidTint,
+        sanitizedPost.pd80SmhMidSaturation,
+        sanitizedPost.pd80SmhMidVibrance,
+        0.0f,
+    };
+    outData->pd80SmhPack8 = {
+        sanitizedPost.pd80SmhHighlightExposure,
+        sanitizedPost.pd80SmhHighlightContrast,
+        sanitizedPost.pd80SmhHighlightBrightness,
+        sanitizedPost.pd80SmhHighlightOpacity,
+    };
+    outData->pd80SmhPack9 = {
+        sanitizedPost.pd80SmhBlendColorHighlight.x,
+        sanitizedPost.pd80SmhBlendColorHighlight.y,
+        sanitizedPost.pd80SmhBlendColorHighlight.z,
+        sanitizedPost.pd80SmhHighlightBlendMode,
+    };
+    outData->pd80SmhPack10 = {
+        sanitizedPost.pd80SmhHighlightTint,
+        sanitizedPost.pd80SmhHighlightSaturation,
+        sanitizedPost.pd80SmhHighlightVibrance,
+        0.0f,
+    };
+    outData->pd80ClPack0 = {
+        sanitizedPost.pd80ClMasterStrength,
+        sanitizedPost.pd80ClEnableDither,
+        sanitizedPost.pd80ClDitherStrength,
+        sanitizedPost.pd80ClEnableRgb,
+    };
+    outData->pd80ClPack1 = {
+        sanitizedPost.pd80ClGreyBlackIn,
+        sanitizedPost.pd80ClGreyWhiteIn,
+        sanitizedPost.pd80ClGreyBlackOut,
+        sanitizedPost.pd80ClGreyWhiteOut,
+    };
+    outData->pd80ClPack2 = {
+        sanitizedPost.pd80ClGreyPos0Shoulder,
+        sanitizedPost.pd80ClGreyPos1Shoulder,
+        sanitizedPost.pd80ClGreyPos0Toe,
+        sanitizedPost.pd80ClGreyPos1Toe,
+    };
+    outData->pd80ClPack3 = {
+        sanitizedPost.pd80ClRedBlackIn,
+        sanitizedPost.pd80ClRedWhiteIn,
+        sanitizedPost.pd80ClRedBlackOut,
+        sanitizedPost.pd80ClRedWhiteOut,
+    };
+    outData->pd80ClPack4 = {
+        sanitizedPost.pd80ClRedPos0Shoulder,
+        sanitizedPost.pd80ClRedPos1Shoulder,
+        sanitizedPost.pd80ClRedPos0Toe,
+        sanitizedPost.pd80ClRedPos1Toe,
+    };
+    outData->pd80ClPack5 = {
+        sanitizedPost.pd80ClGreenBlackIn,
+        sanitizedPost.pd80ClGreenWhiteIn,
+        sanitizedPost.pd80ClGreenBlackOut,
+        sanitizedPost.pd80ClGreenWhiteOut,
+    };
+    outData->pd80ClPack6 = {
+        sanitizedPost.pd80ClGreenPos0Shoulder,
+        sanitizedPost.pd80ClGreenPos1Shoulder,
+        sanitizedPost.pd80ClGreenPos0Toe,
+        sanitizedPost.pd80ClGreenPos1Toe,
+    };
+    outData->pd80ClPack7 = {
+        sanitizedPost.pd80ClBlueBlackIn,
+        sanitizedPost.pd80ClBlueWhiteIn,
+        sanitizedPost.pd80ClBlueBlackOut,
+        sanitizedPost.pd80ClBlueWhiteOut,
+    };
+    outData->pd80ClPack8 = {
+        sanitizedPost.pd80ClBluePos0Shoulder,
+        sanitizedPost.pd80ClBluePos1Shoulder,
+        sanitizedPost.pd80ClBluePos0Toe,
+        sanitizedPost.pd80ClBluePos1Toe,
+    };
+    outData->pd80ScPack0 = {
+        sanitizedPost.pd80ScMasterStrength,
+        sanitizedPost.pd80ScCorrectionMethod,
+        sanitizedPost.pd80ScCorrectionMethodSaturation,
+        0.0f,
+    };
+    outData->pd80ScPack1 = {
+        sanitizedPost.pd80ScRedsCyan,
+        sanitizedPost.pd80ScRedsMagenta,
+        sanitizedPost.pd80ScRedsYellow,
+        sanitizedPost.pd80ScRedsBlack,
+    };
+    outData->pd80ScPack2 = {sanitizedPost.pd80ScRedsSaturation, sanitizedPost.pd80ScRedsVibrance, 0.0f, 0.0f};
+    outData->pd80ScPack3 = {
+        sanitizedPost.pd80ScYellowsCyan,
+        sanitizedPost.pd80ScYellowsMagenta,
+        sanitizedPost.pd80ScYellowsYellow,
+        sanitizedPost.pd80ScYellowsBlack,
+    };
+    outData->pd80ScPack4 = {sanitizedPost.pd80ScYellowsSaturation, sanitizedPost.pd80ScYellowsVibrance, 0.0f, 0.0f};
+    outData->pd80ScPack5 = {
+        sanitizedPost.pd80ScGreensCyan,
+        sanitizedPost.pd80ScGreensMagenta,
+        sanitizedPost.pd80ScGreensYellow,
+        sanitizedPost.pd80ScGreensBlack,
+    };
+    outData->pd80ScPack6 = {sanitizedPost.pd80ScGreensSaturation, sanitizedPost.pd80ScGreensVibrance, 0.0f, 0.0f};
+    outData->pd80ScPack7 = {
+        sanitizedPost.pd80ScCyansCyan,
+        sanitizedPost.pd80ScCyansMagenta,
+        sanitizedPost.pd80ScCyansYellow,
+        sanitizedPost.pd80ScCyansBlack,
+    };
+    outData->pd80ScPack8 = {sanitizedPost.pd80ScCyansSaturation, sanitizedPost.pd80ScCyansVibrance, 0.0f, 0.0f};
+    outData->pd80ScPack9 = {
+        sanitizedPost.pd80ScBluesCyan,
+        sanitizedPost.pd80ScBluesMagenta,
+        sanitizedPost.pd80ScBluesYellow,
+        sanitizedPost.pd80ScBluesBlack,
+    };
+    outData->pd80ScPack10 = {sanitizedPost.pd80ScBluesSaturation, sanitizedPost.pd80ScBluesVibrance, 0.0f, 0.0f};
+    outData->pd80ScPack11 = {
+        sanitizedPost.pd80ScMagentasCyan,
+        sanitizedPost.pd80ScMagentasMagenta,
+        sanitizedPost.pd80ScMagentasYellow,
+        sanitizedPost.pd80ScMagentasBlack,
+    };
+    outData->pd80ScPack12 = {
+        sanitizedPost.pd80ScMagentasSaturation,
+        sanitizedPost.pd80ScMagentasVibrance,
+        0.0f,
+        0.0f,
+    };
+    outData->pd80ScPack13 = {
+        sanitizedPost.pd80ScWhitesCyan,
+        sanitizedPost.pd80ScWhitesMagenta,
+        sanitizedPost.pd80ScWhitesYellow,
+        sanitizedPost.pd80ScWhitesBlack,
+    };
+    outData->pd80ScPack14 = {sanitizedPost.pd80ScWhitesSaturation, sanitizedPost.pd80ScWhitesVibrance, 0.0f, 0.0f};
+    outData->pd80ScPack15 = {
+        sanitizedPost.pd80ScNeutralsCyan,
+        sanitizedPost.pd80ScNeutralsMagenta,
+        sanitizedPost.pd80ScNeutralsYellow,
+        sanitizedPost.pd80ScNeutralsBlack,
+    };
+    outData->pd80ScPack16 = {
+        sanitizedPost.pd80ScNeutralsSaturation,
+        sanitizedPost.pd80ScNeutralsVibrance,
+        0.0f,
+        0.0f,
+    };
+    outData->pd80ScPack17 = {
+        sanitizedPost.pd80ScBlacksCyan,
+        sanitizedPost.pd80ScBlacksMagenta,
+        sanitizedPost.pd80ScBlacksYellow,
+        sanitizedPost.pd80ScBlacksBlack,
+    };
+    outData->pd80ScPack18 = {sanitizedPost.pd80ScBlacksSaturation, sanitizedPost.pd80ScBlacksVibrance, 0.0f, 0.0f};
+    outData->pd80PpPack0 = {sanitizedPost.pd80PpMasterStrength,
+                            sanitizedPost.pd80PpNumberOfLevels,
+                            sanitizedPost.pd80PpPixelSize,
+                            sanitizedPost.pd80PpBorderStrength};
+    outData->pd80PpPack1 = {
+        sanitizedPost.pd80PpEnableDither,
+        sanitizedPost.pd80PpDitherMotion,
+        sanitizedPost.pd80PpDitherStrength,
+        0.0f,
+    };
+    outData->pd80MrPack0 = {
+        sanitizedPost.pd80MrShape,
+        sanitizedPost.pd80MrInvertShape,
+        sanitizedPost.pd80MrRotation,
+        sanitizedPost.pd80MrCenter.x,
+    };
+    outData->pd80MrPack1 = {
+        sanitizedPost.pd80MrCenter.y,
+        sanitizedPost.pd80MrSizeX,
+        sanitizedPost.pd80MrSizeY,
+        sanitizedPost.pd80MrDepthPosition,
+    };
+    outData->pd80MrPack2 = {
+        sanitizedPost.pd80MrSmoothing,
+        sanitizedPost.pd80MrDepthSmoothing,
+        sanitizedPost.pd80MrDitherStrength,
+        sanitizedPost.pd80MrExposure,
+    };
+    outData->pd80MrPack3 = {
+        sanitizedPost.pd80MrContrast,
+        sanitizedPost.pd80MrBrightness,
+        sanitizedPost.pd80MrHue,
+        sanitizedPost.pd80MrSaturation,
+    };
+    outData->pd80MrPack4 = {
+        sanitizedPost.pd80MrVibrance,
+        sanitizedPost.pd80MrEnableGradient,
+        sanitizedPost.pd80MrGradientType,
+        sanitizedPost.pd80MrGradientCurve,
+    };
+    outData->pd80MrPack5 = {
+        sanitizedPost.pd80MrIntensityBoost,
+        sanitizedPost.pd80MrBlendMode,
+        sanitizedPost.pd80MrOpacity,
+        0.0f,
+    };
+    outData->pd80MrPack6 = {
+        sanitizedPost.pd80MrColor.x,
+        sanitizedPost.pd80MrColor.y,
+        sanitizedPost.pd80MrColor.z,
+        0.0f,
+    };
+    outData->pd80MrPack7 = {0.0f, 0.0f, 0.0f, 0.0f};
+    outData->pd80BlpPack0 = {
+        sanitizedPost.pd80BlpMasterStrength,
+        sanitizedPost.pd80BlpEnableDither,
+        sanitizedPost.pd80BlpDitherStrength,
+        sanitizedPost.pd80BlpLutSelector,
+    };
+    outData->pd80BlpPack1 = {
+        sanitizedPost.pd80BlpMixChroma,
+        sanitizedPost.pd80BlpMixLuma,
+        sanitizedPost.pd80BlpGamma,
+        0.0f,
+    };
+    outData->pd80BlpPack2 = {
+        sanitizedPost.pd80BlpBlackIn.x,
+        sanitizedPost.pd80BlpBlackIn.y,
+        sanitizedPost.pd80BlpBlackIn.z,
+        0.0f,
+    };
+    outData->pd80BlpPack3 = {
+        sanitizedPost.pd80BlpWhiteIn.x,
+        sanitizedPost.pd80BlpWhiteIn.y,
+        sanitizedPost.pd80BlpWhiteIn.z,
+        0.0f,
+    };
+    outData->pd80BlpPack4 = {
+        sanitizedPost.pd80BlpBlackOut.x,
+        sanitizedPost.pd80BlpBlackOut.y,
+        sanitizedPost.pd80BlpBlackOut.z,
+        sanitizedPost.pd80BlpWhiteOut.x,
+    };
+    outData->pd80BlpPack5 = {sanitizedPost.pd80BlpWhiteOut.y, sanitizedPost.pd80BlpWhiteOut.z, 0.0f, 0.0f};
+    outData->pd80CltPack0 = {
+        sanitizedPost.pd80CltMasterStrength,
+        sanitizedPost.pd80CltEnableDither,
+        sanitizedPost.pd80CltDitherStrength,
+        sanitizedPost.pd80CltLutSelector,
+    };
+    outData->pd80CltPack1 = {
+        sanitizedPost.pd80CltMixChroma,
+        sanitizedPost.pd80CltMixLuma,
+        sanitizedPost.pd80CltGamma,
+        0.0f,
+    };
+    outData->pd80CltPack2 = {
+        sanitizedPost.pd80CltBlackIn.x,
+        sanitizedPost.pd80CltBlackIn.y,
+        sanitizedPost.pd80CltBlackIn.z,
+        0.0f,
+    };
+    outData->pd80CltPack3 = {
+        sanitizedPost.pd80CltWhiteIn.x,
+        sanitizedPost.pd80CltWhiteIn.y,
+        sanitizedPost.pd80CltWhiteIn.z,
+        0.0f,
+    };
+    outData->pd80CltPack4 = {
+        sanitizedPost.pd80CltBlackOut.x,
+        sanitizedPost.pd80CltBlackOut.y,
+        sanitizedPost.pd80CltBlackOut.z,
+        sanitizedPost.pd80CltWhiteOut.x,
+    };
+    outData->pd80CltPack5 = {sanitizedPost.pd80CltWhiteOut.y, sanitizedPost.pd80CltWhiteOut.z, 0.0f, 0.0f};
+    outData->pd80LcPack0 = {
+        sanitizedPost.pd80LcMasterStrength,
+        sanitizedPost.pd80LcTextureWidth,
+        sanitizedPost.pd80LcTextureHeight,
+        0.0f,
+    };
+    outData->pd80LfPack0 = {
+        sanitizedPost.pd80LfMasterStrength,
+        sanitizedPost.pd80LfTransitionSpeed,
+        sanitizedPost.pd80LfMinLevel,
+        sanitizedPost.pd80LfMaxLevel,
+    };
+    outData->pd80Cg4Pack0 = {
+        sanitizedPost.pd80Cg4MasterStrength,
+        sanitizedPost.pd80Cg4LumaMode,
+        sanitizedPost.pd80Cg4SeparationMode,
+        sanitizedPost.pd80Cg4EnableDither,
+    };
+    outData->pd80Cg4Pack1 = {
+        sanitizedPost.pd80Cg4DitherStrength,
+        sanitizedPost.pd80Cg4DesaturateBase,
+        sanitizedPost.pd80Cg4FinalMix,
+        sanitizedPost.pd80Cg4LightSceneMidBlendMode,
+    };
+    outData->pd80Cg4Pack2 = {
+        sanitizedPost.pd80Cg4LightSceneMidOpacity,
+        sanitizedPost.pd80Cg4LightSceneShadowBlendMode,
+        sanitizedPost.pd80Cg4LightSceneShadowOpacity,
+        sanitizedPost.pd80Cg4EnableDarkScene,
+    };
+    outData->pd80Cg4Pack3 = {
+        sanitizedPost.pd80Cg4DarkSceneMidBlendMode,
+        sanitizedPost.pd80Cg4DarkSceneMidOpacity,
+        sanitizedPost.pd80Cg4DarkSceneShadowBlendMode,
+        sanitizedPost.pd80Cg4DarkSceneShadowOpacity,
+    };
+    outData->pd80Cg4Pack4 = {
+        sanitizedPost.pd80Cg4MinLevel,
+        sanitizedPost.pd80Cg4MaxLevel,
+        0.0f,
+        0.0f,
+    };
+    outData->pd80Cg4Pack5 = {
+        sanitizedPost.pd80Cg4LightSceneMidColor.x,
+        sanitizedPost.pd80Cg4LightSceneMidColor.y,
+        sanitizedPost.pd80Cg4LightSceneMidColor.z,
+        0.0f,
+    };
+    outData->pd80Cg4Pack6 = {
+        sanitizedPost.pd80Cg4LightSceneShadowColor.x,
+        sanitizedPost.pd80Cg4LightSceneShadowColor.y,
+        sanitizedPost.pd80Cg4LightSceneShadowColor.z,
+        0.0f,
+    };
+    outData->pd80Cg4Pack7 = {
+        sanitizedPost.pd80Cg4DarkSceneMidColor.x,
+        sanitizedPost.pd80Cg4DarkSceneMidColor.y,
+        sanitizedPost.pd80Cg4DarkSceneMidColor.z,
+        0.0f,
+    };
+    outData->pd80Cg4Pack8 = {
+        sanitizedPost.pd80Cg4DarkSceneShadowColor.x,
+        sanitizedPost.pd80Cg4DarkSceneShadowColor.y,
+        sanitizedPost.pd80Cg4DarkSceneShadowColor.z,
+        0.0f,
+    };
+    outData->pd80CcPack0 = {
+        sanitizedPost.pd80CcMasterStrength,
+        sanitizedPost.pd80CcEnableWhitepoint,
+        sanitizedPost.pd80CcWhitepointStrength,
+        sanitizedPost.pd80CcEnableBlackpoint * sanitizedPost.pd80CcBlackpointStrength,
+    };
+    outData->pd80RccPack0 = {
+        sanitizedPost.pd80RccMasterStrength,
+        sanitizedPost.pd80RccEnableDither,
+        sanitizedPost.pd80RccDitherStrength,
+        sanitizedPost.pd80RccEnableWhitepoint,
+    };
+    outData->pd80RccPack1 = {
+        sanitizedPost.pd80RccWhitepointRespectLuma,
+        sanitizedPost.pd80RccWhitepointMethod,
+        sanitizedPost.pd80RccWhitepointStrength,
+        sanitizedPost.pd80RccWhitepointLumaStrength,
+    };
+    outData->pd80RccPack2 = {
+        sanitizedPost.pd80RccEnableBlackpoint,
+        sanitizedPost.pd80RccBlackpointRespectLuma,
+        sanitizedPost.pd80RccBlackpointMethod,
+        sanitizedPost.pd80RccBlackpointStrength,
+    };
+    outData->pd80RccPack3 = {
+        sanitizedPost.pd80RccBlackpointLumaStrength,
+        sanitizedPost.pd80RccEnableMidpoint,
+        sanitizedPost.pd80RccMidpointRespectLuma,
+        sanitizedPost.pd80RccMidUseAltMethod,
+    };
+    outData->pd80RccPack4 = {
+        sanitizedPost.pd80RccMidScale,
+        0.0f,
+        0.0f,
+        0.0f,
+    };
+    outData->pd80FaPack0 = {
+        sanitizedPost.pd80FaMasterStrength,
+        sanitizedPost.pd80FaAdjustShoulder,
+        sanitizedPost.pd80FaAdjustLinear,
+        sanitizedPost.pd80FaAdjustToe,
+    };
+    outData->pd80HbPack0 = {
+        sanitizedPost.pd80HbMasterStrength,
+        sanitizedPost.pd80HbDebugBloom,
+        sanitizedPost.pd80HbDitherStrength,
+        sanitizedPost.pd80HbMix,
+    };
+    outData->pd80HbPack1 = {
+        sanitizedPost.pd80HbThreshold,
+        sanitizedPost.pd80HbGreyValue,
+        sanitizedPost.pd80HbExposure,
+        sanitizedPost.pd80HbBlurSigma,
+    };
+    outData->pd80HbPack2 = {
+        sanitizedPost.pd80HbSaturation,
+        0.0f,
+        0.0f,
+        0.0f,
+    };
+    outData->pd80Sc2Pack0 = {
+        sanitizedPost.pd80Sc2MasterStrength,
+        sanitizedPost.pd80Sc2CorrectionMethod,
+        sanitizedPost.pd80Sc2SaturationScale,
+        sanitizedPost.pd80Sc2LightnessScale,
     };
     outData->renderQualityTier = std::clamp(frame.renderQualityTier, 0, 2);
     const float vw = static_cast<float>(std::max(width, 1));
@@ -1909,7 +3517,11 @@ void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
                                           VkPipeline compositePipeline,
                                           VkPipelineLayout compositePipelineLayout,
                                           VkDescriptorSet cameraDescriptorSet,
-                                          VkDescriptorSet hdrTextureDescriptorSet);
+                                          VkDescriptorSet hdrTextureDescriptorSet,
+                                          VkDescriptorSet layerTextureDescriptorSet,
+                                          VkDescriptorSet smaaAreaTextureDescriptorSet,
+                                          VkDescriptorSet smaaSearchTextureDescriptorSet,
+                                          VkDescriptorSet lutTextureDescriptorSet);
 
 void RecordHybridScreenSpaceBundle(VkCommandBuffer commandBuffer,
                                    VkRenderPass bundleRenderPass,
@@ -1948,6 +3560,10 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                               VkPipeline hybridCompositePipeline,
                               VkPipelineLayout hybridCompositePipelineLayout,
                               VkDescriptorSet hybridCompositeHdrDescriptorSet,
+                              VkDescriptorSet hybridCompositeLayerDescriptorSet,
+                              VkDescriptorSet hybridCompositeSmaaAreaDescriptorSet,
+                              VkDescriptorSet hybridCompositeSmaaSearchDescriptorSet,
+                              VkDescriptorSet hybridCompositeLutDescriptorSet,
                               VkFramebuffer hybridBundleFramebuffer,
                               VkRenderPass hybridBundleRenderPass,
                               VkPipeline hybridBundlePipeline,
@@ -2138,6 +3754,15 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
         pushConstants.nativeWaterUvMotion = draw.nativeWaterUvMotion ? 1 : 0;
         pushConstants.nativeWaterTime = sceneData.sceneAnimationTimeSeconds;
         pushConstants.litShadingModel = (draw.litShadingModel ? 1 : 0) | (draw.alphaCutout ? 2 : 0);
+        if (draw.additiveBlend) {
+            pushConstants.litShadingModel |= 4;
+        }
+        if (draw.doubleSided) {
+            pushConstants.litShadingModel |= 8;
+        }
+        if (draw.alphaCutout && draw.doubleSided) {
+            pushConstants.litShadingModel |= 16;
+        }
         pushConstants.metallic = draw.metallic;
         pushConstants.roughness = draw.roughness;
         pushConstants.emissiveColor[0] = draw.emissiveColor[0];
@@ -2170,7 +3795,11 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                                          hybridCompositePipeline,
                                          hybridCompositePipelineLayout,
                                          cameraDescriptorSet,
-                                         hybridCompositeHdrDescriptorSet);
+                                         hybridCompositeHdrDescriptorSet,
+                                         hybridCompositeLayerDescriptorSet,
+                                         hybridCompositeSmaaAreaDescriptorSet,
+                                         hybridCompositeSmaaSearchDescriptorSet,
+                                         hybridCompositeLutDescriptorSet);
     ExpectVk(vkEndCommandBuffer(commandBuffer), "vkEndCommandBuffer");
 }
 
@@ -2181,10 +3810,16 @@ void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
                                           VkPipeline compositePipeline,
                                           VkPipelineLayout compositePipelineLayout,
                                           VkDescriptorSet cameraDescriptorSet,
-                                          VkDescriptorSet hdrTextureDescriptorSet) {
+                                          VkDescriptorSet hdrTextureDescriptorSet,
+                                          VkDescriptorSet layerTextureDescriptorSet,
+                                          VkDescriptorSet smaaAreaTextureDescriptorSet,
+                                          VkDescriptorSet smaaSearchTextureDescriptorSet,
+                                          VkDescriptorSet lutTextureDescriptorSet) {
     if (compositeFramebuffer == VK_NULL_HANDLE || compositeRenderPass == VK_NULL_HANDLE
         || compositePipeline == VK_NULL_HANDLE || compositePipelineLayout == VK_NULL_HANDLE
-        || hdrTextureDescriptorSet == VK_NULL_HANDLE) {
+        || hdrTextureDescriptorSet == VK_NULL_HANDLE || layerTextureDescriptorSet == VK_NULL_HANDLE
+        || smaaAreaTextureDescriptorSet == VK_NULL_HANDLE || smaaSearchTextureDescriptorSet == VK_NULL_HANDLE
+        || lutTextureDescriptorSet == VK_NULL_HANDLE) {
         return;
     }
     const VkClearValue compositeClear{};
@@ -2215,7 +3850,13 @@ void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline);
     vkCmdSetViewport(commandBuffer, 0, 1, &compositeViewport);
     vkCmdSetScissor(commandBuffer, 0, 1, &compositeScissor);
-    const std::array<VkDescriptorSet, 2> compositeSets = {cameraDescriptorSet, hdrTextureDescriptorSet};
+    const std::array<VkDescriptorSet, 6> compositeSets = {
+        cameraDescriptorSet,
+        hdrTextureDescriptorSet,
+        layerTextureDescriptorSet,
+        smaaAreaTextureDescriptorSet,
+        smaaSearchTextureDescriptorSet,
+        lutTextureDescriptorSet};
     vkCmdBindDescriptorSets(commandBuffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
                             compositePipelineLayout,
@@ -2342,13 +3983,15 @@ bool RunVulkanNativeSceneLoop(const int width,
             VK_KHR_SURFACE_EXTENSION_NAME,
             VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
         };
+        // ReShade and other layers often assume Vulkan 1.1+ instance API; 1.0-only instances can break
+        // vkCreateDevice after layer chaining (seen as VK_ERROR_FEATURE_NOT_PRESENT / -8).
         const VkApplicationInfo applicationInfo{
             .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
             .pApplicationName = "RawIron Vulkan Native Preview",
             .applicationVersion = VK_MAKE_VERSION(0, 1, 0),
             .pEngineName = "RawIron",
             .engineVersion = VK_MAKE_VERSION(0, 1, 0),
-            .apiVersion = VK_API_VERSION_1_0,
+            .apiVersion = VK_API_VERSION_1_1,
         };
         const VkInstanceCreateInfo instanceInfo{
             .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -2385,15 +4028,15 @@ bool RunVulkanNativeSceneLoop(const int width,
         }
 
         const char* deviceExtensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-        VkPhysicalDeviceFeatures enabledFeatures{};
-        enabledFeatures.samplerAnisotropy = VK_TRUE;
+        // Match VulkanPreviewPresenter: omit pEnabledFeatures (implicit default features only). We still clamp
+        // maxAnisotropy from device limits for sampler creation; avoid requesting features here so layers /
+        // odd drivers cannot reject vkCreateDevice with VK_ERROR_FEATURE_NOT_PRESENT.
         const VkDeviceCreateInfo deviceInfo{
             .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
             .queueCreateInfoCount = static_cast<std::uint32_t>(queueInfos.size()),
             .pQueueCreateInfos = queueInfos.data(),
             .enabledExtensionCount = 1,
             .ppEnabledExtensionNames = deviceExtensions,
-            .pEnabledFeatures = &enabledFeatures,
         };
 
         VkDevice device = VK_NULL_HANDLE;
@@ -2865,21 +4508,35 @@ bool RunVulkanNativeSceneLoop(const int width,
                 compositeFramebuffers.push_back(compositeFb);
             }
 
-            const VkDescriptorSetLayoutBinding compositeHdrSamplerBinding{
-                .binding = 0,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = 1,
-                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-            };
+            const std::array<VkDescriptorSetLayoutBinding, 2> compositeHdrSamplerBindings = {{
+                VkDescriptorSetLayoutBinding{
+                    .binding = 0,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .descriptorCount = 1,
+                    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                },
+                VkDescriptorSetLayoutBinding{
+                    .binding = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .descriptorCount = 1,
+                    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                },
+            }};
             const VkDescriptorSetLayoutCreateInfo compositeHdrSamplerLayoutInfo{
                 .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                .bindingCount = 1,
-                .pBindings = &compositeHdrSamplerBinding,
+                .bindingCount = static_cast<std::uint32_t>(compositeHdrSamplerBindings.size()),
+                .pBindings = compositeHdrSamplerBindings.data(),
             };
             ExpectVk(vkCreateDescriptorSetLayout(device, &compositeHdrSamplerLayoutInfo, nullptr, &compositeHdrTextureSetLayout),
                      "vkCreateDescriptorSetLayout(composite-hdr)");
 
-            const std::array<VkDescriptorSetLayout, 2> compositePipelineSetLayouts = {cameraSetLayout, compositeHdrTextureSetLayout};
+            const std::array<VkDescriptorSetLayout, 6> compositePipelineSetLayouts = {
+                cameraSetLayout,
+                compositeHdrTextureSetLayout,
+                textureSetLayout,
+                textureSetLayout,
+                textureSetLayout,
+                textureSetLayout};
             const VkPipelineLayoutCreateInfo compositePipelineLayoutInfo{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                 .setLayoutCount = static_cast<std::uint32_t>(compositePipelineSetLayouts.size()),
@@ -3024,7 +4681,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         ExpectVk(vkCreatePipelineLayout(device, &shadowPipelineLayoutInfo, nullptr, &shadowPipelineLayout),
                  "vkCreatePipelineLayout(shadow)");
 
-        const fs::path shaderDir = fs::path(RAWIRON_VULKAN_SHADER_DIR);
+        const fs::path shaderDir = ResolveVulkanNativeShaderDirectory();
         const VkShaderModule vertShader = CreateShaderModule(device, shaderDir / "NativeScenePreview.vert.spv");
         const VkShaderModule fragShader = CreateShaderModule(device, shaderDir / "NativeScenePreview.frag.spv");
         const VkShaderModule skyVertShader = CreateShaderModule(device, shaderDir / "NativeSkybox.vert.spv");
@@ -3604,15 +5261,34 @@ bool RunVulkanNativeSceneLoop(const int width,
                 .imageView = hybridBundleHdrImage.view,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             };
-            const VkWriteDescriptorSet writeCompositeHdr{
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = compositeHdrDescriptorSet,
-                .dstBinding = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .pImageInfo = &hybridBundleOutImageInfo,
+            const VkDescriptorImageInfo compositeDepthImageInfo{
+                .sampler = hybridDepthSamplerNearest,
+                .imageView = depthImage.view,
+                .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
             };
-            vkUpdateDescriptorSets(device, 1, &writeCompositeHdr, 0, nullptr);
+            const std::array<VkWriteDescriptorSet, 2> writeCompositeHdr = {{
+                VkWriteDescriptorSet{
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = compositeHdrDescriptorSet,
+                    .dstBinding = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .pImageInfo = &hybridBundleOutImageInfo,
+                },
+                VkWriteDescriptorSet{
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = compositeHdrDescriptorSet,
+                    .dstBinding = 1,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .pImageInfo = &compositeDepthImageInfo,
+                },
+            }};
+            vkUpdateDescriptorSets(device,
+                                   static_cast<std::uint32_t>(writeCompositeHdr.size()),
+                                   writeCompositeHdr.data(),
+                                   0,
+                                   nullptr);
         }
 
         VkSamplerCreateInfo shadowSamplerInfo{};
@@ -3684,6 +5360,11 @@ bool RunVulkanNativeSceneLoop(const int width,
         NativeAlbedoTextureCache textureCache{};
         textureCache.initialize(
             selection.physicalDevice, device, commandPool, graphicsQueue, textureSetLayout, textureDescriptorPool, linearSampler);
+        const fs::path sweetFxTextureRoot = fs::current_path() / "Source" / "RawIron.Render.Vulkan" / "ReferenceShaders" / "Textures" / "SweetFX";
+        const fs::path sweetFxLayerTexturePath = sweetFxTextureRoot / "Layer.png";
+        const fs::path sweetFxSmaaAreaTexturePath = sweetFxTextureRoot / "AreaTex.png";
+        const fs::path sweetFxSmaaSearchTexturePath = sweetFxTextureRoot / "SearchTex.png";
+        const fs::path reshadeLutTexturePath = sweetFxTextureRoot / "lut.png";
 
         CachedGpuMesh skyMesh = CreateStaticUnitCubeGpuMesh(selection.physicalDevice, device);
 
@@ -3732,6 +5413,9 @@ bool RunVulkanNativeSceneLoop(const int width,
             std::string frameError;
             if (!buildFrame(frame, &frameError)) {
                 throw std::runtime_error(frameError.empty() ? "Native Vulkan frame callback failed." : frameError);
+            }
+            if (options.shaderPresentation.loaded) {
+                ri::render::ApplyShaderConfig(frame.postProcess, options.shaderPresentation);
             }
             if (frame.textureRoot.empty() && !options.textureRoot.empty()) {
                 frame.textureRoot = options.textureRoot;
@@ -3786,6 +5470,323 @@ bool RunVulkanNativeSceneLoop(const int width,
                         sceneData.directionalLightColorIntensity.data(),
                         sizeof(cameraUniform.directionalLightColorIntensity));
             std::memcpy(cameraUniform.viewportMetrics, sceneData.viewportMetrics.data(), sizeof(cameraUniform.viewportMetrics));
+            std::memcpy(cameraUniform.presentationTuning,
+                        sceneData.presentationTuning.data(),
+                        sizeof(cameraUniform.presentationTuning));
+            std::memcpy(cameraUniform.presentationColorGrading,
+                        sceneData.presentationColorGrading.data(),
+                        sizeof(cameraUniform.presentationColorGrading));
+            std::memcpy(cameraUniform.presentationExtra,
+                        sceneData.presentationExtra.data(),
+                        sizeof(cameraUniform.presentationExtra));
+            std::memcpy(cameraUniform.lggLiftMix, sceneData.lggLiftMix.data(), sizeof(cameraUniform.lggLiftMix));
+            std::memcpy(cameraUniform.lggGammaRgb, sceneData.lggGammaRgb.data(), sizeof(cameraUniform.lggGammaRgb));
+            std::memcpy(cameraUniform.lggGainRgb, sceneData.lggGainRgb.data(), sizeof(cameraUniform.lggGainRgb));
+            std::memcpy(cameraUniform.vibranceBalanceAmount,
+                        sceneData.vibranceBalanceAmount.data(),
+                        sizeof(cameraUniform.vibranceBalanceAmount));
+            std::memcpy(cameraUniform.technicolor1PowStrNegRg,
+                        sceneData.technicolor1PowStrNegRg.data(),
+                        sizeof(cameraUniform.technicolor1PowStrNegRg));
+            std::memcpy(cameraUniform.technicolor1NegBPad,
+                        sceneData.technicolor1NegBPad.data(),
+                        sizeof(cameraUniform.technicolor1NegBPad));
+            std::memcpy(cameraUniform.technicolor2ColBright,
+                        sceneData.technicolor2ColBright.data(),
+                        sizeof(cameraUniform.technicolor2ColBright));
+            std::memcpy(cameraUniform.technicolor2SatStrPad,
+                        sceneData.technicolor2SatStrPad.data(),
+                        sizeof(cameraUniform.technicolor2SatStrPad));
+            std::memcpy(cameraUniform.sepiaTintXyzStrength,
+                        sceneData.sepiaTintXyzStrength.data(),
+                        sizeof(cameraUniform.sepiaTintXyzStrength));
+            std::memcpy(cameraUniform.monochromePresetSat,
+                        sceneData.monochromePresetSat.data(),
+                        sizeof(cameraUniform.monochromePresetSat));
+            std::memcpy(cameraUniform.monochromeCustomCoeff,
+                        sceneData.monochromeCustomCoeff.data(),
+                        sizeof(cameraUniform.monochromeCustomCoeff));
+            std::memcpy(cameraUniform.dpxRgbCurvePad,
+                        sceneData.dpxRgbCurvePad.data(),
+                        sizeof(cameraUniform.dpxRgbCurvePad));
+            std::memcpy(cameraUniform.dpxRgbCPad,
+                        sceneData.dpxRgbCPad.data(),
+                        sizeof(cameraUniform.dpxRgbCPad));
+            std::memcpy(cameraUniform.dpxContrastSatColorStr,
+                        sceneData.dpxContrastSatColorStr.data(),
+                        sizeof(cameraUniform.dpxContrastSatColorStr));
+            std::memcpy(cameraUniform.colorMatrixRowR,
+                        sceneData.colorMatrixRowR.data(),
+                        sizeof(cameraUniform.colorMatrixRowR));
+            std::memcpy(cameraUniform.colorMatrixRowG,
+                        sceneData.colorMatrixRowG.data(),
+                        sizeof(cameraUniform.colorMatrixRowG));
+            std::memcpy(cameraUniform.colorMatrixRowBStr,
+                        sceneData.colorMatrixRowBStr.data(),
+                        sizeof(cameraUniform.colorMatrixRowBStr));
+            std::memcpy(cameraUniform.fakeHdrPowerR1R2Str,
+                        sceneData.fakeHdrPowerR1R2Str.data(),
+                        sizeof(cameraUniform.fakeHdrPowerR1R2Str));
+            std::memcpy(cameraUniform.levelsBlackWhiteStrClip,
+                        sceneData.levelsBlackWhiteStrClip.data(),
+                        sizeof(cameraUniform.levelsBlackWhiteStrClip));
+            std::memcpy(cameraUniform.lumaSharpenPack,
+                        sceneData.lumaSharpenPack.data(),
+                        sizeof(cameraUniform.lumaSharpenPack));
+            std::memcpy(cameraUniform.sweetFxCurvesPack,
+                        sceneData.sweetFxCurvesPack.data(),
+                        sizeof(cameraUniform.sweetFxCurvesPack));
+            std::memcpy(cameraUniform.sweetFxChromaticAberrationPack,
+                        sceneData.sweetFxChromaticAberrationPack.data(),
+                        sizeof(cameraUniform.sweetFxChromaticAberrationPack));
+            std::memcpy(cameraUniform.sweetFxBorderPack,
+                        sceneData.sweetFxBorderPack.data(),
+                        sizeof(cameraUniform.sweetFxBorderPack));
+            std::memcpy(cameraUniform.sweetFxBorderColorPad,
+                        sceneData.sweetFxBorderColorPad.data(),
+                        sizeof(cameraUniform.sweetFxBorderColorPad));
+            std::memcpy(cameraUniform.sweetFxCartoonPack,
+                        sceneData.sweetFxCartoonPack.data(),
+                        sizeof(cameraUniform.sweetFxCartoonPack));
+            std::memcpy(cameraUniform.sweetFxTonemapGammaExpSatBleach,
+                        sceneData.sweetFxTonemapGammaExpSatBleach.data(),
+                        sizeof(cameraUniform.sweetFxTonemapGammaExpSatBleach));
+            std::memcpy(cameraUniform.sweetFxTonemapFogColorDefog,
+                        sceneData.sweetFxTonemapFogColorDefog.data(),
+                        sizeof(cameraUniform.sweetFxTonemapFogColorDefog));
+            std::memcpy(cameraUniform.sweetFxTonemapStrengthPad,
+                        sceneData.sweetFxTonemapStrengthPad.data(),
+                        sizeof(cameraUniform.sweetFxTonemapStrengthPad));
+            std::memcpy(cameraUniform.sweetFxSplitscreenModeStrength,
+                        sceneData.sweetFxSplitscreenModeStrength.data(),
+                        sizeof(cameraUniform.sweetFxSplitscreenModeStrength));
+            std::memcpy(cameraUniform.sweetFxNostalgiaPack,
+                        sceneData.sweetFxNostalgiaPack.data(),
+                        sizeof(cameraUniform.sweetFxNostalgiaPack));
+            std::memcpy(cameraUniform.sweetFxComparePack,
+                        sceneData.sweetFxComparePack.data(),
+                        sizeof(cameraUniform.sweetFxComparePack));
+            std::memcpy(cameraUniform.sweetFxLayerPosScaleBlend,
+                        sceneData.sweetFxLayerPosScaleBlend.data(),
+                        sizeof(cameraUniform.sweetFxLayerPosScaleBlend));
+            std::memcpy(cameraUniform.sweetFxLayerTexSizePad,
+                        sceneData.sweetFxLayerTexSizePad.data(),
+                        sizeof(cameraUniform.sweetFxLayerTexSizePad));
+            std::memcpy(cameraUniform.sweetFxFxaaPack,
+                        sceneData.sweetFxFxaaPack.data(),
+                        sizeof(cameraUniform.sweetFxFxaaPack));
+            std::memcpy(cameraUniform.sweetFxCrtPack0,
+                        sceneData.sweetFxCrtPack0.data(),
+                        sizeof(cameraUniform.sweetFxCrtPack0));
+            std::memcpy(cameraUniform.sweetFxCrtPack1,
+                        sceneData.sweetFxCrtPack1.data(),
+                        sizeof(cameraUniform.sweetFxCrtPack1));
+            std::memcpy(cameraUniform.sweetFxCrtPack2,
+                        sceneData.sweetFxCrtPack2.data(),
+                        sizeof(cameraUniform.sweetFxCrtPack2));
+            std::memcpy(cameraUniform.sweetFxCrtPack3,
+                        sceneData.sweetFxCrtPack3.data(),
+                        sizeof(cameraUniform.sweetFxCrtPack3));
+            std::memcpy(cameraUniform.sweetFxAsciiPack0,
+                        sceneData.sweetFxAsciiPack0.data(),
+                        sizeof(cameraUniform.sweetFxAsciiPack0));
+            std::memcpy(cameraUniform.sweetFxAsciiPack1,
+                        sceneData.sweetFxAsciiPack1.data(),
+                        sizeof(cameraUniform.sweetFxAsciiPack1));
+            std::memcpy(cameraUniform.sweetFxAsciiPack2,
+                        sceneData.sweetFxAsciiPack2.data(),
+                        sizeof(cameraUniform.sweetFxAsciiPack2));
+            std::memcpy(cameraUniform.sweetFxAsciiFontColorPad,
+                        sceneData.sweetFxAsciiFontColorPad.data(),
+                        sizeof(cameraUniform.sweetFxAsciiFontColorPad));
+            std::memcpy(cameraUniform.sweetFxAsciiBackgroundColorPad,
+                        sceneData.sweetFxAsciiBackgroundColorPad.data(),
+                        sizeof(cameraUniform.sweetFxAsciiBackgroundColorPad));
+            std::memcpy(cameraUniform.sweetFxSmaaPack0,
+                        sceneData.sweetFxSmaaPack0.data(),
+                        sizeof(cameraUniform.sweetFxSmaaPack0));
+            std::memcpy(cameraUniform.sweetFxSmaaPack1,
+                        sceneData.sweetFxSmaaPack1.data(),
+                        sizeof(cameraUniform.sweetFxSmaaPack1));
+            std::memcpy(cameraUniform.reshadeDaltonizePack,
+                        sceneData.reshadeDaltonizePack.data(),
+                        sizeof(cameraUniform.reshadeDaltonizePack));
+            std::memcpy(cameraUniform.reshadeDisplayDepthPack,
+                        sceneData.reshadeDisplayDepthPack.data(),
+                        sizeof(cameraUniform.reshadeDisplayDepthPack));
+            std::memcpy(cameraUniform.reshadeLutPack,
+                        sceneData.reshadeLutPack.data(),
+                        sizeof(cameraUniform.reshadeLutPack));
+            std::memcpy(cameraUniform.pd80TcRedStrPad,
+                        sceneData.pd80TcRedStrPad.data(),
+                        sizeof(cameraUniform.pd80TcRedStrPad));
+            std::memcpy(cameraUniform.pd80TcCyanPad,
+                        sceneData.pd80TcCyanPad.data(),
+                        sizeof(cameraUniform.pd80TcCyanPad));
+            std::memcpy(cameraUniform.pd80TcKeySat2Pad,
+                        sceneData.pd80TcKeySat2Pad.data(),
+                        sizeof(cameraUniform.pd80TcKeySat2Pad));
+            std::memcpy(cameraUniform.pd80Tc3ColBrightPad,
+                        sceneData.pd80Tc3ColBrightPad.data(),
+                        sizeof(cameraUniform.pd80Tc3ColBrightPad));
+            std::memcpy(cameraUniform.pd80Tc3SatStrEnPad,
+                        sceneData.pd80Tc3SatStrEnPad.data(),
+                        sizeof(cameraUniform.pd80Tc3SatStrEnPad));
+            std::memcpy(cameraUniform.pd80ColorTempKelvinLumMixStr,
+                        sceneData.pd80ColorTempKelvinLumMixStr.data(),
+                        sizeof(cameraUniform.pd80ColorTempKelvinLumMixStr));
+            std::memcpy(cameraUniform.pd80SatLimitCapStr,
+                        sceneData.pd80SatLimitCapStr.data(),
+                        sizeof(cameraUniform.pd80SatLimitCapStr));
+            std::memcpy(cameraUniform.pd80ColorBalanceShadowPad,
+                        sceneData.pd80ColorBalanceShadowPad.data(),
+                        sizeof(cameraUniform.pd80ColorBalanceShadowPad));
+            std::memcpy(cameraUniform.pd80ColorBalanceMidPad,
+                        sceneData.pd80ColorBalanceMidPad.data(),
+                        sizeof(cameraUniform.pd80ColorBalanceMidPad));
+            std::memcpy(cameraUniform.pd80ColorBalanceHighPad,
+                        sceneData.pd80ColorBalanceHighPad.data(),
+                        sizeof(cameraUniform.pd80ColorBalanceHighPad));
+            std::memcpy(cameraUniform.pd80ColorBalanceOptStr,
+                        sceneData.pd80ColorBalanceOptStr.data(),
+                        sizeof(cameraUniform.pd80ColorBalanceOptStr));
+            std::memcpy(cameraUniform.pd80ColorIsolationHueRangeSatMix,
+                        sceneData.pd80ColorIsolationHueRangeSatMix.data(),
+                        sizeof(cameraUniform.pd80ColorIsolationHueRangeSatMix));
+            std::memcpy(cameraUniform.pd80ColorIsolationStrPad,
+                        sceneData.pd80ColorIsolationStrPad.data(),
+                        sizeof(cameraUniform.pd80ColorIsolationStrPad));
+            std::memcpy(cameraUniform.pd80LevelsIbPad,
+                        sceneData.pd80LevelsIbPad.data(),
+                        sizeof(cameraUniform.pd80LevelsIbPad));
+            std::memcpy(cameraUniform.pd80LevelsIwPad,
+                        sceneData.pd80LevelsIwPad.data(),
+                        sizeof(cameraUniform.pd80LevelsIwPad));
+            std::memcpy(cameraUniform.pd80LevelsObPad,
+                        sceneData.pd80LevelsObPad.data(),
+                        sizeof(cameraUniform.pd80LevelsObPad));
+            std::memcpy(cameraUniform.pd80LevelsOwPad,
+                        sceneData.pd80LevelsOwPad.data(),
+                        sizeof(cameraUniform.pd80LevelsOwPad));
+            std::memcpy(cameraUniform.pd80LevelsGammaDitherStr,
+                        sceneData.pd80LevelsGammaDitherStr.data(),
+                        sizeof(cameraUniform.pd80LevelsGammaDitherStr));
+            std::memcpy(cameraUniform.pd80BwPack0, sceneData.pd80BwPack0.data(), sizeof(cameraUniform.pd80BwPack0));
+            std::memcpy(cameraUniform.pd80BwPack1, sceneData.pd80BwPack1.data(), sizeof(cameraUniform.pd80BwPack1));
+            std::memcpy(cameraUniform.pd80BwPack2, sceneData.pd80BwPack2.data(), sizeof(cameraUniform.pd80BwPack2));
+            std::memcpy(cameraUniform.pd80BwPack3, sceneData.pd80BwPack3.data(), sizeof(cameraUniform.pd80BwPack3));
+            std::memcpy(cameraUniform.pd80CbsPack0, sceneData.pd80CbsPack0.data(), sizeof(cameraUniform.pd80CbsPack0));
+            std::memcpy(cameraUniform.pd80CbsPack1, sceneData.pd80CbsPack1.data(), sizeof(cameraUniform.pd80CbsPack1));
+            std::memcpy(cameraUniform.pd80CbsPack2, sceneData.pd80CbsPack2.data(), sizeof(cameraUniform.pd80CbsPack2));
+            std::memcpy(cameraUniform.pd80CbsPack3, sceneData.pd80CbsPack3.data(), sizeof(cameraUniform.pd80CbsPack3));
+            std::memcpy(cameraUniform.pd80CbsPack4, sceneData.pd80CbsPack4.data(), sizeof(cameraUniform.pd80CbsPack4));
+            std::memcpy(cameraUniform.pd80CbsPack5, sceneData.pd80CbsPack5.data(), sizeof(cameraUniform.pd80CbsPack5));
+            std::memcpy(cameraUniform.pd80CbsPack6, sceneData.pd80CbsPack6.data(), sizeof(cameraUniform.pd80CbsPack6));
+            std::memcpy(cameraUniform.pd80CbsPack7, sceneData.pd80CbsPack7.data(), sizeof(cameraUniform.pd80CbsPack7));
+            std::memcpy(cameraUniform.pd80CaPack0, sceneData.pd80CaPack0.data(), sizeof(cameraUniform.pd80CaPack0));
+            std::memcpy(cameraUniform.pd80CaPack1, sceneData.pd80CaPack1.data(), sizeof(cameraUniform.pd80CaPack1));
+            std::memcpy(cameraUniform.pd80CaPack2, sceneData.pd80CaPack2.data(), sizeof(cameraUniform.pd80CaPack2));
+            std::memcpy(cameraUniform.pd80CaPack3, sceneData.pd80CaPack3.data(), sizeof(cameraUniform.pd80CaPack3));
+            std::memcpy(cameraUniform.pd80CaPack4, sceneData.pd80CaPack4.data(), sizeof(cameraUniform.pd80CaPack4));
+            std::memcpy(cameraUniform.pd80CaPack5, sceneData.pd80CaPack5.data(), sizeof(cameraUniform.pd80CaPack5));
+            std::memcpy(cameraUniform.pd80LsPack0, sceneData.pd80LsPack0.data(), sizeof(cameraUniform.pd80LsPack0));
+            std::memcpy(cameraUniform.pd80LsPack1, sceneData.pd80LsPack1.data(), sizeof(cameraUniform.pd80LsPack1));
+            std::memcpy(cameraUniform.pd80LsPack2, sceneData.pd80LsPack2.data(), sizeof(cameraUniform.pd80LsPack2));
+            std::memcpy(cameraUniform.pd80FgPack0, sceneData.pd80FgPack0.data(), sizeof(cameraUniform.pd80FgPack0));
+            std::memcpy(cameraUniform.pd80FgPack1, sceneData.pd80FgPack1.data(), sizeof(cameraUniform.pd80FgPack1));
+            std::memcpy(cameraUniform.pd80FgPack2, sceneData.pd80FgPack2.data(), sizeof(cameraUniform.pd80FgPack2));
+            std::memcpy(cameraUniform.pd80FgPack3, sceneData.pd80FgPack3.data(), sizeof(cameraUniform.pd80FgPack3));
+            std::memcpy(cameraUniform.pd80FgPack4, sceneData.pd80FgPack4.data(), sizeof(cameraUniform.pd80FgPack4));
+            std::memcpy(cameraUniform.pd80DsPack0, sceneData.pd80DsPack0.data(), sizeof(cameraUniform.pd80DsPack0));
+            std::memcpy(cameraUniform.pd80DsPack1, sceneData.pd80DsPack1.data(), sizeof(cameraUniform.pd80DsPack1));
+            std::memcpy(cameraUniform.pd80DsPack2, sceneData.pd80DsPack2.data(), sizeof(cameraUniform.pd80DsPack2));
+            std::memcpy(cameraUniform.pd80CgPack0, sceneData.pd80CgPack0.data(), sizeof(cameraUniform.pd80CgPack0));
+            std::memcpy(cameraUniform.pd80CscPack0, sceneData.pd80CscPack0.data(), sizeof(cameraUniform.pd80CscPack0));
+            std::memcpy(cameraUniform.pd80CscPack1, sceneData.pd80CscPack1.data(), sizeof(cameraUniform.pd80CscPack1));
+            std::memcpy(cameraUniform.pd80CscPack2, sceneData.pd80CscPack2.data(), sizeof(cameraUniform.pd80CscPack2));
+            std::memcpy(cameraUniform.pd80SmhPack0, sceneData.pd80SmhPack0.data(), sizeof(cameraUniform.pd80SmhPack0));
+            std::memcpy(cameraUniform.pd80SmhPack1, sceneData.pd80SmhPack1.data(), sizeof(cameraUniform.pd80SmhPack1));
+            std::memcpy(cameraUniform.pd80SmhPack2, sceneData.pd80SmhPack2.data(), sizeof(cameraUniform.pd80SmhPack2));
+            std::memcpy(cameraUniform.pd80SmhPack3, sceneData.pd80SmhPack3.data(), sizeof(cameraUniform.pd80SmhPack3));
+            std::memcpy(cameraUniform.pd80SmhPack4, sceneData.pd80SmhPack4.data(), sizeof(cameraUniform.pd80SmhPack4));
+            std::memcpy(cameraUniform.pd80SmhPack5, sceneData.pd80SmhPack5.data(), sizeof(cameraUniform.pd80SmhPack5));
+            std::memcpy(cameraUniform.pd80SmhPack6, sceneData.pd80SmhPack6.data(), sizeof(cameraUniform.pd80SmhPack6));
+            std::memcpy(cameraUniform.pd80SmhPack7, sceneData.pd80SmhPack7.data(), sizeof(cameraUniform.pd80SmhPack7));
+            std::memcpy(cameraUniform.pd80SmhPack8, sceneData.pd80SmhPack8.data(), sizeof(cameraUniform.pd80SmhPack8));
+            std::memcpy(cameraUniform.pd80SmhPack9, sceneData.pd80SmhPack9.data(), sizeof(cameraUniform.pd80SmhPack9));
+            std::memcpy(cameraUniform.pd80SmhPack10, sceneData.pd80SmhPack10.data(), sizeof(cameraUniform.pd80SmhPack10));
+            std::memcpy(cameraUniform.pd80ClPack0, sceneData.pd80ClPack0.data(), sizeof(cameraUniform.pd80ClPack0));
+            std::memcpy(cameraUniform.pd80ClPack1, sceneData.pd80ClPack1.data(), sizeof(cameraUniform.pd80ClPack1));
+            std::memcpy(cameraUniform.pd80ClPack2, sceneData.pd80ClPack2.data(), sizeof(cameraUniform.pd80ClPack2));
+            std::memcpy(cameraUniform.pd80ClPack3, sceneData.pd80ClPack3.data(), sizeof(cameraUniform.pd80ClPack3));
+            std::memcpy(cameraUniform.pd80ClPack4, sceneData.pd80ClPack4.data(), sizeof(cameraUniform.pd80ClPack4));
+            std::memcpy(cameraUniform.pd80ClPack5, sceneData.pd80ClPack5.data(), sizeof(cameraUniform.pd80ClPack5));
+            std::memcpy(cameraUniform.pd80ClPack6, sceneData.pd80ClPack6.data(), sizeof(cameraUniform.pd80ClPack6));
+            std::memcpy(cameraUniform.pd80ClPack7, sceneData.pd80ClPack7.data(), sizeof(cameraUniform.pd80ClPack7));
+            std::memcpy(cameraUniform.pd80ClPack8, sceneData.pd80ClPack8.data(), sizeof(cameraUniform.pd80ClPack8));
+            std::memcpy(cameraUniform.pd80ScPack0, sceneData.pd80ScPack0.data(), sizeof(cameraUniform.pd80ScPack0));
+            std::memcpy(cameraUniform.pd80ScPack1, sceneData.pd80ScPack1.data(), sizeof(cameraUniform.pd80ScPack1));
+            std::memcpy(cameraUniform.pd80ScPack2, sceneData.pd80ScPack2.data(), sizeof(cameraUniform.pd80ScPack2));
+            std::memcpy(cameraUniform.pd80ScPack3, sceneData.pd80ScPack3.data(), sizeof(cameraUniform.pd80ScPack3));
+            std::memcpy(cameraUniform.pd80ScPack4, sceneData.pd80ScPack4.data(), sizeof(cameraUniform.pd80ScPack4));
+            std::memcpy(cameraUniform.pd80ScPack5, sceneData.pd80ScPack5.data(), sizeof(cameraUniform.pd80ScPack5));
+            std::memcpy(cameraUniform.pd80ScPack6, sceneData.pd80ScPack6.data(), sizeof(cameraUniform.pd80ScPack6));
+            std::memcpy(cameraUniform.pd80ScPack7, sceneData.pd80ScPack7.data(), sizeof(cameraUniform.pd80ScPack7));
+            std::memcpy(cameraUniform.pd80ScPack8, sceneData.pd80ScPack8.data(), sizeof(cameraUniform.pd80ScPack8));
+            std::memcpy(cameraUniform.pd80ScPack9, sceneData.pd80ScPack9.data(), sizeof(cameraUniform.pd80ScPack9));
+            std::memcpy(cameraUniform.pd80ScPack10, sceneData.pd80ScPack10.data(), sizeof(cameraUniform.pd80ScPack10));
+            std::memcpy(cameraUniform.pd80ScPack11, sceneData.pd80ScPack11.data(), sizeof(cameraUniform.pd80ScPack11));
+            std::memcpy(cameraUniform.pd80ScPack12, sceneData.pd80ScPack12.data(), sizeof(cameraUniform.pd80ScPack12));
+            std::memcpy(cameraUniform.pd80ScPack13, sceneData.pd80ScPack13.data(), sizeof(cameraUniform.pd80ScPack13));
+            std::memcpy(cameraUniform.pd80ScPack14, sceneData.pd80ScPack14.data(), sizeof(cameraUniform.pd80ScPack14));
+            std::memcpy(cameraUniform.pd80ScPack15, sceneData.pd80ScPack15.data(), sizeof(cameraUniform.pd80ScPack15));
+            std::memcpy(cameraUniform.pd80ScPack16, sceneData.pd80ScPack16.data(), sizeof(cameraUniform.pd80ScPack16));
+            std::memcpy(cameraUniform.pd80ScPack17, sceneData.pd80ScPack17.data(), sizeof(cameraUniform.pd80ScPack17));
+            std::memcpy(cameraUniform.pd80ScPack18, sceneData.pd80ScPack18.data(), sizeof(cameraUniform.pd80ScPack18));
+            std::memcpy(cameraUniform.pd80PpPack0, sceneData.pd80PpPack0.data(), sizeof(cameraUniform.pd80PpPack0));
+            std::memcpy(cameraUniform.pd80PpPack1, sceneData.pd80PpPack1.data(), sizeof(cameraUniform.pd80PpPack1));
+            std::memcpy(cameraUniform.pd80MrPack0, sceneData.pd80MrPack0.data(), sizeof(cameraUniform.pd80MrPack0));
+            std::memcpy(cameraUniform.pd80MrPack1, sceneData.pd80MrPack1.data(), sizeof(cameraUniform.pd80MrPack1));
+            std::memcpy(cameraUniform.pd80MrPack2, sceneData.pd80MrPack2.data(), sizeof(cameraUniform.pd80MrPack2));
+            std::memcpy(cameraUniform.pd80MrPack3, sceneData.pd80MrPack3.data(), sizeof(cameraUniform.pd80MrPack3));
+            std::memcpy(cameraUniform.pd80MrPack4, sceneData.pd80MrPack4.data(), sizeof(cameraUniform.pd80MrPack4));
+            std::memcpy(cameraUniform.pd80MrPack5, sceneData.pd80MrPack5.data(), sizeof(cameraUniform.pd80MrPack5));
+            std::memcpy(cameraUniform.pd80MrPack6, sceneData.pd80MrPack6.data(), sizeof(cameraUniform.pd80MrPack6));
+            std::memcpy(cameraUniform.pd80MrPack7, sceneData.pd80MrPack7.data(), sizeof(cameraUniform.pd80MrPack7));
+            std::memcpy(cameraUniform.pd80BlpPack0, sceneData.pd80BlpPack0.data(), sizeof(cameraUniform.pd80BlpPack0));
+            std::memcpy(cameraUniform.pd80BlpPack1, sceneData.pd80BlpPack1.data(), sizeof(cameraUniform.pd80BlpPack1));
+            std::memcpy(cameraUniform.pd80BlpPack2, sceneData.pd80BlpPack2.data(), sizeof(cameraUniform.pd80BlpPack2));
+            std::memcpy(cameraUniform.pd80BlpPack3, sceneData.pd80BlpPack3.data(), sizeof(cameraUniform.pd80BlpPack3));
+            std::memcpy(cameraUniform.pd80BlpPack4, sceneData.pd80BlpPack4.data(), sizeof(cameraUniform.pd80BlpPack4));
+            std::memcpy(cameraUniform.pd80BlpPack5, sceneData.pd80BlpPack5.data(), sizeof(cameraUniform.pd80BlpPack5));
+            std::memcpy(cameraUniform.pd80CltPack0, sceneData.pd80CltPack0.data(), sizeof(cameraUniform.pd80CltPack0));
+            std::memcpy(cameraUniform.pd80CltPack1, sceneData.pd80CltPack1.data(), sizeof(cameraUniform.pd80CltPack1));
+            std::memcpy(cameraUniform.pd80CltPack2, sceneData.pd80CltPack2.data(), sizeof(cameraUniform.pd80CltPack2));
+            std::memcpy(cameraUniform.pd80CltPack3, sceneData.pd80CltPack3.data(), sizeof(cameraUniform.pd80CltPack3));
+            std::memcpy(cameraUniform.pd80CltPack4, sceneData.pd80CltPack4.data(), sizeof(cameraUniform.pd80CltPack4));
+            std::memcpy(cameraUniform.pd80CltPack5, sceneData.pd80CltPack5.data(), sizeof(cameraUniform.pd80CltPack5));
+            std::memcpy(cameraUniform.pd80LcPack0, sceneData.pd80LcPack0.data(), sizeof(cameraUniform.pd80LcPack0));
+            std::memcpy(cameraUniform.pd80LfPack0, sceneData.pd80LfPack0.data(), sizeof(cameraUniform.pd80LfPack0));
+            std::memcpy(cameraUniform.pd80Cg4Pack0, sceneData.pd80Cg4Pack0.data(), sizeof(cameraUniform.pd80Cg4Pack0));
+            std::memcpy(cameraUniform.pd80Cg4Pack1, sceneData.pd80Cg4Pack1.data(), sizeof(cameraUniform.pd80Cg4Pack1));
+            std::memcpy(cameraUniform.pd80Cg4Pack2, sceneData.pd80Cg4Pack2.data(), sizeof(cameraUniform.pd80Cg4Pack2));
+            std::memcpy(cameraUniform.pd80Cg4Pack3, sceneData.pd80Cg4Pack3.data(), sizeof(cameraUniform.pd80Cg4Pack3));
+            std::memcpy(cameraUniform.pd80Cg4Pack4, sceneData.pd80Cg4Pack4.data(), sizeof(cameraUniform.pd80Cg4Pack4));
+            std::memcpy(cameraUniform.pd80Cg4Pack5, sceneData.pd80Cg4Pack5.data(), sizeof(cameraUniform.pd80Cg4Pack5));
+            std::memcpy(cameraUniform.pd80Cg4Pack6, sceneData.pd80Cg4Pack6.data(), sizeof(cameraUniform.pd80Cg4Pack6));
+            std::memcpy(cameraUniform.pd80Cg4Pack7, sceneData.pd80Cg4Pack7.data(), sizeof(cameraUniform.pd80Cg4Pack7));
+            std::memcpy(cameraUniform.pd80Cg4Pack8, sceneData.pd80Cg4Pack8.data(), sizeof(cameraUniform.pd80Cg4Pack8));
+            std::memcpy(cameraUniform.pd80CcPack0, sceneData.pd80CcPack0.data(), sizeof(cameraUniform.pd80CcPack0));
+            std::memcpy(cameraUniform.pd80RccPack0, sceneData.pd80RccPack0.data(), sizeof(cameraUniform.pd80RccPack0));
+            std::memcpy(cameraUniform.pd80RccPack1, sceneData.pd80RccPack1.data(), sizeof(cameraUniform.pd80RccPack1));
+            std::memcpy(cameraUniform.pd80RccPack2, sceneData.pd80RccPack2.data(), sizeof(cameraUniform.pd80RccPack2));
+            std::memcpy(cameraUniform.pd80RccPack3, sceneData.pd80RccPack3.data(), sizeof(cameraUniform.pd80RccPack3));
+            std::memcpy(cameraUniform.pd80RccPack4, sceneData.pd80RccPack4.data(), sizeof(cameraUniform.pd80RccPack4));
+            std::memcpy(cameraUniform.pd80FaPack0, sceneData.pd80FaPack0.data(), sizeof(cameraUniform.pd80FaPack0));
+            std::memcpy(cameraUniform.pd80HbPack0, sceneData.pd80HbPack0.data(), sizeof(cameraUniform.pd80HbPack0));
+            std::memcpy(cameraUniform.pd80HbPack1, sceneData.pd80HbPack1.data(), sizeof(cameraUniform.pd80HbPack1));
+            std::memcpy(cameraUniform.pd80HbPack2, sceneData.pd80HbPack2.data(), sizeof(cameraUniform.pd80HbPack2));
+            std::memcpy(cameraUniform.pd80Sc2Pack0, sceneData.pd80Sc2Pack0.data(), sizeof(cameraUniform.pd80Sc2Pack0));
             std::memcpy(mappedUniformMemory, &cameraUniform, sizeof(CameraUniformStd140));
             SkyUniformStd140 skyUniform{};
             skyUniform.hasSkyTexture = sceneData.skyUseTextureFile;
@@ -3798,6 +5799,28 @@ bool RunVulkanNativeSceneLoop(const int width,
                 const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(sceneData.skyEquirectAbsolute);
                 if (loaded != VK_NULL_HANDLE) {
                     skyTextureSet = loaded;
+                }
+            }
+            VkDescriptorSet sweetFxLayerTextureSet = textureCache.whiteDescriptorSet;
+            VkDescriptorSet sweetFxSmaaAreaTextureSet = textureCache.whiteDescriptorSet;
+            VkDescriptorSet sweetFxSmaaSearchTextureSet = textureCache.whiteDescriptorSet;
+            VkDescriptorSet reshadeLutTextureSet = textureCache.whiteDescriptorSet;
+            if (enableHybridHdr) {
+                if (const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(sweetFxLayerTexturePath);
+                    loaded != VK_NULL_HANDLE) {
+                    sweetFxLayerTextureSet = loaded;
+                }
+                if (const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(sweetFxSmaaAreaTexturePath);
+                    loaded != VK_NULL_HANDLE) {
+                    sweetFxSmaaAreaTextureSet = loaded;
+                }
+                if (const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(sweetFxSmaaSearchTexturePath);
+                    loaded != VK_NULL_HANDLE) {
+                    sweetFxSmaaSearchTextureSet = loaded;
+                }
+                if (const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(reshadeLutTexturePath);
+                    loaded != VK_NULL_HANDLE) {
+                    reshadeLutTextureSet = loaded;
                 }
             }
 
@@ -3851,6 +5874,10 @@ bool RunVulkanNativeSceneLoop(const int width,
                                      enableHybridHdr ? compositePipeline : VK_NULL_HANDLE,
                                      enableHybridHdr ? compositePipelineLayout : VK_NULL_HANDLE,
                                      enableHybridHdr ? compositeHdrDescriptorSet : VK_NULL_HANDLE,
+                                     enableHybridHdr ? sweetFxLayerTextureSet : VK_NULL_HANDLE,
+                                     enableHybridHdr ? sweetFxSmaaAreaTextureSet : VK_NULL_HANDLE,
+                                     enableHybridHdr ? sweetFxSmaaSearchTextureSet : VK_NULL_HANDLE,
+                                     enableHybridHdr ? reshadeLutTextureSet : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundleFramebuffer : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundleRenderPass : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundlePipeline : VK_NULL_HANDLE,

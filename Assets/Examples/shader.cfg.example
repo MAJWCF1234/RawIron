@@ -1,0 +1,76 @@
+// shader.cfg — UTF-8 JSON with optional full-line // comments (BOM allowed).
+// Place as shader.cfg next to the game exe, or under <workspace>/Assets/shader.cfg (see ResolveShaderCfgPath).
+//
+// Top-level keys:
+//   replace (bool): if true, replaces runtime post values; timeSeconds from the app is still preserved.
+//   blendWeight (number 0–1): blend file parameters onto runtime when replace is false (per-effect "blend" is separate).
+//   post | presentation (object): snake_case fields for PostProcessParameters (see PostProcessProfiles.h).
+//   effects (array, in order): each { id or type, enabled?, blend?, params? }.
+//
+// Effect ids: cas, bloom, deband, vignette (SweetFX-style lens falloff + optional blurAmount),
+//             film (grain/intensity + optional noise / scanlines / chromatic), grade, output, preset.
+// Unknown ids are skipped with a log line.
+//
+// Vulkan composite UBO: presentationTuning = CAS/bloom; presentationColorGrading = tone curve, TriDither,
+// deband, vignette (w); presentationExtra.x = film grain.
+{
+  "version": 1,
+  "blendWeight": 0.35,
+  "replace": false,
+  "effects": [
+    {
+      "id": "preset",
+      "preset": "crisp_gameplay",
+      "blend": 0.25
+    },
+    {
+      "id": "cas",
+      "enabled": true,
+      "blend": 1.0,
+      "params": {
+        "sharpen": 0.55,
+        "contrast": 0.3
+      }
+    },
+    {
+      "id": "bloom",
+      "params": {
+        "intensity": 0.06,
+        "threshold": 1.15
+      }
+    },
+    {
+      "id": "deband",
+      "params": { "strength": 0.04 }
+    },
+    {
+      "id": "vignette",
+      "params": {
+        "strength": 0.22,
+        "blur": 0.002
+      }
+    },
+    {
+      "id": "grade",
+      "params": {
+        "tint": [1.0, 0.98, 1.02],
+        "tint_strength": 0.04,
+        "curve": 0.12,
+        "dither": 0.35
+      }
+    },
+    {
+      "id": "film",
+      "enabled": false,
+      "params": {
+        "grain": 0.08,
+        "noise": 0.003,
+        "scanlines": 0.002,
+        "chromatic": 0.0004
+      }
+    }
+  ],
+  "post": {
+    "output_dither_strength": 0.4
+  }
+}

@@ -1165,7 +1165,12 @@ void PrintPostProcessPresets() {
                 << " | chroma=" << parameters.chromaticAberration
                 << " | tint=" << parameters.tintStrength
                 << " | blur=" << parameters.blurAmount
-                << " | static=" << parameters.staticFadeAmount;
+                << " | static=" << parameters.staticFadeAmount
+                << " | cas=" << parameters.casSharpenAmount << "/" << parameters.casContrastAdaptation
+                << " | bloom=" << parameters.bloomIntensity << "@" << parameters.bloomThreshold
+                << " | deband=" << parameters.debandStrength << " | curve=" << parameters.toneCurveStrength
+                << " | tdither=" << parameters.outputDitherStrength
+                << " | vig=" << parameters.vignetteStrength << " | film=" << parameters.filmGrainIntensity;
         ri::core::LogInfo(summary.str());
         ri::core::LogInfo("    " + std::string(definition.summary));
     }
