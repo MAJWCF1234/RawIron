@@ -28,7 +28,7 @@ jobs:
       # humbletim/install-vulkan-sdk unpacks the Windows .exe with 7z; recent LunarG layouts can omit headers
       # under VULKAN_SDK (CMake then finds no vulkan.h). jakoch runs the SDK installer and sets VULKAN_SDK correctly.
       - name: Install Vulkan SDK
-        uses: jakoch/install-vulkan-sdk-action@v1.5.1
+        uses: jakoch/install-vulkan-sdk-action@v1.5.5
         with:
           vulkan_version: latest
           cache: true
