@@ -44,8 +44,8 @@ The prototype JavaScript is design input and reference behavior, not the runtime
 
 That means:
 
-- no Electron shell
-- no browser-only assumptions
+- native runtime ownership
+- native tooling ownership
 - no dragging game-specific code into engine libraries
 - no pretending the old implementation is the final architecture
 

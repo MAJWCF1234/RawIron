@@ -50,7 +50,7 @@ RawIron is intended to become a **native, standalone, cross-platform game engine
 
 - a C++ core
 - its own editor and tools
-- no Electron or browser dependency
+- native runtime and tooling ownership
 - a custom asset pipeline
 - internal engine-owned asset formats
 - engine logic and runtime systems ported into native C++

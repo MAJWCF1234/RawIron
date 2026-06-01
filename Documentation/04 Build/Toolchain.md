@@ -78,5 +78,4 @@ Purpose:
 
 RawIron should use a native build and tool flow from the beginning.
 
-No Electron dependency should remain in the core development path.
 The build shape should stay friendly to both Windows and Linux instead of depending on one workstation forever.

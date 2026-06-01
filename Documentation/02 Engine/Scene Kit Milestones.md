@@ -56,7 +56,7 @@ That lets the engine use the same example registry for:
 
 ## Visual Shell
 
-`RawIron.VisualShell` now acts as the base-shell browser for the Scene Kit cohort.
+`RawIron.VisualShell` now acts as the base shell for the Scene Kit cohort.
 
 Keyboard flow:
 
@@ -66,7 +66,7 @@ Keyboard flow:
 - `Enter` / `F5`: run the selected shell action
 
 The shell no longer renders the example bitmap itself.
-Instead, it keeps the retro desktop/browser role:
+Instead, it keeps the retro desktop-shell role:
 
 - shows the currently selected example metadata
 - launches the selected example into `RawIron.Preview`

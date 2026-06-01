@@ -87,7 +87,7 @@ The long-term split should look more like this:
 - render update
 - editor/tooling update
 
-That mirrors the prototype's step-versus-render separation, but the ownership moves into native code instead of browser callbacks.
+That mirrors the prototype's step-versus-render separation, but the ownership now lives directly in the native runtime.
 
 The current native loop is also now less wasteful by default than the earlier scaffold:
 

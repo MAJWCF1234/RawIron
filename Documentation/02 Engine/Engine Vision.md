@@ -9,7 +9,7 @@ tags:
 
 ## Statement
 
-RawIron is intended to be a **standalone native game engine**, not a web app port and not an Electron shell.
+RawIron is intended to be a **standalone native game engine** with its own runtime, tools, and workflow.
 
 ## Core Goals
 
@@ -32,10 +32,9 @@ RawIron should preserve the parts that felt right in the prototype:
 
 ## What Gets Discarded
 
-- Electron
-- browser-specific assumptions
-- third-party web framework dependencies as a foundation layer
-- any architecture that exists only because of the web stack
+- prototype-specific scaffolding that no longer matches the native engine
+- architecture decisions that only existed to support earlier migration constraints
+- any foundation layer that fights direct native runtime ownership
 
 ## What Gets Preserved
 
