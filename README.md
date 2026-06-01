@@ -22,6 +22,9 @@ By default the root `CMakeLists.txt` builds these **runnable targets**:
 | **`RawIron.ParticleShowcase`** | CPU/GPU **particle** exercise host. |
 | **`RawIron.LiminalGame`** | **Liminal Hall** game. |
 | **`RawIron.ForestRuinsGame`** | **Wilderness Ruins** game. |
+| **`RawIron.MultiplayerSandboxGame`** | **RawIron Multiplayer Sandbox** game. |
+| **`RawIron.BotClient`** | Headless multiplayer bot client for session/load testing. |
+| **`RawIron.DedicatedServer`** | Dedicated multiplayer server host. |
 
 Optional **`RAWIRON_BUILD_*`** switches turn off **`RawIron.Player`** / **`RawIron.Preview`**, enable **`ri_tool`**, **CTest** smokes, **DevInspector**, etc. See [Optional targets](#optional-targets). **`CMakeLists.ide-mirror.txt`** is a copy of the same defaults for workflows where an IDE cannot edit **`CMakeLists.txt`** in place.
 
@@ -35,7 +38,7 @@ Optional **`RAWIRON_BUILD_*`** switches turn off **`RawIron.Player`** / **`RawIr
 git clone <your-fork-or-upstream-url> RawIron
 cd RawIron
 cmake --preset dev-msvc
-cmake --build build/dev-msvc --config RelWithDebInfo --target RawIron.Player RawIron.Preview RawIron.Editor RawIron.VisualShell RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame
+cmake --build build/dev-msvc --config RelWithDebInfo --target RawIron.Player RawIron.Preview RawIron.Editor RawIron.VisualShell RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame RawIron.MultiplayerSandboxGame RawIron.BotClient RawIron.DedicatedServer
 ```
 
 **Typical outputs** (paths use `RelWithDebInfo`; adjust if you use another VS configuration):
@@ -49,6 +52,9 @@ build\dev-msvc\Apps\RawIron.UiMenu\RelWithDebInfo\RawIron.UiMenu.exe
 build\dev-msvc\Apps\RawIron.ParticleShowcase\RelWithDebInfo\RawIron.ParticleShowcase.exe
 build\dev-msvc\Games\LiminalHall\App\RelWithDebInfo\RawIron.LiminalGame.exe
 build\dev-msvc\Games\WildernessRuins\App\RelWithDebInfo\RawIron.ForestRuinsGame.exe
+build\dev-msvc\Games\RawIronMultiplayerSandbox\App\RelWithDebInfo\RawIron.MultiplayerSandboxGame.exe
+build\dev-msvc\Apps\RawIron.BotClient\RelWithDebInfo\RawIron.BotClient.exe
+build\dev-msvc\Apps\RawIron.DedicatedServer\RelWithDebInfo\RawIron.DedicatedServer.exe
 ```
 
 **UI harness smoke (no window):**
@@ -61,7 +67,7 @@ build\dev-msvc\Games\WildernessRuins\App\RelWithDebInfo\RawIron.ForestRuinsGame.
 
 **VN demo (interactive, branching JSON UI):** double-click **`Launch UiMenu VN Demo.cmd`** in the repo root, or run the same `RawIron.UiMenu.exe` with **`--demo-vn`**. In-game copy may use **`${variableId}`** in `text` / `label` / `speaker` / choice labels / **`portrait`** / **`image`** / **`background.image`** paths. Press **`B`** for the **backlog** (opens scrolled to the end). **`H`** toggles the small music / missing-background dev strip. **`1`–`9`** activate visible choice buttons in screen order. Screen **`advance`** supports **`onSpace`**, **`onClick`**, **`onEnter`**, **`onMouseWheel`**, and **`delaySeconds`** (hold **Ctrl** to shorten the timer). **`say`** blocks may set **`voice`** (cue string; UI + backlog until playback is wired).
 
-**Games** (from each game folder under `Games\`, after build — see **`Play Liminal Hall.cmd`** and **`Play Wilderness Ruins.cmd`**).
+**Games** (from each game folder under `Games\`, after build — see **`Play Liminal Hall.cmd`**, **`Play Wilderness Ruins.cmd`**, and **`Play RawIron Multiplayer Sandbox.cmd`**).
 
 **If MSVC fails on a removable / odd filesystem:** use `cmake --preset dev-msvc-localappdata` and `cmake --build --preset build-dev-msvc-localappdata`, then optionally `.\Scripts\Sync-ProfileBuildToRepo.ps1` to mirror binaries under `.\build\dev-msvc`.
 
@@ -109,8 +115,8 @@ Other switches:
 ## Repository layout (short)
 
 - **`Source/`** — engine libraries (`RawIron.Core`, `RawIron.Runtime`, `RawIron.Render.Vulkan`, `RawIron.SceneUtilities`, …).
-- **`Games/`** — **LiminalHall** and **WildernessRuins** runtimes + game apps.
-- **`Apps/`** — **`RawIron.Player`**, **`RawIron.Preview`**, **`RawIron.Editor`**, **`RawIron.VisualShell`**, **`RawIron.UiMenu`**, **`RawIron.ParticleShowcase`**.
+- **`Games/`** — **LiminalHall**, **WildernessRuins**, and **RawIronMultiplayerSandbox** runtimes + game apps.
+- **`Apps/`** — **`RawIron.Player`**, **`RawIron.Preview`**, **`RawIron.Editor`**, **`RawIron.VisualShell`**, **`RawIron.UiMenu`**, **`RawIron.ParticleShowcase`**, **`RawIron.BotClient`**, **`RawIron.DedicatedServer`**.
 - **`Assets/`** — cooked/source content; **`Assets/UI/`** — JSON UI manifests + schema.
 - **`Documentation/`** — Obsidian-style engine docs (`Documentation/00 Home.md`).
 - **`Scripts/`** — build hygiene, publish, sync profile builds.
@@ -135,7 +141,7 @@ Start here:
 - `Documentation/02 Engine/Current Engine Review.md`
 - `Documentation/02 Engine/Repository Layout.md`
 - `Documentation/04 Build/Testing.md` (may still mention removed native suites — treat as historical where it conflicts with this README)
-- `Documentation/04 Build/EOS Integration.md` — provider-based online rendezvous (`EOS` + `DirectToken` fallback), net modes, and `RawIron.BotClient` swarm testing
+- `Documentation/04 Build/EOS Integration.md` — provider-based online rendezvous (`EOS` + `DirectToken` fallback), net modes, bot swarm testing, and dedicated/listen/hybrid multiplayer flows
 - `Documentation/04 Build/GitHub Push and Publish.md` — **CI**, bundle push, and **GitHub Releases** workflow for maintainers
 
 ---
