@@ -13,6 +13,7 @@ RawIron is organized as a shared engine with game-specific runtime modules mount
 - [[02 Engine/07 Editor and Authoring|Editor and authoring]]
 - [[02 Engine/08 World and Interaction|World and interaction]]
 - [[02 Engine/09 AI, UI, and Data Surfaces|AI, UI, and data surfaces]]
+- [[02 Engine/10 Mod and Plugin Authoring|Mod and plugin authoring]]
 
 ## Engine libraries in `Source/`
 

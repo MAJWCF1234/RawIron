@@ -2,6 +2,17 @@
 
 `RawIron.Runtime` is the shared lifecycle spine for games and runtime hosts.
 
+```mermaid
+flowchart LR
+    A["App Host"] --> B["RuntimeCore"]
+    B --> C["RuntimeContext"]
+    B --> D["RuntimeModule[]"]
+    C --> E["RuntimeServices"]
+    C --> F["RuntimeEventBus"]
+    D --> G["Game Runtime Module"]
+    D --> H["Net / Bot / Built-in Modules"]
+```
+
 ## Main types
 
 - `RuntimeIdentity`: stable id, display name, mode, and instance identity
@@ -21,6 +32,15 @@
 - `Stopping`
 - `Stopped`
 - `Failed`
+
+## Flow
+
+1. An app host creates `RuntimeIdentity` and `RuntimePaths`.
+2. The host constructs `RuntimeCore`.
+3. The host adds game modules and optional shared modules.
+4. `Startup(...)` advances startup and loading phases.
+5. `Frame(...)` drives runtime modules on each step.
+6. `Pause(...)`, `Resume()`, and `Shutdown()` keep lifecycle handling centralized.
 
 ## What belongs here
 

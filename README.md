@@ -1,6 +1,6 @@
 # RawIron
 
-Native **C++20** game engine and tooling: Vulkan runtime, scene graph, logic/events, and two in-repo games. **Windows-first**; Linux presets exist for library work.
+Native **C++20** game engine and full-workspace game stack: shared runtime core, Vulkan rendering, editor tooling, multiplayer support, plugin/mod policy surfaces, and three in-repo games. **Windows-first**; Linux presets exist for library work.
 
 **On GitHub:** this **README** on the default branch is the **source-of-truth** for how to build and run. The **Releases** tab may ship **optional** large binary bundles (split ZIPs + installer); there are **no** checked-in engine binaries on `main`. For **bugs / features**, use **[Issues](issues)** (templates under [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/)). For **contribution workflow**, see [**CONTRIBUTING.md**](CONTRIBUTING.md). For **security**, see [**SECURITY.md**](SECURITY.md).
 
@@ -9,6 +9,14 @@ Native **C++20** game engine and tooling: Vulkan runtime, scene graph, logic/eve
 ---
 
 ## What you get on `main` (default CMake)
+
+At a glance:
+
+- shared engine libraries in `Source/`
+- native apps and tools in `Apps/` and optional `Tools/`
+- game projects in `Games/`
+- full workspace shipping through split release parts plus installer
+- project-owned config, plugin, AI, UI, and test surfaces that ship with the workspace
 
 By default the root `CMakeLists.txt` builds these **runnable targets**:
 
@@ -70,6 +78,21 @@ build\dev-msvc\Apps\RawIron.DedicatedServer\RelWithDebInfo\RawIron.DedicatedServ
 **Games** (from each game folder under `Games\`, after build — see **`Play Liminal Hall.cmd`**, **`Play Wilderness Ruins.cmd`**, and **`Play RawIron Multiplayer Sandbox.cmd`**).
 
 **If MSVC fails on a removable / odd filesystem:** use `cmake --preset dev-msvc-localappdata` and `cmake --build --preset build-dev-msvc-localappdata`, then optionally `.\Scripts\Sync-ProfileBuildToRepo.ps1` to mirror binaries under `.\build\dev-msvc`.
+
+## Engine shape
+
+- `RawIron.Runtime` owns shared lifecycle, services, events, and module mounting
+- `RawIron.Content` owns game manifest validation and project format enforcement
+- `RawIron.Render.Vulkan` and `RawIron.Render.Software` provide the main presentation paths
+- `RawIron.World`, `RawIron.Logic`, `RawIron.Events`, `RawIron.Trace`, and `RawIron.Spatial` support world simulation and authored interactions
+- `Games/Common` enforces shared config contract behavior across projects
+
+## Multiplayer and mods
+
+- multiplayer is a core engine surface with dedicated, listen, hybrid, and client flows
+- `RawIron.DedicatedServer`, `RawIron.BotClient`, and `RawIron.MultiplayerSandboxGame` are the main multiplayer integration targets
+- every game project carries plugin and policy surfaces such as `scripts/plugins.riscript`, `config/plugins.policy`, `plugins/manifest.plugins`, and `plugins/hooks.riplugin`
+- game tuning belongs in project cfg and riscript files under engine-owned validation
 
 ---
 
@@ -140,8 +163,10 @@ Start here:
 - `Documentation/00 Home.md`
 - `Documentation/01 Product/RawIron.md`
 - `Documentation/02 Engine/00 Engine Home.md`
+- `Documentation/02 Engine/01 Runtime Core.md`
 - `Documentation/02 Engine/04 Multiplayer.md`
 - `Documentation/02 Engine/06 Plugins and Mods.md`
+- `Documentation/02 Engine/10 Mod and Plugin Authoring.md`
 - `Documentation/03 Projects/00 Projects Home.md`
 - `Documentation/04 Pipeline/Build, Test, and Run.md`
 - `Documentation/04 Pipeline/Releases.md`

@@ -2,6 +2,16 @@
 
 Plugins and mod-governance are built into the project format.
 
+```mermaid
+flowchart TD
+    A["scripts/plugins.riscript"] --> B["config/plugins.policy"]
+    B --> C["plugins/manifest.plugins"]
+    C --> D["plugins/load_order.cfg"]
+    D --> E["plugins/registry.json"]
+    E --> F["plugins/hooks.riplugin"]
+    F --> G["Editor + Runtime Surfaces"]
+```
+
 ## Required plugin surfaces
 
 Every current game contract includes:
@@ -33,3 +43,7 @@ Plugins and mods are not hidden internal features. They are first-class authored
 ## Typical policy posture
 
 Project policies can control things like script allowance and unsigned plugin allowance. Those policies belong in project config, not scattered through game code.
+
+## Authoring guide
+
+See [[02 Engine/10 Mod and Plugin Authoring|Mod and plugin authoring]] for concrete file-shape examples and authoring posture.
