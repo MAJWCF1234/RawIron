@@ -65,6 +65,10 @@ target_link_libraries(RawIron.Render.Vulkan
     Vulkan::Vulkan
 )
 
+target_compile_definitions(RawIron.Render.Vulkan PRIVATE
+  RAWIRON_VULKAN_REFERENCE_SHADER_DIR="${RAWIRON_VULKAN_REFERENCE_SHADER_ROOT}"
+)
+
 if (UNIX AND NOT APPLE AND CMAKE_DL_LIBS)
   target_link_libraries(RawIron.Render.Vulkan
     PRIVATE

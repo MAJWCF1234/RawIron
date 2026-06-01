@@ -135,6 +135,7 @@ Start here:
 - `Documentation/02 Engine/Current Engine Review.md`
 - `Documentation/02 Engine/Repository Layout.md`
 - `Documentation/04 Build/Testing.md` (may still mention removed native suites — treat as historical where it conflicts with this README)
+- `Documentation/04 Build/EOS Integration.md` — provider-based online rendezvous (`EOS` + `DirectToken` fallback), net modes, and `RawIron.BotClient` swarm testing
 - `Documentation/04 Build/GitHub Push and Publish.md` — **CI**, bundle push, and **GitHub Releases** workflow for maintainers
 
 ---

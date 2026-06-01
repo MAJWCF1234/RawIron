@@ -1,5 +1,6 @@
 #include "RawIron/Games/ForestRuins/ForestRuinsRuntime.h"
 #include "RawIron/Games/GameRuntimeCore.h"
+#include "RawIron/Games/GameConfigContracts.h"
 #include "RawIron/Games/RuntimeDiagnosticsStandaloneDraw.h"
 
 #include "RawIron/Content/EngineAssets.h"
@@ -1041,6 +1042,14 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/build.profile"));
     const ri::content::ScriptScalarMap securityPolicy =
         ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/security.policy"));
+    std::string contractError;
+    if (!ri::games::EnforceGameConfigContracts(
+            manifest.rootPath,
+            ri::games::GameConfigContractOptions{.mode = ri::games::GameConfigContractMode::Balanced},
+            &contractError)) {
+        ri::core::LogInfo(contractError);
+        return false;
+    }
     if (gameplay.empty()) {
         ri::core::LogInfo("Gameplay tuning script not found or empty; using defaults.");
     }

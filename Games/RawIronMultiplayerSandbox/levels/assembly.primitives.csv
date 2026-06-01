@@ -1,0 +1,6 @@
+id,type,x,y,z,sx,sy,sz,material,tileX,tileY
+spawn_pad,box,0,0,0,12,1,12,concrete,1,1
+east_lane,box,20,0,0,16,1,8,steel,1,1
+west_lane,box,-20,0,0,16,1,8,steel,1,1
+north_lane,box,0,0,20,8,1,16,grit,1,1
+south_lane,box,0,0,-20,8,1,16,grit,1,1

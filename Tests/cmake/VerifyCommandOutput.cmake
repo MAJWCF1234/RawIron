@@ -10,12 +10,50 @@ if(DEFINED COMMAND_ARGS_RAW)
   string(REPLACE "|" ";" COMMAND_ARGS "${COMMAND_ARGS_RAW}")
 endif()
 
-execute_process(
-  COMMAND "${EXECUTABLE}" ${COMMAND_ARGS}
-  RESULT_VARIABLE command_result
-  OUTPUT_VARIABLE command_stdout
-  ERROR_VARIABLE command_stderr
-)
+set(rawiron_command_prefix)
+if(WIN32 AND DEFINED RUNTIME_DLLS_RAW AND NOT RUNTIME_DLLS_RAW STREQUAL "")
+  string(REPLACE "|" ";" rawiron_runtime_dlls "${RUNTIME_DLLS_RAW}")
+  set(rawiron_runtime_path_dirs)
+  foreach(rawiron_runtime_dll IN LISTS rawiron_runtime_dlls)
+    if(rawiron_runtime_dll STREQUAL "")
+      continue()
+    endif()
+    get_filename_component(rawiron_runtime_dir "${rawiron_runtime_dll}" DIRECTORY)
+    if(rawiron_runtime_dir STREQUAL "")
+      continue()
+    endif()
+    list(FIND rawiron_runtime_path_dirs "${rawiron_runtime_dir}" rawiron_runtime_dir_index)
+    if(rawiron_runtime_dir_index EQUAL -1)
+      list(APPEND rawiron_runtime_path_dirs "${rawiron_runtime_dir}")
+    endif()
+  endforeach()
+  if(rawiron_runtime_path_dirs)
+    string(JOIN ";" rawiron_runtime_path_prefix ${rawiron_runtime_path_dirs})
+    if(DEFINED ENV{PATH} AND NOT "$ENV{PATH}" STREQUAL "")
+      set(rawiron_command_path "${rawiron_runtime_path_prefix};$ENV{PATH}")
+    else()
+      set(rawiron_command_path "${rawiron_runtime_path_prefix}")
+    endif()
+    string(REPLACE ";" "\\;" rawiron_path_assignment "PATH=${rawiron_command_path}")
+    set(rawiron_command_prefix ${CMAKE_COMMAND} -E env "${rawiron_path_assignment}")
+  endif()
+endif()
+
+if(rawiron_command_prefix)
+  execute_process(
+    COMMAND ${rawiron_command_prefix} "${EXECUTABLE}" ${COMMAND_ARGS}
+    RESULT_VARIABLE command_result
+    OUTPUT_VARIABLE command_stdout
+    ERROR_VARIABLE command_stderr
+  )
+else()
+  execute_process(
+    COMMAND "${EXECUTABLE}" ${COMMAND_ARGS}
+    RESULT_VARIABLE command_result
+    OUTPUT_VARIABLE command_stdout
+    ERROR_VARIABLE command_stderr
+  )
+endif()
 
 set(command_output "${command_stdout}${command_stderr}")
 

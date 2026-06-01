@@ -1,9 +1,11 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <map>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace ri::content {
 
@@ -31,5 +33,39 @@ using ScriptScalarMap = std::map<std::string, float, std::less<>>;
                                            int maxValue);
 
 [[nodiscard]] bool ScriptScalarOrBool(const ScriptScalarMap& values, std::string_view key, bool fallback);
+
+enum class ScriptScalarValidationSeverity {
+    Warning,
+    Error,
+};
+
+struct ScriptScalarRule {
+    std::string key;
+    bool required = false;
+    std::optional<float> minValue{};
+    std::optional<float> maxValue{};
+};
+
+struct ScriptScalarSchema {
+    std::string name;
+    bool allowUnknownKeys = true;
+    std::vector<ScriptScalarRule> rules{};
+};
+
+struct ScriptScalarValidationIssue {
+    ScriptScalarValidationSeverity severity = ScriptScalarValidationSeverity::Warning;
+    std::string key;
+    std::string message;
+};
+
+struct ScriptScalarValidationReport {
+    std::vector<ScriptScalarValidationIssue> issues{};
+
+    [[nodiscard]] bool ok() const;
+};
+
+[[nodiscard]] ScriptScalarValidationReport ValidateScriptScalars(
+    const ScriptScalarMap& values,
+    const ScriptScalarSchema& schema);
 
 } // namespace ri::content

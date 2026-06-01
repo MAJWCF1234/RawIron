@@ -3150,6 +3150,12 @@ private:
             InvalidateRect(hwnd_, nullptr, FALSE);
             return 0;
         }
+        if (key == 'G' && controlHeld) {
+            if (SnapSelectedNodeToGridNow()) {
+                InvalidateRect(hwnd_, nullptr, FALSE);
+            }
+            return 0;
+        }
         if (key == VK_OEM_MINUS) {
             CycleGridSnapStep(-1);
             lastIoStatus_ = "Grid step: " + GridSnapLabel() + ".";
@@ -5324,6 +5330,37 @@ private:
         PushEditAction(TransformEditAction{selectedNode_, before, after});
     }
 
+    bool SnapSelectedNodeToGridNow() {
+        if (!gridSnapEnabled_) {
+            lastIoStatus_ = "Grid snap is OFF. Press G to enable, then Ctrl+G to snap selection.";
+            return false;
+        }
+        if (!IsEditableAuthoredNode(static_cast<int>(selectedNode_))) {
+            lastIoStatus_ = "Cannot snap: select an editable authored node.";
+            return false;
+        }
+        if (selectedNode_ >= starterScene_.scene.NodeCount()) {
+            return false;
+        }
+
+        ri::scene::Node& node = starterScene_.scene.GetNode(static_cast<int>(selectedNode_));
+        const ri::scene::Transform before = node.localTransform;
+        node.localTransform.position.x = SnapToGrid(node.localTransform.position.x);
+        node.localTransform.position.y = SnapToGrid(node.localTransform.position.y);
+        node.localTransform.position.z = SnapToGrid(node.localTransform.position.z);
+        const ri::scene::Transform after = node.localTransform;
+        if (before.position.x == after.position.x &&
+            before.position.y == after.position.y &&
+            before.position.z == after.position.z) {
+            lastIoStatus_ = "Selection already aligned to grid (" + GridSnapLabel() + ").";
+            return false;
+        }
+
+        PushEditAction(TransformEditAction{selectedNode_, before, after});
+        lastIoStatus_ = "Snapped selection to grid (" + GridSnapLabel() + ").";
+        return true;
+    }
+
     void ApplySelectedNodeRotationDelta(const ri::math::Vec3& deltaDegrees) {
         if (selectedNode_ >= starterScene_.scene.NodeCount()) {
             return;
@@ -6515,7 +6552,7 @@ private:
         DrawTextLine(dc, RECT{statusBar.left + 12, statusBar.top + 8, statusBar.right - 12, statusBar.top + 28},
                      consoleLine, RGB(20, 60, 20), smallFont_, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
         DrawTextLine(dc, RECT{statusBar.left + 12, statusBar.top + 30, statusBar.right - 12, statusBar.top + 50},
-                     "Esc clear sel · Ctrl+Shift+Q quit · Space auto-orbit · Tab view · T/R/U modes · WASDQE edit (Shift fine / Alt coarse) · G snap on/off · +/- grid step · Ctrl+R reset · Shift+F frame all · Ctrl+Shift+W to World · Ctrl+Shift+T trigger · ,/. authored cycle · Ctrl+Shift+S snapshot · Ctrl+Shift+L autosave load · Ctrl+E export · Ctrl+Z/Y · Ctrl+S persist/load · F6",
+                     "Esc clear sel · Ctrl+Shift+Q quit · Space auto-orbit · Tab view · T/R/U modes · WASDQE edit (Shift fine / Alt coarse) · G snap on/off · Ctrl+G snap selection · +/- grid step · Ctrl+R reset · Shift+F frame all · Ctrl+Shift+W to World · Ctrl+Shift+T trigger · ,/. authored cycle · Ctrl+Shift+S snapshot · Ctrl+Shift+L autosave load · Ctrl+E export · Ctrl+Z/Y · Ctrl+S persist/load · F6",
                      RGB(32, 32, 32), smallFont_, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
         DrawTextLine(dc, RECT{statusBar.left + 12, statusBar.top + 50, statusBar.right - 12, statusBar.bottom - 8},
                      "State: " + lastIoStatus_ + "  |  Scene file: " + ResolveSceneStatePath().string(),

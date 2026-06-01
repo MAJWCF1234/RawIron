@@ -820,7 +820,8 @@ int main(int argc, char** argv) {
             "  --hybrid-hdr         Enable multi-pass HDR + heavy composite (slower startup; can stall weak GPUs). "
             "Default is off for fast, stable loading.");
         ri::core::LogInfo(
-            "  Reference HLSL packs live under vulkan/reference-shaders next to the exe; runtime tuning is shader.cfg.");
+            "  Reference HLSL packs resolve from Source/RawIron.Render.Vulkan/ReferenceShaders "
+            "(legacy: vulkan/reference-shaders beside the exe); runtime tuning is shader.cfg.");
         return 0;
     }
 

@@ -6,6 +6,7 @@
 #include "RawIron/Runtime/RuntimeId.h"
 
 #include <algorithm>
+#include <exception>
 #include <utility>
 
 namespace ri::runtime {
@@ -200,7 +201,19 @@ bool RuntimeCore::Startup(const ri::core::CommandLine& commandLine) {
         if (module == nullptr) {
             continue;
         }
-        if (!module->OnRuntimeStartup(context_, commandLine)) {
+        bool startupOk = false;
+        try {
+            startupOk = module->OnRuntimeStartup(context_, commandLine);
+        } catch (const std::exception& ex) {
+            context_.Fail("Runtime module startup exception: " + std::string(module->Name()) + ": " + ex.what());
+            EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
+            return false;
+        } catch (...) {
+            context_.Fail("Runtime module startup exception: " + std::string(module->Name()) + ": unknown");
+            EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
+            return false;
+        }
+        if (!startupOk) {
             context_.Fail("Runtime module startup failed: " + std::string(module->Name()));
             EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
             return false;
@@ -255,7 +268,19 @@ bool RuntimeCore::Frame(const ri::core::FrameContext& frame) {
         if (module == nullptr) {
             continue;
         }
-        if (!module->OnRuntimeFrame(context_, frame)) {
+        bool keepRunning = false;
+        try {
+            keepRunning = module->OnRuntimeFrame(context_, frame);
+        } catch (const std::exception& ex) {
+            context_.Fail("Runtime module frame exception: " + std::string(module->Name()) + ": " + ex.what());
+            EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
+            break;
+        } catch (...) {
+            context_.Fail("Runtime module frame exception: " + std::string(module->Name()) + ": unknown");
+            EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
+            break;
+        }
+        if (!keepRunning) {
             context_.RequestStop("Runtime module requested stop: " + std::string(module->Name()));
             break;
         }
@@ -283,7 +308,17 @@ bool RuntimeCore::Pause(std::string reason) {
     }
     for (const std::unique_ptr<RuntimeModule>& module : modules_) {
         if (module != nullptr) {
-            module->OnRuntimePause(context_);
+            try {
+                module->OnRuntimePause(context_);
+            } catch (const std::exception& ex) {
+                context_.Fail("Runtime module pause exception: " + std::string(module->Name()) + ": " + ex.what());
+                EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
+                return false;
+            } catch (...) {
+                context_.Fail("Runtime module pause exception: " + std::string(module->Name()) + ": unknown");
+                EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
+                return false;
+            }
         }
     }
     EmitPhaseChanged(RuntimePhase::Running, RuntimePhase::Paused);
@@ -305,7 +340,17 @@ bool RuntimeCore::Resume() {
     context_.ClearRunState();
     for (const std::unique_ptr<RuntimeModule>& module : modules_) {
         if (module != nullptr) {
-            module->OnRuntimeResume(context_);
+            try {
+                module->OnRuntimeResume(context_);
+            } catch (const std::exception& ex) {
+                context_.Fail("Runtime module resume exception: " + std::string(module->Name()) + ": " + ex.what());
+                EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
+                return false;
+            } catch (...) {
+                context_.Fail("Runtime module resume exception: " + std::string(module->Name()) + ": unknown");
+                EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
+                return false;
+            }
         }
     }
     EmitPhaseChanged(RuntimePhase::Paused, RuntimePhase::Running);
@@ -329,7 +374,15 @@ void RuntimeCore::Shutdown() {
     EmitPhaseChanged(previous, RuntimePhase::Stopping);
     for (auto it = modules_.rbegin(); it != modules_.rend(); ++it) {
         if (*it != nullptr) {
-            (*it)->OnRuntimeShutdown(context_);
+            try {
+                (*it)->OnRuntimeShutdown(context_);
+            } catch (const std::exception& ex) {
+                ri::core::LogInfo("Runtime module shutdown exception: " + std::string((*it)->Name()) + ": " + ex.what());
+                context_.Fail("Runtime module shutdown exception.");
+            } catch (...) {
+                ri::core::LogInfo("Runtime module shutdown exception: " + std::string((*it)->Name()) + ": unknown");
+                context_.Fail("Runtime module shutdown exception.");
+            }
         }
     }
     context_.events_.Emit("runtime.stopped", RuntimeEvent{

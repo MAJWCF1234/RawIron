@@ -5,6 +5,7 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <set>
 #include <sstream>
 
 namespace ri::content {
@@ -102,6 +103,63 @@ bool ScriptScalarOrBool(const ScriptScalarMap& values, std::string_view key, boo
         return fallback;
     }
     return value >= 0.5f;
+}
+
+bool ScriptScalarValidationReport::ok() const {
+    for (const ScriptScalarValidationIssue& issue : issues) {
+        if (issue.severity == ScriptScalarValidationSeverity::Error) {
+            return false;
+        }
+    }
+    return true;
+}
+
+ScriptScalarValidationReport ValidateScriptScalars(
+    const ScriptScalarMap& values,
+    const ScriptScalarSchema& schema) {
+    ScriptScalarValidationReport report{};
+    std::set<std::string, std::less<>> knownKeys{};
+    for (const ScriptScalarRule& rule : schema.rules) {
+        knownKeys.insert(rule.key);
+        const auto it = values.find(rule.key);
+        if (it == values.end()) {
+            if (rule.required) {
+                report.issues.push_back(ScriptScalarValidationIssue{
+                    .severity = ScriptScalarValidationSeverity::Error,
+                    .key = rule.key,
+                    .message = "missing required key",
+                });
+            }
+            continue;
+        }
+        const float value = it->second;
+        if (rule.minValue.has_value() && value < *rule.minValue) {
+            report.issues.push_back(ScriptScalarValidationIssue{
+                .severity = ScriptScalarValidationSeverity::Error,
+                .key = rule.key,
+                .message = "value below minimum",
+            });
+        }
+        if (rule.maxValue.has_value() && value > *rule.maxValue) {
+            report.issues.push_back(ScriptScalarValidationIssue{
+                .severity = ScriptScalarValidationSeverity::Error,
+                .key = rule.key,
+                .message = "value above maximum",
+            });
+        }
+    }
+    if (!schema.allowUnknownKeys) {
+        for (const auto& [key, _] : values) {
+            if (!knownKeys.contains(key)) {
+                report.issues.push_back(ScriptScalarValidationIssue{
+                    .severity = ScriptScalarValidationSeverity::Error,
+                    .key = key,
+                    .message = "unknown key",
+                });
+            }
+        }
+    }
+    return report;
 }
 
 } // namespace ri::content

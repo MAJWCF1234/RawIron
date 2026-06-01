@@ -1,0 +1,6 @@
+id,minX,minY,minZ,maxX,maxY,maxZ,flags
+spawn_pad,-6,0,-6,6,1,6,walk
+east_lane,12,0,-4,28,1,4,walk
+west_lane,-28,0,-4,-12,1,4,walk
+north_lane,-4,0,12,4,1,28,walk
+south_lane,-4,0,-28,4,1,-12,walk

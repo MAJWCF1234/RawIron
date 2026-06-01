@@ -42,15 +42,6 @@ function(rawiron_add_app)
     target_compile_definitions("${RAWIRON_APP_TARGET}" PRIVATE ${RAWIRON_APP_COMPILE_DEFINITIONS})
   endif()
 
-  if(WIN32 AND EXISTS "${RAWIRON_VULKAN_RUNTIME_DLL}")
-    if(RAWIRON_APP_LIBRARIES MATCHES "RawIron::RenderVulkan")
-      add_custom_command(TARGET "${RAWIRON_APP_TARGET}" POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${RAWIRON_VULKAN_RUNTIME_DLL}"
-          "$<TARGET_FILE_DIR:${RAWIRON_APP_TARGET}>/vulkan-1.dll")
-    endif()
-  endif()
-
   rawiron_stage_runtime_dlls("${RAWIRON_APP_TARGET}")
 
   if(RAWIRON_APP_BUNDLE_ENGINE_TEXTURES)
@@ -59,11 +50,13 @@ function(rawiron_add_app)
 
   if(RAWIRON_BUILD_TESTS AND RAWIRON_APP_EXPECTED_STRINGS)
     set(rawiron_verify_command_output "${PROJECT_SOURCE_DIR}/Tests/cmake/VerifyCommandOutput.cmake")
+    rawiron_runtime_dll_test_arg(rawiron_app_runtime_dll_arg "${RAWIRON_APP_TARGET}")
     set(rawiron_smoke_command_args
       "-DEXECUTABLE=$<TARGET_FILE:${RAWIRON_APP_TARGET}>"
       "-DCOMMAND_ARGS_RAW=$<JOIN:${RAWIRON_APP_SMOKE_ARGS},|>"
       "-DEXPECTED_STRINGS=${RAWIRON_APP_EXPECTED_STRINGS}"
-      "-DFORBIDDEN_STRINGS=${RAWIRON_APP_FORBIDDEN_STRINGS}")
+      "-DFORBIDDEN_STRINGS=${RAWIRON_APP_FORBIDDEN_STRINGS}"
+      "${rawiron_app_runtime_dll_arg}")
     if(RAWIRON_APP_REQUIRED_RELATIVE_FILES)
       set(rawiron_verify_files_root "${CMAKE_CURRENT_BINARY_DIR}/${RAWIRON_APP_TARGET}-smoke")
       list(APPEND rawiron_smoke_command_args

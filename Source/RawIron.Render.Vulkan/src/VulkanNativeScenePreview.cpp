@@ -1082,14 +1082,80 @@ ri::math::Mat4 BuildOrthographicMatrix(const float left,
     return fs::exists(directory / "NativeScenePreview.vert.spv", ec);
 }
 
+[[nodiscard]] bool ReferenceShaderTextureBundleMarkerExists(const fs::path& directory) {
+    std::error_code ec{};
+    return fs::exists(directory / "Layer.png", ec) && fs::exists(directory / "AreaTex.png", ec)
+        && fs::exists(directory / "SearchTex.png", ec) && fs::exists(directory / "lut.png", ec);
+}
+
+[[nodiscard]] fs::path ExecutableDirectory() {
+#if defined(_WIN32)
+    std::wstring module(4096, L'\0');
+    const DWORD n = GetModuleFileNameW(nullptr, module.data(), static_cast<DWORD>(module.size() - 1U));
+    if (n == 0U) {
+        return {};
+    }
+    module.resize(n);
+    return fs::path(module).parent_path();
+#else
+    return {};
+#endif
+}
+
+[[nodiscard]] std::optional<fs::path> EnvironmentPath(const char* name) {
+#if defined(_WIN32)
+    char* value = nullptr;
+    std::size_t len = 0;
+    if (_dupenv_s(&value, &len, name) != 0 || value == nullptr) {
+        return std::nullopt;
+    }
+    const std::string owned(value);
+    std::free(value);
+    if (owned.empty()) {
+        return std::nullopt;
+    }
+    return fs::path(owned);
+#else
+    if (const char* value = std::getenv(name); value != nullptr && value[0] != '\0') {
+        return fs::path(value);
+    }
+    return std::nullopt;
+#endif
+}
+
+template <typename Predicate>
+[[nodiscard]] std::optional<fs::path> FindFirstMatchingDirectory(fs::path start, Predicate&& matches) {
+    if (start.empty()) {
+        return std::nullopt;
+    }
+    if (fs::is_regular_file(start)) {
+        start = start.parent_path();
+    }
+    start = start.lexically_normal();
+    for (int depth = 0; depth < 28; ++depth) {
+        if (const fs::path sourceTreeCandidate = start / "Source" / "RawIron.Render.Vulkan";
+            matches(sourceTreeCandidate)) {
+            return sourceTreeCandidate;
+        }
+        if (!start.has_parent_path()) {
+            break;
+        }
+        const fs::path parent = start.parent_path();
+        if (parent == start) {
+            break;
+        }
+        start = parent;
+    }
+    return std::nullopt;
+}
+
 /// SPIR-V was historically loaded only from the compile-time `RAWIRON_VULKAN_SHADER_DIR` (absolute).
 /// That breaks when the build tree moves drives/machines. Prefer env / next to exe / walk up to
 /// `Source/RawIron.Render.Vulkan/shaders` under the same CMake build prefix.
 [[nodiscard]] fs::path ResolveVulkanNativeShaderDirectory() {
-    if (const char* env = std::getenv("RAWIRON_VULKAN_SHADER_DIR"); env != nullptr && env[0] != '\0') {
-        const fs::path fromEnv(env);
-        if (NativeShaderBundleMarkerExists(fromEnv)) {
-            return fromEnv;
+    if (const std::optional<fs::path> fromEnv = EnvironmentPath("RAWIRON_VULKAN_SHADER_DIR"); fromEnv.has_value()) {
+        if (NativeShaderBundleMarkerExists(*fromEnv)) {
+            return *fromEnv;
         }
     }
 #if defined(RAWIRON_VULKAN_SHADER_DIR)
@@ -1102,42 +1168,84 @@ ri::math::Mat4 BuildOrthographicMatrix(const float left,
 #endif
 #if defined(_WIN32)
     {
-        std::wstring module(4096, L'\0');
-        const DWORD n = GetModuleFileNameW(nullptr, module.data(), static_cast<DWORD>(module.size() - 1U));
-        if (n != 0U) {
-            module.resize(n);
-            const fs::path exeDir = fs::path(module).parent_path();
-            const fs::path besideVulkan = exeDir / "vulkan" / "shaders";
-            if (NativeShaderBundleMarkerExists(besideVulkan)) {
-                return besideVulkan;
-            }
-            const fs::path beside = exeDir / "shaders";
-            if (NativeShaderBundleMarkerExists(beside)) {
-                return beside;
-            }
-            fs::path walk = exeDir;
-            for (int depth = 0; depth < 28; ++depth) {
-                const fs::path candidate = walk / "Source" / "RawIron.Render.Vulkan" / "shaders";
-                if (NativeShaderBundleMarkerExists(candidate)) {
-                    return candidate;
-                }
-                if (!walk.has_parent_path()) {
-                    break;
-                }
-                const fs::path parent = walk.parent_path();
-                if (parent == walk) {
-                    break;
-                }
-                walk = parent;
-            }
+        const fs::path exeDir = ExecutableDirectory();
+        const fs::path besideVulkan = exeDir / "vulkan" / "shaders";
+        if (NativeShaderBundleMarkerExists(besideVulkan)) {
+            return besideVulkan;
+        }
+        const fs::path beside = exeDir / "shaders";
+        if (NativeShaderBundleMarkerExists(beside)) {
+            return beside;
+        }
+        if (const std::optional<fs::path> sourceTree = FindFirstMatchingDirectory(
+                exeDir, [](const fs::path& candidateRoot) { return NativeShaderBundleMarkerExists(candidateRoot / "shaders"); });
+            sourceTree.has_value()) {
+            return *sourceTree / "shaders";
         }
     }
 #endif
+    if (const std::optional<fs::path> sourceTree = FindFirstMatchingDirectory(
+            fs::current_path(), [](const fs::path& candidateRoot) { return NativeShaderBundleMarkerExists(candidateRoot / "shaders"); });
+        sourceTree.has_value()) {
+        return *sourceTree / "shaders";
+    }
 #if defined(RAWIRON_VULKAN_SHADER_DIR)
     return fs::path(RAWIRON_VULKAN_SHADER_DIR);
 #else
     return {};
 #endif
+}
+
+/// Reference HLSL/FX assets are authored once in the repo tree. Prefer direct workspace lookup and
+/// keep the old beside-the-exe path as a compatibility fallback for manually staged portable runs.
+[[nodiscard]] fs::path ResolveVulkanReferenceShaderTextureDirectory() {
+    const auto normalizeReferenceRoot = [](const fs::path& root) -> fs::path {
+        if (ReferenceShaderTextureBundleMarkerExists(root)) {
+            return root;
+        }
+        const fs::path sweetFx = root / "Textures" / "SweetFX";
+        if (ReferenceShaderTextureBundleMarkerExists(sweetFx)) {
+            return sweetFx;
+        }
+        return {};
+    };
+
+    if (const std::optional<fs::path> env = EnvironmentPath("RAWIRON_VULKAN_REFERENCE_SHADER_DIR"); env.has_value()) {
+        if (const fs::path fromEnv = normalizeReferenceRoot(*env); !fromEnv.empty()) {
+            return fromEnv;
+        }
+    }
+#if defined(RAWIRON_VULKAN_REFERENCE_SHADER_DIR)
+    {
+        if (const fs::path compileTime = normalizeReferenceRoot(fs::path(RAWIRON_VULKAN_REFERENCE_SHADER_DIR));
+            !compileTime.empty()) {
+            return compileTime;
+        }
+    }
+#endif
+#if defined(_WIN32)
+    {
+        const fs::path besideExe = ExecutableDirectory() / "vulkan" / "reference-shaders";
+        if (const fs::path portable = normalizeReferenceRoot(besideExe); !portable.empty()) {
+            return portable;
+        }
+        if (const std::optional<fs::path> sourceTree = FindFirstMatchingDirectory(
+                ExecutableDirectory(), [&normalizeReferenceRoot](const fs::path& candidateRoot) {
+                    return !normalizeReferenceRoot(candidateRoot / "ReferenceShaders").empty();
+                });
+            sourceTree.has_value()) {
+            return normalizeReferenceRoot(*sourceTree / "ReferenceShaders");
+        }
+    }
+#endif
+    if (const std::optional<fs::path> sourceTree = FindFirstMatchingDirectory(
+            fs::current_path(), [&normalizeReferenceRoot](const fs::path& candidateRoot) {
+                return !normalizeReferenceRoot(candidateRoot / "ReferenceShaders").empty();
+            });
+        sourceTree.has_value()) {
+        return normalizeReferenceRoot(*sourceTree / "ReferenceShaders");
+    }
+    return {};
 }
 
 std::vector<char> ReadBinaryFile(const fs::path& path) {
@@ -5360,7 +5468,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         NativeAlbedoTextureCache textureCache{};
         textureCache.initialize(
             selection.physicalDevice, device, commandPool, graphicsQueue, textureSetLayout, textureDescriptorPool, linearSampler);
-        const fs::path sweetFxTextureRoot = fs::current_path() / "Source" / "RawIron.Render.Vulkan" / "ReferenceShaders" / "Textures" / "SweetFX";
+        const fs::path sweetFxTextureRoot = ResolveVulkanReferenceShaderTextureDirectory();
         const fs::path sweetFxLayerTexturePath = sweetFxTextureRoot / "Layer.png";
         const fs::path sweetFxSmaaAreaTexturePath = sweetFxTextureRoot / "AreaTex.png";
         const fs::path sweetFxSmaaSearchTexturePath = sweetFxTextureRoot / "SearchTex.png";

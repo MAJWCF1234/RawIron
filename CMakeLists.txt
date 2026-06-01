@@ -5,6 +5,7 @@ project(RawIron VERSION 0.1.0 LANGUAGES CXX C)
 include("${CMAKE_SOURCE_DIR}/cmake/BundleEngineTextures.cmake")
 include("${CMAKE_SOURCE_DIR}/cmake/RawIronApp.cmake")
 include(CMakeDependentOption)
+include(FetchContent)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,15 +18,21 @@ option(RAWIRON_BUILD_EDITOR "Build RawIron.Editor" ON)
 option(RAWIRON_BUILD_PARTICLE_SHOWCASE "Build RawIron.ParticleShowcase" ON)
 option(RAWIRON_BUILD_LIMINAL_GAME "Build the Liminal Hall game application" ON)
 option(RAWIRON_BUILD_FOREST_RUINS_GAME "Build the Wilderness Ruins game application" ON)
+option(RAWIRON_BUILD_MULTIPLAYER_SANDBOX_GAME "Build the RawIron Multiplayer Sandbox game application" ON)
 cmake_dependent_option(RAWIRON_EDITOR_LINK_LIMINAL
   "Link the Liminal Hall game module into the editor (registers editor preview id liminal-hall). Turn OFF for a shipping editor with no bundled games."
   ON
   "RAWIRON_BUILD_EDITOR"
   OFF)
 option(RAWIRON_BUILD_VISUAL_SHELL "Build RawIron.VisualShell" ON)
+option(RAWIRON_BUILD_BOT_CLIENT "Build RawIron.BotClient (headless bot swarm load client)" ON)
+option(RAWIRON_BUILD_DEDICATED_SERVER "Build RawIron.DedicatedServer headless authoritative host" ON)
 option(RAWIRON_BUILD_TOOLS "Build ri_tool and other CLI tools" OFF)
 option(RAWIRON_BUILD_TESTS "Enable CTest and lightweight app smoke tests (no giant native suites)" OFF)
 option(RAWIRON_BUILD_DEV_INSPECTOR "Build RawIron.DevInspector (development observability channel)" OFF)
+option(RAWIRON_USE_ENET "Enable ENet UDP networking backend for RawIron runtime net transport" OFF)
+option(RAWIRON_USE_EOS "Enable Epic Online Services rendezvous/provider hooks" OFF)
+set(EOS_SDK_ROOT "${CMAKE_SOURCE_DIR}/ThirdParty/EOS/SDK" CACHE PATH "Path to Epic Online Services SDK root")
 set(RAWIRON_ENABLE_STACKTRACE_DIAGNOSTICS_DEFAULT ON)
 if (NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "Release")
   set(RAWIRON_ENABLE_STACKTRACE_DIAGNOSTICS_DEFAULT OFF)
@@ -34,12 +41,27 @@ option(RAWIRON_ENABLE_STACKTRACE_DIAGNOSTICS
   "Enable crash diagnostics stack traces (backward-cpp)"
   ${RAWIRON_ENABLE_STACKTRACE_DIAGNOSTICS_DEFAULT})
 
-if (WIN32)
-  set(RAWIRON_VULKAN_RUNTIME_DLL "$ENV{WINDIR}/System32/vulkan-1.dll")
-endif()
-
 if (RAWIRON_BUILD_TESTS)
   enable_testing()
+endif()
+
+if (RAWIRON_USE_ENET)
+  FetchContent_Declare(
+    enet
+    GIT_REPOSITORY https://github.com/lsalzman/enet.git
+    GIT_TAG v1.3.18
+  )
+  FetchContent_MakeAvailable(enet)
+endif()
+
+if (RAWIRON_USE_EOS)
+  if (EXISTS "${EOS_SDK_ROOT}/Include/eos_sdk.h")
+    message(STATUS "RawIron: EOS SDK headers found at ${EOS_SDK_ROOT}")
+  else()
+    message(WARNING
+      "RawIron: RAWIRON_USE_EOS=ON but EOS SDK was not found at ${EOS_SDK_ROOT}. "
+      "Build keeps EOS provider stubs enabled; runtime will fall back to DirectToken until SDK is installed.")
+  endif()
 endif()
 
 if (MSVC)
@@ -81,6 +103,10 @@ if (RAWIRON_BUILD_FOREST_RUINS_GAME)
   add_subdirectory(Games/WildernessRuins)
 endif()
 
+if (RAWIRON_BUILD_MULTIPLAYER_SANDBOX_GAME)
+  add_subdirectory(Games/RawIronMultiplayerSandbox)
+endif()
+
 if(RAWIRON_BUILD_LIMINAL_HALL_MODULE OR RAWIRON_BUILD_LIMINAL_GAME)
   add_subdirectory(Games/LiminalHall)
 endif()
@@ -111,6 +137,14 @@ endif()
 
 if (RAWIRON_BUILD_VISUAL_SHELL)
   add_subdirectory(Apps/RawIron.VisualShell)
+endif()
+
+if (RAWIRON_BUILD_BOT_CLIENT)
+  add_subdirectory(Apps/RawIron.BotClient)
+endif()
+
+if (RAWIRON_BUILD_DEDICATED_SERVER)
+  add_subdirectory(Apps/RawIron.DedicatedServer)
 endif()
 
 if (RAWIRON_BUILD_TOOLS)

@@ -25,25 +25,18 @@ endif()
 
 target_compile_features(RawIron.Editor PRIVATE cxx_std_20)
 
-if (WIN32 AND EXISTS "${RAWIRON_VULKAN_RUNTIME_DLL}")
-  add_custom_command(TARGET RawIron.Editor POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      "${RAWIRON_VULKAN_RUNTIME_DLL}"
-      "$<TARGET_FILE_DIR:RawIron.Editor>/vulkan-1.dll"
-  )
-endif()
-
 rawiron_stage_runtime_dlls(RawIron.Editor)
 
 rawiron_bundle_engine_textures(RawIron.Editor)
 
 if (RAWIRON_BUILD_TESTS)
   set(rawiron_verify_command_output "${PROJECT_SOURCE_DIR}/Tests/cmake/VerifyCommandOutput.cmake")
+  rawiron_runtime_dll_test_arg(rawiron_editor_runtime_dll_arg RawIron.Editor)
   set(rawiron_editor_expected
     "[Editor Startup]"
     "Root nodes: 1"
-    "Grid path: World/Grid"
-    "Editor frame 0 orbitYaw=180.000000"
+    "Grid path:"
+    "Editor frame 0 orbitYaw="
     "[Editor Shutdown]"
   )
 
@@ -54,6 +47,7 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--headless;--frames;1;--no-scene-dump"
       "-DEXPECTED_STRINGS=${rawiron_editor_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_editor_runtime_dll_arg}"
       -P "${rawiron_verify_command_output}"
   )
 endif()

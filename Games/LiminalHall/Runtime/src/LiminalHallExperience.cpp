@@ -1,5 +1,6 @@
 #include "RawIron/Games/LiminalHall/LiminalHallWorld.h"
 #include "RawIron/Games/GameRuntimeCore.h"
+#include "RawIron/Games/GameConfigContracts.h"
 #include "RawIron/Games/RuntimeDiagnosticsStandaloneDraw.h"
 
 #include "RawIron/Content/EngineAssets.h"
@@ -524,6 +525,7 @@ struct RuntimeState {
     ri::world::PhysicsConstraintState activeConstraintState{};
     ri::world::WaterSurfaceState activeWaterSurfaceState{};
     ri::world::KinematicMotionState activeKinematicMotionState{};
+    ri::world::PostProcessState activePostProcessState{};
     ri::math::Vec3 previousKinematicTranslationDelta{};
     ri::render::software::ScenePreviewOptions previewOptions{};
     ri::render::software::ScenePreviewCache previewCache{};
@@ -571,7 +573,6 @@ struct RuntimeState {
     float showcaseDurationSeconds = 10.0f;
     float showcaseElapsedSeconds = 0.0f;
     float showcaseFovPulseDegrees = 0.0f;
-    NativeRenderTuning showcaseBaseRenderTuning{};
     std::vector<ShowcaseLightingRow> showcaseLighting{};
     std::vector<ShowcaseCinematicRow> showcaseCinematics{};
     std::vector<ShowcaseVfxEntry> showcaseVfx{};
@@ -589,6 +590,7 @@ void ApplyEnvironmentAuthoringVolumes(RuntimeState& state, const float dt) {
 
     const ri::world::RuntimeEnvironmentState environmentState =
         state.environmentService.GetActiveEnvironmentStateAt(feet, static_cast<double>(state.elapsedSeconds) + dt);
+    state.activePostProcessState = environmentState.postProcess;
     const ri::world::PhysicsVolumeModifiers& physicsState = environmentState.physics;
     state.activeConstraintState = environmentState.constraints;
     state.activeWaterSurfaceState = environmentState.waterSurface;
@@ -1067,6 +1069,10 @@ void RespawnPlayerAtSpawn(RuntimeState& state) {
     state.movement.onGround = false;
     state.playerHealth = state.playerMaxHealth;
     state.voidFallSeconds = 0.0f;
+    state.environmentService.ArmSpawnStabilization(
+        state.logicSpawnPosition,
+        static_cast<double>(state.elapsedSeconds),
+        0.25);
 }
 
 void EnforceVoidRecovery(RuntimeState& state, const float dt) {
@@ -1099,6 +1105,16 @@ void SimulateAndApplyView(RuntimeState& state,
     state.movement = ri::trace::SimulateMovementControllerStep(
                          state.traceScene, state.movement, input, dt, state.movementOptions, state.activeVolumeModifiers)
                          .state;
+    state.environmentService.UpdatePresentationFeedback(static_cast<double>(state.elapsedSeconds), static_cast<double>(dt));
+    ri::math::Vec3 stabilizedFeet = FeetFromBounds(state.movement.body.bounds);
+    ri::math::Vec3 stabilizedVelocity = state.movement.body.velocity;
+    if (state.environmentService.StabilizeFreshSpawnIfNeeded(
+            static_cast<double>(state.elapsedSeconds),
+            stabilizedFeet,
+            &stabilizedVelocity)) {
+        state.movement.body.bounds = BuildPlayerBounds(stabilizedFeet);
+        state.movement.body.velocity = stabilizedVelocity;
+    }
     EnforceVoidRecovery(state, dt);
     for (const ri::world::ConstraintAxis axis : state.activeConstraintState.lockAxes) {
         switch (axis) {
@@ -1478,22 +1494,6 @@ void TickStandaloneFrame(RuntimeState& state) {
             vfxWeight = state.showcaseVfx[vfxIndex].weight;
         }
         const float animationScale = std::clamp(1.0f + (static_cast<float>(state.showcaseAnimationNodes) * 0.03f), 1.0f, 1.35f);
-        state.nativeRenderTuning.exposure = std::clamp(
-            state.showcaseBaseRenderTuning.exposure * (0.9f + (lightingIntensity * 0.22f) + (phase * 0.25f)),
-            0.5f,
-            2.5f);
-        state.nativeRenderTuning.contrast = std::clamp(
-            state.showcaseBaseRenderTuning.contrast * (1.05f + (phase * 0.28f)),
-            0.7f,
-            1.6f);
-        state.nativeRenderTuning.saturation = std::clamp(
-            state.showcaseBaseRenderTuning.saturation * (0.88f + (phase * 0.5f) + (vfxWeight * 0.18f)),
-            0.0f,
-            1.8f);
-        state.nativeRenderTuning.fogDensity = std::clamp(
-            state.showcaseBaseRenderTuning.fogDensity * (1.08f + (vfxWeight * 0.35f) + (std::sin(phase * 3.0f) * 0.03f)),
-            0.0f,
-            0.05f);
         state.previewOptions.fogColor = ri::math::Vec3{
             std::clamp(lightingColor.x * (0.45f + phase * 0.65f), 0.0f, 1.0f),
             std::clamp(lightingColor.y * (0.40f + phase * 0.60f), 0.0f, 1.0f),
@@ -1505,7 +1505,6 @@ void TickStandaloneFrame(RuntimeState& state) {
         if (state.showcaseElapsedSeconds >= state.showcaseDurationSeconds) {
             state.showcaseActive = false;
             state.showcaseFovPulseDegrees = 0.0f;
-            state.nativeRenderTuning = state.showcaseBaseRenderTuning;
             SetRuntimeDiagnosticsVisible(state, state.showcaseDiagnosticsWasVisible);
             SetLogicLayerVisible(state, state.showcaseDiagnosticsWasVisible);
             ri::core::LogInfo("Liminal showcase sequence complete; gameplay camera restored.");
@@ -1564,6 +1563,10 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
             frame.renderContrast = state.nativeRenderTuning.contrast;
             frame.renderSaturation = state.nativeRenderTuning.saturation;
             frame.renderFogDensity = state.nativeRenderTuning.fogDensity;
+            frame.postProcess = ri::world::BuildPostProcessParameters(
+                state.activePostProcessState,
+                static_cast<double>(state.elapsedSeconds),
+                0.0f);
             if (options.benchmarkFrames > 0) {
                 ++benchmarkedFrames;
                 if (benchmarkedFrames >= options.benchmarkFrames && state.hwnd != nullptr) {
@@ -1643,6 +1646,14 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/security.policy"));
     const ri::content::ScriptScalarMap pluginsPolicy =
         ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/plugins.policy"));
+    std::string contractError;
+    if (!ri::games::EnforceGameConfigContracts(
+            manifest.rootPath,
+            ri::games::GameConfigContractOptions{.mode = ri::games::GameConfigContractMode::Balanced},
+            &contractError)) {
+        ri::core::LogInfo(contractError);
+        return false;
+    }
     const LiminalDemoExtensions demoExtensions = LoadLiminalDemoExtensions(manifest);
     if (gameplay.empty()) {
         ri::core::LogInfo("Gameplay tuning script not found or empty; using defaults.");
@@ -1959,14 +1970,9 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     const bool pluginOrderBoost = ri::content::ScriptScalarOrBool(plugins, "plugin_render_priority_boost", false)
         && ri::content::ScriptScalarOrBool(pluginsPolicy, "allow_runtime_plugin_overrides", true)
         && demoExtensions.pluginCount > 0;
-    if (pluginOrderBoost) {
-        state.nativeRenderTuning.qualityTier = std::clamp(state.nativeRenderTuning.qualityTier + 1, 0, 2);
-    }
+    (void)pluginOrderBoost;
     if (demoExtensions.cinematicsRowCount > 0) {
         state.fovLerpPerSecond = std::clamp(state.fovLerpPerSecond + 1.5f, 0.5f, 40.0f);
-    }
-    if (demoExtensions.lightingRowCount > 0) {
-        state.nativeRenderTuning.exposure = std::clamp(state.nativeRenderTuning.exposure + 0.03f, 0.5f, 2.5f);
     }
     state.movementOptions.refineStructuralTraceHit =
         ri::scene::MakeStructuralMeshTraceRefiner(state.world.scene);
@@ -2138,7 +2144,6 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         " saturation=" + std::to_string(state.nativeRenderTuning.saturation) +
         " fogDensity=" + std::to_string(state.nativeRenderTuning.fogDensity));
     ri::core::LogInfo("Native Vulkan realtime lighting: directional shadow map=2048, local light=enabled");
-    state.showcaseBaseRenderTuning = state.nativeRenderTuning;
     state.showcaseLighting = LoadShowcaseLightingRows(manifest.rootPath / "levels" / "assembly.lighting.csv");
     state.showcaseCinematics = LoadShowcaseCinematicRows(manifest.rootPath / "levels" / "assembly.cinematics.csv");
     state.showcaseVfx = LoadShowcaseVfxEntries(manifest.rootPath / "assets" / "vfx.manifest");

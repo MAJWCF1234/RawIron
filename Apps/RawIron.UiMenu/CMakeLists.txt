@@ -8,11 +8,7 @@ FetchContent_Declare(
   GIT_TAG ${RAWIRON_IMGUI_TAG}
 )
 
-FetchContent_GetProperties(dear_imgui)
-if(NOT dear_imgui_POPULATED)
-  FetchContent_Populate(dear_imgui)
-endif()
-
+FetchContent_MakeAvailable(dear_imgui)
 set(IMGUI_DIR "${dear_imgui_SOURCE_DIR}")
 
 add_library(rawiron_imgui STATIC
@@ -73,6 +69,7 @@ endif()
 
 if(WIN32 AND RAWIRON_BUILD_TESTS)
   set(rawiron_verify_command_output "${PROJECT_SOURCE_DIR}/Tests/cmake/VerifyCommandOutput.cmake")
+  rawiron_runtime_dll_test_arg(rawiron_uimenu_runtime_dll_arg RawIron.UiMenu)
   set(rawiron_uimenu_expected
     "[UiMenu] manifest loaded"
     "screens="
@@ -85,6 +82,7 @@ if(WIN32 AND RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS_RAW=${rawiron_uimenu_args}"
       "-DEXPECTED_STRINGS=${rawiron_uimenu_expected}"
       "-DFORBIDDEN_STRINGS=failed;FAILED;exception"
+      "${rawiron_uimenu_runtime_dll_arg}"
       -P "${rawiron_verify_command_output}"
   )
 endif()

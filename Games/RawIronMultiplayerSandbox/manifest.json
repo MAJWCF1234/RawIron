@@ -1,0 +1,34 @@
+{
+  "id": "rawiron-multiplayer-sandbox",
+  "name": "RawIron Multiplayer Sandbox",
+  "format": "rawiron-game-v1.3.7",
+  "type": "test-game",
+  "entry": "RawIron.MultiplayerSandboxGame",
+  "runtimeContract": "rawiron-runtime-v1",
+  "runtimeModule": "RawIron.Game.MultiplayerSandbox",
+  "runtimeHost": "RuntimeCore",
+  "runtimeServices": [
+    "lifecycle",
+    "events",
+    "services",
+    "paths",
+    "frame-clock"
+  ],
+  "version": "1.3.7",
+  "author": "RawIron Team",
+  "editorProjectArg": "--game=rawiron-multiplayer-sandbox",
+  "primaryLevel": "levels/assembly.primitives.csv",
+  "description": "Dedicated/listen/hybrid multiplayer sandbox for full-engine networking, bots, and runtime diagnostics.",
+  "editorPreviewScene": "rawiron-multiplayer-sandbox",
+  "controls": {
+    "move": "WASD",
+    "look": "Mouse",
+    "jump": "Space",
+    "sprint": "Shift",
+    "interact": "E",
+    "quit": "Esc"
+  },
+  "editorOpenArgs": [
+    "--game=rawiron-multiplayer-sandbox"
+  ]
+}

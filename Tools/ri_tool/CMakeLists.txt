@@ -20,20 +20,13 @@ endif()
 
 target_compile_features(ri_tool PRIVATE cxx_std_20)
 
-if (WIN32 AND EXISTS "${RAWIRON_VULKAN_RUNTIME_DLL}")
-  add_custom_command(TARGET ri_tool POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      "${RAWIRON_VULKAN_RUNTIME_DLL}"
-      "$<TARGET_FILE_DIR:ri_tool>/vulkan-1.dll"
-  )
-endif()
-
 rawiron_stage_runtime_dlls(ri_tool)
 
 rawiron_bundle_engine_textures(ri_tool)
 
 if (RAWIRON_BUILD_TESTS)
   set(rawiron_verify_command_output "${PROJECT_SOURCE_DIR}/Tests/cmake/VerifyCommandOutput.cmake")
+  rawiron_runtime_dll_test_arg(rawiron_tool_runtime_dll_arg ri_tool)
   set(rawiron_tool_sample_expected
     "Scene: ToolPreview"
     "Nodes=13 Meshes=6 Materials=6 Cameras=1 Lights=2"
@@ -174,6 +167,7 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--sample-scene"
       "-DEXPECTED_STRINGS=${rawiron_tool_sample_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_tool_runtime_dll_arg}"
       -P "${rawiron_verify_command_output}"
   )
 
@@ -184,6 +178,7 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--formats"
       "-DEXPECTED_STRINGS=${rawiron_tool_format_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_tool_runtime_dll_arg}"
       -P "${rawiron_verify_command_output}"
   )
 
@@ -194,6 +189,7 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--workspace;--root;${PROJECT_SOURCE_DIR}"
       "-DEXPECTED_STRINGS=${rawiron_tool_workspace_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_tool_runtime_dll_arg}"
       -P "${rawiron_verify_command_output}"
   )
 
@@ -204,6 +200,7 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--scenekit-targets"
       "-DEXPECTED_STRINGS=${rawiron_tool_reference_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_tool_runtime_dll_arg}"
       -P "${rawiron_verify_command_output}"
   )
 
@@ -214,6 +211,7 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--scenekit-checks;--root;${PROJECT_SOURCE_DIR};--output-dir;${rawiron_scenekit_checks_root};--width;320;--height;256"
       "-DEXPECTED_STRINGS=${rawiron_scenekit_checks_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception;[FAIL]"
+      "${rawiron_tool_runtime_dll_arg}"
       "-DVERIFY_FILES_ROOT=${rawiron_scenekit_checks_root}"
       "-DREQUIRED_RELATIVE_FILES=${rawiron_scenekit_required_files}"
       -P "${rawiron_verify_command_output}"
@@ -226,6 +224,7 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--vulkan-diagnostics"
       "-DEXPECTED_STRINGS=${rawiron_tool_vulkan_expected}"
       "-DFORBIDDEN_STRINGS=${rawiron_tool_vulkan_forbidden}"
+      "${rawiron_tool_runtime_dll_arg}"
       -P "${rawiron_verify_command_output}"
   )
 
@@ -236,6 +235,7 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--ensure-workspace;--root;${rawiron_workspace_smoke_root}"
       "-DEXPECTED_STRINGS=${rawiron_workspace_create_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_tool_runtime_dll_arg}"
       "-DVERIFY_DIRECTORIES_ROOT=${rawiron_workspace_smoke_root}"
       "-DREQUIRED_RELATIVE_DIRECTORIES=${rawiron_workspace_required}"
       -P "${rawiron_verify_command_output}"
@@ -248,6 +248,7 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--render-cube;--output;${rawiron_render_cube_root}/cube.bmp;--width;256;--height;256"
       "-DEXPECTED_STRINGS=${rawiron_render_cube_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_tool_runtime_dll_arg}"
       "-DVERIFY_FILES_ROOT=${rawiron_render_cube_root}"
       "-DREQUIRED_RELATIVE_FILES=cube.bmp"
       -P "${rawiron_verify_command_output}"
@@ -260,6 +261,7 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--save-scene-state;--state-file;${rawiron_scene_state_path}"
       "-DEXPECTED_STRINGS=${rawiron_scene_state_save_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_tool_runtime_dll_arg}"
       "-DVERIFY_FILES_ROOT=${rawiron_scene_state_root}"
       "-DREQUIRED_RELATIVE_FILES=tool_scene_state.ri_state"
       -P "${rawiron_verify_command_output}"
@@ -272,6 +274,7 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--load-scene-state;--state-file;${rawiron_scene_state_path}"
       "-DEXPECTED_STRINGS=${rawiron_scene_state_load_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_tool_runtime_dll_arg}"
       -P "${rawiron_verify_command_output}"
   )
 endif()

@@ -1,6 +1,7 @@
 add_library(RawIron.Trace
   src/AabbOverlapContact.cpp
   src/BvhLifetimeRegistry.cpp
+  src/CompetitiveModel.cpp
   src/EntityPhysics.cpp
   src/ImpactDecalPlacement.cpp
   src/KinematicPhysics.cpp

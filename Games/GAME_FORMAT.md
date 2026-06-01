@@ -15,6 +15,35 @@ Required manifest fields:
 
 The game application executable may still own platform/window/render presentation details, but it must mount its game module through `RawIron.Runtime` concepts instead of creating another lifecycle convention.
 
+## Mandatory Config Contract Enforcement
+
+Config tuning is engine-owned and validated by shared runtime code, not by ad-hoc per-game logic.
+
+All games must pass `ri::games::EnforceGameConfigContracts(...)` during runtime boot before gameplay initialization continues.
+
+Validation is policy-based (engine-side):
+
+- `Strict`: unknown keys, missing required keys, and out-of-range values fail startup
+- `Balanced` (default): missing core files fail startup; schema/range/unknown issues are warnings
+- `Permissive`: all issues are warnings (for rapid iteration/dev)
+
+Current enforced files:
+
+- `config/game.cfg`
+- `scripts/rendering.riscript`
+- `scripts/postprocess.riscript`
+- `scripts/audio.riscript`
+- `scripts/physics.riscript`
+- `scripts/ui.riscript`
+- `scripts/streaming.riscript`
+- `scripts/network.riscript`
+- `scripts/persistence.riscript`
+
+Policy:
+
+- Games may add new tuning only by extending shared engine-side contract definitions in `Games/Common/src/GameConfigContracts.cpp`.
+- Game runtime code must not invent new runtime tuning behavior that bypasses contract-validated config.
+
 ## Core engine pillars (FPS test hall backbone)
 
 These systems are implemented in RawIron C++ and exercised by standalone games such as **Liminal Hall** and **Wilderness Ruins**.

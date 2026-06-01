@@ -22,8 +22,8 @@ struct ScenePreviewOptions {
     ri::math::Vec3 clearBottom{0.10f, 0.12f, 0.16f};
     ri::math::Vec3 fogColor{0.14f, 0.15f, 0.18f};
     ri::math::Vec3 ambientLight{0.10f, 0.11f, 0.13f};
-    /// Override directory for `Material::baseColorTexture` filenames. If unset, uses the bundled
-    /// `Assets/Textures` folder from the RawIron tree (copied next to exes by CMake; legacy: `Engine/Textures`).
+    /// Override directory for `Material::baseColorTexture` filenames. If unset, uses the
+    /// canonical `Assets/Textures` folder from the RawIron tree (legacy: `Engine/Textures`).
     std::optional<std::filesystem::path> textureRoot{};
     /// Optional animation clock for frame-sequence materials.
     double animationTimeSeconds = 0.0;

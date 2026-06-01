@@ -12,18 +12,11 @@ target_link_libraries(RawIron.Player
 
 target_compile_features(RawIron.Player PRIVATE cxx_std_20)
 
-if (WIN32 AND EXISTS "${RAWIRON_VULKAN_RUNTIME_DLL}")
-  add_custom_command(TARGET RawIron.Player POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      "${RAWIRON_VULKAN_RUNTIME_DLL}"
-      "$<TARGET_FILE_DIR:RawIron.Player>/vulkan-1.dll"
-  )
-endif()
-
 rawiron_stage_runtime_dlls(RawIron.Player)
 
 if (RAWIRON_BUILD_TESTS)
   set(rawiron_verify_command_output "${PROJECT_SOURCE_DIR}/Tests/cmake/VerifyCommandOutput.cmake")
+  rawiron_runtime_dll_test_arg(rawiron_player_runtime_dll_arg RawIron.Player)
   set(rawiron_player_expected
     "[Player Startup]"
     "[Player Vulkan]"
@@ -51,6 +44,7 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--frames;1;--no-scene-dump"
       "-DEXPECTED_STRINGS=${rawiron_player_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_player_runtime_dll_arg}"
       -P "${rawiron_verify_command_output}"
   )
 endif()

@@ -26,6 +26,7 @@ rawiron_bundle_engine_textures(RawIron.Preview)
 
 if (RAWIRON_BUILD_TESTS)
   set(rawiron_verify_command_output "${PROJECT_SOURCE_DIR}/Tests/cmake/VerifyCommandOutput.cmake")
+  rawiron_runtime_dll_test_arg(rawiron_preview_runtime_dll_arg RawIron.Preview)
   set(rawiron_preview_smoke_root "${CMAKE_CURRENT_BINARY_DIR}/preview-smoke")
   set(rawiron_preview_expected
     "[Preview Startup]"
@@ -40,6 +41,7 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--headless;--output;${rawiron_preview_smoke_root}/preview.bmp;--width;320;--height;240"
       "-DEXPECTED_STRINGS=${rawiron_preview_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_preview_runtime_dll_arg}"
       "-DVERIFY_FILES_ROOT=${rawiron_preview_smoke_root}"
       "-DREQUIRED_RELATIVE_FILES=preview.bmp"
       -P "${rawiron_verify_command_output}"

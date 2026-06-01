@@ -17,7 +17,7 @@ tags:
 - `Saved`: generated logs, previews, scratch data, and tool output.
 - `Scripts`: helper scripts and automation.
 - `Source`: shared engine libraries.
-- `Tests`: native test targets.
+- `Tests`: test harness/CMake scaffolding; active coverage is primarily opt-in CTest plus runtime and game-script validation.
 - `ThirdParty`: vendored external code.
 - `Tools`: command-line and content/tooling utilities.
 - `protoengine`: prototype/reference web engine material, not the native runtime target.

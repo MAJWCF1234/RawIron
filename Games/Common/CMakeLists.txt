@@ -1,4 +1,5 @@
 add_library(RawIron.Game.RuntimeDiagnosticsDraw STATIC
+  src/GameConfigContracts.cpp
   src/GameRuntimeCore.cpp
   src/RuntimeDiagnosticsStandaloneDraw.cpp
 )
