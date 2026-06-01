@@ -10,12 +10,12 @@
   .\RawIron.FullWorkspace.Installer.ps1 -NoGui -InstallRoot D:\RawIronWS
 #>
 param(
-    [string] $ReleaseTag = 'full-workspace-msvc-2026-05-26',
+    [string] $ReleaseTag = 'full-workspace-msvc-2026-06-01',
     [string] $Repo = 'MAJWCF1234/RawIron',
     [string] $InstallRoot = '',
     [string] $DownloadCache = (Join-Path $env:LOCALAPPDATA 'RawIron\release-downloads'),
     [switch] $SkipDownload,
-    [string] $ExpectedSha256 = '852c58221d1fa83607494015f96813c3e97a74a7359d54c5200566e2570e0dd7',
+    [string] $ExpectedSha256 = '94541f13d44e2e8bc247d7dfef87c248b42565670343eadd203277488fa6bd79',
     [switch] $SkipHashCheck,
     [switch] $WhatIf,
     [switch] $NoGui
@@ -27,7 +27,8 @@ $ErrorActionPreference = 'Stop'
 $script:PartNames = @(
     'RawIron_full_release_with_builds.zip.part01',
     'RawIron_full_release_with_builds.zip.part02',
-    'RawIron_full_release_with_builds.zip.part03'
+    'RawIron_full_release_with_builds.zip.part03',
+    'RawIron_full_release_with_builds.zip.part04'
 )
 $script:OutZipName = 'RawIron_full_release_with_builds.zip'
 
@@ -199,7 +200,7 @@ function Enter-GuiInstall {
     $lblIntro.Text = @(
         "Downloads all ZIP parts for the selected GitHub release, joins them, verifies SHA256, and extracts."
         "Repository: $Repo"
-        "Default SHA256 matches release ``full-workspace-msvc-2026-05-26``; if you change the tag, update the hash from release notes or use Skip verification."
+        "Default SHA256 matches release ``full-workspace-msvc-2026-06-01``; if you change the tag, update the hash from release notes or use Skip verification."
     ) -join "`r`n"
     $form.Controls.Add($lblIntro)
 

@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
   Build RawIron_full_release_with_builds.zip from the repo tree, split into .part01-.part03 for GitHub Releases.
-  Installer/ is excluded from the big archive (ship Installer_upload separately or from repo).
+  Ships the full workspace exactly as-is, excluding only ReleaseArtifacts.
 
   Maintainer narrative (CI, tagging, installer hashes): Documentation/04 Build/GitHub Push and Publish.md
 
@@ -17,7 +17,6 @@ param(
     [string] $OutputDir,
     [ValidateRange(100MB, 1950MB)]
     [long] $MaxPartBytes = 1900MB,
-    [switch] $IncludeGit,
     [switch] $WhatIf
 )
 
@@ -35,7 +34,8 @@ $zipBaseName = 'RawIron_full_release_with_builds.zip'
 $partNames = @(
     "$zipBaseName.part01",
     "$zipBaseName.part02",
-    "$zipBaseName.part03"
+    "$zipBaseName.part03",
+    "$zipBaseName.part04"
 )
 
 function Split-FileIntoParts {
@@ -79,18 +79,11 @@ function Split-FileIntoParts {
 }
 
 function Invoke-RobocopyStage {
-    param([string]$Src, [string]$Dst, [switch]$IncludeDotGit)
+    param([string]$Src, [string]$Dst)
     New-Item -ItemType Directory -Force -Path $Dst | Out-Null
     $xd = @(
-        '/XD', 'node_modules',
-        '/XD', '.vs',
-        '/XD', 'Installer',
-        '/XD', 'out',
-        '/XD', '.tmp'
+        '/XD', 'ReleaseArtifacts'
     )
-    if (-not $IncludeDotGit) {
-        $xd = @('/XD', '.git') + $xd
-    }
     $rcArgs = @($Src, $Dst, '/MIR', '/R:2', '/W:2', '/NFL', '/NDL', '/NJH', '/NJS', '/NP') + $xd
     & robocopy.exe @rcArgs
     $code = $LASTEXITCODE
@@ -100,7 +93,7 @@ function Invoke-RobocopyStage {
 }
 
 if ($WhatIf) {
-    Write-Host "WhatIf: mirror repo -> temp excluding node_modules, .vs, Installer, out, .tmp$(if (-not $IncludeGit) { ', .git' })"
+    Write-Host "WhatIf: mirror repo -> temp excluding ReleaseArtifacts only"
     Write-Host "WhatIf: zip -> $zipBaseName then split ($MaxPartBytes bytes/part max) -> $OutputDir"
     Write-Host "WhatIf: copy Installer -> $OutputDir\Installer_upload\"
     Write-Host "RepoRoot: $RepoRoot"
@@ -113,8 +106,8 @@ $stage = Join-Path $env:TEMP "rawiron-fullstage-$stamp"
 $zipPath = Join-Path $env:TEMP "rawiron-full-$stamp.zip"
 
 try {
-    Write-Host "Staging workspace -> $stage (Installer excluded from archive) ..."
-    Invoke-RobocopyStage -Src $RepoRoot -Dst $stage -IncludeDotGit:$IncludeGit
+    Write-Host "Staging full workspace -> $stage (excluding ReleaseArtifacts only) ..."
+    Invoke-RobocopyStage -Src $RepoRoot -Dst $stage
 
     Write-Host "Compressing (may take several minutes for multi-GB tree) ..."
     if (Test-Path -LiteralPath $zipPath) { Remove-Item $zipPath -Force }
