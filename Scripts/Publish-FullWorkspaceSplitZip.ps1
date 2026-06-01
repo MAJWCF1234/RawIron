@@ -4,7 +4,7 @@
   Build RawIron_full_release_with_builds.zip from the repo tree, split into .part01-.part03 for GitHub Releases.
   Ships the full workspace exactly as-is, excluding only ReleaseArtifacts.
 
-  Maintainer narrative (CI, tagging, installer hashes): Documentation/04 Build/GitHub Push and Publish.md
+  Maintainer narrative (CI, tagging, installer hashes): Documentation/04 Pipeline/Releases.md
 
 .EXAMPLE
   .\Scripts\Publish-FullWorkspaceSplitZip.ps1 -OutputDir D:\RawIronReleaseDrop

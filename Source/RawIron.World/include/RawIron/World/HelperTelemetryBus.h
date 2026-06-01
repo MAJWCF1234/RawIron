@@ -1,7 +1,7 @@
 #pragma once
 
 // Helper Telemetry Bus — umbrella documentation for development-facing helper observability.
-// Handbook: Documentation/02 Engine/Helper Telemetry Bus.md
+// Handbook: Documentation/02 Engine/01 Runtime Core.md
 //
 // Primary attachment points in-tree:
 //   ri::runtime::RuntimeEventBus  (RawIron/Runtime/RuntimeEventBus.h)

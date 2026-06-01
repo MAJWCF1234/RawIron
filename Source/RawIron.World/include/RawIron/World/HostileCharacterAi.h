@@ -1,6 +1,6 @@
 #pragma once
 
-// Hostile phase machine + frame input/output contract — developer map: Documentation/02 Engine/NPC Behavior Support.md
+// Hostile phase machine + frame input/output contract — developer map: Documentation/02 Engine/03 Content and Game Format.md
 
 #include "RawIron/Math/Angles.h"
 #include "RawIron/Math/Vec3.h"

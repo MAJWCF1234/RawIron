@@ -1,6 +1,6 @@
 #pragma once
 
-// Hotbar / backpack / off-hand loadout, stacking, logic-gate binding — Documentation/02 Engine/Inventory and Possession.md
+// Hotbar / backpack / off-hand loadout, stacking, logic-gate binding — Documentation/02 Engine/03 Content and Game Format.md
 
 #include "RawIron/Logic/LogicTypes.h"
 

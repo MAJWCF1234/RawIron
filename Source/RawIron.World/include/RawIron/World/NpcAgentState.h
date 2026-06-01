@@ -1,6 +1,6 @@
 #pragma once
 
-// NPC patrol / interaction intent and telemetry — developer map: Documentation/02 Engine/NPC Behavior Support.md
+// NPC patrol / interaction intent and telemetry — developer map: Documentation/02 Engine/03 Content and Game Format.md
 
 #include "RawIron/Math/Vec3.h"
 #include "RawIron/World/HeadlessVerification.h"

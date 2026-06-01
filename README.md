@@ -4,7 +4,7 @@ Native **C++20** game engine and tooling: Vulkan runtime, scene graph, logic/eve
 
 **On GitHub:** this **README** on the default branch is the **source-of-truth** for how to build and run. The **Releases** tab may ship **optional** large binary bundles (split ZIPs + installer); there are **no** checked-in engine binaries on `main`. For **bugs / features**, use **[Issues](issues)** (templates under [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/)). For **contribution workflow**, see [**CONTRIBUTING.md**](CONTRIBUTING.md). For **security**, see [**SECURITY.md**](SECURITY.md).
 
-[![CI](https://github.com/MAJWCF1234/RawIron/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MAJWCF1234/RawIron/actions/workflows/ci.yml) — **Windows MSVC** CI builds a **fast smoke subset** (UiMenu, ParticleShowcase, both games) and runs **`RawIron.UiMenu --headless`**. **`CMakeLists.txt` still turns on the full app set** for local clones; CI is narrower to save minutes on every push. Maintainer guide: [**Documentation/04 Build/GitHub Push and Publish.md**](Documentation/04%20Build/GitHub%20Push%20and%20Publish.md).
+[![CI](https://github.com/MAJWCF1234/RawIron/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MAJWCF1234/RawIron/actions/workflows/ci.yml) — **Windows MSVC** CI builds a **fast smoke subset** (UiMenu, ParticleShowcase, both games) and runs **`RawIron.UiMenu --headless`**. **`CMakeLists.txt` still turns on the full app set** for local clones; CI is narrower to save minutes on every push. Maintainer guide: [**Documentation/04 Pipeline/Releases.md**](Documentation/04%20Pipeline/Releases.md).
 
 ---
 
@@ -138,11 +138,13 @@ Other switches:
 Start here:
 
 - `Documentation/00 Home.md`
-- `Documentation/02 Engine/Current Engine Review.md`
-- `Documentation/02 Engine/Repository Layout.md`
-- `Documentation/04 Build/Testing.md` (may still mention removed native suites — treat as historical where it conflicts with this README)
-- `Documentation/04 Build/EOS Integration.md` — provider-based online rendezvous (`EOS` + `DirectToken` fallback), net modes, bot swarm testing, and dedicated/listen/hybrid multiplayer flows
-- `Documentation/04 Build/GitHub Push and Publish.md` — **CI**, bundle push, and **GitHub Releases** workflow for maintainers
+- `Documentation/01 Product/RawIron.md`
+- `Documentation/02 Engine/00 Engine Home.md`
+- `Documentation/02 Engine/04 Multiplayer.md`
+- `Documentation/02 Engine/06 Plugins and Mods.md`
+- `Documentation/03 Projects/00 Projects Home.md`
+- `Documentation/04 Pipeline/Build, Test, and Run.md`
+- `Documentation/04 Pipeline/Releases.md`
 
 ---
 

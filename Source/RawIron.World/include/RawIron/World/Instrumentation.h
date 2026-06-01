@@ -96,7 +96,7 @@ private:
 };
 
 /// Subscribes to `RuntimeEventBus` helper-facing channels and maintains `HelperActivityState`.
-/// Umbrella concept: Documentation/02 Engine/Helper Telemetry Bus.md — discoverability header `HelperTelemetryBus.h`.
+/// Umbrella concept: Documentation/02 Engine/01 Runtime Core.md — discoverability header `HelperTelemetryBus.h`.
 class HelperActivityTracker {
 public:
     HelperActivityTracker() = default;
@@ -119,7 +119,7 @@ private:
     std::optional<ri::runtime::RuntimeEventBus::ListenerId> schemaValidatedListener_;
 };
 
-/// Ring buffer + counters for logic I/O tooling; field contract for bus emits is documented in `Documentation/02 Engine/Entity IO and Logic Graph.md`.
+/// Ring buffer + counters for logic I/O tooling; field contract for bus emits is documented in `Documentation/02 Engine/03 Content and Game Format.md`.
 class EntityIoTracker {
 public:
     void IncrementOutputsFired(std::size_t count = 1);

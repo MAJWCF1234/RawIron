@@ -1,62 +1,28 @@
----
-tags:
-  - rawiron
-  - index
----
+# RawIron
 
-# RawIron Vault
+RawIron is a native C++20 game engine and game workspace built around a shared runtime core, Vulkan rendering, data-authored game projects, and in-repo shipping tools.
 
-This folder is the working documentation vault for **RawIron**.
+## Start Here
 
-## Current Identity
+- [[01 Product/RawIron|What RawIron is]]
+- [[02 Engine/00 Engine Home|Engine overview]]
+- [[03 Projects/00 Projects Home|Game projects]]
+- [[04 Pipeline/00 Pipeline Home|Build, test, and release pipeline]]
 
-- Product mark: [[01 Brand/RawIron|RawIron]]
-- Positioning: **"a bare-metal game engine"**
-- Build space: repository checkout root
+## Current Workspace Shape
 
-## Core Notes
+- `Source/` contains the engine libraries.
+- `Apps/` contains runtime hosts, editor-facing tools, and multiplayer utilities.
+- `Games/` contains shippable game projects and game-specific runtime modules.
+- `Assets/` contains the workspace asset corpus that ships with the workspace.
+- `Installer/` contains the full-workspace installer that reassembles split release parts.
+- `Scripts/` contains publishing, sync, and build helper scripts.
 
-- [[01 Brand/RawIron|Brand and Product Identity]]
-- [[02 Engine/00 Engine Home|Engine Handbook]]
-- [[02 Engine/Current Engine Review|Current Engine Review]]
-- [[02 Engine/Engine Vision|Engine Vision]]
-- [[02 Engine/Architecture Direction|Architecture Direction]]
-- [[02 Engine/Platform Support|Platform Support]]
-- [[02 Engine/01 Runtime Flow|Runtime Flow]]
-- [[02 Engine/02 World Systems|World Systems]]
-- [[02 Engine/03 Event Engine|Event Engine]]
-- [[02 Engine/04 Level Design Patterns|Level Design Patterns]]
-- [[02 Engine/05 Debugging and Instrumentation|Debugging and Instrumentation]]
-- [[02 Engine/06 Content Assembly|Content Assembly]]
-- [[02 Engine/Repository Layout|Repository Layout]]
-- [[02 Engine/Library Layers|Library Layers]]
-- [[02 Engine/Scene Primitives|Scene Primitives]]
-- [[02 Engine/Built-In Helpers|Built-In Helpers]]
-- [[02 Engine/Scene Kit Milestones|Scene Kit Milestones]]
-- [[03 Assets/Asset Pipeline|Asset Pipeline]]
-- [[03 Assets/File Formats|File Format Decisions]]
-- [[04 Build/Toolchain|Toolchain and Build Environment]]
-- [[04 Build/Vulkan Environment|Vulkan Environment]]
-- [[04 Build/Workspace Layout|Workspace Layout]]
-- [[04 Build/Visual Shell|Visual Shell]]
-- [[04 Build/Testing|Testing]]
-- [[04 Build/GitHub Push and Publish|GitHub — push and publish]]
+## Core Ideas
 
-Migration history is summarized in [[02 Engine/Current Engine Review|Current Engine Review]] and the current engine handbook pages.
-
-## Working Direction
-
-RawIron is intended to become a **native, standalone, cross-platform game engine** with:
-
-- a C++ core
-- its own editor and tools
-- native runtime and tooling ownership
-- a custom asset pipeline
-- internal engine-owned asset formats
-- engine logic and runtime systems ported into native C++
-- native player, editor, preview, visual shell, and game-module targets
-- a Scene Kit milestone gate backed by native tooling and tests
-
-## Notes
-
-This vault records current direction, not permanent law. Where decisions are still in motion, the notes should say so explicitly.
+- Runtime lifecycle belongs to `RawIron.Runtime`.
+- Games supply authored data and runtime modules, not private engine stacks.
+- Config ownership is engine-enforced through shared contracts.
+- Multiplayer is a first-class engine surface with dedicated, listen, hybrid, and client flows.
+- Plugins, policies, manifests, and hook files are part of every game contract.
+- GitHub releases are shipped as a split full-workspace archive plus installer.

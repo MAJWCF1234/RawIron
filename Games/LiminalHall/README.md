@@ -1,143 +1,101 @@
 # Liminal Hall
 
-Format contract: `rawiron-game-v1.3.7` with v1.3.7 showcase files populated (see [`Games/GAME_FORMAT.md`](../GAME_FORMAT.md)).
+Format contract: `rawiron-game-v1.3.7`
 
-Manifest v1.3.7 identity:
+## Identity
 
 - `id`: `liminal-hall`
+- `name`: `Liminal Hall`
+- `entry`: `RawIron.LiminalGame`
+- `runtimeModule`: `RawIron.Game.LiminalHall`
 - `editorProjectArg`: `--game=liminal-hall`
 - `primaryLevel`: `levels/assembly.primitives.csv`
 - `editorPreviewScene`: `liminal-hall`
 
-Level layout (**v3 — stable surreal hub**): a single **magenta checker plaza** (C++) with four flat walkable wings authored in CSV — no overlapping void basin or stress parkour tower.
+## Purpose
 
-| Direction | Wing | What it demos |
-|-----------|------|----------------|
-| **Spawn** | Hub center | Cyan stripe, fractal gate, twin obelisks, logic plate demo |
-| **+X East** | `EastDeck` | PSX stone/metal ramps and pillars |
-| **−X West** | `WestDeck` + structural ring | `assembly.structural.csv` arches, torus, stairs, dome (mesh colliders on platform + stairs only) |
-| **+Z North** | `NorthDisk` | Monolith silhouettes + gold offering disk |
-| **−Z South** | `SouthPad` → `SouthFinish` | Six gentle hops (≤2.4 m), not a helix tower |
-| **NW** | `PortalDeck` | Compact portal pocket |
+Liminal Hall is the surreal in-repo exploration and runtime showcase project. It demonstrates authored world assembly, runtime-owned presentation, interaction hooks, project config ownership, and the shared game contract working inside a shippable game folder.
 
-Zones: `hub_plaza`, `wing_east`, `wing_west`, `wing_north`, `wing_south`, `portal_pocket`. Spawn: `(0, 1, -6)` on the hub facing the fractal gate.
+## Open and run
 
-Standalone launch from repo root:
-
-- `play-liminal.cmd`
-- `pwsh ./play-liminal.ps1`
-- extra args are forwarded, e.g.:
-  - `play-liminal.cmd --width=1600 --height=900 --window-title="Liminal Hall Test"`
-  - `play-liminal.cmd --mouse-sensitivity=0.16`
-  - `play-liminal.cmd --no-mouse-capture` (useful for debugging / capture software)
-  - `play-liminal.cmd --headless --frames=300 --output=Saved/Previews/liminal_demo.bmp`
-
-Editor load:
-
+- `Games\LiminalHall\Open Liminal Hall In Editor.cmd`
+- `Games\LiminalHall\Play Liminal Hall.cmd`
 - `RawIron.Editor --game=liminal-hall`
-- or `Launch RawIron Editor.cmd --game=liminal-hall`
 
-Controls in standalone:
+## Controls
 
 - `WASD` move
-- `Mouse` look (pointer clip when capture is on)
+- `Mouse` look
 - `Space` jump
 - `Shift` sprint
-- `E` interact (doors / info panels when authored into the runtime environment)
-- `Esc` exit
+- `E` interact
+- `Esc` quit
 
-Game-owned content consumed by engine:
+## Main project surfaces
 
-- `scripts/gameplay.riscript` movement/spawn tuning
-- `scripts/rendering.riscript` fog/ambient/clear tuning
-- `scripts/logic.riscript` directed event-graph logic authoring (text + spatial)
-- `scripts/ui.riscript` HUD/crosshair/objective-panel tuning
-- `scripts/audio.riscript` game-owned audio environment and mix tuning scalars
-- `scripts/streaming.riscript` game-owned streaming/checkpoint tuning scalars
-- `scripts/localization.riscript` locale/fallback scalar tuning
-- `scripts/physics.riscript` global physics scalar tuning
-- `scripts/postprocess.riscript` post-FX scalar tuning
-- `scripts/init.riscript` startup warmup/precache scalar tuning
-- `scripts/state.riscript` save/checkpoint/stateflow scalar tuning
-- `scripts/network.riscript` network tick/session/reliability scalar tuning
-- `scripts/persistence.riscript` save-slot/flush/journal scalar tuning
-- `scripts/ai.riscript` AI cadence/awareness scalar tuning
-- `config/game.cfg` game-owned cfg scalars for runtime/editor profile toggles
-- `config/input.map` required input-action map baseline
-- `config/project.dev` required local/project workspace cfg baseline
-- `config/network.cfg` required runtime network transport and budget baseline
-- `config/build.profile` required profile/channel/content budget baseline
-- `config/security.policy` required gameplay/security policy scalar baseline
-- `assets/palette.ripalette` authored color set
-- `assets/layers.config` render/authoring layer routing baseline
-- `assets/manifest.assets` required asset key-to-path manifest
-- `assets/metadata.json` required project metadata constants
-- `assets/dependencies.json` required runtime/editor dependency groups
-- `assets/streaming.manifest` prioritized runtime streaming asset list
-- `assets/shaders.manifest` required shader-pack mapping manifest
-- `assets/materials.manifest` PBR material definitions and bindings
-- `assets/audio.banks` pre-compiled audio bank references
-- `assets/fonts.manifest` typography and font atlas definitions
-- `levels/assembly.primitives.csv` four stable wings (no duplicate hub geometry)
-- `levels/assembly.structural.csv` west-deck structural primitive ring
-- `levels/assembly.colliders.csv` collision assembly for trace/movement
-- `levels/assembly.navmesh` navmesh region/link descriptor baseline
-- `levels/assembly.zones.csv` sector-based streaming zone definitions
-- `levels/assembly.triggers.csv` level event triggers and hitboxes
-- `levels/assembly.occlusion.csv` precomputed culling and occlusion volumes
-- `levels/assembly.audio.zones` spatial audio volumes, reverb nodes, and occlusion dampening
-- `levels/assembly.lods.csv` level-of-detail culling distances and scaling ranges
-- `levels/assembly.ai.nodes` authored AI node graph definitions
-- `data/schema.db` text-based schema descriptor baseline for persistent records
-- `data/lookup.index` baseline index for accelerated data lookup keys
-- `data/entity.registry` baseline entity/archetype registry data
-- `data/save.schema` validation schema for safe serialization and saves
-- `data/achievements.registry` cross-platform achievement and trophy mappings
-- `ai/behavior.tree` baseline behavior-tree graph definitions
-- `ai/blackboard.json` baseline blackboard key schema and defaults
-- `ai/factions.cfg` baseline faction and relation matrix values
-- `ai/perception.cfg` sight, hearing, and sensing parameters
-- `ai/squad.tactics` group behavior and formation logic
-- `ui/layout.xml` base UI layout definitions
-- `ui/styling.css` global styling and theming for UI nodes
-- `tests/gameplay.test.riscript` unit-style checks for core game logic contracts
-- `tests/rendering.test.riscript` automated visual regression test definitions
-- `tests/network.test.riscript` latency simulation and state-sync validation
-- `tests/ui.test.riscript` UI functional state and navigation testing
+### Runtime scripts
 
-Runtime tuning notes:
+- `scripts/gameplay.riscript`
+- `scripts/rendering.riscript`
+- `scripts/logic.riscript`
+- `scripts/ui.riscript`
+- `scripts/audio.riscript`
+- `scripts/streaming.riscript`
+- `scripts/localization.riscript`
+- `scripts/physics.riscript`
+- `scripts/postprocess.riscript`
+- `scripts/init.riscript`
+- `scripts/state.riscript`
+- `scripts/network.riscript`
+- `scripts/persistence.riscript`
+- `scripts/ai.riscript`
+- `scripts/plugins.riscript`
+- `scripts/animation.riscript`
+- `scripts/vfx.riscript`
 
-- `scripts/gameplay.riscript` can define `mouse_sensitivity` (degrees per pixel).
-- command line `--mouse-sensitivity=<float>` overrides script/default at runtime.
-- gameplay script also exposes movement/view feel knobs:
-  - `ground_acceleration`, `air_acceleration`, `ground_friction`, `air_control`
-  - `coyote_time`, `jump_buffer_time`, `low_jump_gravity_multiplier`, `max_fall_speed`
-  - `camera_height`, `head_bob_amplitude`, `head_bob_frequency`, `head_bob_sprint_scale`
-  - `spawn_x`, `spawn_y`, `spawn_z`, `spawn_yaw`, `spawn_pitch`
-- rendering script exposes sprint FOV behavior:
-  - `fov_base`, `fov_sprint_add`, `fov_lerp_per_second`
+### Config and policy
 
-Headless demo capture:
+- `config/game.cfg`
+- `config/input.map`
+- `config/project.dev`
+- `config/network.cfg`
+- `config/build.profile`
+- `config/security.policy`
+- `config/plugins.policy`
 
-- `--headless` runs a deterministic fixed-step simulation and saves the final frame BMP.
-- `--frames=<n>` and `--dt=<seconds>` control duration and timestep.
-- `--output=<path>` chooses output location (default: `Saved/Previews/liminal_headless.bmp`).
-- `--no-autoplay` disables the staged attract-mode walk in headless mode.
+### Level assembly
 
-UI script notes (`scripts/ui.riscript`):
+- `levels/assembly.primitives.csv`
+- `levels/assembly.colliders.csv`
+- `levels/assembly.navmesh`
+- `levels/assembly.zones.csv`
+- `levels/assembly.triggers.csv`
+- `levels/assembly.occlusion.csv`
+- `levels/assembly.audio.zones`
+- `levels/assembly.lods.csv`
+- `levels/assembly.ai.nodes`
+- `levels/assembly.lighting.csv`
+- `levels/assembly.cinematics.csv`
 
-- scalar keys currently wired by runtime/editor: `show_runtime_diagnostics`, `show_objective_panel`, `crosshair_mode`, `crosshair_scale`, `hud_style_variant`
+### Assets, data, plugins, and tests
 
-## Feature Showcase Map
+- `assets/*`
+- `data/*`
+- `plugins/*`
+- `ai/*`
+- `ui/*`
+- `tests/*.riscript`
 
-- AI data path: `scripts/ai.riscript` + `levels/assembly.ai.nodes` + `ai/behavior.tree` + `ai/blackboard.json` + `ai/factions.cfg`
-  - Demonstrates AI cadence/mode data and faction defaults consumed into startup/runtime diagnostics.
-- Plugin path: `scripts/plugins.riscript` + `config/plugins.policy` + `plugins/*`
-  - Demonstrates hook registration order and plugin policy toggles consumed by runtime/editor status logs and render-priority boost gating.
-- Animation and VFX path: `scripts/animation.riscript` + `scripts/vfx.riscript` + `assets/animation.graph` + `assets/vfx.manifest`
-  - Demonstrates bob/fog/render tuning derived from authored manifests and script scalars.
-- Lighting and cinematic path: `levels/assembly.lighting.csv` + `levels/assembly.cinematics.csv`
-  - Demonstrates authored row-count driven startup influences for exposure/FOV blend behavior and diagnostics.
-- Data and telemetry path: `data/entity.registry` + `data/lookup.index` + `data/telemetry.db`
-  - Demonstrates entity and lookup coverage plus telemetry SQLite-header validation for deterministic startup reporting.
+## Runtime focus
 
+Liminal Hall exercises:
+
+- shared runtime lifecycle through `RuntimeCore`
+- config-driven tuning instead of per-game render invention
+- authored triggers, zones, audio spaces, and interaction hooks
+- plugin and policy surfaces as part of a normal project
+
+## Reference
+
+- `Games/GAME_FORMAT.md`
+- `Documentation/03 Projects/Liminal Hall.md`

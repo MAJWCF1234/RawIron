@@ -6,7 +6,7 @@
 
   Run via Open-PublishFullRelease-Window.ps1 so prompts and gh auth happen on your desktop.
 
-  See: Documentation/04 Build/GitHub Push and Publish.md
+  See: Documentation/04 Pipeline/Releases.md
 #>
 param(
     [string] $RepoRoot,
