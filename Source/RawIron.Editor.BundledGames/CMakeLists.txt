@@ -24,4 +24,9 @@ if(RAWIRON_BUILD_FOREST_RUINS_GAME)
   target_link_libraries(RawIron.Editor.BundledGames PRIVATE RawIron::Game.ForestRuins)
 endif()
 
+if(RAWIRON_BUILD_MULTIPLAYER_SANDBOX_GAME)
+  target_compile_definitions(RawIron.Editor.BundledGames PRIVATE RAWIRON_EDITOR_BUNDLE_MULTIPLAYER_SANDBOX=1)
+  target_link_libraries(RawIron.Editor.BundledGames PRIVATE RawIron::Game.MultiplayerSandbox)
+endif()
+
 target_compile_features(RawIron.Editor.BundledGames PUBLIC cxx_std_20)

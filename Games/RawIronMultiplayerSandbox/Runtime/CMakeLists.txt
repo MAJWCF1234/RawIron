@@ -1,4 +1,5 @@
 add_library(RawIron.Game.MultiplayerSandbox
+  src/MultiplayerSandboxEditorPreview.cpp
   src/MultiplayerSandboxExperience.cpp
   src/MultiplayerSandboxRuntime.cpp
   src/MultiplayerSandboxWorld.cpp
@@ -15,6 +16,7 @@ target_link_libraries(RawIron.Game.MultiplayerSandbox
   PUBLIC
     RawIron::Content
     RawIron::Core
+    RawIron::EditorPreview
     RawIron::Game.RuntimeDiagnosticsDraw
     RawIron::RenderSoftware
     RawIron::RenderVulkan

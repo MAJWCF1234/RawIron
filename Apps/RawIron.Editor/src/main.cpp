@@ -9,7 +9,17 @@
 #include "RawIron/Core/MainLoop.h"
 #include "RawIron/Math/Vec3.h"
 #include "RawIron/Editor/BundledGamePreviews.h"
+#include "EditorFilesInspector.h"
+#include "EditorInspectorPanels.h"
+#include "EditorPlaytestLauncher.h"
 #include "RawIron/Editor/PreviewSceneRegistry.h"
+#include "EditorHierarchy.h"
+#include "EditorProjectScaffolding.h"
+#include "EditorResourceBrowser.h"
+#include "EditorResourceDocument.h"
+#include "EditorRenderer.h"
+#include "EditorResourceTextEditor.h"
+#include "EditorWorkspace.h"
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Runtime/ExperiencePresets.h"
 #include "RawIron/Runtime/RuntimeCore.h"
@@ -59,6 +69,43 @@
 namespace {
 
 namespace fs = std::filesystem;
+using ri::editor::CollectWorkspaceGameResources;
+using ri::editor::ComputeVisibleResourceScrollTop;
+using ri::editor::EnsureMountedGameScaffold;
+using ri::editor::EnsureProjectDevConfig;
+using ri::editor::EnumerateWorkspaceGames;
+using ri::editor::FindResourceRowByRelativePath;
+using ri::editor::IsLikelyTextResourcePath;
+using ri::editor::BuildFilteredHierarchyDrawOrder;
+using ri::editor::BuildHierarchyDrawOrder;
+using ri::editor::BuildFilesInspectorPanelModel;
+using ri::editor::ComputeVisibleHierarchyScrollTop;
+using ri::editor::ComputeGameplayPanelLayout;
+using ri::editor::FindDrawOrderIndex;
+using ri::editor::LoadResourceDocument;
+using ri::editor::ComputeProjectShortcutLayout;
+using ri::editor::ProjectShortcutLayout;
+using ri::editor::EditorRenderer;
+using ri::editor::NodeInspectorPanelModel;
+using ri::editor::BrushInspectorPanelModel;
+using ri::editor::GameplayInspectorPanelModel;
+using ri::editor::GameplayPanelLayout;
+using ri::editor::DestroyResourceTextEditorControl;
+using ri::editor::EnsureResourceTextEditorCreated;
+using ri::editor::LayoutResourceTextEditorControl;
+using ri::editor::OpenActiveResourceInExplorer;
+using ri::editor::RenderBrushInspectorPanel;
+using ri::editor::RenderGameplayInspectorPanel;
+using ri::editor::RenderNodeInspectorPanel;
+using ri::editor::ResolveDirtyResourceBeforeContextSwitch;
+using ri::editor::SaveResourceDocumentUtf8;
+using ri::editor::SaveActiveResourceFileFromEditor;
+using ri::editor::WorkspaceCategoryBit;
+using ri::editor::WorkspaceCategoryLabel;
+using ri::editor::WorkspaceCategoryShortLabel;
+using ri::editor::WorkspaceGameEntry;
+using ri::editor::WorkspaceResourceCategory;
+using ri::editor::WorkspaceResourceEntry;
 
 [[nodiscard]] std::string DescribeOptionalAssetState(const fs::path& path, const bool checkSqliteHeader = false) {
     std::error_code ec{};
@@ -119,246 +166,6 @@ fs::path BuildEditorSceneStatePath(const fs::path& workspaceRoot, std::string_vi
     return workspaceRoot / "Saved" / "Editor" / std::string(sceneId) / "scene_state.ri_state";
 }
 
-enum class WorkspaceResourceCategory {
-    Manifest,
-    Level,
-    Script,
-    Test,
-    UiScreen,
-    Menu,
-    Asset,
-    Other,
-};
-
-struct WorkspaceGameEntry {
-    std::string id;
-    std::string displayName;
-    fs::path rootPath;
-};
-
-struct WorkspaceResourceEntry {
-    fs::path absolutePath;
-    std::string relativePathUtf8;
-    WorkspaceResourceCategory category = WorkspaceResourceCategory::Other;
-};
-
-[[nodiscard]] std::string WorkspaceCategoryLabel(const WorkspaceResourceCategory category) {
-    switch (category) {
-        case WorkspaceResourceCategory::Manifest:
-            return "Manifest";
-        case WorkspaceResourceCategory::Level:
-            return "Level";
-        case WorkspaceResourceCategory::Script:
-            return "Script";
-        case WorkspaceResourceCategory::Test:
-            return "Test";
-        case WorkspaceResourceCategory::UiScreen:
-            return "Screen / UI";
-        case WorkspaceResourceCategory::Menu:
-            return "Menu";
-        case WorkspaceResourceCategory::Asset:
-            return "Asset";
-        case WorkspaceResourceCategory::Other:
-            return "Other";
-    }
-    return "Other";
-}
-
-[[nodiscard]] std::uint32_t WorkspaceCategoryBit(const WorkspaceResourceCategory category) {
-    switch (category) {
-        case WorkspaceResourceCategory::Manifest:
-            return 1u << 0u;
-        case WorkspaceResourceCategory::Level:
-            return 1u << 1u;
-        case WorkspaceResourceCategory::Script:
-            return 1u << 2u;
-        case WorkspaceResourceCategory::Test:
-            return 1u << 3u;
-        case WorkspaceResourceCategory::UiScreen:
-            return 1u << 4u;
-        case WorkspaceResourceCategory::Menu:
-            return 1u << 5u;
-        case WorkspaceResourceCategory::Asset:
-            return 1u << 6u;
-        case WorkspaceResourceCategory::Other:
-            return 1u << 7u;
-    }
-    return 0u;
-}
-
-[[nodiscard]] std::string WorkspaceCategoryShortLabel(const WorkspaceResourceCategory category) {
-    switch (category) {
-        case WorkspaceResourceCategory::Manifest:
-            return "Manifest";
-        case WorkspaceResourceCategory::Level:
-            return "Levels";
-        case WorkspaceResourceCategory::Script:
-            return "Scripts";
-        case WorkspaceResourceCategory::Test:
-            return "Tests";
-        case WorkspaceResourceCategory::UiScreen:
-            return "UI";
-        case WorkspaceResourceCategory::Menu:
-            return "Menus";
-        case WorkspaceResourceCategory::Asset:
-            return "Assets";
-        case WorkspaceResourceCategory::Other:
-            return "Other";
-    }
-    return "Other";
-}
-
-[[nodiscard]] WorkspaceResourceCategory ClassifyRelativeGamePath(const fs::path& relativePath) {
-    const fs::path norm = relativePath.lexically_normal();
-    if (norm.filename() == "manifest.json") {
-        return WorkspaceResourceCategory::Manifest;
-    }
-    if (norm.begin() == norm.end()) {
-        return WorkspaceResourceCategory::Other;
-    }
-    fs::path firstComponent = *norm.begin();
-    std::string low = firstComponent.string();
-    for (char& ch : low) {
-        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-    }
-    if (low == "levels") {
-        return WorkspaceResourceCategory::Level;
-    }
-    if (low == "scripts") {
-        return WorkspaceResourceCategory::Script;
-    }
-    if (low == "tests") {
-        return WorkspaceResourceCategory::Test;
-    }
-    if (low == "assets") {
-        return WorkspaceResourceCategory::Asset;
-    }
-    if (low == "ui" || low == "screens") {
-        return WorkspaceResourceCategory::UiScreen;
-    }
-    if (low == "menus") {
-        return WorkspaceResourceCategory::Menu;
-    }
-    return WorkspaceResourceCategory::Other;
-}
-
-[[nodiscard]] bool IsLikelyTextResourcePath(const fs::path& path) {
-    std::string ext = path.extension().string();
-    for (char& ch : ext) {
-        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-    }
-    static constexpr const char* kTextExt[] = {".csv",  ".riscript", ".json", ".md",    ".txt", ".xml",
-                                               ".yaml", ".yml",      ".ini",  ".hlsl", ".glsl", ".ripalette",
-                                               ".css"};
-    for (const char* e : kTextExt) {
-        if (ext == e) {
-            return true;
-        }
-    }
-    return false;
-}
-
-void CollectResourcesUnderTree(const fs::path& gameRoot,
-                               const fs::path& subdir,
-                               WorkspaceResourceCategory forcedCategory,
-                               std::vector<WorkspaceResourceEntry>& out) {
-    std::error_code ec{};
-    const fs::path base = gameRoot / subdir;
-    if (!fs::exists(base, ec)) {
-        return;
-    }
-    const fs::directory_options opts = fs::directory_options::skip_permission_denied;
-    fs::recursive_directory_iterator end{};
-    for (fs::recursive_directory_iterator it(base, opts, ec); !ec && it != end; ++it) {
-        if (!it->is_regular_file()) {
-            continue;
-        }
-        const fs::path abs = it->path();
-        std::error_code relEc{};
-        const fs::path rel = fs::relative(abs, gameRoot, relEc);
-        if (relEc) {
-            continue;
-        }
-        const WorkspaceResourceCategory cat = (forcedCategory == WorkspaceResourceCategory::Other)
-            ? ClassifyRelativeGamePath(rel)
-            : forcedCategory;
-        out.push_back(WorkspaceResourceEntry{
-            .absolutePath = abs,
-            .relativePathUtf8 = rel.generic_string(),
-            .category = cat,
-        });
-    }
-}
-
-[[nodiscard]] std::vector<WorkspaceGameEntry> EnumerateWorkspaceGames(const fs::path& workspaceRoot) {
-    std::vector<WorkspaceGameEntry> games;
-    std::error_code ec{};
-    const fs::path gamesRoot = workspaceRoot / "Games";
-    if (!fs::exists(gamesRoot, ec)) {
-        return games;
-    }
-    for (const fs::directory_entry& entry : fs::directory_iterator(gamesRoot, ec)) {
-        if (!entry.is_directory()) {
-            continue;
-        }
-        const fs::path manifestPath = entry.path() / "manifest.json";
-        if (!fs::exists(manifestPath, ec)) {
-            continue;
-        }
-        const std::optional<ri::content::GameManifest> manifest = ri::content::LoadGameManifest(manifestPath);
-        if (!manifest.has_value()) {
-            continue;
-        }
-        games.push_back(WorkspaceGameEntry{
-            .id = manifest->id,
-            .displayName = manifest->name.empty() ? manifest->id : manifest->name,
-            .rootPath = manifest->rootPath,
-        });
-    }
-    std::sort(games.begin(), games.end(), [](const WorkspaceGameEntry& a, const WorkspaceGameEntry& b) {
-        return a.displayName < b.displayName;
-    });
-    return games;
-}
-
-[[nodiscard]] std::vector<WorkspaceResourceEntry> CollectWorkspaceGameResources(const fs::path& gameRoot) {
-    std::vector<WorkspaceResourceEntry> resources;
-    const ri::content::GameRuntimeSupportData supportData = ri::content::LoadGameRuntimeSupportData(gameRoot);
-    std::error_code ec{};
-    const fs::path manifestPath = gameRoot / "manifest.json";
-    if (fs::exists(manifestPath, ec)) {
-        const fs::path rel = fs::relative(manifestPath, gameRoot, ec);
-        resources.push_back(WorkspaceResourceEntry{
-            .absolutePath = manifestPath,
-            .relativePathUtf8 = rel.generic_string(),
-            .category = WorkspaceResourceCategory::Manifest,
-        });
-    }
-    CollectResourcesUnderTree(gameRoot, "levels", WorkspaceResourceCategory::Level, resources);
-    CollectResourcesUnderTree(gameRoot, "scripts", WorkspaceResourceCategory::Script, resources);
-    CollectResourcesUnderTree(gameRoot, "tests", WorkspaceResourceCategory::Test, resources);
-    CollectResourcesUnderTree(gameRoot, "assets", WorkspaceResourceCategory::Asset, resources);
-    CollectResourcesUnderTree(gameRoot, "ui", WorkspaceResourceCategory::UiScreen, resources);
-    CollectResourcesUnderTree(gameRoot, "screens", WorkspaceResourceCategory::UiScreen, resources);
-    CollectResourcesUnderTree(gameRoot, "menus", WorkspaceResourceCategory::Menu, resources);
-
-    std::sort(resources.begin(), resources.end(), [&supportData](const WorkspaceResourceEntry& a, const WorkspaceResourceEntry& b) {
-        const int aScore = ri::content::ComputeResourcePriorityScore(supportData, a.relativePathUtf8);
-        const int bScore = ri::content::ComputeResourcePriorityScore(supportData, b.relativePathUtf8);
-        if (aScore != bScore) {
-            return aScore > bScore;
-        }
-        return a.relativePathUtf8 < b.relativePathUtf8;
-    });
-    resources.erase(std::unique(resources.begin(),
-                                resources.end(),
-                                [](const WorkspaceResourceEntry& a, const WorkspaceResourceEntry& b) {
-                                    return a.absolutePath == b.absolutePath;
-                                }),
-                    resources.end());
-    return resources;
-}
-
 fs::path ResolveEditorWorkspaceRoot(const fs::path& fallbackWorkspaceRoot,
                                     const std::optional<ri::content::GameManifest>& manifest,
                                     const std::optional<fs::path>& explicitGameRoot) {
@@ -395,29 +202,6 @@ fs::path ResolveEditorWorkspaceRoot(const fs::path& fallbackWorkspaceRoot,
         return fs::path(rawPath);
     }
     return normalized;
-}
-
-void EnsureProjectDevConfig(const fs::path& gameRoot) {
-    if (gameRoot.empty()) {
-        return;
-    }
-    std::error_code ec{};
-    const fs::path configDir = gameRoot / "config";
-    fs::create_directories(configDir, ec);
-    if (ec) {
-        return;
-    }
-    const fs::path projectDevPath = configDir / "project.dev";
-    if (fs::exists(projectDevPath, ec)) {
-        return;
-    }
-    std::ofstream stream(projectDevPath, std::ios::out | std::ios::trunc);
-    if (!stream.is_open()) {
-        return;
-    }
-    stream << "# RawIron Project Dev Config v1\n"
-           << "last_opened_profile=1\n"
-           << "local_debug_overlay=0\n";
 }
 
 struct EditorAuthoredNodeRecord {
@@ -1236,97 +1020,24 @@ private:
 };
 
 #if defined(_WIN32)
-[[nodiscard]] std::wstring Utf8ToWide(std::string_view utf8) {
-    if (utf8.empty()) {
-        return {};
-    }
-    const int count =
-        MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
-    if (count <= 0) {
-        return {};
-    }
-    std::wstring wide(static_cast<std::size_t>(count), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), wide.data(), count);
-    return wide;
-}
-
-[[nodiscard]] std::string WideToUtf8(std::wstring_view wide) {
-    if (wide.empty()) {
-        return {};
-    }
-    const int count = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0,
-                                           nullptr, nullptr);
-    if (count <= 0) {
-        return {};
-    }
-    std::string utf8(static_cast<std::size_t>(count), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), utf8.data(), count, nullptr,
-                        nullptr);
-    return utf8;
-}
-
-[[nodiscard]] std::string PathToUtf8(const fs::path& path) {
-    return WideToUtf8(path.wstring());
-}
-
 std::wstring Widen(const std::string& value) {
-    return Utf8ToWide(value);
+    return EditorRenderer::Widen(value);
 }
 
 void FillRectColor(HDC dc, const RECT& rect, COLORREF color) {
-    HBRUSH brush = CreateSolidBrush(color);
-    FillRect(dc, &rect, brush);
-    DeleteObject(brush);
+    EditorRenderer::FillRectColor(dc, rect, color);
 }
 
 void DrawPanelFrame(HDC dc, const RECT& rect, COLORREF fill, COLORREF highlight, COLORREF shadow) {
-    FillRectColor(dc, rect, fill);
-    HPEN highlightPen = CreatePen(PS_SOLID, 1, highlight);
-    HPEN shadowPen = CreatePen(PS_SOLID, 1, shadow);
-    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, highlightPen));
-
-    MoveToEx(dc, rect.left, rect.bottom - 1, nullptr);
-    LineTo(dc, rect.left, rect.top);
-    LineTo(dc, rect.right - 1, rect.top);
-
-    SelectObject(dc, shadowPen);
-    MoveToEx(dc, rect.left, rect.bottom - 1, nullptr);
-    LineTo(dc, rect.right - 1, rect.bottom - 1);
-    LineTo(dc, rect.right - 1, rect.top);
-
-    SelectObject(dc, oldPen);
-    DeleteObject(highlightPen);
-    DeleteObject(shadowPen);
+    EditorRenderer::DrawPanelFrame(dc, rect, fill, highlight, shadow);
 }
 
 void DrawInsetFrame(HDC dc, const RECT& rect, COLORREF fill, COLORREF highlight, COLORREF shadow) {
-    FillRectColor(dc, rect, fill);
-    HPEN shadowPen = CreatePen(PS_SOLID, 1, shadow);
-    HPEN highlightPen = CreatePen(PS_SOLID, 1, highlight);
-    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, shadowPen));
-
-    MoveToEx(dc, rect.left, rect.bottom - 1, nullptr);
-    LineTo(dc, rect.left, rect.top);
-    LineTo(dc, rect.right - 1, rect.top);
-
-    SelectObject(dc, highlightPen);
-    MoveToEx(dc, rect.left, rect.bottom - 1, nullptr);
-    LineTo(dc, rect.right - 1, rect.bottom - 1);
-    LineTo(dc, rect.right - 1, rect.top);
-
-    SelectObject(dc, oldPen);
-    DeleteObject(shadowPen);
-    DeleteObject(highlightPen);
+    EditorRenderer::DrawInsetFrame(dc, rect, fill, highlight, shadow);
 }
 
 void DrawTextLine(HDC dc, const RECT& rect, const std::string& text, COLORREF color, HFONT font, UINT format) {
-    SetTextColor(dc, color);
-    SetBkMode(dc, TRANSPARENT);
-    HFONT oldFont = static_cast<HFONT>(SelectObject(dc, font));
-    const std::wstring wide = Widen(text);
-    RECT mutableRect = rect;
-    DrawTextW(dc, wide.c_str(), static_cast<int>(wide.size()), &mutableRect, format);
-    SelectObject(dc, oldFont);
+    EditorRenderer::DrawTextLine(dc, rect, text, color, font, format);
 }
 
 HFONT CreateUiFont(int height, int weight, const wchar_t* faceName = L"Segoe UI") {
@@ -1357,34 +1068,6 @@ HFONT CreateUiFont(int height, int weight, const wchar_t* faceName = L"Segoe UI"
     return depth;
 }
 
-void AppendHierarchyDfs(const ri::scene::Scene& scene,
-                        int nodeIndex,
-                        std::vector<int>& out,
-                        const int omitSubtreeRoot) {
-    if (omitSubtreeRoot >= 0 && nodeIndex == omitSubtreeRoot) {
-        return;
-    }
-    out.push_back(nodeIndex);
-    const ri::scene::Node& node = scene.GetNode(nodeIndex);
-    for (const int child : node.children) {
-        if (omitSubtreeRoot >= 0 && child == omitSubtreeRoot) {
-            continue;
-        }
-        AppendHierarchyDfs(scene, child, out, omitSubtreeRoot);
-    }
-}
-
-[[nodiscard]] std::vector<int> BuildHierarchyDrawOrder(const ri::scene::Scene& scene,
-                                                       const int omitSubtreeRoot = ri::scene::kInvalidHandle) {
-    std::vector<int> order;
-    order.reserve(scene.NodeCount());
-    const std::vector<int> roots = ri::scene::CollectRootNodes(scene);
-    for (const int root : roots) {
-        AppendHierarchyDfs(scene, root, order, omitSubtreeRoot);
-    }
-    return order;
-}
-
 /// Drops mesh attachments so geometry does not render (used when moving authored nodes into editor trash).
 void DetachMeshesInSubtree(ri::scene::Scene& scene, const int nodeHandle) {
     if (nodeHandle < 0 || static_cast<std::size_t>(nodeHandle) >= scene.NodeCount()) {
@@ -1397,16 +1080,6 @@ void DetachMeshesInSubtree(ri::scene::Scene& scene, const int nodeHandle) {
     for (const int child : node.children) {
         DetachMeshesInSubtree(scene, child);
     }
-}
-
-[[nodiscard]] std::optional<int> FindDrawOrderIndex(const std::vector<int>& order, std::size_t nodeIndex) {
-    const int needle = static_cast<int>(nodeIndex);
-    for (int i = 0; i < static_cast<int>(order.size()); ++i) {
-        if (order[static_cast<std::size_t>(i)] == needle) {
-            return i;
-        }
-    }
-    return std::nullopt;
 }
 
 enum class RawIronFlatProjection {
@@ -1695,23 +1368,6 @@ bool TryLoadEditorOrbitStateFromPath(const fs::path& path, ri::scene::OrbitCamer
     return stream.good();
 }
 
-bool SaveEditorOrbitSidecar(const fs::path& sceneStatePath, const ri::scene::OrbitCameraState& orbit) {
-    const fs::path path = EditorOrbitSidecarPath(sceneStatePath);
-    std::error_code ec{};
-    fs::create_directories(path.parent_path(), ec);
-    (void)ec;
-    std::ofstream stream(path, std::ios::trunc);
-    if (!stream.is_open()) {
-        return false;
-    }
-    stream << "RAWIRON_EDITOR_ORBIT_V1\n";
-    stream << std::fixed << std::setprecision(8);
-    stream << orbit.target.x << " " << orbit.target.y << " " << orbit.target.z << "\n";
-    stream << orbit.distance << "\n";
-    stream << orbit.yawDegrees << " " << orbit.pitchDegrees << "\n";
-    return static_cast<bool>(stream);
-}
-
 bool SaveEditorOrbitStateToPath(const fs::path& path, const ri::scene::OrbitCameraState& orbit) {
     std::error_code ec{};
     fs::create_directories(path.parent_path(), ec);
@@ -1727,114 +1383,6 @@ bool SaveEditorOrbitStateToPath(const fs::path& path, const ri::scene::OrbitCame
     stream << orbit.yawDegrees << " " << orbit.pitchDegrees << "\n";
     return static_cast<bool>(stream);
 }
-
-#if defined(_WIN32)
-[[nodiscard]] fs::path ResolveEditorModulePath() {
-    wchar_t buffer[MAX_PATH]{};
-    const DWORD length = GetModuleFileNameW(nullptr, buffer, MAX_PATH);
-    if (length == 0 || length >= MAX_PATH) {
-        return {};
-    }
-    return fs::path(buffer);
-}
-
-[[nodiscard]] fs::path FindBuildRoot(const fs::path& executablePath) {
-    fs::path current = executablePath.parent_path();
-    while (!current.empty()) {
-        std::error_code ec{};
-        if (fs::exists(current / "CMakeCache.txt", ec)) {
-            return current;
-        }
-        const fs::path parent = current.parent_path();
-        if (parent == current) {
-            break;
-        }
-        current = parent;
-    }
-    return {};
-}
-
-[[nodiscard]] std::optional<std::string> TryResolveCurrentBuildConfiguration(const fs::path& editorExe) {
-    const fs::path parent = editorExe.parent_path();
-    const fs::path owner = parent.parent_path();
-    if (owner.filename() == "RawIron.Editor") {
-        const std::string configuration = parent.filename().string();
-        if (!configuration.empty()) {
-            return configuration;
-        }
-    }
-    return std::nullopt;
-}
-
-[[nodiscard]] std::string QuoteCommandLineArgument(std::string_view value) {
-    if (value.find_first_of(" \t\"") == std::string_view::npos) {
-        return std::string(value);
-    }
-
-    std::string quoted;
-    quoted.reserve(value.size() + 8U);
-    quoted.push_back('"');
-    for (const char ch : value) {
-        if (ch == '"') {
-            quoted += "\\\"";
-        } else {
-            quoted.push_back(ch);
-        }
-    }
-    quoted.push_back('"');
-    return quoted;
-}
-
-[[nodiscard]] std::wstring BuildShellExecuteParameterString(const std::vector<std::string>& args) {
-    std::string joined;
-    for (std::size_t index = 0; index < args.size(); ++index) {
-        if (index > 0U) {
-            joined.push_back(' ');
-        }
-        joined += QuoteCommandLineArgument(args[index]);
-    }
-    return Utf8ToWide(joined);
-}
-
-[[nodiscard]] fs::path ResolveBundledGameExecutable(const ri::content::GameManifest& manifest) {
-    const fs::path editorExe = ResolveEditorModulePath();
-    if (editorExe.empty()) {
-        return {};
-    }
-    const fs::path buildRoot = FindBuildRoot(editorExe);
-    if (buildRoot.empty()) {
-        return {};
-    }
-
-    const std::optional<std::string> configuration = TryResolveCurrentBuildConfiguration(editorExe);
-    std::vector<fs::path> candidates;
-    const std::string executableName = manifest.entry + ".exe";
-    const fs::path gameFolderName = manifest.rootPath.filename();
-
-    const auto appendCandidate = [&candidates](const fs::path& candidate) {
-        if (!candidate.empty()) {
-            candidates.push_back(candidate);
-        }
-    };
-    const auto appendConfigCandidate = [&appendCandidate, &configuration](fs::path base) {
-        if (configuration.has_value()) {
-            appendCandidate(base / *configuration);
-        }
-        appendCandidate(std::move(base));
-    };
-
-    appendConfigCandidate(buildRoot / "Games" / gameFolderName / "App" / executableName);
-    appendConfigCandidate(buildRoot / "Apps" / manifest.entry / executableName);
-
-    for (const fs::path& candidate : candidates) {
-        std::error_code ec{};
-        if (!candidate.empty() && fs::exists(candidate, ec)) {
-            return fs::weakly_canonical(candidate, ec);
-        }
-    }
-    return {};
-}
-#endif
 
 void DrawRawIronOrthoGrid(HDC dc,
                          const RECT& cell,
@@ -2012,39 +1560,9 @@ struct AuthoringToolbarRects {
     RECT play{};
 };
 
-struct GameplayPanelLayout {
-    RECT inventoryModeRow{};
-    RECT offHandRow{};
-    RECT addTriggerBtn{};
-    RECT exportBtn{};
-    RECT playtestBtn{};
-};
-
-[[nodiscard]] GameplayPanelLayout ComputeGameplayPanelLayout(const RECT& inspectorInner) {
-    GameplayPanelLayout layout{};
-    int infoTop = inspectorInner.top + 42;
-    infoTop += 24;
-    infoTop += 88;
-    layout.inventoryModeRow =
-        RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20};
-    infoTop += 22;
-    layout.offHandRow =
-        RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20};
-    infoTop += 20;
-    infoTop += 20;
-    infoTop += 20;
-    infoTop += 30;
-    layout.addTriggerBtn =
-        RECT{inspectorInner.left + 10, infoTop, inspectorInner.left + 118, infoTop + 26};
-    layout.exportBtn =
-        RECT{inspectorInner.left + 124, infoTop, inspectorInner.left + 228, infoTop + 26};
-    layout.playtestBtn =
-        RECT{inspectorInner.left + 234, infoTop, inspectorInner.right - 10, infoTop + 26};
-    return layout;
-}
-
 struct TopChromeRects {
     RECT save{};
+    RECT scaffold{};
     RECT exportScene{};
     RECT play{};
     RECT files{};
@@ -2095,8 +1613,9 @@ struct TopChromeRects {
     TopChromeRects rects{};
     rects.files = {right - 94, rowTop, right, rowBot};
     rects.play = {right - 194, rowTop, right - 100, rowBot};
-    rects.exportScene = {right - 306, rowTop, right - 200, rowBot};
-    rects.save = {right - 412, rowTop, right - 312, rowBot};
+    rects.exportScene = {right - 300, rowTop, right - 200, rowBot};
+    rects.scaffold = {right - 406, rowTop, right - 306, rowBot};
+    rects.save = {right - 512, rowTop, right - 412, rowBot};
     return rects;
 }
 
@@ -2217,7 +1736,6 @@ private:
     static constexpr int kLeftPanelGameStripHeight_ = 28;
     static constexpr int kResourceFilterStripHeight_ = 26;
     static constexpr int kResourceListRowHeight_ = 22;
-    static constexpr std::size_t kMaxResourceFileBytes_ = 512U * 1024U;
     struct EditorLayout {
         RECT toolStrip{};
         RECT hierarchy{};
@@ -2532,6 +2050,49 @@ private:
         RebuildFilteredHierarchyOrder();
     }
 
+    void TryScaffoldMountedGame() {
+        if (!sceneConfig_.gameManifest.has_value()) {
+            lastIoStatus_ = "Scaffold needs an open game manifest.";
+            return;
+        }
+        std::size_t createdCount = 0;
+        std::vector<std::string> createdFiles;
+        std::string error;
+        if (!EnsureMountedGameScaffold(*sceneConfig_.gameManifest, createdCount, createdFiles, &error)) {
+            lastIoStatus_ = error.empty() ? "Scaffold failed." : error;
+            return;
+        }
+        EnsureProjectDevConfig(sceneConfig_.gameManifest->rootPath);
+        RefreshWorkspaceResourceRows();
+        RebuildFilteredResourceRows();
+        if (createdCount == 0) {
+            lastIoStatus_ = "Project scaffold already present. Resources refreshed.";
+            return;
+        }
+        lastIoStatus_ = "Created " + std::to_string(createdCount) + " missing authoring files.";
+    }
+
+    void OpenProjectResourceShortcut(std::string_view relativePath) {
+        if (!ResolveDirtyResourceBeforeContextSwitch("opening a project shortcut")) {
+            return;
+        }
+        int rowIndex = ri::editor::FindResourceRowByRelativePath(resourceCatalogEntries_, relativePath);
+        if (rowIndex < 0 && sceneConfig_.gameManifest.has_value()) {
+            TryScaffoldMountedGame();
+            RefreshWorkspaceResourceRows();
+            RebuildFilteredResourceRows();
+            rowIndex = ri::editor::FindResourceRowByRelativePath(resourceCatalogEntries_, relativePath);
+        }
+        if (rowIndex < 0) {
+            lastIoStatus_ = "Project shortcut not found: " + std::string(relativePath);
+            return;
+        }
+        leftPanelMode_ = LeftPanelMode::Resources;
+        SelectWorkspaceResourceRow(rowIndex);
+        const EditorLayout layout = ComputeLayout();
+        EnsureSelectedResourceVisible(layout.hierarchyInner);
+    }
+
     void SelectWorkspaceResourceRow(const int rowIndex) {
         if (rowIndex < 0 || rowIndex >= static_cast<int>(resourceCatalogEntries_.size())) {
             return;
@@ -2561,37 +2122,13 @@ private:
 
         const WorkspaceResourceEntry& entry =
             resourceCatalogEntries_[static_cast<std::size_t>(rowIndex)];
-        loadedResourceAbsolutePath_ = entry.absolutePath;
-        resourceManifestIssues_.clear();
-        if (entry.category == WorkspaceResourceCategory::Manifest) {
-            const std::optional<ri::content::GameManifest> manifest =
-                ri::content::LoadGameManifest(loadedResourceAbsolutePath_);
-            if (manifest.has_value()) {
-                resourceManifestIssues_ = ri::content::ValidateGameProjectFormat(*manifest);
-            } else {
-                resourceManifestIssues_.push_back("Unable to parse manifest.json.");
-            }
-        }
-
-        std::error_code ec{};
-        const std::uintmax_t fileSize = fs::file_size(loadedResourceAbsolutePath_, ec);
-        if (ec || fileSize > static_cast<std::uintmax_t>(kMaxResourceFileBytes_)) {
-            resourceEditorAuxMessage_ =
-                ec ? std::string("Unable to read file metadata.") : std::string("File too large for embedded editor.");
-            InvalidateRect(hwnd_, nullptr, FALSE);
-            return;
-        }
-
-        if (!IsLikelyTextResourcePath(loadedResourceAbsolutePath_)) {
-            resourceEditorAuxMessage_ =
-                "Binary / unknown extension — use Explorer to open beside the workspace.";
-            InvalidateRect(hwnd_, nullptr, FALSE);
-            return;
-        }
-
-        loadedResourceUtf8_ = ri::core::detail::ReadTextFile(loadedResourceAbsolutePath_);
+        const ri::editor::ResourceDocumentData document = LoadResourceDocument(entry);
+        loadedResourceAbsolutePath_ = document.absolutePath;
+        loadedResourceUtf8_ = document.utf8;
+        resourceEditorAuxMessage_ = document.auxMessage;
+        resourceManifestIssues_ = document.manifestIssues;
         lastIoStatus_ = "Resource: " + entry.relativePathUtf8;
-        {
+        if (document.isTextEditable) {
             const EditorLayout layout = ComputeLayout();
             EnsureResourceTextEditorCreated();
             LayoutResourceTextEditorControl(layout.inspectorInner);
@@ -2606,98 +2143,43 @@ private:
 
     void DestroyResourceTextEditorControl() {
 #if defined(_WIN32)
-        if (resourceTextEditHwnd_ != nullptr) {
-            DestroyWindow(resourceTextEditHwnd_);
-            resourceTextEditHwnd_ = nullptr;
-        }
+        ri::editor::DestroyResourceTextEditorControl(resourceTextEditHwnd_);
 #endif
     }
 
 #if defined(_WIN32)
     void EnsureResourceTextEditorCreated() {
-        if (resourceTextEditHwnd_ != nullptr || hwnd_ == nullptr) {
-            return;
-        }
-        if (inspectorPanel_ != InspectorPanel::Files || !resourceEditorAuxMessage_.empty()) {
-            return;
-        }
-        if (loadedResourceAbsolutePath_.empty() || !IsLikelyTextResourcePath(loadedResourceAbsolutePath_)) {
-            return;
-        }
-        resourceTextEditHwnd_ =
-            CreateWindowExW(WS_EX_CLIENTEDGE,
-                            L"EDIT",
-                            Utf8ToWide(loadedResourceUtf8_).c_str(),
-                            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE |
-                                ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN | ES_NOHIDESEL,
-                            0,
-                            0,
-                            10,
-                            10,
-                            hwnd_,
-                            reinterpret_cast<HMENU>(static_cast<ULONG_PTR>(2051)),
-                            GetModuleHandleW(nullptr),
-                            nullptr);
-        if (resourceTextEditHwnd_ != nullptr) {
-            SendMessageW(resourceTextEditHwnd_, WM_SETFONT, reinterpret_cast<WPARAM>(bodyFont_), MAKELPARAM(TRUE, 0));
-            resourceFileDirty_ = false;
-            SetFocus(resourceTextEditHwnd_);
-        }
+        ri::editor::EnsureResourceTextEditorCreated(hwnd_,
+                                                    resourceTextEditHwnd_,
+                                                    bodyFont_,
+                                                    inspectorPanel_ == InspectorPanel::Files,
+                                                    loadedResourceAbsolutePath_,
+                                                    loadedResourceUtf8_,
+                                                    resourceEditorAuxMessage_,
+                                                    resourceFileDirty_);
     }
 
     void LayoutResourceTextEditorControl(const RECT& inspectorInner) {
-        if (resourceTextEditHwnd_ == nullptr || hwnd_ == nullptr) {
-            return;
-        }
-        const bool visible = inspectorPanel_ == InspectorPanel::Files && resourceEditorAuxMessage_.empty()
-            && !loadedResourceAbsolutePath_.empty() && IsLikelyTextResourcePath(loadedResourceAbsolutePath_);
-        if (!visible) {
-            ShowWindow(resourceTextEditHwnd_, SW_HIDE);
-            return;
-        }
-        constexpr int kInspectorMetaHeight = 118;
-        const int top = inspectorInner.top + kInspectorMetaHeight;
-        const int bottom = static_cast<int>(inspectorInner.bottom) - 10;
-        ShowWindow(resourceTextEditHwnd_, SW_SHOW);
-        MoveWindow(resourceTextEditHwnd_,
-                   inspectorInner.left + 10,
-                   top,
-                   std::max(40, static_cast<int>(inspectorInner.right - inspectorInner.left - 20)),
-                   std::max(40, bottom - top),
-                   TRUE);
-        SetWindowPos(resourceTextEditHwnd_, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        ri::editor::LayoutResourceTextEditorControl(hwnd_,
+                                                    resourceTextEditHwnd_,
+                                                    inspectorPanel_ == InspectorPanel::Files,
+                                                    loadedResourceAbsolutePath_,
+                                                    resourceEditorAuxMessage_,
+                                                    inspectorInner);
     }
 
     [[nodiscard]] bool SaveActiveResourceFileFromEditor() {
-        if (resourceTextEditHwnd_ == nullptr || loadedResourceAbsolutePath_.empty()) {
+        if (!ri::editor::SaveActiveResourceFileFromEditor(
+                resourceTextEditHwnd_, loadedResourceAbsolutePath_, loadedResourceUtf8_)) {
             return false;
         }
-        const int len = GetWindowTextLengthW(resourceTextEditHwnd_);
-        std::wstring wide(static_cast<std::size_t>(len + 2), L'\0');
-        const int copied =
-            len <= 0 ? 0 : GetWindowTextW(resourceTextEditHwnd_, wide.data(), len + 1);
-        if (copied < 0) {
-            return false;
-        }
-        wide.resize(static_cast<std::size_t>(std::max(0, copied)));
-        const std::string utf8 = WideToUtf8(wide);
-        if (!ri::core::detail::WriteTextFile(loadedResourceAbsolutePath_, utf8)) {
-            return false;
-        }
-        loadedResourceUtf8_ = utf8;
         resourceFileDirty_ = false;
         lastIoStatus_ = "Saved resource: " + loadedResourceAbsolutePath_.filename().string();
         return true;
     }
 
     void OpenActiveResourceInExplorer() const {
-        if (loadedResourceAbsolutePath_.empty()) {
-            return;
-        }
-        std::wstring arg = L"/select,\"";
-        arg += loadedResourceAbsolutePath_.wstring();
-        arg += L"\"";
-        ShellExecuteW(hwnd_, L"open", L"explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
+        ri::editor::OpenActiveResourceInExplorer(hwnd_, loadedResourceAbsolutePath_);
     }
 #else
     void EnsureResourceTextEditorCreated() {
@@ -2712,42 +2194,13 @@ private:
 #endif
 
     [[nodiscard]] bool ResolveDirtyResourceBeforeContextSwitch(std::string_view action) {
-        if (!resourceFileDirty_) {
-            return true;
-        }
-
-        const std::string fileName = loadedResourceAbsolutePath_.empty()
-            ? std::string("resource")
-            : loadedResourceAbsolutePath_.filename().string();
-
-#if defined(_WIN32)
-        if (hwnd_ != nullptr) {
-            const std::string prompt =
-                "Save changes to '" + fileName + "' before " + std::string(action) +
-                "?\n\nChoose No to discard the unsaved edits, or Cancel to keep editing.";
-            const int choice = MessageBoxW(hwnd_,
-                                           Widen(prompt).c_str(),
-                                           L"RawIron Editor - Unsaved Resource",
-                                           MB_ICONWARNING | MB_YESNOCANCEL);
-            if (choice == IDCANCEL) {
-                lastIoStatus_ = "Canceled " + std::string(action) + " to keep editing " + fileName + ".";
-                return false;
-            }
-            if (choice == IDNO) {
-                resourceFileDirty_ = false;
-                lastIoStatus_ = "Discarded unsaved edits to " + fileName + ".";
-                return true;
-            }
-        }
-#endif
-
-        if (SaveActiveResourceFileFromEditor()) {
-            lastIoStatus_ = "Saved " + fileName + " before " + std::string(action) + ".";
-            return true;
-        }
-
-        lastIoStatus_ = "Save failed for " + fileName + "; kept resource open.";
-        return false;
+        return ri::editor::ResolveDirtyResourceBeforeContextSwitch(
+            hwnd_,
+            action,
+            loadedResourceAbsolutePath_,
+            resourceFileDirty_,
+            [this]() { return this->SaveActiveResourceFileFromEditor(); },
+            lastIoStatus_);
     }
 
     [[nodiscard]] bool SetInspectorPanel(InspectorPanel panel) {
@@ -2824,70 +2277,18 @@ private:
     }
 
     void RebuildFilteredHierarchyOrder() {
-        auto toLowerAscii = [](const std::string& text) {
-            std::string lowered = text;
-            for (char& ch : lowered) {
-                ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-            }
-            return lowered;
-        };
-        const std::vector<int> fullOrder =
-            BuildHierarchyDrawOrder(starterScene_.scene, editorTrashFolderHandle_);
-        filteredHierarchyOrder_.clear();
-        if (resourceSearchQuery_.empty()) {
-            filteredHierarchyOrder_ = fullOrder;
-            return;
-        }
-        const std::string loweredNeedle = toLowerAscii(resourceSearchQuery_);
-        filteredHierarchyOrder_.reserve(fullOrder.size());
-        for (const int nodeIndex : fullOrder) {
-            if (nodeIndex < 0 || static_cast<std::size_t>(nodeIndex) >= starterScene_.scene.NodeCount()) {
-                continue;
-            }
-            const ri::scene::Node& node = starterScene_.scene.GetNode(nodeIndex);
-            const std::string haystack = toLowerAscii(std::to_string(nodeIndex) + " " + node.name);
-            if (haystack.find(loweredNeedle) != std::string::npos) {
-                filteredHierarchyOrder_.push_back(nodeIndex);
-            }
-        }
+        filteredHierarchyOrder_ = BuildFilteredHierarchyDrawOrder(
+            starterScene_.scene, editorTrashFolderHandle_, resourceSearchQuery_);
     }
 
     void RebuildFilteredResourceRows() {
-        auto toLowerAscii = [](const std::string& text) {
-            std::string lowered = text;
-            for (char& ch : lowered) {
-                ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-            }
-            return lowered;
-        };
-        const std::string loweredNeedle = toLowerAscii(resourceSearchQuery_);
-
-        filteredResourceRows_.clear();
-        filteredResourceRows_.reserve(resourceCatalogEntries_.size());
-        for (int i = 0; i < static_cast<int>(resourceCatalogEntries_.size()); ++i) {
-            const WorkspaceResourceEntry& entry = resourceCatalogEntries_[static_cast<std::size_t>(i)];
-            if ((resourceCategoryMask_ & WorkspaceCategoryBit(entry.category)) == 0u) {
-                continue;
-            }
-            if (!loweredNeedle.empty()) {
-                const std::string loweredPath = toLowerAscii(entry.relativePathUtf8);
-                if (loweredPath.find(loweredNeedle) == std::string::npos) {
-                    continue;
-                }
-            }
-            filteredResourceRows_.push_back(i);
-        }
-        selectedResourceVisibleRow_ = -1;
-        if (selectedResourceRow_ >= 0) {
-            for (int i = 0; i < static_cast<int>(filteredResourceRows_.size()); ++i) {
-                if (filteredResourceRows_[static_cast<std::size_t>(i)] == selectedResourceRow_) {
-                    selectedResourceVisibleRow_ = i;
-                    break;
-                }
-            }
-        }
+        const ri::editor::FilteredResourceView filtered =
+            ri::editor::BuildFilteredResourceRows(
+                resourceCatalogEntries_, resourceCategoryMask_, resourceSearchQuery_, selectedResourceRow_);
+        filteredResourceRows_ = filtered.rows;
+        selectedResourceVisibleRow_ = filtered.selectedVisibleRow;
         if (selectedResourceVisibleRow_ < 0) {
-            resourceCatalogScrollTopRow_ = 0;
+            resourceCatalogScrollTopRow_ = filtered.resetScrollTop;
         }
     }
 
@@ -2896,17 +2297,11 @@ private:
         const int listBottom = LeftPanelSceneListBottom(hierarchyInner);
         const int innerHeight = std::max(0, listBottom - listTop - 8);
         const int visibleRows = std::max(1, innerHeight / kResourceListRowHeight_);
-        const int maxScroll = std::max(0, static_cast<int>(filteredResourceRows_.size()) - visibleRows);
-        resourceCatalogScrollTopRow_ = std::clamp(resourceCatalogScrollTopRow_, 0, maxScroll);
-        if (selectedResourceVisibleRow_ < 0) {
-            return;
-        }
-        if (selectedResourceVisibleRow_ < resourceCatalogScrollTopRow_) {
-            resourceCatalogScrollTopRow_ = selectedResourceVisibleRow_;
-        } else if (selectedResourceVisibleRow_ >= resourceCatalogScrollTopRow_ + visibleRows) {
-            resourceCatalogScrollTopRow_ = selectedResourceVisibleRow_ - visibleRows + 1;
-        }
-        resourceCatalogScrollTopRow_ = std::clamp(resourceCatalogScrollTopRow_, 0, maxScroll);
+        resourceCatalogScrollTopRow_ = ri::editor::ComputeVisibleResourceScrollTop(
+            resourceCatalogScrollTopRow_,
+            selectedResourceVisibleRow_,
+            static_cast<int>(filteredResourceRows_.size()),
+            visibleRows);
     }
 
     void SelectResourceVisibleRow(int visibleRow, const RECT& hierarchyInner) {
@@ -2966,26 +2361,12 @@ private:
 
     void EnsureHierarchySelectionVisible(const RECT& hierarchyInner) {
         const std::vector<int> order = HierarchyDrawOrder();
-        if (order.empty()) {
-            hierarchyScrollTopRow_ = 0;
-            return;
-        }
-        const std::optional<int> pos = FindDrawOrderIndex(order, selectedNode_);
         const int listTop = LeftPanelContentTop(hierarchyInner);
         const int listBottom = LeftPanelSceneListBottom(hierarchyInner);
         const int innerHeight = std::max(0, listBottom - listTop - 8);
         const int visibleRows = std::max(1, innerHeight / kHierarchyRowHeight_);
-        const int maxScroll = std::max(0, static_cast<int>(order.size()) - visibleRows);
-        hierarchyScrollTopRow_ = std::clamp(hierarchyScrollTopRow_, 0, maxScroll);
-        if (!pos.has_value()) {
-            return;
-        }
-        if (*pos < hierarchyScrollTopRow_) {
-            hierarchyScrollTopRow_ = *pos;
-        } else if (*pos >= hierarchyScrollTopRow_ + visibleRows) {
-            hierarchyScrollTopRow_ = *pos - visibleRows + 1;
-        }
-        hierarchyScrollTopRow_ = std::clamp(hierarchyScrollTopRow_, 0, maxScroll);
+        hierarchyScrollTopRow_ =
+            ComputeVisibleHierarchyScrollTop(hierarchyScrollTopRow_, order, selectedNode_, visibleRows);
     }
 
     [[nodiscard]] bool OnMouseWheel(short wheelDelta, int screenX, int screenY) {
@@ -3213,6 +2594,11 @@ private:
             InvalidateRect(hwnd_, nullptr, FALSE);
             return 0;
         }
+        if (controlHeld && shiftHeld && key == 'M') {
+            TryScaffoldMountedGame();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
+        }
         if (controlHeld && key == 'S') {
             if (inspectorPanel_ == InspectorPanel::Files && resourceFileDirty_) {
                 lastIoStatus_ =
@@ -3318,7 +2704,7 @@ private:
             InvalidateRect(hwnd_, nullptr, FALSE);
             return 0;
         }
-        if (controlHeld && shiftHeld && key == 'P') {
+        if (key == VK_F5) {
             ReloadEditorSceneForFocusedGame(false);
             InvalidateRect(hwnd_, nullptr, FALSE);
             return 0;
@@ -3640,6 +3026,11 @@ private:
             } else {
                 lastIoStatus_ = "Failed to save editor scene state: " + saveError + ".";
             }
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
+        }
+        if (hitRect(topChrome.scaffold)) {
+            TryScaffoldMountedGame();
             InvalidateRect(hwnd_, nullptr, FALSE);
             return 0;
         }
@@ -3966,6 +3357,7 @@ private:
                                      layout.inspectorInner.top + 66,
                                      layout.inspectorInner.right - 10,
                                      layout.inspectorInner.top + 92};
+            const ProjectShortcutLayout shortcuts = ComputeProjectShortcutLayout(layout.inspectorInner);
             if (hitRect(saveResourceBtn)) {
                 lastIoStatus_ = SaveActiveResourceFileFromEditor() ? "Saved resource file." : "Save failed.";
                 InvalidateRect(hwnd_, nullptr, FALSE);
@@ -3974,6 +3366,58 @@ private:
             if (hitRect(explorerBtn)) {
                 OpenActiveResourceInExplorer();
                 lastIoStatus_ = "Opened Explorer beside resource.";
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (hitRect(shortcuts.manifest)) {
+                OpenProjectResourceShortcut("manifest.json");
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (hitRect(shortcuts.level)) {
+                OpenProjectResourceShortcut(sceneConfig_.gameManifest.has_value() && !sceneConfig_.gameManifest->primaryLevel.empty()
+                                                ? sceneConfig_.gameManifest->primaryLevel
+                                                : "levels/assembly.primitives.csv");
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (hitRect(shortcuts.gameplay)) {
+                OpenProjectResourceShortcut("scripts/gameplay.riscript");
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (hitRect(shortcuts.rendering)) {
+                OpenProjectResourceShortcut("scripts/rendering.riscript");
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (hitRect(shortcuts.uiLayout)) {
+                OpenProjectResourceShortcut("ui/layout.xml");
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (hitRect(shortcuts.uiStyle)) {
+                OpenProjectResourceShortcut("ui/styling.css");
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (hitRect(shortcuts.menu)) {
+                OpenProjectResourceShortcut("menus/main.menu");
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (hitRect(shortcuts.ai)) {
+                OpenProjectResourceShortcut("ai/behavior.tree");
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (hitRect(shortcuts.network)) {
+                OpenProjectResourceShortcut("scripts/network.riscript");
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+            if (hitRect(shortcuts.plugins)) {
+                OpenProjectResourceShortcut("plugins/manifest.plugins");
                 InvalidateRect(hwnd_, nullptr, FALSE);
                 return 0;
             }
@@ -4166,7 +3610,6 @@ private:
     }
 
     void TryLaunchPlayer() {
-#if defined(_WIN32)
         std::optional<ri::content::GameManifest> targetManifest{};
         if (!workspaceGames_.empty() && focusedWorkspaceGameIndex_ >= 0 &&
             focusedWorkspaceGameIndex_ < static_cast<int>(workspaceGames_.size())) {
@@ -4180,37 +3623,9 @@ private:
             lastIoStatus_ = "Play: no project manifest is active.";
             return;
         }
-
-        const fs::path gameExe = ResolveBundledGameExecutable(*targetManifest);
-        if (gameExe.empty()) {
-            lastIoStatus_ = "Play: could not find built executable for " + targetManifest->entry + ".";
-            return;
-        }
-
-        std::vector<std::string> args{};
-        args.push_back("--game-root");
-        args.push_back(PathToUtf8(targetManifest->rootPath));
-        args.push_back("--workspace-root");
-        args.push_back(PathToUtf8(sceneConfig_.workspaceRoot));
-
-        const std::wstring exePath = gameExe.wstring();
-        const std::wstring parameters = BuildShellExecuteParameterString(args);
-        const std::wstring cwd = sceneConfig_.workspaceRoot.wstring();
-        const HINSTANCE result =
-            ShellExecuteW(hwnd_,
-                          L"open",
-                          exePath.c_str(),
-                          parameters.empty() ? nullptr : parameters.c_str(),
-                          cwd.empty() ? nullptr : cwd.c_str(),
-                          SW_SHOWNORMAL);
-        if (reinterpret_cast<INT_PTR>(result) > 32) {
-            lastIoStatus_ = "Play: launched " + targetManifest->name + ".";
-        } else {
-            lastIoStatus_ = "Play: could not start " + targetManifest->entry + ".";
-        }
-#else
-        lastIoStatus_ = "Play: supported on Windows builds.";
-#endif
+        const ri::editor::PlaytestLaunchResult launchResult =
+            ri::editor::LaunchPlaytestForManifest(hwnd_, *targetManifest, sceneConfig_.workspaceRoot);
+        lastIoStatus_ = launchResult.message;
     }
 
     [[nodiscard]] fs::path ResolveSceneStatePath() const {
@@ -5628,25 +5043,11 @@ private:
     }
 
     void DrawToolbarButton(HDC dc, const RECT& rect, const std::string& label, bool active) {
-        DrawPanelFrame(
-            dc,
-            rect,
-            active ? RGB(96, 104, 120) : RGB(74, 80, 90),
-            active ? RGB(228, 234, 245) : RGB(182, 188, 198),
-            active ? RGB(32, 36, 44) : RGB(40, 44, 52));
-        DrawTextLine(dc, rect, label, active ? RGB(255, 244, 195) : RGB(232, 236, 242), smallFont_,
-                     DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+        EditorRenderer::DrawToolbarButton(dc, rect, label, active, smallFont_);
     }
 
     void DrawPanelHeader(HDC dc, const RECT& panelRect, const std::string& title, const std::string& meta = {}) {
-        RECT header{panelRect.left + 2, panelRect.top + 2, panelRect.right - 2, panelRect.top + 30};
-        FillRectColor(dc, header, RGB(86, 92, 104));
-        DrawTextLine(dc, RECT{header.left + 10, header.top + 4, header.right - 120, header.bottom - 4},
-                     title, RGB(244, 244, 242), headerFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-        if (!meta.empty()) {
-            DrawTextLine(dc, RECT{header.left + 120, header.top + 4, header.right - 10, header.bottom - 4},
-                         meta, RGB(208, 214, 224), smallFont_, DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
-        }
+        EditorRenderer::DrawPanelHeader(dc, panelRect, title, headerFont_, smallFont_, meta);
     }
 
     void DrawViewportPreview(HDC dc, const RECT& targetRect) {
@@ -5928,6 +5329,7 @@ private:
                      RGB(74, 78, 86), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
         const TopChromeRects topChrome = ComputeTopChromeRects(topBar);
         DrawToolbarButton(dc, topChrome.save, "Save", false);
+        DrawToolbarButton(dc, topChrome.scaffold, "Scaffold", false);
         DrawToolbarButton(dc, topChrome.exportScene, "Export", false);
         DrawToolbarButton(dc, topChrome.play, "Playtest", false);
         DrawToolbarButton(dc, topChrome.files, "Files", leftPanelMode_ == LeftPanelMode::Resources);
@@ -6250,68 +5652,85 @@ private:
 
         int infoTop = inspectorInner.top + 42;
         if (inspectorPanel_ == InspectorPanel::Files) {
+            const WorkspaceResourceEntry* selectedResourceEntry = nullptr;
+            if (selectedResourceRow_ >= 0
+                && selectedResourceRow_ < static_cast<int>(resourceCatalogEntries_.size())) {
+                selectedResourceEntry = &resourceCatalogEntries_[static_cast<std::size_t>(selectedResourceRow_)];
+            }
+            const ri::editor::FilesInspectorPanelModel filesPanel = BuildFilesInspectorPanelModel(
+                selectedResourceEntry,
+                resourceManifestIssues_,
+                resourceEditorAuxMessage_,
+                resourceFileDirty_,
+                ResourceFocusSummary());
             DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 22},
-                         "Project files (levels, scripts, screens, menus, assets)",
+                         filesPanel.heading,
                          RGB(224, 224, 236),
                          headerFont_,
                          DT_LEFT | DT_SINGLELINE | DT_VCENTER);
             infoTop += 26;
-            if (selectedResourceRow_ >= 0
-                && selectedResourceRow_ < static_cast<int>(resourceCatalogEntries_.size())) {
-                const WorkspaceResourceEntry& sel =
-                    resourceCatalogEntries_[static_cast<std::size_t>(selectedResourceRow_)];
+            const ProjectShortcutLayout shortcuts = ComputeProjectShortcutLayout(inspectorInner);
+            DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 18},
+                         filesPanel.sectionLabel,
+                         RGB(210, 214, 220),
+                         smallFont_,
+                         DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+            DrawToolbarButton(dc, shortcuts.manifest, "Manifest", false);
+            DrawToolbarButton(dc, shortcuts.level, "Level", false);
+            DrawToolbarButton(dc, shortcuts.gameplay, "Gameplay", false);
+            DrawToolbarButton(dc, shortcuts.rendering, "Render", false);
+            DrawToolbarButton(dc, shortcuts.uiLayout, "UI Layout", false);
+            DrawToolbarButton(dc, shortcuts.uiStyle, "UI Style", false);
+            DrawToolbarButton(dc, shortcuts.menu, "Menu", false);
+            DrawToolbarButton(dc, shortcuts.ai, "AI", false);
+            DrawToolbarButton(dc, shortcuts.network, "Network", false);
+            DrawToolbarButton(dc, shortcuts.plugins, "Plugins", false);
+            infoTop = shortcuts.plugins.bottom + 10;
+            if (filesPanel.hasSelection) {
                 DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 18},
-                             sel.relativePathUtf8,
+                             filesPanel.selectedPath,
                              RGB(210, 220, 240),
                              smallFont_,
                              DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
                 infoTop += 22;
                 DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 18},
-                             "Category: " + WorkspaceCategoryLabel(sel.category),
+                             filesPanel.categoryLabel,
                              RGB(200, 200, 200),
                              smallFont_,
                              DT_LEFT | DT_SINGLELINE | DT_VCENTER);
                 infoTop += 22;
-                if (!resourceManifestIssues_.empty()) {
+                if (!filesPanel.manifestStatus.empty()) {
                     DrawTextLine(dc,
                                  RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 18},
-                                 "Manifest validation: " + std::to_string(resourceManifestIssues_.size())
-                                     + " issue(s)",
-                                 RGB(255, 180, 120),
+                                 filesPanel.manifestStatus,
+                                 filesPanel.manifestOk ? RGB(160, 220, 170) : RGB(255, 180, 120),
                                  smallFont_,
                                  DT_LEFT | DT_SINGLELINE | DT_VCENTER);
                     infoTop += 20;
-                    for (std::size_t issueIndex = 0;
-                         issueIndex < resourceManifestIssues_.size() && issueIndex < 4U;
-                         ++issueIndex) {
+                    for (const std::string& issue : filesPanel.manifestIssues) {
                         DrawTextLine(dc,
                                      RECT{inspectorInner.left + 14, infoTop, inspectorInner.right - 10, infoTop + 32},
-                                     "• " + resourceManifestIssues_[issueIndex],
+                                     issue,
                                      RGB(230, 190, 150),
                                      smallFont_,
                                      DT_LEFT | DT_WORDBREAK);
                         infoTop += 34;
                     }
-                } else if (sel.category == WorkspaceResourceCategory::Manifest) {
-                    DrawTextLine(dc,
-                                 RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 18},
-                                 "Manifest validation: OK",
-                                 RGB(160, 220, 170),
-                                 smallFont_,
-                                 DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                    infoTop += 20;
+                    if (filesPanel.manifestOk) {
+                        infoTop += 0;
+                    }
                 }
             } else {
                 DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 36},
-                             "Pick a file in Resources, or switch tabs for scene nodes.",
+                             filesPanel.emptySelectionMessage,
                              RGB(180, 180, 190),
                              smallFont_,
                              DT_LEFT | DT_WORDBREAK);
                 infoTop += 40;
             }
-            if (!resourceEditorAuxMessage_.empty()) {
+            if (!filesPanel.auxMessage.empty()) {
                 DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 48},
-                             resourceEditorAuxMessage_,
+                             filesPanel.auxMessage,
                              RGB(220, 160, 120),
                              smallFont_,
                              DT_LEFT | DT_WORDBREAK);
@@ -6319,7 +5738,7 @@ private:
             }
             DrawToolbarButton(dc,
                              RECT{inspectorInner.left + 10, inspectorInner.top + 66, inspectorInner.left + 108, inspectorInner.top + 92},
-                             resourceFileDirty_ ? "Save*" : "Save",
+                             filesPanel.saveLabel,
                              false);
             DrawToolbarButton(dc,
                              RECT{inspectorInner.left + 114, inspectorInner.top + 66, inspectorInner.right - 10, inspectorInner.top + 92},
@@ -6327,7 +5746,7 @@ private:
                              false);
             DrawTextLine(dc,
                          RECT{inspectorInner.left + 10, inspectorInner.top + 98, inspectorInner.right - 10, inspectorInner.top + 114},
-                         "Ctrl+S saves resource when Files + modified. Key 4 opens Files tab. Focus: " + ResourceFocusSummary(),
+                         filesPanel.footerHint,
                          RGB(200, 196, 160),
                          smallFont_,
                          DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
@@ -6337,188 +5756,100 @@ private:
             infoTop = inspectorInner.top + 42;
             if (inspectorPanel_ == InspectorPanel::Node) {
                 inspectorNudgeButtons_.fill(RECT{});
-                if (nodeRenameTypingActive_) {
-                    DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 36},
-                                 "Rename (F2): " + nodeRenameDraft_ + "  |  Enter apply  Esc cancel",
-                                 RGB(255, 248, 180),
-                                 bodyFont_,
-                                 DT_LEFT | DT_WORDBREAK);
-                    infoTop += 40;
-                } else {
-                    DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                                 "Name: " + node.name + "  (F2 rename)",
-                                 RGB(226, 226, 226), bodyFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                    infoTop += 24;
-                }
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             "Path: " + ri::scene::DescribeNodePath(starterScene_.scene, static_cast<int>(selectedNode_)),
-                             RGB(210, 210, 210), smallFont_, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
-                infoTop += 22;
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             "Kind: " + NodeKindLabel(node),
-                             RGB(228, 216, 170), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                infoTop += 20;
+                NodeInspectorPanelModel model{};
+                model.renameTypingActive = nodeRenameTypingActive_;
+                model.renameDraft = nodeRenameDraft_;
+                model.nameLine = "Name: " + node.name + "  (F2 rename)";
+                model.pathLine = "Path: " + ri::scene::DescribeNodePath(starterScene_.scene, static_cast<int>(selectedNode_));
+                model.kindLine = "Kind: " + NodeKindLabel(node);
                 if (node.mesh != ri::scene::kInvalidHandle && node.mesh >= 0 &&
                     static_cast<std::size_t>(node.mesh) < starterScene_.scene.MeshCount()) {
                     const ri::scene::Mesh& mesh = starterScene_.scene.GetMesh(node.mesh);
-                    DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                                 "Mesh primitive: " + ri::scene::ToString(mesh.primitive),
-                                 RGB(200, 210, 220), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                    infoTop += 20;
+                    model.meshPrimitiveLine = "Mesh primitive: " + ri::scene::ToString(mesh.primitive);
                 }
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             "Local Pos: " + ri::math::ToString(node.localTransform.position),
-                             RGB(200, 200, 200), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                infoTop += 20;
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             "Local Rot: " + ri::math::ToString(node.localTransform.rotationDegrees),
-                             RGB(200, 200, 200), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                infoTop += 20;
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             "Local Scale: " + ri::math::ToString(node.localTransform.scale),
-                             RGB(200, 200, 200), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                infoTop += 20;
-                if (IsEditableAuthoredNode(static_cast<int>(selectedNode_))) {
-                    DrawTextLine(dc,
-                                 RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 18},
-                                 "Transform nudge (uses grid snap on position):",
-                                 RGB(214, 208, 168),
-                                 smallFont_,
-                                 DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                    infoTop += 20;
-                    DrawInspectorNudgeRow(dc, infoTop, inspectorInner, "Pos", 0);
-                    DrawInspectorNudgeRow(dc, infoTop, inspectorInner, "Rot", 1);
-                    DrawInspectorNudgeRow(dc, infoTop, inspectorInner, "Scl", 2);
-                } else {
-                    DrawTextLine(dc,
-                                 RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 18},
-                                 "Protected node — use viewport keys (T/R/U) on authored meshes only.",
-                                 RGB(214, 180, 140),
-                                 smallFont_,
-                                 DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
-                    infoTop += 20;
-                }
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             "Edit Mode: " + EditModeLabel() + " (" + AxisLabel() + ")",
-                             RGB(214, 208, 168), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                infoTop += 20;
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             "Grouping: Ctrl+G group  |  Ctrl+Shift+G ungroup  |  Ctrl+Shift+N new group",
-                             RGB(214, 208, 168), smallFont_, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
-                infoTop += 20;
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             "Ops: Ctrl+R reset  |  Shift+F frame all  |  Ctrl+Shift+W parent to World",
-                             RGB(214, 208, 168), smallFont_, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
-                infoTop += 20;
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             "World Pos: " + ri::math::ToString(worldPos),
-                             RGB(200, 220, 200), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+                model.localPosLine = "Local Pos: " + ri::math::ToString(node.localTransform.position);
+                model.localRotLine = "Local Rot: " + ri::math::ToString(node.localTransform.rotationDegrees);
+                model.localScaleLine = "Local Scale: " + ri::math::ToString(node.localTransform.scale);
+                model.editableAuthored = IsEditableAuthoredNode(static_cast<int>(selectedNode_));
+                model.editModeLine = "Edit Mode: " + EditModeLabel() + " (" + AxisLabel() + ")";
+                model.groupingLine = "Grouping: Ctrl+G group  |  Ctrl+Shift+G ungroup  |  Ctrl+Shift+N new group";
+                model.opsLine = "Ops: Ctrl+R reset  |  Shift+F frame all  |  Ctrl+Shift+W parent to World";
+                model.worldPosLine = "World Pos: " + ri::math::ToString(worldPos);
+                RenderNodeInspectorPanel(
+                    dc,
+                    inspectorInner,
+                    model,
+                    headerFont_,
+                    bodyFont_,
+                    smallFont_,
+                    [this](HDC innerDc, int& top, const RECT& innerRect, const char* label, int componentIndex) {
+                        this->DrawInspectorNudgeRow(innerDc, top, innerRect, label, componentIndex);
+                    });
             } else if (inspectorPanel_ == InspectorPanel::Brush) {
-                DrawToolbarButton(dc,
-                                  RECT{inspectorInner.left + 10,
-                                       inspectorInner.top + 42,
-                                       inspectorInner.left + 52,
-                                       inspectorInner.top + 66},
-                                  "<",
-                                  false);
-                DrawToolbarButton(dc,
-                                  RECT{inspectorInner.left + 56,
-                                       inspectorInner.top + 42,
-                                       inspectorInner.left + 98,
-                                       inspectorInner.top + 66},
-                                  ">",
-                                  false);
-                DrawTextLine(dc,
-                             RECT{inspectorInner.left + 104,
-                                  inspectorInner.top + 44,
-                                  inspectorInner.right - 10,
-                                  inspectorInner.top + 64},
-                             std::string(CurrentStructuralPrimitivePreset().label) +
-                                 " (" + std::string(CurrentStructuralPrimitivePreset().structuralType) + ")",
-                             RGB(228, 236, 248),
-                             bodyFont_,
-                             DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
-                infoTop = inspectorInner.top + 74;
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             "Structural primitives",
-                             RGB(240, 240, 236), headerFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                infoTop += 24;
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 36},
-                             "[ / ] or click < > · Ctrl+Shift+1..9 quick preset · Ctrl+Shift+B spawn · Ctrl+Shift+T trigger · Del removes authored mesh · Ctrl+D duplicate · Ctrl+G group",
-                             RGB(210, 215, 222), smallFont_, DT_LEFT | DT_WORDBREAK);
-                infoTop += 42;
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 44},
-                             "Uses ri::structural BuildPrimitiveMesh (same family as structural CSG tooling). CSV export emits cube/plane assembly rows only.",
-                             RGB(200, 206, 214), smallFont_, DT_LEFT | DT_WORDBREAK);
-                infoTop += 52;
                 const auto bounds =
                     ri::scene::ComputeNodeWorldBounds(starterScene_.scene, static_cast<int>(selectedNode_), false);
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             "Selection: " + node.name + "  |  " + NodeKindLabel(node),
-                             RGB(226, 226, 226), smallFont_, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
-                infoTop += 22;
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             std::string("Mesh Attached: ") + (node.mesh != ri::scene::kInvalidHandle ? "yes" : "no"),
-                             RGB(200, 200, 200), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                infoTop += 20;
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             bounds.has_value()
-                                 ? "Bounds Size: " + ri::math::ToString(ri::scene::GetBoundsSize(*bounds))
-                                 : "Bounds Size: n/a",
-                             RGB(200, 220, 200), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                infoTop += 20;
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             bounds.has_value()
-                                 ? "Bounds Center: " + ri::math::ToString(ri::scene::GetBoundsCenter(*bounds))
-                                 : "Bounds Center: n/a",
-                             RGB(200, 220, 200), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+                BrushInspectorPanelModel model{};
+                model.presetTitleLine =
+                    std::string(CurrentStructuralPrimitivePreset().label)
+                    + " (" + std::string(CurrentStructuralPrimitivePreset().structuralType) + ")";
+                model.headingLine = "Structural primitives";
+                model.helpLineA =
+                    "[ / ] or click < > · Ctrl+Shift+1..9 quick preset · Ctrl+Shift+B spawn · Ctrl+Shift+T trigger · Del removes authored mesh · Ctrl+D duplicate · Ctrl+G group";
+                model.helpLineB =
+                    "Uses ri::structural BuildPrimitiveMesh (same family as structural CSG tooling). CSV export emits cube/plane assembly rows only.";
+                model.selectionLine = "Selection: " + node.name + "  |  " + NodeKindLabel(node);
+                model.meshAttachedLine =
+                    std::string("Mesh Attached: ") + (node.mesh != ri::scene::kInvalidHandle ? "yes" : "no");
+                model.boundsSizeLine = bounds.has_value()
+                    ? "Bounds Size: " + ri::math::ToString(ri::scene::GetBoundsSize(*bounds))
+                    : "Bounds Size: n/a";
+                model.boundsCenterLine = bounds.has_value()
+                    ? "Bounds Center: " + ri::math::ToString(ri::scene::GetBoundsCenter(*bounds))
+                    : "Bounds Center: n/a";
+                RenderBrushInspectorPanel(
+                    dc,
+                    inspectorInner,
+                    model,
+                    headerFont_,
+                    bodyFont_,
+                    smallFont_,
+                    [this](HDC innerDc, const RECT& rect, const std::string& label, bool active) {
+                        this->DrawToolbarButton(innerDc, rect, label, active);
+                    });
             } else {
                 gameplayPanelLayout_ = ComputeGameplayPanelLayout(inspectorInner);
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 20},
-                             "Creator Runtime Policy", RGB(240, 240, 236), headerFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                infoTop += 24;
-                RECT gameplayCard{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 78};
-                DrawInsetFrame(dc, gameplayCard, RGB(70, 88, 84), RGB(154, 196, 188), RGB(24, 34, 34));
-                DrawTextLine(dc, RECT{gameplayCard.left + 10, gameplayCard.top + 8, gameplayCard.right - 10, gameplayCard.top + 26},
-                             "Game-ready authoring",
-                             RGB(244, 250, 246), headerFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                DrawTextLine(dc, RECT{gameplayCard.left + 10, gameplayCard.top + 30, gameplayCard.right - 10, gameplayCard.bottom - 8},
-                             TriggerSelectionSummary(),
-                             RGB(216, 236, 228), smallFont_, DT_LEFT | DT_WORDBREAK);
-                infoTop += 88;
-                DrawTextLine(dc, gameplayPanelLayout_.inventoryModeRow,
-                             "Inventory Mode: " + InventoryPresentationLabel() + "  (click to cycle)",
-                             RGB(226, 226, 226), bodyFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                DrawTextLine(dc, gameplayPanelLayout_.offHandRow,
-                             std::string("Off-hand Slot: ") + (creatorInventoryPolicy_.allowOffHand ? "enabled" : "disabled") + "  (click to toggle)",
-                             RGB(200, 220, 200), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                DrawTextLine(dc,
-                             RECT{inspectorInner.left + 10,
-                                  gameplayPanelLayout_.offHandRow.bottom + 4,
-                                  inspectorInner.right - 10,
-                                  gameplayPanelLayout_.offHandRow.bottom + 24},
-                             std::string("Gameplay Storage: ") + (creatorInventoryPolicy_.presentation == ri::world::InventoryPresentationMode::Disabled ? "off" : "on"),
-                             RGB(200, 220, 200), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                DrawTextLine(dc,
-                             RECT{inspectorInner.left + 10,
-                                  gameplayPanelLayout_.offHandRow.bottom + 24,
-                                  inspectorInner.right - 10,
-                                  gameplayPanelLayout_.offHandRow.bottom + 44},
-                             std::string("Hotbar/Backpack: ") + std::to_string(creatorInventoryPolicy_.hotbarSize) + " / " +
-                                 std::to_string(creatorInventoryPolicy_.backpackSize),
-                             RGB(200, 200, 200), smallFont_, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                DrawToolbarButton(dc, gameplayPanelLayout_.addTriggerBtn, "+ Trigger", false);
-                DrawToolbarButton(dc, gameplayPanelLayout_.exportBtn, "Export", false);
-                DrawToolbarButton(dc, gameplayPanelLayout_.playtestBtn, "Playtest", false);
-                infoTop = gameplayPanelLayout_.playtestBtn.bottom + 8;
-                DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 42},
-                             "Controls: 1/2/3/4 panels · I inventory · O off-hand · Ctrl+Shift+T trigger · Ctrl+Shift+I import primaryLevel CSV · Ctrl+Shift+P reload preview.",
-                             RGB(214, 208, 168), smallFont_, DT_LEFT | DT_WORDBREAK);
+                GameplayInspectorPanelModel model{};
+                model.layout = gameplayPanelLayout_;
+                model.headingLine = "Creator Runtime Policy";
+                model.summaryLine = TriggerSelectionSummary();
+                model.inventoryModeLine = "Inventory Mode: " + InventoryPresentationLabel() + "  (click to cycle)";
+                model.offHandLine =
+                    std::string("Off-hand Slot: ")
+                    + (creatorInventoryPolicy_.allowOffHand ? "enabled" : "disabled")
+                    + "  (click to toggle)";
+                model.gameplayStorageLine =
+                    std::string("Gameplay Storage: ")
+                    + (creatorInventoryPolicy_.presentation == ri::world::InventoryPresentationMode::Disabled ? "off" : "on");
+                model.hotbarLine =
+                    std::string("Hotbar/Backpack: ") + std::to_string(creatorInventoryPolicy_.hotbarSize) + " / "
+                    + std::to_string(creatorInventoryPolicy_.backpackSize);
+                model.controlsLine =
+                    "Controls: 1/2/3/4 panels · I inventory · O off-hand · Ctrl+Shift+T trigger · Ctrl+Shift+I import primaryLevel CSV · F5 reload preview · Ctrl+Shift+M scaffold project.";
+                RenderGameplayInspectorPanel(
+                    dc,
+                    inspectorInner,
+                    model,
+                    headerFont_,
+                    bodyFont_,
+                    smallFont_,
+                    [this](HDC innerDc, const RECT& rect, const std::string& label, bool active) {
+                        this->DrawToolbarButton(innerDc, rect, label, active);
+                    });
             }
         } else {
             infoTop = inspectorInner.top + 42;
             DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 48},
-                         "Select a scene node or use Resources to open project files (levels, scripts, UI, menus).",
+                         "Select a scene node or use Resources to open project files (levels, scripts, config, data, AI, UI, menus).",
                          RGB(200, 200, 200),
                          smallFont_,
                          DT_LEFT | DT_WORDBREAK);
@@ -6552,7 +5883,7 @@ private:
         DrawTextLine(dc, RECT{statusBar.left + 12, statusBar.top + 8, statusBar.right - 12, statusBar.top + 28},
                      consoleLine, RGB(20, 60, 20), smallFont_, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
         DrawTextLine(dc, RECT{statusBar.left + 12, statusBar.top + 30, statusBar.right - 12, statusBar.top + 50},
-                     "Esc clear sel · Ctrl+Shift+Q quit · Space auto-orbit · Tab view · T/R/U modes · WASDQE edit (Shift fine / Alt coarse) · G snap on/off · Ctrl+G snap selection · +/- grid step · Ctrl+R reset · Shift+F frame all · Ctrl+Shift+W to World · Ctrl+Shift+T trigger · ,/. authored cycle · Ctrl+Shift+S snapshot · Ctrl+Shift+L autosave load · Ctrl+E export · Ctrl+Z/Y · Ctrl+S persist/load · F6",
+                     "Esc clear sel · Ctrl+Shift+Q quit · Space auto-orbit · Tab view · T/R/U modes · WASDQE edit (Shift fine / Alt coarse) · G snap on/off · Ctrl+G snap selection · +/- grid step · Ctrl+R reset · Shift+F frame all · Ctrl+Shift+W to World · Ctrl+Shift+T trigger · ,/. authored cycle · Ctrl+Shift+S snapshot · Ctrl+Shift+L autosave load · Ctrl+Shift+M scaffold · Ctrl+E export · Ctrl+Z/Y · Ctrl+S persist/load · F5 reload · F6 stats",
                      RGB(32, 32, 32), smallFont_, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
         DrawTextLine(dc, RECT{statusBar.left + 12, statusBar.top + 50, statusBar.right - 12, statusBar.bottom - 8},
                      "State: " + lastIoStatus_ + "  |  Scene file: " + ResolveSceneStatePath().string(),

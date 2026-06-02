@@ -1,4 +1,14 @@
 add_executable(RawIron.Editor
+  src/EditorFilesInspector.cpp
+  src/EditorHierarchy.cpp
+  src/EditorInspectorPanels.cpp
+  src/EditorPlaytestLauncher.cpp
+  src/EditorProjectScaffolding.cpp
+  src/EditorResourceBrowser.cpp
+  src/EditorResourceDocument.cpp
+  src/EditorResourceTextEditor.cpp
+  src/EditorRenderer.cpp
+  src/EditorWorkspace.cpp
   src/main.cpp
 )
 

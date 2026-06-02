@@ -9,6 +9,9 @@
 #include "RawIron/Math/Vec3.h"
 #include "RawIron/Render/ScenePreview.h"
 #endif
+#if defined(RAWIRON_EDITOR_BUNDLE_MULTIPLAYER_SANDBOX)
+#include "RawIron/Games/MultiplayerSandbox/MultiplayerSandboxEditorPreview.h"
+#endif
 
 #include <filesystem>
 
@@ -33,6 +36,9 @@ void RegisterBundledGameEditorPreviews() {
         options.ambientLight = ri::math::Vec3{0.10f, 0.11f, 0.10f};
     };
     ri::editor::RegisterEditorPreviewScene("wilderness-ruins", hooks);
+#endif
+#if defined(RAWIRON_EDITOR_BUNDLE_MULTIPLAYER_SANDBOX)
+    ri::games::multiplayersandbox::RegisterMultiplayerSandboxEditorPreview();
 #endif
 }
 
