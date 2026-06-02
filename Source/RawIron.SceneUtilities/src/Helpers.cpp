@@ -205,6 +205,8 @@ int AddPrimitiveNode(Scene& scene, const PrimitiveNodeOptions& options) {
     const int material = scene.AddMaterial(Material{
         .name = options.materialName,
         .shadingModel = options.shadingModel,
+        .materialStyle = options.materialStyle,
+        .materialWorkflow = options.materialWorkflow,
         .baseColor = options.baseColor,
         .baseColorTexture = options.baseColorTexture,
         .baseColorTextureFrames = options.baseColorTextureFrames,
@@ -217,8 +219,15 @@ int AddPrimitiveNode(Scene& scene, const PrimitiveNodeOptions& options) {
         .alphaCutoff = options.alphaCutoff,
         .doubleSided = options.doubleSided,
         .transparent = options.transparent,
-        .additiveBlend = false,
+        .additiveBlend = options.additiveBlend,
         .normalTexture = options.normalTexture,
+        .ormTexture = options.ormTexture,
+        .roughnessTexture = options.roughnessTexture,
+        .metallicTexture = options.metallicTexture,
+        .emissiveTexture = options.emissiveTexture,
+        .opacityTexture = options.opacityTexture,
+        .occlusionTexture = options.occlusionTexture,
+        .detailTexture = options.detailTexture,
     });
     const int mesh = scene.AddMesh(MakePrimitiveMesh(options.primitive, options.nodeName + "Mesh"));
     const int node = scene.CreateNode(options.nodeName, options.parent);
@@ -231,6 +240,8 @@ int AddProceduralTerrainNode(Scene& scene, const ProceduralTerrainOptions& optio
     const int material = scene.AddMaterial(Material{
         .name = options.materialName,
         .shadingModel = options.shadingModel,
+        .materialStyle = options.materialStyle,
+        .materialWorkflow = options.materialWorkflow,
         .baseColor = options.baseColor,
         .baseColorTexture = options.baseColorTexture,
         .textureTiling = options.textureTiling,
@@ -243,6 +254,9 @@ int AddProceduralTerrainNode(Scene& scene, const ProceduralTerrainOptions& optio
         .transparent = false,
         .additiveBlend = false,
         .normalTexture = options.normalTexture,
+        .ormTexture = options.ormTexture,
+        .emissiveTexture = options.emissiveTexture,
+        .detailTexture = options.detailTexture,
     });
     const int mesh = scene.AddMesh(MakeProceduralTerrainMesh(options, options.nodeName + "Mesh"));
     const int node = scene.CreateNode(options.nodeName, options.parent);

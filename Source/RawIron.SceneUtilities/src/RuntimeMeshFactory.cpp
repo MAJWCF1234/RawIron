@@ -26,6 +26,8 @@ int InstantiateRuntimePrimitive(Scene& scene,
     options.transform = params.transform;
     options.materialName = params.material.materialName;
     options.shadingModel = params.material.shadingModel;
+    options.materialStyle = params.material.materialStyle;
+    options.materialWorkflow = params.material.materialWorkflow;
     options.baseColor = params.material.baseColor;
     options.baseColorTexture = params.material.baseColorTexture;
     options.baseColorTextureFrames = params.material.baseColorTextureFrames;
@@ -38,6 +40,15 @@ int InstantiateRuntimePrimitive(Scene& scene,
     options.alphaCutoff = params.material.alphaCutoff;
     options.doubleSided = params.material.doubleSided;
     options.transparent = params.material.transparent;
+    options.additiveBlend = params.material.additiveBlend;
+    options.normalTexture = params.material.normalTexture;
+    options.ormTexture = params.material.ormTexture;
+    options.roughnessTexture = params.material.roughnessTexture;
+    options.metallicTexture = params.material.metallicTexture;
+    options.emissiveTexture = params.material.emissiveTexture;
+    options.opacityTexture = params.material.opacityTexture;
+    options.occlusionTexture = params.material.occlusionTexture;
+    options.detailTexture = params.material.detailTexture;
 
     const int node = AddPrimitiveNode(scene, options);
     if (registry != nullptr && !params.registryId.empty()) {

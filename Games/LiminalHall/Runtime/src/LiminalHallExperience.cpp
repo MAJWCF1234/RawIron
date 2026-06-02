@@ -821,16 +821,26 @@ void ProcessPendingDoorTransitions(RuntimeState& state) {
 
 [[nodiscard]] int SkyTexturePreferenceRank(const fs::path& filePath) {
     std::string name = filePath.filename().string();
+    std::string fullPath = filePath.generic_string();
     for (char& character : name) {
         character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
     }
-    if (name.find("equirect") != std::string::npos) {
+    for (char& character : fullPath) {
+        character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    }
+    if (fullPath.find("foggy") != std::string::npos || fullPath.find("overcast") != std::string::npos) {
         return 0;
     }
-    if (name.find("sky") != std::string::npos) {
+    if (fullPath.find("cloudy") != std::string::npos || fullPath.find("fading") != std::string::npos) {
         return 1;
     }
-    return 2;
+    if (name.find("equirect") != std::string::npos) {
+        return 2;
+    }
+    if (name.find("sky") != std::string::npos) {
+        return 3;
+    }
+    return 4;
 }
 
 void CollectSkiesImageFiles(const fs::path& directory, const int maxDepth, const int depth, std::vector<fs::path>& out) {
@@ -1563,6 +1573,12 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
             frame.renderContrast = state.nativeRenderTuning.contrast;
             frame.renderSaturation = state.nativeRenderTuning.saturation;
             frame.renderFogDensity = state.nativeRenderTuning.fogDensity;
+            frame.nativeFogColorNear = state.previewOptions.fogColor;
+            frame.nativeFogColorFar = state.previewOptions.fogColor;
+            frame.nativeAmbientLight = state.previewOptions.ambientLight;
+            frame.useEnvironmentClear = true;
+            frame.environmentClearTop = state.previewOptions.clearTop;
+            frame.environmentClearBottom = state.previewOptions.clearBottom;
             frame.postProcess = ri::world::BuildPostProcessParameters(
                 state.activePostProcessState,
                 static_cast<double>(state.elapsedSeconds),
@@ -2154,10 +2170,8 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     state.showcaseActive = state.showcaseEnabled;
     if (state.showcaseActive) {
         state.showcaseDiagnosticsWasVisible = state.diagnosticsVisible;
-        SetRuntimeDiagnosticsVisible(state, true);
-        SetLogicLayerVisible(state, true);
         ri::core::LogSection("Liminal Showcase");
-        ri::core::LogInfo("Startup showcase ON: cinematic sweep + exposure/fog/FOV pulses + debug overlay.");
+        ri::core::LogInfo("Startup showcase ON: cinematic sweep + exposure/fog/FOV pulses.");
         ri::core::LogInfo(
             "Showcase data hooks: lightingRows=" + std::to_string(state.showcaseLighting.size()) +
             " cinematicRows=" + std::to_string(state.showcaseCinematics.size()) +

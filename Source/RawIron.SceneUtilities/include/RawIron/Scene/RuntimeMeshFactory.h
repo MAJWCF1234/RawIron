@@ -17,6 +17,8 @@ class LevelObjectRegistry;
 struct RuntimeMaterialParams {
     std::string materialName = "RuntimeMaterial";
     ShadingModel shadingModel = ShadingModel::Lit;
+    MaterialStyle materialStyle = MaterialStyle::Standard;
+    MaterialWorkflow materialWorkflow = MaterialWorkflow::MetalRough;
     ri::math::Vec3 baseColor{1.0f, 1.0f, 1.0f};
     std::string baseColorTexture{};
     std::vector<std::string> baseColorTextureFrames{};
@@ -29,6 +31,15 @@ struct RuntimeMaterialParams {
     float alphaCutoff = 0.5f;
     bool doubleSided = false;
     bool transparent = false;
+    bool additiveBlend = false;
+    std::string normalTexture{};
+    std::string ormTexture{};
+    std::string roughnessTexture{};
+    std::string metallicTexture{};
+    std::string emissiveTexture{};
+    std::string opacityTexture{};
+    std::string occlusionTexture{};
+    std::string detailTexture{};
 };
 
 /// Loose primitive description for tools + gameplay (same path as \ref AddPrimitiveNode).

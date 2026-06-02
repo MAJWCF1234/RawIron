@@ -5,5 +5,5 @@ warmup_frames = 4
 precache_enabled = 1
 preload_streaming_cells = 1
 compile_logic_graph_on_boot = 1
-liminal_showcase_enabled = 1
+liminal_showcase_enabled = 0
 liminal_showcase_duration_s = 11.0

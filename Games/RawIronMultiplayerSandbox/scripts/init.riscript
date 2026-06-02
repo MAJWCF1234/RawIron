@@ -1,1 +1,5 @@
-# placeholder
+# Startup behavior
+warmup_frames=4
+precache_enabled=1
+sandbox_catalog_showcase_enabled=0
+sandbox_catalog_showcase_duration_s=10

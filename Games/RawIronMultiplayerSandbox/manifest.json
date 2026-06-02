@@ -18,7 +18,7 @@
   "author": "RawIron Team",
   "editorProjectArg": "--game=rawiron-multiplayer-sandbox",
   "primaryLevel": "levels/assembly.primitives.csv",
-  "description": "Dedicated/listen/hybrid multiplayer sandbox for full-engine networking, bots, and runtime diagnostics.",
+  "description": "Dedicated/listen/hybrid multiplayer sandbox for networking, bots, runtime diagnostics, and the engine-owned structural primitive/material catalog.",
   "editorPreviewScene": "rawiron-multiplayer-sandbox",
   "controls": {
     "move": "WASD",

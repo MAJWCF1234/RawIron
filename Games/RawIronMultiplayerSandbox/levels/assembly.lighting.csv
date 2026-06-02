@@ -1,1 +1,4 @@
-# placeholder
+id,type,x,y,z,intensity,color
+catalog_key,point,-72,24,-26,3.5,0.94|0.96|1.00
+catalog_fill,point,68,16,28,2.6,0.78|0.92|1.00
+catalog_row_read,point,0,9.5,0,2.2,1.00|0.90|0.76

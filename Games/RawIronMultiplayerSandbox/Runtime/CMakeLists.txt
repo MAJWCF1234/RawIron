@@ -1,5 +1,7 @@
 add_library(RawIron.Game.MultiplayerSandbox
+  src/MultiplayerSandboxExperience.cpp
   src/MultiplayerSandboxRuntime.cpp
+  src/MultiplayerSandboxWorld.cpp
 )
 
 add_library(RawIron::Game.MultiplayerSandbox ALIAS RawIron.Game.MultiplayerSandbox)
@@ -13,9 +15,19 @@ target_link_libraries(RawIron.Game.MultiplayerSandbox
   PUBLIC
     RawIron::Content
     RawIron::Core
-    RawIron::Game.LiminalHall
     RawIron::Game.RuntimeDiagnosticsDraw
+    RawIron::RenderSoftware
+    RawIron::RenderVulkan
     RawIron::Runtime
+    RawIron::SceneUtilities
+    RawIron::Trace
 )
+
+if (WIN32)
+  target_link_libraries(RawIron.Game.MultiplayerSandbox
+    PUBLIC
+      user32
+  )
+endif()
 
 target_compile_features(RawIron.Game.MultiplayerSandbox PUBLIC cxx_std_20)

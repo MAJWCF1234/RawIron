@@ -211,6 +211,11 @@ layout(std140, set = 0, binding = 0) uniform CameraData {
 } cameraData;
 
 layout(set = 1, binding = 0) uniform sampler2D albedoTex;
+layout(set = 1, binding = 1) uniform sampler2D normalTex;
+layout(set = 1, binding = 2) uniform sampler2D ormTex;
+layout(set = 1, binding = 3) uniform sampler2D emissiveTex;
+layout(set = 1, binding = 4) uniform sampler2D opacityTex;
+layout(set = 1, binding = 5) uniform sampler2D detailTex;
 layout(set = 2, binding = 0) uniform sampler2D shadowMapTex;
 
 layout(push_constant) uniform DrawData {
@@ -228,6 +233,14 @@ layout(push_constant) uniform DrawData {
 } drawData;
 
 const float kPi = 3.14159265359;
+const int kMaterialStyleRetro = 1 << 5;
+const int kMaterialStyleLayered = 1 << 6;
+const int kMaterialStyleMixedMedia = 1 << 7;
+const int kMaterialStyleCrystal = 1 << 8;
+const int kMaterialWorkflowSpecGloss = 1 << 9;
+
+float Hash11(float p);
+float Hash21(vec2 p);
 
 float DistributionGGX(vec3 n, vec3 h, float roughness) {
     float a = roughness * roughness;
@@ -252,6 +265,42 @@ float GeometrySmith(vec3 n, vec3 v, vec3 l, float roughness) {
 
 vec3 FresnelSchlick(float cosTheta, vec3 f0) {
     return f0 + (1.0 - f0) * pow(1.0 - cosTheta, 5.0);
+}
+
+mat3 CotangentFrame(vec3 n, vec3 positionWs, vec2 uv) {
+    vec3 dp1 = dFdx(positionWs);
+    vec3 dp2 = dFdy(positionWs);
+    vec2 duv1 = dFdx(uv);
+    vec2 duv2 = dFdy(uv);
+    vec3 dp2perp = cross(dp2, n);
+    vec3 dp1perp = cross(n, dp1);
+    vec3 tangent = dp2perp * duv1.x + dp1perp * duv2.x;
+    vec3 bitangent = dp2perp * duv1.y + dp1perp * duv2.y;
+    float invMax = inversesqrt(max(dot(tangent, tangent), dot(bitangent, bitangent)));
+    return mat3(tangent * invMax, bitangent * invMax, n);
+}
+
+vec3 ApplyNormalMap(vec3 baseNormal, vec2 uv) {
+    vec3 tangentNormal = texture(normalTex, uv).xyz * 2.0 - 1.0;
+    tangentNormal.xy *= 0.9;
+    mat3 tbn = CotangentFrame(normalize(baseNormal), worldPositionWs, uv);
+    return normalize(tbn * tangentNormal);
+}
+
+vec3 ComputePseudoReflection(vec3 normal, vec3 viewDir, float roughness, vec3 ambientBoost) {
+    vec3 reflected = reflect(-viewDir, normal);
+    float horizon = clamp(reflected.y * 0.5 + 0.5, 0.0, 1.0);
+    vec3 sky = mix(vec3(0.08, 0.11, 0.15), vec3(0.46, 0.62, 0.88) + ambientBoost * 0.12, horizon);
+    vec3 ground = vec3(0.05, 0.045, 0.055) + ambientBoost * 0.04;
+    vec3 env = mix(ground, sky, horizon);
+    float reflectStrength = clamp(1.0 - roughness, 0.0, 1.0);
+    return env * (0.18 + reflectStrength * reflectStrength * 0.72);
+}
+
+vec3 ApplyRetroStyle(vec3 color, vec2 uv, float timeSeconds) {
+    vec3 quantized = floor(color * 6.0 + 0.5) / 6.0;
+    float dither = (Hash21(floor(gl_FragCoord.xy) + vec2(timeSeconds * 8.0, uv.y * 37.0)) - 0.5) * 0.075;
+    return clamp(quantized + dither, 0.0, 1.0);
 }
 
 vec3 TonemapAcesApprox(vec3 color) {
@@ -386,6 +435,21 @@ vec3 ApplyPostProcessFx(vec3 color, vec2 uv01) {
     return clamp(color, 0.0, 1.0);
 }
 
+vec3 CalibrateRoughStoneColor(vec3 color, float roughStone, bool layeredStyle, bool mixedMediaStyle) {
+    float stoneWeight = roughStone * (layeredStyle ? 1.0 : (mixedMediaStyle ? 0.42 : 0.0));
+    if (stoneWeight <= 1e-4) {
+        return color;
+    }
+    float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    vec3 neutral = vec3(luma);
+    color = mix(color, neutral, 0.46 * stoneWeight);
+    float greenExcess = max(color.g - max(color.r, color.b), 0.0);
+    color.g -= greenExcess * 0.72 * stoneWeight;
+    float cyanExcess = max(color.b - color.r * 1.08, 0.0);
+    color.b -= cyanExcess * 0.24 * stoneWeight;
+    return max(color, vec3(0.0));
+}
+
 float ComputeShadowFactor(vec3 normal, vec3 lightDir) {
     vec3 ndc = shadowClipPosition.xyz / max(shadowClipPosition.w, 1e-5);
     vec2 uv = ndc.xy * 0.5 + 0.5;
@@ -421,15 +485,24 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir) {
 void main() {
     const bool hybridHdrRadiance = cameraData.postProcessSecondary.w > 0.5;
     const vec2 postUv01 = gl_FragCoord.xy * cameraData.viewportMetrics.zw;
+    vec2 materialUv = texCoord * drawData.tiling;
+    vec2 detailUv = materialUv * 1.85 + worldPositionWs.xz * 0.028;
     vec3 normal = normalize(inNormal);
     const vec3 viewDir = normalize(viewDirectionWs);
     if ((drawData.litShadingModel & 8) != 0 && dot(normal, viewDir) < 0.0) {
         normal = -normal;
     }
+    const bool retroStyle = (drawData.litShadingModel & kMaterialStyleRetro) != 0;
+    const bool layeredStyle = (drawData.litShadingModel & kMaterialStyleLayered) != 0;
+    const bool mixedMediaStyle = (drawData.litShadingModel & kMaterialStyleMixedMedia) != 0;
+    const bool crystalStyle = (drawData.litShadingModel & kMaterialStyleCrystal) != 0;
+    const bool specGlossWorkflow = (drawData.litShadingModel & kMaterialWorkflowSpecGloss) != 0;
     vec3 albedo = inColor.rgb;
     float sampledAlpha = 1.0;
+    vec3 emissiveTexel = vec3(0.0);
+    vec3 ormTexel = vec3(1.0, drawData.roughness, drawData.metallic);
     if (drawData.useTexture != 0) {
-        vec2 uv = texCoord;
+        vec2 uv = materialUv;
         if (drawData.nativeWaterUvMotion != 0) {
             const float t = drawData.nativeWaterTime;
             const float s = 0.018 / max(drawData.tiling.x, 0.25);
@@ -440,7 +513,28 @@ void main() {
         }
         vec4 texel = texture(albedoTex, uv);
         albedo *= texel.rgb;
-        sampledAlpha = texel.a;
+        sampledAlpha = texel.a * texture(opacityTex, uv).r;
+        normal = ApplyNormalMap(normal, uv);
+        ormTexel = texture(ormTex, uv).rgb;
+        emissiveTexel = texture(emissiveTex, uv).rgb;
+        if (layeredStyle || mixedMediaStyle || crystalStyle) {
+            vec3 detailSample = texture(detailTex, detailUv).rgb;
+            float macroNoise = Hash21(floor(worldPositionWs.xz * 0.75) + vec2(worldPositionWs.y * 0.15));
+            float roughStoneDetail = smoothstep(0.86, 0.98, drawData.roughness) * (1.0 - drawData.metallic);
+            float detailMix = layeredStyle ? 0.16 : (mixedMediaStyle ? 0.13 : 0.09);
+            detailMix = mix(detailMix, max(detailMix, 0.18), roughStoneDetail);
+            vec3 coolWarmTint = mix(vec3(0.92, 0.95, 1.0), vec3(1.06, 1.0, 0.94), macroNoise);
+            vec3 stoneTint = mix(vec3(0.98, 0.97, 0.95), vec3(1.04, 1.02, 0.98), macroNoise);
+            vec3 macroTint = mix(coolWarmTint, stoneTint, roughStoneDetail);
+            float detailLuma = dot(detailSample, vec3(0.2126, 0.7152, 0.0722));
+            vec3 detailContrast = vec3(1.0 + (detailLuma - 0.52) * mix(0.18, 0.30, roughStoneDetail));
+            vec2 grainUv = mix(worldPositionWs.xy, worldPositionWs.xz, abs(normal.y));
+            float grainA = Hash21(floor(grainUv * 3.0 + worldPositionWs.zy * 0.17));
+            float grainB = Hash21(floor(grainUv * 9.0 + vec2(worldPositionWs.z, worldPositionWs.x) * 0.12));
+            float pore = smoothstep(0.64, 0.96, grainB) * 0.08;
+            detailContrast *= vec3(1.0 + (grainA - 0.5) * 0.08 - pore);
+            albedo *= mix(vec3(1.0), detailContrast * macroTint, detailMix);
+        }
     }
     albedo = clamp(albedo, 0.0, 1.0);
     bool alphaCutout = (drawData.litShadingModel & 2) != 0;
@@ -478,13 +572,19 @@ void main() {
             float distFade = clamp(1.0 - (viewDistanceWs - 1.5) / 72.0, 0.12, 1.0);
             outputAlpha *= distFade;
         }
-        vec3 linearUnlit = (albedo + drawData.emissiveColor) * exposure;
+        vec3 linearUnlit = (albedo + drawData.emissiveColor + emissiveTexel) * exposure;
         if (hybridHdrRadiance) {
+            if (retroStyle) {
+                linearUnlit = ApplyRetroStyle(linearUnlit, postUv01, cameraData.postProcessSecondary.z);
+            }
             fragColor = vec4(linearUnlit, outputAlpha);
             return;
         }
         vec3 unlit = TonemapAcesApprox(linearUnlit);
         unlit = ApplyColorGrade(unlit, contrast, saturation);
+        if (retroStyle) {
+            unlit = ApplyRetroStyle(unlit, postUv01, cameraData.postProcessSecondary.z);
+        }
         unlit = ApplySweetFxLumaCurve(unlit, curveAmt);
         unlit = ApplyPostProcessFx(unlit, postUv01);
         if (debandAmt > 1e-5) {
@@ -502,15 +602,29 @@ void main() {
     vec3 lightDir = normalize(cameraData.lightDirectionIntensity.xyz);
     float sunDimmer = max(cameraData.lightDirectionIntensity.w, 0.0);
     vec3 lightColor = cameraData.directionalLightColorIntensity.rgb * sunDimmer;
-    float roughness = clamp(drawData.roughness, 0.04, 1.0);
-    float metallic = clamp(drawData.metallic, 0.0, 1.0);
-    vec3 V = viewDirectionWs;
+    vec3 specColor = vec3(0.04);
+    float ao = 1.0;
+    float roughness = drawData.roughness;
+    float metallic = drawData.metallic;
+    if (specGlossWorkflow) {
+        float specStrength = clamp(max(max(ormTexel.r, ormTexel.g), ormTexel.b), 0.0, 1.0);
+        specColor = mix(vec3(0.04), clamp(ormTexel.rgb, 0.0, 1.0), specStrength);
+        roughness = clamp(mix(drawData.roughness, 1.0 - specStrength, 0.82), 0.04, 1.0);
+        metallic = clamp(max(drawData.metallic, specStrength * 0.35), 0.0, 1.0);
+        ao = clamp(0.78 + (1.0 - specStrength) * 0.22, 0.2, 1.0);
+    } else {
+        roughness = clamp(mix(drawData.roughness, ormTexel.g, 0.85), 0.04, 1.0);
+        metallic = clamp(mix(drawData.metallic, ormTexel.b, 0.85), 0.0, 1.0);
+        ao = clamp(ormTexel.r, 0.2, 1.0);
+        specColor = mix(vec3(0.04), albedo, metallic);
+    }
+    vec3 V = viewDir;
     vec3 H = normalize(lightDir + V);
     float nDotL = max(dot(normal, lightDir), 0.0);
     float nDotV = max(dot(normal, V), 0.0);
     float hDotV = max(dot(H, V), 0.0);
 
-    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    vec3 F0 = specGlossWorkflow ? specColor : mix(vec3(0.04), albedo, metallic);
     vec3 F = FresnelSchlick(hDotV, F0);
     float D = DistributionGGX(normal, H, roughness);
     float G = GeometrySmith(normal, V, lightDir, roughness);
@@ -531,14 +645,15 @@ void main() {
     }
     float diffuseTerm = mix(max(nDotL, 0.14), nDotL, foliageCard ? 0.35 : 0.75);
     vec3 diffuse = (kD * albedo / kPi) * diffuseTerm;
-    vec3 direct = (diffuse + (specular * max(nDotL, 0.0))) * lightColor * (foliageCard ? 1.15 : 1.65) * shadow;
+    vec3 direct = (diffuse + (specular * max(nDotL, 0.0))) * lightColor * (foliageCard ? 1.05 : 1.30) * shadow;
     vec3 ambientBoost = cameraData.presentationExtra.yzw;
-    vec3 ambient = albedo * (vec3(0.10, 0.11, 0.12) + ambientBoost * 0.22) * (1.0 - metallic * 0.45);
+    vec3 ambient = albedo * (vec3(0.06, 0.065, 0.072) + ambientBoost * 0.14) * (1.0 - metallic * 0.45);
     if (tier >= 1.0) {
         float hemi = normal.y * 0.5 + 0.5;
-        vec3 sky = vec3(0.19, 0.24, 0.30) + ambientBoost * 0.14;
-        vec3 ground = vec3(0.08, 0.072, 0.066) + ambientBoost * 0.08;
-        ambient += albedo * mix(ground, sky, hemi) * (foliageCard ? 0.14 : 0.12);
+        float roughStone = smoothstep(0.86, 0.98, roughness) * (1.0 - metallic);
+        vec3 sky = mix(vec3(0.15, 0.18, 0.22), vec3(0.17, 0.17, 0.16), roughStone) + ambientBoost * 0.08;
+        vec3 ground = vec3(0.05, 0.046, 0.043) + ambientBoost * 0.045;
+        ambient += albedo * mix(ground, sky, hemi) * (foliageCard ? 0.10 : mix(0.075, 0.045, roughStone));
     }
     if (tier >= 2.0) {
         vec3 coatF0 = vec3(0.04);
@@ -548,7 +663,23 @@ void main() {
         vec3 clearcoat = (coatD * coatG * coatF) / max(4.0 * nDotV * nDotL, 1e-4);
         direct += clearcoat * nDotL * 0.14;
     }
-    vec3 litRgb = ambient + direct + drawData.emissiveColor;
+    vec3 pseudoReflection = ComputePseudoReflection(normal, viewDir, roughness, ambientBoost);
+    float fresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), crystalStyle ? 3.0 : 5.0);
+    float roughStone = smoothstep(0.86, 0.98, roughness) * (1.0 - metallic);
+    float pseudoRtxStrength = layeredStyle ? 0.08 : (mixedMediaStyle ? 0.13 : (crystalStyle ? 0.28 : 0.05));
+    pseudoRtxStrength *= mix(1.0, 0.18, roughStone);
+    vec3 pseudoRtx = pseudoReflection * fresnel * pseudoRtxStrength;
+    if (crystalStyle) {
+        pseudoRtx += pseudoReflection * (0.10 + (1.0 - roughness) * 0.18);
+        emissiveTexel += albedo * vec3(0.04, 0.10, 0.16);
+    } else if (mixedMediaStyle) {
+        pseudoRtx *= vec3(1.0, 0.97, 1.03);
+    }
+    if (retroStyle) {
+        roughness = max(roughness, 0.82);
+        pseudoRtx *= 0.12;
+    }
+    vec3 litRgb = (ambient * ao) + direct + drawData.emissiveColor + emissiveTexel + pseudoRtx;
     vec3 toLocal = cameraData.localLightPositionRange.xyz - worldPositionWs;
     float localDistance = length(toLocal);
     float localRange = max(cameraData.localLightPositionRange.w, 0.001);
@@ -557,24 +688,35 @@ void main() {
     float localAtten = clamp(1.0 - (localDistance / localRange), 0.0, 1.0);
     localAtten *= localAtten;
     vec3 localColor = cameraData.localLightColorIntensity.rgb * cameraData.localLightColorIntensity.w;
-    litRgb += albedo * localColor * localNdotL * localAtten * (foliageCard ? 0.58 : 0.55);
-    litRgb = max(litRgb, albedo * (foliageCard ? 0.08 : 0.018));
+    litRgb += albedo * localColor * localNdotL * localAtten * (foliageCard ? 0.48 : 0.40);
+    litRgb = max(litRgb, albedo * (foliageCard ? 0.06 : 0.012));
+    if (mixedMediaStyle) {
+        litRgb = mix(litRgb, ApplyRetroStyle(litRgb, postUv01, cameraData.postProcessSecondary.z), 0.18);
+    }
 
     float fogAmount = clamp(1.0 - exp2(-viewDistanceWs * fogDensity), 0.0, 1.0);
     float horizonFactor = clamp(1.0 - max(normalize(viewDirectionWs).y, 0.0), 0.0, 1.0);
     vec3 fogColorNear = max(cameraData.sweetFxTonemapFogColorDefog.xyz, vec3(0.0));
     vec3 fogColorFar = fogColorNear * vec3(0.94, 1.02, 1.08);
     vec3 fogColor = mix(fogColorNear, fogColorFar, horizonFactor);
-    vec3 color = mix(litRgb, fogColor, fogAmount * 0.28);
+    vec3 color = mix(litRgb, fogColor, fogAmount * 0.18);
     vec3 linearLit = color * exposure;
     if (hybridHdrRadiance) {
+        if (retroStyle) {
+            linearLit = ApplyRetroStyle(linearLit, postUv01, cameraData.postProcessSecondary.z);
+        }
         fragColor = vec4(linearLit, outputAlpha);
         return;
     }
     vec3 mapped = TonemapAcesApprox(linearLit);
     mapped = ApplyColorGrade(mapped, contrast, saturation);
+    mapped = CalibrateRoughStoneColor(mapped, roughStone, layeredStyle, mixedMediaStyle);
+    if (retroStyle) {
+        mapped = ApplyRetroStyle(mapped, postUv01, cameraData.postProcessSecondary.z);
+    }
     mapped = ApplySweetFxLumaCurve(mapped, curveAmt);
     mapped = ApplyPostProcessFx(mapped, postUv01);
+    mapped = CalibrateRoughStoneColor(mapped, roughStone, layeredStyle, mixedMediaStyle);
     if (debandAmt > 1e-5) {
         float dl = dot(mapped, vec3(0.2126, 0.7152, 0.0722));
         vec2 grad = vec2(dFdx(dl), dFdy(dl));

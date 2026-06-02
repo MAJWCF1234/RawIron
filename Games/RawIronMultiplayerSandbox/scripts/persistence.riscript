@@ -1,1 +1,5 @@
-# placeholder
+# Persistence defaults for test sessions
+autosave_interval_seconds=120
+checkpoint_ring_size=8
+persistence_flush_on_checkpoint=1
+save_slot_count=3

@@ -1,1 +1,4 @@
-# placeholder
+# Local sandbox security posture
+allow_network_loopback=1
+allow_file_checkpoints=1
+allow_external_plugins=0

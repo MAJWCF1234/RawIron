@@ -1,1 +1,3 @@
-# placeholder
+# Locale table selection
+default_locale=0
+fallback_locale=0

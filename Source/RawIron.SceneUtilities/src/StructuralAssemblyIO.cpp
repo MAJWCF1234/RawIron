@@ -53,6 +53,30 @@ bool ParseInt(const std::string& text, int& out) {
     }
 }
 
+std::string Lowercase(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+MaterialStyle ParseMaterialStyleLoose(std::string_view token, MaterialStyle fallback) {
+    const std::string key = Lowercase(Trim(std::string(token)));
+    if (key == "retro") return MaterialStyle::Retro;
+    if (key == "layered") return MaterialStyle::Layered;
+    if (key == "mixedmedia" || key == "mixed_media" || key == "mixed-media") return MaterialStyle::MixedMedia;
+    if (key == "crystal") return MaterialStyle::Crystal;
+    if (key == "standard") return MaterialStyle::Standard;
+    return fallback;
+}
+
+MaterialWorkflow ParseMaterialWorkflowLoose(std::string_view token, MaterialWorkflow fallback) {
+    const std::string key = Lowercase(Trim(std::string(token)));
+    if (key == "specgloss" || key == "spec_gloss" || key == "spec-gloss") return MaterialWorkflow::SpecGloss;
+    if (key == "metalrough" || key == "metal_rough" || key == "metal-rough") return MaterialWorkflow::MetalRough;
+    return fallback;
+}
+
 ri::math::Vec3 ParseVec3(const std::vector<std::string>& tokens, std::size_t offset, const ri::math::Vec3& fallback) {
     if ((offset + 2U) >= tokens.size()) {
         return fallback;
@@ -158,6 +182,39 @@ StructuralAssemblySpawnResult SpawnStructuralAssemblyFromCsv(Scene& scene,
         }
         if (tokens.size() > 17U) {
             brush.transform.rotationDegrees = ParseVec3(tokens, 15U, {});
+        }
+        if (tokens.size() > 23U && !tokens[23].empty()) {
+            brush.materialStyle = ParseMaterialStyleLoose(tokens[23], brush.materialStyle);
+        }
+        if (tokens.size() > 24U && !tokens[24].empty()) {
+            brush.materialWorkflow = ParseMaterialWorkflowLoose(tokens[24], brush.materialWorkflow);
+        }
+        if (tokens.size() > 25U && !tokens[25].empty() && tokens[25] != "-") {
+            brush.normalTexture = tokens[25];
+        }
+        if (tokens.size() > 26U && !tokens[26].empty() && tokens[26] != "-") {
+            brush.ormTexture = tokens[26];
+        }
+        if (tokens.size() > 27U && !tokens[27].empty() && tokens[27] != "-") {
+            brush.detailTexture = tokens[27];
+        }
+        if (tokens.size() > 28U && !tokens[28].empty() && tokens[28] != "-") {
+            brush.emissiveTexture = tokens[28];
+        }
+        if (tokens.size() > 31U) {
+            brush.emissiveColor = ParseVec3(tokens, 29U, brush.emissiveColor);
+        }
+        if (tokens.size() > 32U) {
+            float roughness = brush.roughness;
+            if (ParseFloat(tokens[32], roughness)) {
+                brush.roughness = std::clamp(roughness, 0.0f, 1.0f);
+            }
+        }
+        if (tokens.size() > 33U) {
+            float metallic = brush.metallic;
+            if (ParseFloat(tokens[33], metallic)) {
+                brush.metallic = std::clamp(metallic, 0.0f, 1.0f);
+            }
         }
         brush.materialName = options.materialNamePrefix + "_" + tokens[0];
 

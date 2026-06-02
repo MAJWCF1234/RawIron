@@ -1,1 +1,4 @@
-# placeholder
+# Multiplayer sandbox network simulation/runtime scalars
+network_tick_hz=60
+network_snapshot_rate=30
+network_timeout_seconds=10

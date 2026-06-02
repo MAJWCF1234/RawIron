@@ -1,7 +1,6 @@
 zone_id,min_x,min_y,min_z,max_x,max_y,max_z,stream_group,priority
-hub_plaza,-20.0,-2.0,-20.0,20.0,12.0,20.0,core,100
-wing_east,10.0,-1.0,-10.0,32.0,14.0,10.0,extended,88
-wing_west,-38.0,-1.0,-12.0,-12.0,16.0,12.0,extended,90
-wing_north,-14.0,-1.0,14.0,14.0,14.0,32.0,extended,84
-wing_south,-8.0,-1.0,-36.0,12.0,10.0,-8.0,extended,86
-portal_pocket,-28.0,-1.0,6.0,-14.0,12.0,22.0,core,82
+wing_south,-18.0,-1.0,-50.0,18.0,12.0,-14.0,core,100
+hub_plaza,-24.0,-1.0,-16.0,24.0,18.0,16.0,core,98
+wing_west,-44.0,-1.0,-20.0,-18.0,18.0,20.0,extended,92
+wing_east,18.0,0.0,-16.0,38.0,14.0,16.0,extended,94
+wing_north,-20.0,-1.0,16.0,20.0,20.0,50.0,extended,96

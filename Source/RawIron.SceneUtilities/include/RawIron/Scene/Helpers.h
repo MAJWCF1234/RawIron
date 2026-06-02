@@ -19,6 +19,8 @@ struct PrimitiveNodeOptions {
     Transform transform{};
     std::string materialName = "material";
     ShadingModel shadingModel = ShadingModel::Lit;
+    MaterialStyle materialStyle = MaterialStyle::Standard;
+    MaterialWorkflow materialWorkflow = MaterialWorkflow::MetalRough;
     ri::math::Vec3 baseColor{1.0f, 1.0f, 1.0f};
     std::string baseColorTexture{};
     std::vector<std::string> baseColorTextureFrames{};
@@ -31,7 +33,15 @@ struct PrimitiveNodeOptions {
     float alphaCutoff = 0.5f;
     bool doubleSided = false;
     bool transparent = false;
+    bool additiveBlend = false;
     std::string normalTexture{};
+    std::string ormTexture{};
+    std::string roughnessTexture{};
+    std::string metallicTexture{};
+    std::string emissiveTexture{};
+    std::string opacityTexture{};
+    std::string occlusionTexture{};
+    std::string detailTexture{};
 };
 
 struct LightNodeOptions {
@@ -94,9 +104,14 @@ struct ProceduralTerrainOptions {
     Transform transform{};
     std::string materialName = "terrain-material";
     ShadingModel shadingModel = ShadingModel::Lit;
+    MaterialStyle materialStyle = MaterialStyle::Layered;
+    MaterialWorkflow materialWorkflow = MaterialWorkflow::MetalRough;
     ri::math::Vec3 baseColor{0.44f, 0.49f, 0.40f};
     std::string baseColorTexture{};
     std::string normalTexture{};
+    std::string ormTexture{};
+    std::string emissiveTexture{};
+    std::string detailTexture{};
     ri::math::Vec2 textureTiling{24.0f, 24.0f};
     int resolutionX = 96;
     int resolutionZ = 96;

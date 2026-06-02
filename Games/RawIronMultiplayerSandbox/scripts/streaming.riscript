@@ -1,1 +1,3 @@
-# placeholder
+# Catalog streaming budget
+streaming_budget_scale=1.35
+checkpoint_autosave_enabled=0

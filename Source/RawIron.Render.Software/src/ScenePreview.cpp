@@ -260,6 +260,18 @@ std::vector<ri::math::Vec3> BuildMeshVertexNormals(const ri::scene::Mesh& mesh) 
         return {};
     }
 
+    if (mesh.normals.size() == mesh.positions.size()) {
+        std::vector<ri::math::Vec3> normalized = mesh.normals;
+        for (ri::math::Vec3& normal : normalized) {
+            if (ri::math::LengthSquared(normal) <= 1e-8f) {
+                normal = ri::math::Vec3{0.0f, 1.0f, 0.0f};
+            } else {
+                normal = ri::math::Normalize(normal);
+            }
+        }
+        return normalized;
+    }
+
     std::vector<ri::math::Vec3> normals(mesh.positions.size(), ri::math::Vec3{0.0f, 0.0f, 0.0f});
     const bool hasIndices = mesh.indices.size() >= 3U;
     const int triangleCount = hasIndices

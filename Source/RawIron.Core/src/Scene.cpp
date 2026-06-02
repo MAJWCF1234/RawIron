@@ -36,6 +36,32 @@ std::string ToString(ShadingModel shadingModel) {
     return "unknown";
 }
 
+std::string ToString(MaterialStyle materialStyle) {
+    switch (materialStyle) {
+        case MaterialStyle::Standard:
+            return "standard";
+        case MaterialStyle::Retro:
+            return "retro";
+        case MaterialStyle::Layered:
+            return "layered";
+        case MaterialStyle::MixedMedia:
+            return "mixed_media";
+        case MaterialStyle::Crystal:
+            return "crystal";
+    }
+    return "unknown";
+}
+
+std::string ToString(MaterialWorkflow materialWorkflow) {
+    switch (materialWorkflow) {
+        case MaterialWorkflow::MetalRough:
+            return "metal_rough";
+        case MaterialWorkflow::SpecGloss:
+            return "spec_gloss";
+    }
+    return "unknown";
+}
+
 std::string ToString(ProjectionType projectionType) {
     switch (projectionType) {
         case ProjectionType::Perspective:

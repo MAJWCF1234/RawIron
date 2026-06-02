@@ -1,1 +1,30 @@
-# placeholder
+# Structural catalog traversal tuning
+walk_speed=7.0
+sprint_speed=11.5
+air_speed=10.0
+jump_speed=8.0
+movement_speed_scale=1.0
+ground_acceleration=92.0
+air_acceleration=28.0
+ground_friction=6.2
+stop_speed=1.0
+air_control=0.46
+air_turn_responsiveness=0.72
+air_strafe_accel_boost=1.35
+coyote_time=0.18
+jump_buffer_time=0.22
+ground_probe_jump_max_down=0.75
+ground_adhesion_speed=3.0
+wall_jump_enabled=0
+low_jump_gravity_multiplier=1.20
+max_fall_speed=30.0
+camera_height=1.62
+head_bob_amplitude=0.006
+head_bob_frequency=1.25
+head_bob_sprint_scale=1.25
+mouse_sensitivity=0.10
+spawn_x=-139.4
+spawn_y=4.30
+spawn_z=-15.1
+spawn_yaw=68.0
+spawn_pitch=-12.0

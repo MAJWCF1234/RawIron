@@ -76,6 +76,7 @@ struct NativeSceneDraw {
     std::array<float, 2> textureTiling{1.0f, 1.0f};
     bool useTexture = false;
     bool litShadingModel = false;
+    std::int32_t materialStyleFlags = 0;
     bool alphaCutout = false;
     bool doubleSided = false;
     /// Resolved path under `textureRoot` for this frame (animated sequences); empty falls back to material lookup.
@@ -83,6 +84,12 @@ struct NativeSceneDraw {
     bool nativeWaterUvMotion = false;
     bool additiveBlend = false;
 };
+
+constexpr std::int32_t kNativeMaterialStyleRetro = 1 << 5;
+constexpr std::int32_t kNativeMaterialStyleLayered = 1 << 6;
+constexpr std::int32_t kNativeMaterialStyleMixedMedia = 1 << 7;
+constexpr std::int32_t kNativeMaterialStyleCrystal = 1 << 8;
+constexpr std::int32_t kNativeMaterialWorkflowSpecGloss = 1 << 9;
 
 struct NativeScenePreviewData {
     const ri::scene::Scene* scene = nullptr;
@@ -1494,6 +1501,7 @@ CpuMeshGeometry BuildPlaneMeshGeometryUv() {
 }
 
 CpuMeshGeometry BuildIndexedMeshGeometryUv(const std::vector<ri::math::Vec3>& positions,
+                                           const std::vector<ri::math::Vec3>* explicitNormals,
                                            const std::vector<ri::math::Vec2>& texCoords,
                                            const std::vector<std::uint32_t>& indices,
                                            bool hasUv) {
@@ -1503,26 +1511,39 @@ CpuMeshGeometry BuildIndexedMeshGeometryUv(const std::vector<ri::math::Vec3>& po
     }
 
     std::vector<ri::math::Vec3> averagedNormals(positions.size(), ri::math::Vec3{0.0f, 0.0f, 0.0f});
-    for (std::size_t triangleIndex = 0; triangleIndex + 2U < indices.size(); triangleIndex += 3U) {
-        const std::uint32_t ia = indices[triangleIndex + 0U];
-        const std::uint32_t ib = indices[triangleIndex + 1U];
-        const std::uint32_t ic = indices[triangleIndex + 2U];
-        if (ia >= positions.size() || ib >= positions.size() || ic >= positions.size()) {
-            continue;
+    if (explicitNormals != nullptr && explicitNormals->size() == positions.size()) {
+        for (std::size_t index = 0; index < positions.size(); ++index) {
+            ri::math::Vec3 normal = (*explicitNormals)[index];
+            if (ri::math::Length(normal) <= 0.0001f) {
+                normal = ri::math::Vec3{0.0f, 1.0f, 0.0f};
+            } else {
+                normal = ri::math::Normalize(normal);
+            }
+            averagedNormals[index] = normal;
         }
-        const ri::math::Vec3 faceNormal = ri::math::Cross(positions[ib] - positions[ia], positions[ic] - positions[ia]);
-        averagedNormals[ia] = averagedNormals[ia] + faceNormal;
-        averagedNormals[ib] = averagedNormals[ib] + faceNormal;
-        averagedNormals[ic] = averagedNormals[ic] + faceNormal;
-    }
-    for (std::size_t index = 0; index < positions.size(); ++index) {
-        ri::math::Vec3 normal = averagedNormals[index];
-        if (ri::math::Length(normal) <= 0.0001f) {
-            normal = ri::math::Vec3{0.0f, 1.0f, 0.0f};
-        } else {
-            normal = ri::math::Normalize(normal);
+    } else {
+        for (std::size_t triangleIndex = 0; triangleIndex + 2U < indices.size(); triangleIndex += 3U) {
+            const std::uint32_t ia = indices[triangleIndex + 0U];
+            const std::uint32_t ib = indices[triangleIndex + 1U];
+            const std::uint32_t ic = indices[triangleIndex + 2U];
+            if (ia >= positions.size() || ib >= positions.size() || ic >= positions.size()) {
+                continue;
+            }
+            const ri::math::Vec3 faceNormal =
+                ri::math::Cross(positions[ib] - positions[ia], positions[ic] - positions[ia]);
+            averagedNormals[ia] = averagedNormals[ia] + faceNormal;
+            averagedNormals[ib] = averagedNormals[ib] + faceNormal;
+            averagedNormals[ic] = averagedNormals[ic] + faceNormal;
         }
-        averagedNormals[index] = normal;
+        for (std::size_t index = 0; index < positions.size(); ++index) {
+            ri::math::Vec3 normal = averagedNormals[index];
+            if (ri::math::Length(normal) <= 0.0001f) {
+                normal = ri::math::Vec3{0.0f, 1.0f, 0.0f};
+            } else {
+                normal = ri::math::Normalize(normal);
+            }
+            averagedNormals[index] = normal;
+        }
     }
 
     geometry.vertices.reserve(indices.size());
@@ -1567,6 +1588,9 @@ CpuMeshGeometry BuildNativeMeshGeometry(const ri::scene::Mesh& mesh) {
         return BuildPlaneMeshGeometryUv();
     case ri::scene::PrimitiveType::Sphere:
     case ri::scene::PrimitiveType::Custom: {
+        const bool hasUv = mesh.texCoords.size() == mesh.positions.size();
+        const std::vector<ri::math::Vec3>* explicitNormals =
+            mesh.normals.size() == mesh.positions.size() ? &mesh.normals : nullptr;
         if (!mesh.indices.empty()) {
             std::vector<std::uint32_t> indices;
             indices.reserve(mesh.indices.size());
@@ -1575,10 +1599,10 @@ CpuMeshGeometry BuildNativeMeshGeometry(const ri::scene::Mesh& mesh) {
                     indices.push_back(static_cast<std::uint32_t>(index));
                 }
             }
-            const bool hasUv = mesh.texCoords.size() == mesh.positions.size();
-            return BuildIndexedMeshGeometryUv(mesh.positions, mesh.texCoords, indices, hasUv);
+            return BuildIndexedMeshGeometryUv(mesh.positions, explicitNormals, mesh.texCoords, indices, hasUv);
         }
-        return BuildIndexedMeshGeometryUv(mesh.positions, mesh.texCoords, BuildSequentialIndices(mesh.positions), false);
+        return BuildIndexedMeshGeometryUv(
+            mesh.positions, explicitNormals, mesh.texCoords, BuildSequentialIndices(mesh.positions), hasUv);
     }
     }
     return {};
@@ -1605,6 +1629,9 @@ CpuMeshGeometry BuildNativeMeshGeometry(const ri::scene::Mesh& mesh) {
 
 [[nodiscard]] std::string ResolveNativePreviewAlbedoRelPath(const ri::scene::Material& material,
                                                             double animationTimeSeconds) {
+    if (!material.baseColorTexture.empty() && fs::path(material.baseColorTexture).is_absolute()) {
+        return material.baseColorTexture;
+    }
     if (!material.baseColorTextureFrames.empty()) {
         std::size_t frameIndex = 0;
         if (material.baseColorTextureFramesPerSecond > 0.0f && material.baseColorTextureFrames.size() > 1U) {
@@ -1778,13 +1805,35 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                     const bool hasNamedTexture = !material.baseColorTexture.empty();
                     const bool hasFrameTexture =
                         !material.baseColorTextureFrames.empty() && !material.baseColorTextureFrames.front().empty();
-                    draw.useTexture = hasNamedTexture || hasFrameTexture;
+                    draw.useTexture = hasNamedTexture || hasFrameTexture || !material.normalTexture.empty()
+                                      || !material.ormTexture.empty() || !material.emissiveTexture.empty()
+                                      || !material.opacityTexture.empty() || !material.detailTexture.empty();
                 }
                 if (draw.useTexture) {
                     draw.resolvedAlbedoRelPath = ResolveNativePreviewAlbedoRelPath(material, animationTimeSeconds);
                     draw.nativeWaterUvMotion = NativePreviewIsWaterLikeMaterial(material);
                 }
                 draw.litShadingModel = material.shadingModel == ri::scene::ShadingModel::Lit;
+                switch (material.materialStyle) {
+                    case ri::scene::MaterialStyle::Retro:
+                        draw.materialStyleFlags |= kNativeMaterialStyleRetro;
+                        break;
+                    case ri::scene::MaterialStyle::Layered:
+                        draw.materialStyleFlags |= kNativeMaterialStyleLayered;
+                        break;
+                    case ri::scene::MaterialStyle::MixedMedia:
+                        draw.materialStyleFlags |= kNativeMaterialStyleMixedMedia;
+                        break;
+                    case ri::scene::MaterialStyle::Crystal:
+                        draw.materialStyleFlags |= kNativeMaterialStyleCrystal;
+                        break;
+                    case ri::scene::MaterialStyle::Standard:
+                    default:
+                        break;
+                }
+                if (material.materialWorkflow == ri::scene::MaterialWorkflow::SpecGloss) {
+                    draw.materialStyleFlags |= kNativeMaterialWorkflowSpecGloss;
+                }
                 draw.doubleSided = material.doubleSided;
                 draw.additiveBlend = material.additiveBlend;
                 data.draws.push_back(draw);
@@ -3402,6 +3451,9 @@ struct NativeAlbedoTextureCache {
     VkDescriptorSetLayout textureSetLayout = VK_NULL_HANDLE;
     VkSampler linearSampler = VK_NULL_HANDLE;
     GpuAlbedoImage whiteImage{};
+    GpuAlbedoImage blackImage{};
+    GpuAlbedoImage flatNormalImage{};
+    GpuAlbedoImage ormDefaultImage{};
     VkDescriptorSet whiteDescriptorSet = VK_NULL_HANDLE;
     std::unordered_map<std::string, GpuAlbedoImage> imagesByKey{};
     std::unordered_map<std::string, VkDescriptorSet> descriptorByKey{};
@@ -3421,6 +3473,9 @@ struct NativeAlbedoTextureCache {
         }
         imagesByKey.clear();
         DestroyGpuAlbedoImage(device, whiteImage);
+        DestroyGpuAlbedoImage(device, blackImage);
+        DestroyGpuAlbedoImage(device, flatNormalImage);
+        DestroyGpuAlbedoImage(device, ormDefaultImage);
         if (linearSampler != VK_NULL_HANDLE) {
             vkDestroySampler(device, linearSampler, nullptr);
             linearSampler = VK_NULL_HANDLE;
@@ -3442,6 +3497,77 @@ struct NativeAlbedoTextureCache {
         return {};
     }
 
+    [[nodiscard]] const GpuAlbedoImage& ResolveFallbackWhite() const { return whiteImage; }
+    [[nodiscard]] const GpuAlbedoImage& ResolveFallbackBlack() const { return blackImage; }
+    [[nodiscard]] const GpuAlbedoImage& ResolveFallbackFlatNormal() const { return flatNormalImage; }
+    [[nodiscard]] const GpuAlbedoImage& ResolveFallbackOrm() const { return ormDefaultImage; }
+
+    [[nodiscard]] const GpuAlbedoImage* resolveImageForAbsolutePath(const fs::path& absolutePath) {
+        if (absolutePath.empty()) {
+            return nullptr;
+        }
+        const std::string key = absolutePath.generic_string();
+        if (const auto it = imagesByKey.find(key); it != imagesByKey.end()) {
+            return &it->second;
+        }
+
+        const ri::render::software::RgbaImage rgba = ri::render::software::LoadRgbaImageFile(absolutePath);
+        if (!rgba.Valid()) {
+            return nullptr;
+        }
+
+        GpuAlbedoImage gpuImage = CreateGpuAlbedoImageRgba8(
+            physicalDevice, device, commandPool, graphicsQueue, rgba.width, rgba.height, rgba.rgba.data());
+        if (gpuImage.view == VK_NULL_HANDLE) {
+            return nullptr;
+        }
+        const auto [it, _] = imagesByKey.emplace(key, std::move(gpuImage));
+        return &it->second;
+    }
+
+    [[nodiscard]] VkDescriptorSet allocateDescriptorSet() const {
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        const VkDescriptorSetAllocateInfo allocateInfo{
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = textureDescriptorPool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &textureSetLayout,
+        };
+        if (vkAllocateDescriptorSets(device, &allocateInfo, &set) != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+        return set;
+    }
+
+    void writeMaterialDescriptorSet(VkDescriptorSet set,
+                                    const GpuAlbedoImage& albedo,
+                                    const GpuAlbedoImage& normal,
+                                    const GpuAlbedoImage& orm,
+                                    const GpuAlbedoImage& emissive,
+                                    const GpuAlbedoImage& opacity,
+                                    const GpuAlbedoImage& detail) const {
+        const std::array<VkDescriptorImageInfo, 6> imageInfos = {{
+            VkDescriptorImageInfo{.sampler = linearSampler, .imageView = albedo.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+            VkDescriptorImageInfo{.sampler = linearSampler, .imageView = normal.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+            VkDescriptorImageInfo{.sampler = linearSampler, .imageView = orm.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+            VkDescriptorImageInfo{.sampler = linearSampler, .imageView = emissive.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+            VkDescriptorImageInfo{.sampler = linearSampler, .imageView = opacity.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+            VkDescriptorImageInfo{.sampler = linearSampler, .imageView = detail.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+        }};
+        std::array<VkWriteDescriptorSet, 6> writes{};
+        for (std::uint32_t binding = 0; binding < writes.size(); ++binding) {
+            writes[binding] = VkWriteDescriptorSet{
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = set,
+                .dstBinding = binding,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &imageInfos[binding],
+            };
+        }
+        vkUpdateDescriptorSets(device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    }
+
     [[nodiscard]] VkDescriptorSet descriptorFor(const ri::scene::Scene& scene,
                                                const NativeSceneDraw& draw,
                                                const fs::path& textureRoot) {
@@ -3452,64 +3578,50 @@ struct NativeAlbedoTextureCache {
             return whiteDescriptorSet;
         }
         const ri::scene::Material& material = scene.GetMaterial(draw.materialHandle);
-        const std::string rel =
+        const std::string albedoRel =
             !draw.resolvedAlbedoRelPath.empty() ? draw.resolvedAlbedoRelPath : ResolveMaterialTextureRelPath(material);
-        if (rel.empty()) {
-            return whiteDescriptorSet;
-        }
-        const fs::path requestedPath = fs::path(rel).lexically_normal();
-        const fs::path fullPath =
-            requestedPath.is_absolute() ? requestedPath
-                                        : (!textureRoot.empty() ? (textureRoot / requestedPath).lexically_normal() : fs::path{});
-        if (fullPath.empty()) {
-            return whiteDescriptorSet;
-        }
-        const std::string key = fullPath.generic_string();
+        const auto makeAbsolute = [&textureRoot](const std::string& relPath) -> fs::path {
+            if (relPath.empty()) {
+                return {};
+            }
+            const fs::path requestedPath = fs::path(relPath).lexically_normal();
+            return requestedPath.is_absolute() ? requestedPath
+                                               : (!textureRoot.empty() ? (textureRoot / requestedPath).lexically_normal() : fs::path{});
+        };
+        const fs::path albedoPath = makeAbsolute(albedoRel);
+        const fs::path normalPath = makeAbsolute(material.normalTexture);
+        const fs::path ormPath = makeAbsolute(material.ormTexture);
+        const fs::path emissivePath = makeAbsolute(material.emissiveTexture);
+        const fs::path opacityPath = makeAbsolute(material.opacityTexture);
+        const fs::path detailPath = makeAbsolute(material.detailTexture.empty() ? albedoRel : material.detailTexture);
+        const std::string key =
+            std::string("mat|a=") + albedoPath.generic_string()
+            + "|n=" + normalPath.generic_string()
+            + "|o=" + ormPath.generic_string()
+            + "|e=" + emissivePath.generic_string()
+            + "|p=" + opacityPath.generic_string()
+            + "|d=" + detailPath.generic_string();
         if (const auto it = descriptorByKey.find(key); it != descriptorByKey.end()) {
             return it->second;
         }
 
-        const ri::render::software::RgbaImage rgba = ri::render::software::LoadRgbaImageFile(fullPath);
-        if (!rgba.Valid()) {
-            descriptorByKey.emplace(key, whiteDescriptorSet);
+        VkDescriptorSet set = allocateDescriptorSet();
+        if (set == VK_NULL_HANDLE) {
             return whiteDescriptorSet;
         }
-
-        GpuAlbedoImage gpuImage = CreateGpuAlbedoImageRgba8(
-            physicalDevice, device, commandPool, graphicsQueue, rgba.width, rgba.height, rgba.rgba.data());
-        if (gpuImage.view == VK_NULL_HANDLE) {
-            descriptorByKey.emplace(key, whiteDescriptorSet);
-            return whiteDescriptorSet;
-        }
-
-        VkDescriptorSet set = VK_NULL_HANDLE;
-        const VkDescriptorSetAllocateInfo allocateInfo{
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-            .descriptorPool = textureDescriptorPool,
-            .descriptorSetCount = 1,
-            .pSetLayouts = &textureSetLayout,
-        };
-        if (vkAllocateDescriptorSets(device, &allocateInfo, &set) != VK_SUCCESS) {
-            DestroyGpuAlbedoImage(device, gpuImage);
-            return whiteDescriptorSet;
-        }
-
-        const VkDescriptorImageInfo imageInfo{
-            .sampler = linearSampler,
-            .imageView = gpuImage.view,
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        };
-        const VkWriteDescriptorSet write{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = set,
-            .dstBinding = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo = &imageInfo,
-        };
-        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
-
-        imagesByKey.emplace(key, std::move(gpuImage));
+        const GpuAlbedoImage* albedoLoaded = resolveImageForAbsolutePath(albedoPath);
+        const GpuAlbedoImage* normalLoaded = resolveImageForAbsolutePath(normalPath);
+        const GpuAlbedoImage* ormLoaded = resolveImageForAbsolutePath(ormPath);
+        const GpuAlbedoImage* emissiveLoaded = resolveImageForAbsolutePath(emissivePath);
+        const GpuAlbedoImage* opacityLoaded = resolveImageForAbsolutePath(opacityPath);
+        const GpuAlbedoImage* detailLoaded = resolveImageForAbsolutePath(detailPath);
+        const GpuAlbedoImage& albedoImage = albedoLoaded != nullptr ? *albedoLoaded : ResolveFallbackWhite();
+        const GpuAlbedoImage& normalImage = normalLoaded != nullptr ? *normalLoaded : ResolveFallbackFlatNormal();
+        const GpuAlbedoImage& ormImage = ormLoaded != nullptr ? *ormLoaded : ResolveFallbackOrm();
+        const GpuAlbedoImage& emissiveImage = emissiveLoaded != nullptr ? *emissiveLoaded : ResolveFallbackBlack();
+        const GpuAlbedoImage& opacityImage = opacityLoaded != nullptr ? *opacityLoaded : ResolveFallbackWhite();
+        const GpuAlbedoImage& detailImage = detailLoaded != nullptr ? *detailLoaded : ResolveFallbackWhite();
+        writeMaterialDescriptorSet(set, albedoImage, normalImage, ormImage, emissiveImage, opacityImage, detailImage);
         descriptorByKey.emplace(key, set);
         return set;
     }
@@ -3527,47 +3639,17 @@ struct NativeAlbedoTextureCache {
             return it->second;
         }
 
-        const ri::render::software::RgbaImage rgba = ri::render::software::LoadRgbaImageFile(absolutePath);
-        if (!rgba.Valid()) {
+        const GpuAlbedoImage* loaded = resolveImageForAbsolutePath(absolutePath);
+        if (loaded == nullptr) {
             descriptorByKey.emplace(key, whiteDescriptorSet);
             return whiteDescriptorSet;
         }
-
-        GpuAlbedoImage gpuImage = CreateGpuAlbedoImageRgba8(
-            physicalDevice, device, commandPool, graphicsQueue, rgba.width, rgba.height, rgba.rgba.data());
-        if (gpuImage.view == VK_NULL_HANDLE) {
-            descriptorByKey.emplace(key, whiteDescriptorSet);
+        VkDescriptorSet set = allocateDescriptorSet();
+        if (set == VK_NULL_HANDLE) {
             return whiteDescriptorSet;
         }
-
-        VkDescriptorSet set = VK_NULL_HANDLE;
-        const VkDescriptorSetAllocateInfo allocateInfo{
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-            .descriptorPool = textureDescriptorPool,
-            .descriptorSetCount = 1,
-            .pSetLayouts = &textureSetLayout,
-        };
-        if (vkAllocateDescriptorSets(device, &allocateInfo, &set) != VK_SUCCESS) {
-            DestroyGpuAlbedoImage(device, gpuImage);
-            return whiteDescriptorSet;
-        }
-
-        const VkDescriptorImageInfo imageInfo{
-            .sampler = linearSampler,
-            .imageView = gpuImage.view,
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        };
-        const VkWriteDescriptorSet write{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = set,
-            .dstBinding = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo = &imageInfo,
-        };
-        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
-
-        imagesByKey.emplace(key, std::move(gpuImage));
+        writeMaterialDescriptorSet(
+            set, *loaded, ResolveFallbackFlatNormal(), ResolveFallbackOrm(), ResolveFallbackBlack(), ResolveFallbackWhite(), ResolveFallbackWhite());
         descriptorByKey.emplace(key, set);
         return set;
     }
@@ -3588,33 +3670,27 @@ struct NativeAlbedoTextureCache {
         linearSampler = sampler;
 
         constexpr std::uint8_t whitePixel[4] = {255, 255, 255, 255};
+        constexpr std::uint8_t blackPixel[4] = {0, 0, 0, 255};
+        constexpr std::uint8_t flatNormalPixel[4] = {128, 128, 255, 255};
+        constexpr std::uint8_t ormDefaultPixel[4] = {255, 255, 0, 255};
         whiteImage = CreateGpuAlbedoImageRgba8(physicalDevice, device, commandPool, graphicsQueue, 1, 1, whitePixel);
+        blackImage = CreateGpuAlbedoImageRgba8(physicalDevice, device, commandPool, graphicsQueue, 1, 1, blackPixel);
+        flatNormalImage = CreateGpuAlbedoImageRgba8(
+            physicalDevice, device, commandPool, graphicsQueue, 1, 1, flatNormalPixel);
+        ormDefaultImage = CreateGpuAlbedoImageRgba8(
+            physicalDevice, device, commandPool, graphicsQueue, 1, 1, ormDefaultPixel);
         if (whiteImage.view == VK_NULL_HANDLE) {
             throw std::runtime_error("Failed to create fallback white albedo texture.");
         }
+        if (blackImage.view == VK_NULL_HANDLE || flatNormalImage.view == VK_NULL_HANDLE || ormDefaultImage.view == VK_NULL_HANDLE) {
+            throw std::runtime_error("Failed to create fallback material support textures.");
+        }
 
-        const VkDescriptorSetAllocateInfo allocateInfo{
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-            .descriptorPool = textureDescriptorPool,
-            .descriptorSetCount = 1,
-            .pSetLayouts = &textureSetLayout,
-        };
-        ExpectVk(vkAllocateDescriptorSets(device, &allocateInfo, &whiteDescriptorSet), "vkAllocateDescriptorSets(white-albedo)");
-
-        const VkDescriptorImageInfo imageInfo{
-            .sampler = linearSampler,
-            .imageView = whiteImage.view,
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        };
-        const VkWriteDescriptorSet write{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = whiteDescriptorSet,
-            .dstBinding = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo = &imageInfo,
-        };
-        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        whiteDescriptorSet = allocateDescriptorSet();
+        ExpectVk(whiteDescriptorSet != VK_NULL_HANDLE ? VK_SUCCESS : VK_ERROR_INITIALIZATION_FAILED,
+                 "vkAllocateDescriptorSets(white-material)");
+        writeMaterialDescriptorSet(
+            whiteDescriptorSet, whiteImage, flatNormalImage, ormDefaultImage, blackImage, whiteImage, whiteImage);
     }
 };
 
@@ -3871,6 +3947,7 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
         if (draw.alphaCutout && draw.doubleSided) {
             pushConstants.litShadingModel |= 16;
         }
+        pushConstants.litShadingModel |= draw.materialStyleFlags;
         pushConstants.metallic = draw.metallic;
         pushConstants.roughness = draw.roughness;
         pushConstants.emissiveColor[0] = draw.emissiveColor[0];
@@ -4416,16 +4493,19 @@ bool RunVulkanNativeSceneLoop(const int width,
         ExpectVk(vkCreateDescriptorSetLayout(device, &cameraSetLayoutInfo, nullptr, &cameraSetLayout),
                  "vkCreateDescriptorSetLayout(camera)");
 
-        const VkDescriptorSetLayoutBinding textureBinding{
-            .binding = 0,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-        };
+        std::array<VkDescriptorSetLayoutBinding, 6> textureBindings{};
+        for (std::uint32_t index = 0; index < textureBindings.size(); ++index) {
+            textureBindings[index] = VkDescriptorSetLayoutBinding{
+                .binding = index,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            };
+        }
         const VkDescriptorSetLayoutCreateInfo textureSetLayoutInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-            .bindingCount = 1,
-            .pBindings = &textureBinding,
+            .bindingCount = static_cast<std::uint32_t>(textureBindings.size()),
+            .pBindings = textureBindings.data(),
         };
         VkDescriptorSetLayout textureSetLayout = VK_NULL_HANDLE;
         ExpectVk(vkCreateDescriptorSetLayout(device, &textureSetLayoutInfo, nullptr, &textureSetLayout),
@@ -5450,14 +5530,14 @@ bool RunVulkanNativeSceneLoop(const int width,
         };
         vkUpdateDescriptorSets(device, 1, &writeShadow, 0, nullptr);
 
-        constexpr std::uint32_t kMaxTextureDescriptors = 512U;
+        constexpr std::uint32_t kMaxTextureSets = 512U;
         const VkDescriptorPoolSize texturePoolSize{
             .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = kMaxTextureDescriptors,
+            .descriptorCount = kMaxTextureSets * 6U,
         };
         const VkDescriptorPoolCreateInfo texturePoolInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets = kMaxTextureDescriptors,
+            .maxSets = kMaxTextureSets,
             .poolSizeCount = 1,
             .pPoolSizes = &texturePoolSize,
         };

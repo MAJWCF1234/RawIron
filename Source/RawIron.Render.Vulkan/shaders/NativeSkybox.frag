@@ -98,8 +98,8 @@ vec3 volumetricSky(vec3 rayDir, vec3 baseSky) {
 
 void main() {
     vec3 d = normalize(vWorldRay);
-    vec3 zenith = vec3(0.18, 0.25, 0.36);
-    vec3 horizon = vec3(0.64, 0.72, 0.84);
+    vec3 zenith = vec3(0.54, 0.56, 0.57);
+    vec3 horizon = vec3(0.82, 0.82, 0.80);
     float h = clamp(d.y * 0.55 + 0.45, 0.0, 1.0);
     vec3 baseGradient = mix(horizon, zenith, h);
 
@@ -107,8 +107,11 @@ void main() {
         vec2 uv = equirectUv(vWorldRay);
         vec3 texSky = texture(skyEquirect, uv).rgb;
         float texLuma = dot(texSky, vec3(0.2126, 0.7152, 0.0722));
-        float texWeight = 0.82 * smoothstep(0.03, 0.22, texLuma);
-        vec3 blendedBase = mix(baseGradient, texSky, texWeight);
+        vec3 foggyTexture = mix(vec3(texLuma), texSky, 0.18);
+        foggyTexture = mix(foggyTexture, horizon, 0.42);
+        foggyTexture = max(foggyTexture, vec3(0.56, 0.57, 0.56));
+        float texWeight = 0.38 * smoothstep(0.03, 0.22, texLuma);
+        vec3 blendedBase = mix(baseGradient, foggyTexture, texWeight);
         fragColor = vec4(volumetricSky(d, blendedBase), 1.0);
     } else {
         fragColor = vec4(volumetricSky(d, baseGradient), 1.0);

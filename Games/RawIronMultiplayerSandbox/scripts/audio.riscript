@@ -1,1 +1,3 @@
-# placeholder
+# Catalog audio/runtime mix
+audio_master_gain=1.0
+audio_environment_blend=0.65

@@ -218,9 +218,9 @@ void main() {
 
     float aoAccum = 0.0;
     float weightSum = 0.0;
-    const int kKernel = 10;
-    const float radiusInnerPx = 10.0;
-    const float radiusOuterPx = 20.0;
+    const int kKernel = 14;
+    const float radiusInnerPx = 8.0;
+    const float radiusOuterPx = 24.0;
     // Reject samples across large depth discontinuities (reduces halo on silhouettes / thin geometry).
     const float depthGuard = 0.002;
 
@@ -244,6 +244,18 @@ void main() {
     }
 
     float norm = max(weightSum, 0.35);
-    float ao = clamp(1.0 - (aoAccum / norm) * 0.13, 0.42, 1.0);
-    fragColor = vec4(linearHdr * ao, 1.0);
+    float ao = clamp(1.0 - (aoAccum / norm) * 0.18, 0.35, 1.0);
+
+    vec3 center = linearHdr;
+    vec3 blurCross =
+        texture(hdrSceneLinear, uv + vec2(texel.x * 2.0, 0.0)).rgb +
+        texture(hdrSceneLinear, uv - vec2(texel.x * 2.0, 0.0)).rgb +
+        texture(hdrSceneLinear, uv + vec2(0.0, texel.y * 2.0)).rgb +
+        texture(hdrSceneLinear, uv - vec2(0.0, texel.y * 2.0)).rgb;
+    blurCross *= 0.25;
+    float glossyCue = clamp(1.0 - centerDepth * 1.8, 0.0, 1.0);
+    float highlightMask = clamp(max(max(center.r, center.g), center.b) - 0.42, 0.0, 1.0);
+    vec3 pseudoBounce = mix(center, blurCross, 0.55) * highlightMask * glossyCue * 0.08;
+
+    fragColor = vec4((linearHdr * ao) + pseudoBounce, 1.0);
 }

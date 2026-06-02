@@ -1,1 +1,6 @@
-# placeholder
+# Catalog inspection UI
+show_runtime_diagnostics=1
+show_diagnostics=1
+show_objective_panel=1
+crosshair_mode=1
+crosshair_scale=1.0

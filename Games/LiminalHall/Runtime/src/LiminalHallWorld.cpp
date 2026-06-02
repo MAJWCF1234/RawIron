@@ -5,7 +5,9 @@
 
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Scene/ModelLoader.h"
+#include "RawIron/Scene/PrimitivesCsvIO.h"
 #include "RawIron/Scene/StructuralAssemblyIO.h"
+#include "RawIron/Scene/StructuralPrimitiveBundle.h"
 #include "RawIron/Scene/SceneUtils.h"
 
 #include <algorithm>
@@ -437,6 +439,209 @@ void RemapMaterialsUsedByGltfSubtree(ri::scene::Scene& scene,
         fixTexturePath(mat.ormTexture);
         fixTexturePath(mat.opacityTexture);
         fixTexturePath(mat.occlusionTexture);
+        fixTexturePath(mat.detailTexture);
+    }
+}
+
+[[nodiscard]] std::string Lowercase(std::string value) {
+    for (char& character : value) {
+        character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    }
+    return value;
+}
+
+[[nodiscard]] bool ContainsAny(std::string_view text, std::initializer_list<std::string_view> needles) {
+    for (const std::string_view needle : needles) {
+        if (!needle.empty() && text.find(needle) != std::string_view::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ApplyLiminalRendererShowcaseMaterials(ri::scene::Scene& scene, const fs::path& engineTexturesRoot) {
+    const fs::path lrtPackageRoot =
+        fs::weakly_canonical(engineTexturesRoot / ".." / "Packages" / "LRT - Texture Pack - RT28.8 - 128x");
+    const auto packagePath = [&lrtPackageRoot](std::string_view tail) {
+        return (lrtPackageRoot / fs::path(tail)).lexically_normal().generic_string();
+    };
+    const auto packageExists = [&lrtPackageRoot](std::string_view tail) {
+        return fs::exists((lrtPackageRoot / fs::path(tail)).lexically_normal());
+    };
+    auto preferPackageTexture = [&](std::string& slot, std::string_view packageTail) {
+        if (!slot.empty()) {
+            return;
+        }
+        if (packageExists(packageTail)) {
+            slot = packagePath(packageTail);
+        }
+    };
+    auto forcePackageTriplet = [&](ri::scene::Material& material,
+                                   std::string_view albedoTail,
+                                   std::string_view normalTail,
+                                   std::string_view specTail) {
+        material.baseColorTexture.clear();
+        material.baseColorTextureFrames.clear();
+        material.baseColorTextureFramesPerSecond = 0.0f;
+        material.normalTexture.clear();
+        material.ormTexture.clear();
+        if (packageExists(albedoTail)) {
+            material.baseColorTexture = packagePath(albedoTail);
+        }
+        if (packageExists(normalTail)) {
+            material.normalTexture = packagePath(normalTail);
+        }
+        if (packageExists(specTail)) {
+            material.ormTexture = packagePath(specTail);
+        }
+    };
+    auto forcePackagePair = [&](ri::scene::Material& material,
+                                std::string_view albedoTail,
+                                std::string_view normalTail) {
+        material.baseColorTexture.clear();
+        material.baseColorTextureFrames.clear();
+        material.baseColorTextureFramesPerSecond = 0.0f;
+        material.normalTexture.clear();
+        material.ormTexture.clear();
+        if (packageExists(albedoTail)) {
+            material.baseColorTexture = packagePath(albedoTail);
+        }
+        if (packageExists(normalTail)) {
+            material.normalTexture = packagePath(normalTail);
+        }
+    };
+    auto setBrutalistConcrete = [&](ri::scene::Material& material, const ri::math::Vec3& tint, const float roughness) {
+        material.shadingModel = ri::scene::ShadingModel::Lit;
+        material.materialStyle = ri::scene::MaterialStyle::Layered;
+        material.materialWorkflow = ri::scene::MaterialWorkflow::MetalRough;
+        material.baseColor = tint;
+        material.emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f};
+        material.metallic = 0.0f;
+        material.roughness = roughness;
+        material.transparent = false;
+        material.additiveBlend = false;
+        forcePackagePair(material, "ctm/RT_all_concrete_1.png", "ctm/RT_all_concrete_1_n.png");
+        if (packageExists("tile/RT_andesite.png")) {
+            material.detailTexture = packagePath("tile/RT_andesite.png");
+        }
+    };
+    auto setDarkAperture = [&](ri::scene::Material& material) {
+        material.shadingModel = ri::scene::ShadingModel::Unlit;
+        material.materialStyle = ri::scene::MaterialStyle::Standard;
+        material.materialWorkflow = ri::scene::MaterialWorkflow::MetalRough;
+        material.baseColor = ri::math::Vec3{0.045f, 0.047f, 0.048f};
+        material.emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f};
+        material.metallic = 0.0f;
+        material.roughness = 1.0f;
+        material.transparent = false;
+        material.additiveBlend = false;
+        material.baseColorTexture.clear();
+        material.baseColorTextureFrames.clear();
+        material.baseColorTextureFramesPerSecond = 0.0f;
+        material.normalTexture.clear();
+        material.ormTexture.clear();
+        material.detailTexture.clear();
+    };
+    auto setDarkCatwalk = [&](ri::scene::Material& material) {
+        material.shadingModel = ri::scene::ShadingModel::Lit;
+        material.materialStyle = ri::scene::MaterialStyle::MixedMedia;
+        material.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
+        material.baseColor = ri::math::Vec3{0.30f, 0.31f, 0.33f};
+        material.emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f};
+        material.metallic = 0.18f;
+        material.roughness = 0.82f;
+        forcePackageTriplet(material,
+                            "ctm/RT_all_copper_grate_1.png",
+                            "ctm/RT_all_copper_grate_1_n.png",
+                            "ctm/RT_all_copper_grate_1_s.png");
+        preferPackageTexture(material.detailTexture, "tile/RT_stainless_steel.png");
+    };
+    auto setLightAperture = [&](ri::scene::Material& material, const ri::math::Vec3& glow, const bool warm) {
+        const std::string materialNameLower = Lowercase(material.name);
+        material.shadingModel = ri::scene::ShadingModel::Unlit;
+        material.materialStyle = ri::scene::MaterialStyle::Standard;
+        material.materialWorkflow = ri::scene::MaterialWorkflow::MetalRough;
+        material.baseColor = glow;
+        material.emissiveColor = warm ? ri::math::Vec3{0.35f, 0.31f, 0.24f} : ri::math::Vec3{0.22f, 0.24f, 0.28f};
+        material.metallic = 0.0f;
+        material.roughness = 0.40f;
+        material.transparent = false;
+        material.additiveBlend = false;
+        if (ContainsAny(materialNameLower, {"doorglow", "door"})) {
+            forcePackageTriplet(material, "tile/RT_sea_lantern.png", "", "tile/RT_sea_lantern_s.png");
+        } else if (warm) {
+            forcePackageTriplet(material, "tile/RT_shroomlight.png", "tile/RT_shroomlight_n.png", "tile/RT_shroomlight_s.png");
+        } else {
+            forcePackageTriplet(material, "tile/RT_white_stained_glass.png", "tile/RT_white_stained_glass_n.png", "tile/RT_white_stained_glass_s.png");
+        }
+    };
+
+    for (std::size_t materialIndex = 0; materialIndex < scene.MaterialCount(); ++materialIndex) {
+        ri::scene::Material& material = scene.GetMaterial(static_cast<int>(materialIndex));
+        const std::string key = Lowercase(material.name + "|" + material.baseColorTexture + "|" + material.emissiveTexture);
+
+        if (ContainsAny(key, {"logicdemo", "logic-", "dolphin", "wire"})) {
+            material.materialStyle = ri::scene::MaterialStyle::Retro;
+            material.roughness = 0.90f;
+            material.metallic = 0.0f;
+            continue;
+        }
+        if (ContainsAny(key, {"glow", "oculus", "aperture", "fluorescent", "door"})) {
+            setLightAperture(material,
+                             ContainsAny(key, {"fluorescent"})
+                                 ? ri::math::Vec3{1.0f, 0.95f, 0.88f}
+                                 : ri::math::Vec3{0.98f, 0.98f, 0.96f},
+                             ContainsAny(key, {"fluorescent"}));
+            continue;
+        }
+        if (ContainsAny(key, {"catwalk", "bridge", "grille", "metal", "deck"})) {
+            setDarkCatwalk(material);
+            continue;
+        }
+        if (ContainsAny(key, {"tuff", "apse", "drum"})) {
+            material.materialWorkflow = ri::scene::MaterialWorkflow::MetalRough;
+            material.shadingModel = ri::scene::ShadingModel::Lit;
+            material.materialStyle = ri::scene::MaterialStyle::Layered;
+            material.baseColor = ri::math::Vec3{0.71f, 0.70f, 0.67f};
+            material.emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f};
+            material.metallic = 0.0f;
+            material.roughness = 0.97f;
+            forcePackagePair(material, "tile/RT_tuff_bricks.png", "tile/RT_tuff_bricks_n.png");
+            preferPackageTexture(material.detailTexture, "tile/RT_tuff.png");
+            continue;
+        }
+        setBrutalistConcrete(material, ri::math::Vec3{0.77f, 0.76f, 0.73f}, 0.97f);
+    }
+
+    for (std::size_t nodeIndex = 0; nodeIndex < scene.NodeCount(); ++nodeIndex) {
+        ri::scene::Node& node = scene.GetNode(static_cast<int>(nodeIndex));
+        if (node.material == ri::scene::kInvalidHandle) {
+            continue;
+        }
+        ri::scene::Material& material = scene.GetMaterial(node.material);
+        const std::string nodeName = Lowercase(node.name);
+        if (ContainsAny(nodeName, {"oculus", "glow", "aperture", "fluorescent"})) {
+            setLightAperture(material,
+                             ContainsAny(nodeName, {"fluorescent"})
+                                 ? ri::math::Vec3{1.0f, 0.95f, 0.88f}
+                                 : ri::math::Vec3{0.98f, 0.98f, 0.96f},
+                             ContainsAny(nodeName, {"fluorescent"}));
+            continue;
+        }
+        if (ContainsAny(nodeName, {"windowcard", "window"})) {
+            setDarkAperture(material);
+            continue;
+        }
+        if (ContainsAny(nodeName, {"catwalk", "bridge", "stair", "deck", "brace", "leg"})) {
+            setDarkCatwalk(material);
+            continue;
+        }
+        if (ContainsAny(nodeName, {"entry", "apse", "pillar", "wall", "floor", "tower", "monolith", "shaft", "pod", "ring", "drum", "arch", "causeway", "plaza"})) {
+            const bool darker = ContainsAny(nodeName, {"wall", "drum", "tower", "monolith"});
+            setBrutalistConcrete(material,
+                                 darker ? ri::math::Vec3{0.69f, 0.68f, 0.66f} : ri::math::Vec3{0.78f, 0.77f, 0.74f},
+                                 darker ? 0.985f : 0.97f);
+        }
     }
 }
 
@@ -488,27 +693,15 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
         .farClip = 1000.0f,
     };
     orbitCamera.orbit = OrbitCameraState{
-        .target = ri::math::Vec3{0.0f, 2.0f, 0.0f},
-        .distance = 25.0f,
-        .yawDegrees = 45.0f,
-        .pitchDegrees = -15.0f,
+        .target = ri::math::Vec3{0.0f, 4.0f, 0.0f},
+        .distance = 32.0f,
+        .yawDegrees = 38.0f,
+        .pitchDegrees = -12.0f,
     };
     world.handles.orbitCamera = AddOrbitCamera(scene, orbitCamera);
 
-    GridHelperOptions grid{};
-    grid.parent = world.handles.root;
-    grid.nodeName = "WireframeIllusion";
-    grid.size = 100.0f;
-    grid.transform.position = ri::math::Vec3{0.0f, -0.05f, 0.0f};
-    grid.color = PaletteOr(palette, "grid_neon", ri::math::Vec3{0.1f, 1.0f, 0.2f});
-    world.handles.grid = AddGridHelper(scene, grid);
-
-    AxesHelperOptions axes{};
-    axes.parent = world.handles.root;
-    axes.axisLength = 2.0f;
-    axes.axisThickness = 0.08f;
-    axes.transform.position = ri::math::Vec3{0.0f, 0.01f, 0.0f};
-    world.handles.axes = AddAxesHelper(scene, axes);
+    world.handles.grid = ri::scene::kInvalidHandle;
+    world.handles.axes = {};
 
     const std::vector<std::string> importedAnimFrames = ResolvePsxWaterAnimationFrames(gameRoot);
 
@@ -564,106 +757,15 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
         return AddPrimitiveNode(scene, primitiveOptions);
     };
 
-    world.handles.orbitCamera.orbit.target = ri::math::Vec3{0.0f, 2.0f, -4.0f};
+    world.handles.orbitCamera.orbit.target = ri::math::Vec3{0.0f, 4.0f, 2.0f};
     SetOrbitCameraState(scene, world.handles.orbitCamera, world.handles.orbitCamera.orbit);
 
     // --- Hub: late-90s checker void (wings authored in assembly.primitives.csv) ---
 
-    world.handles.floor = addAnimatedPrimitive("AcidSea",
-                                               PrimitiveType::Plane,
-                                               ri::math::Vec3{0.0f, -8.0f, 0.0f},
-                                               ri::math::Vec3{400.0f, 1.0f, 400.0f},
-                                               ri::math::Vec3{0.12f, 0.55f, 0.22f},
-                                               importedAnimFrames,
-                                               18.0f,
-                                               ri::math::Vec2{64.0f, 64.0f},
-                                               "lsd-acid-sea",
-                                               ShadingModel::Unlit);
-
-    (void)addPrimitive("MainCheckerPlaza",
-                       PrimitiveType::Plane,
-                       ri::math::Vec3{0.0f, 0.0f, 0.0f},
-                       ri::math::Vec3{40.0f, 1.0f, 40.0f},
-                       ri::math::Vec3{1.0f, 0.12f, 0.82f},
-                       "ri_prototype_checkers_04.png",
-                       ri::math::Vec2{10.0f, 10.0f},
-                       "lsd-main-plaza",
-                       ShadingModel::Unlit);
-    (void)addPrimitive("CheckerObeliskLeft",
-                       PrimitiveType::Cube,
-                       ri::math::Vec3{-12.0f, 4.0f, 8.0f},
-                       ri::math::Vec3{2.0f, 8.0f, 2.0f},
-                       ri::math::Vec3{0.0f, 1.0f, 1.0f},
-                       "ri_prototype_checkers_04.png",
-                       ri::math::Vec2{2.0f, 8.0f},
-                       "lsd-obelisk-left",
-                       ShadingModel::Unlit);
-    (void)addPrimitive("CheckerObeliskRight",
-                       PrimitiveType::Cube,
-                       ri::math::Vec3{12.0f, 4.0f, 8.0f},
-                       ri::math::Vec3{2.0f, 8.0f, 2.0f},
-                       ri::math::Vec3{0.0f, 1.0f, 1.0f},
-                       "ri_prototype_checkers_04.png",
-                       ri::math::Vec2{2.0f, 8.0f},
-                       "lsd-obelisk-right",
-                       ShadingModel::Unlit);
-    (void)addPrimitive("FractalGate",
-                       PrimitiveType::Cube,
-                       ri::math::Vec3{0.0f, 6.0f, 15.0f},
-                       ri::math::Vec3{4.0f, 6.0f, 0.5f},
-                       ri::math::Vec3{1.0f, 1.0f, 1.0f},
-                       "ri_prototype_texture_atlas.png",
-                       ri::math::Vec2{4.0f, 4.0f},
-                       "lsd-fractal-gate",
-                       ShadingModel::Unlit);
-    (void)addPrimitive("FractalGateHole",
-                       PrimitiveType::Cube,
-                       ri::math::Vec3{0.0f, 6.0f, 15.0f},
-                       ri::math::Vec3{2.5f, 4.5f, 1.0f},
-                       ri::math::Vec3{0.0f, 0.0f, 0.0f},
-                       "ri_prototype_black.png",
-                       ri::math::Vec2{1.0f, 1.0f},
-                       "lsd-fractal-gate-hole",
-                       ShadingModel::Unlit);
-    (void)addPrimitive("PulsingBrainSphere",
-                       PrimitiveType::Sphere,
-                       ri::math::Vec3{20.0f, 10.0f, -14.0f},
-                       ri::math::Vec3{6.0f, 6.0f, 6.0f},
-                       ri::math::Vec3{0.9f, 0.2f, 0.4f},
-                       "ri_psx_engine_caustics_atlas.png",
-                       ri::math::Vec2{4.0f, 4.0f},
-                       "lsd-brain-sphere",
-                       ShadingModel::Lit);
-    (void)addPrimitive("BrainHalo",
-                       PrimitiveType::Cube,
-                       ri::math::Vec3{20.0f, 10.0f, -14.0f},
-                       ri::math::Vec3{10.0f, 0.15f, 10.0f},
-                       ri::math::Vec3{1.0f, 1.0f, 0.0f},
-                       "ri_prototype_yellow.png",
-                       ri::math::Vec2{1.0f, 1.0f},
-                       "lsd-brain-halo",
-                       ShadingModel::Unlit);
-    (void)addPrimitive("NeonSun",
-                       PrimitiveType::Sphere,
-                       ri::math::Vec3{0.0f, 28.0f, 64.0f},
-                       ri::math::Vec3{15.0f, 15.0f, 15.0f},
-                       ri::math::Vec3{1.0f, 0.5f, 0.0f},
-                       "ri_prototype_orange_ochre.png",
-                       ri::math::Vec2{1.0f, 1.0f},
-                       "lsd-neon-sun",
-                       ShadingModel::Unlit);
-    (void)addPrimitive("NeonSunShell",
-                       PrimitiveType::Sphere,
-                       ri::math::Vec3{0.0f, 28.0f, 64.0f},
-                       ri::math::Vec3{18.0f, 18.0f, 18.0f},
-                       ri::math::Vec3{1.0f, 0.0f, 0.0f},
-                       "ri_psx_wall_vent.png",
-                       ri::math::Vec2{10.0f, 2.0f},
-                       "lsd-neon-sun-shell",
-                       ShadingModel::Unlit);
+    world.handles.floor = ri::scene::kInvalidHandle;
 
     // Logic demo chain: pressure plate -> door open -> portal spawn.
-    const ri::math::Vec3 pressurePlatePos{0.0f, 0.08f, -1.5f};
+    const ri::math::Vec3 pressurePlatePos{58.0f, 0.08f, -42.0f};
     const ri::math::Vec3 pressurePlateScale{1.4f, 0.08f, 1.4f};
     world.logicDemo.pressurePlateNode =
         addPrimitive("LogicDemoPressurePlate",
@@ -680,7 +782,7 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
         .max = pressurePlatePos + ri::math::Vec3{1.2f, 1.8f, 1.2f},
     };
 
-    world.logicDemo.doorClosedPosition = ri::math::Vec3{0.0f, 2.0f, 6.0f};
+    world.logicDemo.doorClosedPosition = ri::math::Vec3{58.0f, 2.0f, -35.0f};
     world.logicDemo.doorOpenPosition = world.logicDemo.doorClosedPosition + ri::math::Vec3{0.0f, 4.5f, 0.0f};
     world.logicDemo.doorNode =
         addPrimitive("LogicDemoDoor",
@@ -693,7 +795,7 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
                      "logic-demo-door",
                      ShadingModel::Lit);
 
-    const ri::math::Vec3 portalPos{0.0f, 1.5f, 10.5f};
+    const ri::math::Vec3 portalPos{58.0f, 1.5f, -28.0f};
     world.logicDemo.portalNode =
         addPrimitive("LogicDemoPortal",
                      PrimitiveType::Cube,
@@ -979,49 +1081,49 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
     spawnIoStyle("door_io", world.logicDemo.doorClosedPosition + ri::math::Vec3{-2.8f, 0.0f, 0.0f});
     spawnIoStyle("portal_io", portalPos + ri::math::Vec3{-2.6f, 0.0f, 0.0f});
 
-    LightNodeOptions gateLight{};
-    gateLight.nodeName = "GateLight";
-    gateLight.parent = world.handles.root;
-    gateLight.transform.position = ri::math::Vec3{0.0f, 6.0f, 15.0f};
-    gateLight.light = Light{
-        .name = "GateLight",
+    LightNodeOptions corridorLight{};
+    corridorLight.nodeName = "SouthCorridorLight";
+    corridorLight.parent = world.handles.root;
+    corridorLight.transform.position = ri::math::Vec3{0.0f, 8.3f, -34.0f};
+    corridorLight.light = Light{
+        .name = "SouthCorridorLight",
         .type = LightType::Point,
-        .color = ri::math::Vec3{1.0f, 1.0f, 1.0f},
-        .intensity = 20.0f,
-        .range = 40.0f,
+        .color = ri::math::Vec3{1.0f, 0.94f, 0.86f},
+        .intensity = 10.0f,
+        .range = 18.0f,
     };
-    (void)AddLightNode(scene, gateLight);
+    (void)AddLightNode(scene, corridorLight);
 
-    LightNodeOptions brainLight{};
-    brainLight.nodeName = "BrainLight";
-    brainLight.parent = world.handles.root;
-    brainLight.transform.position = ri::math::Vec3{20.0f, 10.0f, -14.0f};
-    brainLight.light = Light{
-        .name = "BrainLight",
+    LightNodeOptions skylightFill{};
+    skylightFill.nodeName = "MainSkylightFill";
+    skylightFill.parent = world.handles.root;
+    skylightFill.transform.position = ri::math::Vec3{0.0f, 24.0f, 8.0f};
+    skylightFill.light = Light{
+        .name = "MainSkylightFill",
         .type = LightType::Point,
-        .color = ri::math::Vec3{1.0f, 0.1f, 0.1f},
+        .color = ri::math::Vec3{0.92f, 0.95f, 1.0f},
         .intensity = 18.0f,
-        .range = 50.0f,
+        .range = 78.0f,
     };
-    (void)AddLightNode(scene, brainLight);
+    (void)AddLightNode(scene, skylightFill);
 
-    LightNodeOptions sunLight{};
-    sunLight.nodeName = "SunLight";
-    sunLight.parent = world.handles.root;
-    sunLight.transform.position = ri::math::Vec3{0.0f, 28.0f, 64.0f};
-    sunLight.light = Light{
-        .name = "SunLight",
+    LightNodeOptions northApseLight{};
+    northApseLight.nodeName = "NorthApseLight";
+    northApseLight.parent = world.handles.root;
+    northApseLight.transform.position = ri::math::Vec3{0.0f, 4.6f, 51.0f};
+    northApseLight.light = Light{
+        .name = "NorthApseLight",
         .type = LightType::Point,
-        .color = ri::math::Vec3{1.0f, 0.6f, 0.0f},
-        .intensity = 25.0f,
-        .range = 100.0f,
+        .color = ri::math::Vec3{1.0f, 0.99f, 0.96f},
+        .intensity = 14.0f,
+        .range = 24.0f,
     };
-    (void)AddLightNode(scene, sunLight);
+    (void)AddLightNode(scene, northApseLight);
 
     world.colliders.clear();
 
     world.playerRig = scene.CreateNode("PlayerRig", world.handles.root);
-    scene.GetNode(world.playerRig).localTransform.position = ri::math::Vec3{0.0f, 1.0f, -6.0f};
+    scene.GetNode(world.playerRig).localTransform.position = ri::math::Vec3{0.0f, 1.0f, -34.0f};
     world.playerCameraNode = scene.CreateNode("PlayerCameraNode", world.playerRig);
     const int playerCamera = scene.AddCamera(Camera{
         .name = "PlayerCamera",
@@ -1037,45 +1139,14 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
     world.handles.beacon = world.playerCameraNode;
 
     {
-        std::ifstream assembly(gameRoot / "levels" / "assembly.primitives.csv");
-        std::string line;
-        while (std::getline(assembly, line)) {
-            line = Trim(line);
-            if (line.empty() || line[0] == '#') {
-                continue;
-            }
-            const std::vector<std::string> tokens = SplitCsv(line);
-            if (tokens.size() < 11U) {
-                continue;
-            }
-            PrimitiveNodeOptions extra{};
-            extra.nodeName = tokens[0];
-            extra.parent = world.handles.root;
-            extra.primitive = (tokens[1] == "plane") ? PrimitiveType::Plane : PrimitiveType::Cube;
-            extra.materialName = "lsd-assembly";
-            extra.transform.position = ParseVec3(tokens, 2U, {});
-            extra.transform.scale = ParseVec3(tokens, 5U, ri::math::Vec3{1.0f, 1.0f, 1.0f});
-            extra.baseColor = ParseVec3(tokens, 8U, ri::math::Vec3{1.0f, 0.0f, 1.0f});
-            if (tokens.size() > 11U && tokens[11] == "unlit") {
-                extra.shadingModel = ShadingModel::Unlit;
-            }
-            if (tokens.size() > 12U && !tokens[12].empty() && tokens[12] != "-") {
-                extra.baseColorTexture = tokens[12];
-            }
-            if (tokens.size() > 14U) {
-                float tileX = 1.0f;
-                float tileY = 1.0f;
-                if (ParseFloat(tokens[13], tileX) && ParseFloat(tokens[14], tileY) &&
-                    std::isfinite(tileX) && std::isfinite(tileY) &&
-                    tileX > 0.0f && tileY > 0.0f) {
-                    extra.textureTiling = ri::math::Vec2{tileX, tileY};
-                }
-            }
-            if (tokens.size() > 17U) {
-                extra.transform.rotationDegrees = ParseVec3(tokens, 15U, {});
-            }
-            (void)AddPrimitiveNode(scene, extra);
-        }
+        ri::scene::AssemblyPrimitivesImportResult primitiveImport{};
+        std::string primitiveImportError;
+        (void)ri::scene::TryImportAssemblyPrimitivesCsv(
+            scene,
+            world.handles.root,
+            gameRoot / "levels" / "assembly.primitives.csv",
+            &primitiveImport,
+            &primitiveImportError);
     }
 
     (void)scene.CreateNode("StructuralPrimitiveGallery", world.handles.root);
@@ -1090,18 +1161,18 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
         (void)structuralSpawn;
     }
 
-    LightNodeOptions galleryLight{};
-    galleryLight.nodeName = "StructuralGalleryLight";
-    galleryLight.parent = world.handles.root;
-    galleryLight.transform.position = ri::math::Vec3{-28.0f, 10.0f, 0.0f};
-    galleryLight.light = Light{
-        .name = "StructuralGalleryLight",
+    LightNodeOptions westFill{};
+    westFill.nodeName = "WestVoidFill";
+    westFill.parent = world.handles.root;
+    westFill.transform.position = ri::math::Vec3{-18.0f, 15.0f, 10.0f};
+    westFill.light = Light{
+        .name = "WestVoidFill",
         .type = LightType::Point,
-        .color = ri::math::Vec3{0.85f, 0.92f, 1.0f},
-        .intensity = 22.0f,
-        .range = 55.0f,
+        .color = ri::math::Vec3{0.84f, 0.88f, 0.94f},
+        .intensity = 9.0f,
+        .range = 42.0f,
     };
-    (void)AddLightNode(scene, galleryLight);
+    (void)AddLightNode(scene, westFill);
 
     {
         std::ifstream colliders(gameRoot / "levels" / "assembly.colliders.csv");
@@ -1128,26 +1199,7 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
         }
     }
 
-    {
-        const fs::path importedModel = workspaceRoot / "Assets" / "Source" / "psx_retro_dolphin.glb";
-        if (fs::exists(importedModel)) {
-            std::string importError;
-            (void)AddModelNode(scene,
-                               ImportedModelOptions{
-                                   .sourcePath = importedModel,
-                                   .nodeName = "Floating90sDolphin",
-                                   .parent = world.handles.root,
-                                   .transform =
-                                       Transform{
-                                           .position = ri::math::Vec3{0.0f, 5.5f, -2.0f},
-                                           .rotationDegrees = ri::math::Vec3{0.0f, 45.0f, 20.0f},
-                                           .scale = ri::math::Vec3{8.0f, 8.0f, 8.0f},
-                                       },
-                               },
-                               &importError);
-        }
-    }
-
+    ApplyLiminalRendererShowcaseMaterials(scene, engineTexturesRoot);
     return world;
 }
 

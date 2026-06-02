@@ -20,6 +20,19 @@ enum class ShadingModel {
     Lit,
 };
 
+enum class MaterialStyle {
+    Standard,
+    Retro,
+    Layered,
+    MixedMedia,
+    Crystal,
+};
+
+enum class MaterialWorkflow {
+    MetalRough,
+    SpecGloss,
+};
+
 enum class ProjectionType {
     Perspective,
     Orthographic,
@@ -34,6 +47,8 @@ enum class LightType {
 struct Material {
     std::string name;
     ShadingModel shadingModel = ShadingModel::Lit;
+    MaterialStyle materialStyle = MaterialStyle::Standard;
+    MaterialWorkflow materialWorkflow = MaterialWorkflow::MetalRough;
     ri::math::Vec3 baseColor{1.0f, 1.0f, 1.0f};
     /// Filename under the software preview texture root (default: in-repo `Assets/Textures`).
     std::string baseColorTexture{};
@@ -69,6 +84,8 @@ struct Material {
     std::string opacityTexture{};
     /// Optional standalone occlusion (ambient-occlusion) map.
     std::string occlusionTexture{};
+    /// Optional extra texture used by layered materials for macro/detail breakup.
+    std::string detailTexture{};
 };
 
 struct Mesh {
@@ -77,6 +94,8 @@ struct Mesh {
     int vertexCount = 0;
     int indexCount = 0;
     std::vector<ri::math::Vec3> positions;
+    /// Optional vertex normals parallel to `positions`; preferred by native/software preview when present.
+    std::vector<ri::math::Vec3> normals;
     /// When non-empty, must match `positions.size()` for textured custom meshes in the software preview.
     std::vector<ri::math::Vec2> texCoords;
     std::vector<int> indices;
@@ -139,6 +158,8 @@ struct CameraConfinementVolume {
 
 std::string ToString(PrimitiveType primitive);
 std::string ToString(ShadingModel shadingModel);
+std::string ToString(MaterialStyle materialStyle);
+std::string ToString(MaterialWorkflow materialWorkflow);
 std::string ToString(ProjectionType projectionType);
 std::string ToString(LightType lightType);
 std::string ToString(CameraConfinementBehavior behavior);

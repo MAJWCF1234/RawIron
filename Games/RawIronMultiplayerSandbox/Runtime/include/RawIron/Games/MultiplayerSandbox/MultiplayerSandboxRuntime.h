@@ -37,4 +37,8 @@ bool RunStandalone(const StandaloneOptions& options,
                    const ri::core::CommandLine& commandLine,
                    std::string* error);
 
+bool RunStandalone3D(const StandaloneOptions& options,
+                     const ri::core::CommandLine& commandLine,
+                     std::string* error);
+
 } // namespace ri::games::multiplayersandbox

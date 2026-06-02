@@ -5,7 +5,6 @@
 #include "RawIron/Core/Log.h"
 #include "RawIron/Games/GameConfigContracts.h"
 #include "RawIron/Games/GameRuntimeCore.h"
-#include "RawIron/Games/LiminalHall/LiminalHallWorld.h"
 #include "RawIron/Runtime/BotClients.h"
 #include "RawIron/Runtime/RuntimeNetcode.h"
 
@@ -48,15 +47,7 @@ bool RunStandalone(const StandaloneOptions& options,
                    std::string* error) {
     try {
         if (options.use3DStandalone) {
-            ri::games::liminal::StandaloneOptions play{};
-            play.gameId = options.gameId;
-            play.workspaceRoot = options.workspaceRoot;
-            play.gameRoot = options.gameRoot;
-            play.width = options.width;
-            play.height = options.height;
-            play.benchmarkFrames = options.benchmarkFrames;
-            play.windowTitle = "RawIron Multiplayer Sandbox";
-            return ri::games::liminal::RunStandalone(play, error);
+            return RunStandalone3D(options, commandLine, error);
         }
 
         const auto manifest = ResolveManifest(options);

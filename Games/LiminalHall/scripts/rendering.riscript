@@ -1,13 +1,13 @@
-# Liminal Hall rendering — late-90s CGI / empty terminal void
-clear_top_r=0.16
-clear_top_g=0.20
-clear_top_b=0.34
-clear_bottom_r=0.40
-clear_bottom_g=0.36
-clear_bottom_b=0.32
-fog_r=0.24
-fog_g=0.28
-fog_b=0.34
-ambient_r=0.16
-ambient_g=0.17
-ambient_b=0.20
+# Liminal Hall rendering — washed concrete void with heavy atmospheric falloff
+clear_top_r=0.92
+clear_top_g=0.92
+clear_top_b=0.92
+clear_bottom_r=0.71
+clear_bottom_g=0.70
+clear_bottom_b=0.68
+fog_r=0.88
+fog_g=0.87
+fog_b=0.85
+ambient_r=0.06
+ambient_g=0.06
+ambient_b=0.065

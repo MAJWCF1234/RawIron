@@ -1769,6 +1769,138 @@ CompiledMesh CreateRoundedBoxMesh(const StructuralPrimitiveOptions& options) {
     return CreateSuperellipsoidMesh(se);
 }
 
+CompiledMesh CreateButtressMesh(const StructuralPrimitiveOptions& options) {
+    std::vector<ri::math::Vec3> triangles;
+    const float foot = std::clamp(std::fabs(options.depth), 0.18f, 0.48f);
+    AppendAxisAlignedBox(triangles, {-0.18f, -0.5f, -0.5f}, {0.18f, 0.5f, -0.24f});
+    AppendAxisAlignedBox(triangles, {-0.30f, -0.5f, -0.24f}, {0.30f, -0.28f, foot});
+    AppendAxisAlignedBox(triangles, {-0.22f, -0.28f, -0.18f}, {0.22f, 0.08f, 0.26f});
+    const ri::math::Vec3 a{-0.22f, 0.08f, -0.18f};
+    const ri::math::Vec3 b{0.22f, 0.08f, -0.18f};
+    const ri::math::Vec3 c{0.22f, -0.28f, 0.26f};
+    const ri::math::Vec3 d{-0.22f, -0.28f, 0.26f};
+    const ri::math::Vec3 e{-0.22f, 0.08f, 0.26f};
+    const ri::math::Vec3 f{0.22f, 0.08f, 0.26f};
+    AppendQuadFacing(triangles, a, b, c, d, {0.0f, 0.6f, 0.8f});
+    AppendQuadFacing(triangles, e, f, b, a, {0.0f, 1.0f, 0.0f});
+    AppendQuadFacing(triangles, d, c, f, e, {0.0f, 0.0f, 1.0f});
+    AppendTriangle(triangles, a, d, e);
+    AppendTriangle(triangles, b, f, c);
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateRecessedWallPanelMesh(const StructuralPrimitiveOptions& options) {
+    std::vector<ri::math::Vec3> triangles;
+    const float border = std::clamp(std::fabs(options.thickness), 0.04f, 0.22f);
+    const float insetDepth = std::clamp(std::fabs(options.depth), 0.04f, 0.28f);
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, -0.42f});
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, -0.42f}, {-0.5f + border, 0.5f, 0.5f});
+    AppendAxisAlignedBox(triangles, {0.5f - border, -0.5f, -0.42f}, {0.5f, 0.5f, 0.5f});
+    AppendAxisAlignedBox(triangles, {-0.5f + border, 0.5f - border, -0.42f}, {0.5f - border, 0.5f, 0.5f});
+    AppendAxisAlignedBox(triangles, {-0.5f + border, -0.5f, -0.42f}, {0.5f - border, -0.5f + border, 0.5f});
+    AppendAxisAlignedBox(triangles,
+                         {-0.5f + border, -0.5f + border, -0.42f + insetDepth},
+                         {0.5f - border, 0.5f - border, -0.38f + insetDepth});
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreatePerforatedWallMesh(const StructuralPrimitiveOptions& options) {
+    std::vector<ri::math::Vec3> triangles;
+    const int cols = ClampRange(options.cellsX > 0 ? options.cellsX : options.radialSegments, 2, 10);
+    const int rows = ClampRange(options.cellsY > 0 ? options.cellsY : options.sides, 2, 8);
+    const float gap = std::clamp(std::fabs(options.thickness), 0.04f, 0.18f);
+    const float cellW = 1.0f / static_cast<float>(cols);
+    const float cellH = 1.0f / static_cast<float>(rows);
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, -0.5f}, {0.5f, -0.5f + gap, 0.5f});
+    AppendAxisAlignedBox(triangles, {-0.5f, 0.5f - gap, -0.5f}, {0.5f, 0.5f, 0.5f});
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, -0.5f}, {-0.5f + gap, 0.5f, 0.5f});
+    AppendAxisAlignedBox(triangles, {0.5f - gap, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f});
+    for (int col = 1; col < cols; ++col) {
+        const float x = -0.5f + (static_cast<float>(col) * cellW);
+        AppendAxisAlignedBox(triangles, {x - gap * 0.5f, -0.5f, -0.5f}, {x + gap * 0.5f, 0.5f, 0.5f});
+    }
+    for (int row = 1; row < rows; ++row) {
+        const float y = -0.5f + (static_cast<float>(row) * cellH);
+        AppendAxisAlignedBox(triangles, {-0.5f, y - gap * 0.5f, -0.5f}, {0.5f, y + gap * 0.5f, 0.5f});
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateRibbedSlabMesh(const StructuralPrimitiveOptions& options) {
+    std::vector<ri::math::Vec3> triangles;
+    const int ribs = ClampRange(options.cellsX > 0 ? options.cellsX : options.radialSegments, 2, 16);
+    const float ribWidth = std::clamp(std::fabs(options.thickness), 0.025f, 0.12f);
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, -0.5f}, {0.5f, -0.34f, 0.5f});
+    for (int index = 0; index < ribs; ++index) {
+        const float t = ribs <= 1 ? 0.0f : static_cast<float>(index) / static_cast<float>(ribs - 1);
+        const float x = -0.44f + (t * 0.88f);
+        AppendAxisAlignedBox(triangles, {x - ribWidth * 0.5f, -0.34f, -0.5f}, {x + ribWidth * 0.5f, 0.5f, 0.5f});
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateBeamFrameMesh(const StructuralPrimitiveOptions& options) {
+    std::vector<ri::math::Vec3> triangles;
+    const float beam = std::clamp(std::fabs(options.thickness), 0.04f, 0.18f);
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, -0.5f}, {-0.5f + beam, 0.5f, 0.5f});
+    AppendAxisAlignedBox(triangles, {0.5f - beam, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f});
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, -0.5f}, {0.5f, -0.5f + beam, 0.5f});
+    AppendAxisAlignedBox(triangles, {-0.5f, 0.5f - beam, -0.5f}, {0.5f, 0.5f, 0.5f});
+    if (options.latticeStyle != "open") {
+        AppendAxisAlignedBox(triangles, {-beam * 0.5f, -0.5f, -0.5f}, {beam * 0.5f, 0.5f, 0.5f});
+        AppendAxisAlignedBox(triangles, {-0.5f, -beam * 0.5f, -0.5f}, {0.5f, beam * 0.5f, 0.5f});
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateColumnClusterMesh(const StructuralPrimitiveOptions& options) {
+    std::vector<ri::math::Vec3> triangles;
+    const int count = ClampRange(options.sides, 3, 12);
+    const float radius = std::clamp(std::fabs(options.topRadius), 0.04f, 0.12f);
+    const float ringRadius = std::clamp(std::fabs(options.bottomRadius), 0.16f, 0.42f);
+    for (int index = 0; index < count; ++index) {
+        const float a = (2.0f * kPi * static_cast<float>(index)) / static_cast<float>(count);
+        const ri::math::Vec3 center{std::cos(a) * ringRadius, 0.0f, std::sin(a) * ringRadius};
+        AppendOpenCylinderBetween(triangles, center + ri::math::Vec3{0.0f, -0.5f, 0.0f}, center + ri::math::Vec3{0.0f, 0.5f, 0.0f}, radius, options.radialSegments);
+    }
+    AppendAxisAlignedBox(triangles, {-0.42f, -0.5f, -0.42f}, {0.42f, -0.44f, 0.42f});
+    AppendAxisAlignedBox(triangles, {-0.42f, 0.44f, -0.42f}, {0.42f, 0.5f, 0.42f});
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateCatwalkSegmentMesh(const StructuralPrimitiveOptions& options) {
+    std::vector<ri::math::Vec3> triangles;
+    const float rail = std::clamp(std::fabs(options.thickness), 0.035f, 0.12f);
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.08f, -0.5f}, {0.5f, 0.02f, 0.5f});
+    AppendAxisAlignedBox(triangles, {-0.5f, 0.02f, -0.5f}, {0.5f, 0.32f, -0.5f + rail});
+    AppendAxisAlignedBox(triangles, {-0.5f, 0.02f, 0.5f - rail}, {0.5f, 0.32f, 0.5f});
+    const int posts = ClampRange(options.cellsX > 0 ? options.cellsX : 5, 2, 12);
+    for (int index = 0; index < posts; ++index) {
+        const float t = static_cast<float>(index) / static_cast<float>(posts - 1);
+        const float x = -0.48f + t * 0.96f;
+        AppendAxisAlignedBox(triangles, {x - rail * 0.35f, -0.08f, -0.5f}, {x + rail * 0.35f, 0.5f, -0.5f + rail});
+        AppendAxisAlignedBox(triangles, {x - rail * 0.35f, -0.08f, 0.5f - rail}, {x + rail * 0.35f, 0.5f, 0.5f});
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateSkylightOculusMesh(const StructuralPrimitiveOptions& options) {
+    std::vector<ri::math::Vec3> triangles;
+    StructuralPrimitiveOptions torusOptions = options;
+    torusOptions.thickness = std::clamp(std::fabs(options.thickness), 0.04f, 0.12f);
+    CompiledMesh ring = CreateTorusMesh(torusOptions);
+    triangles.insert(triangles.end(), ring.positions.begin(), ring.positions.end());
+    const int spokes = ClampRange(options.sides, 6, 32);
+    const float spoke = std::clamp(torusOptions.thickness * 0.55f, 0.02f, 0.08f);
+    for (int index = 0; index < spokes; ++index) {
+        const float a = (2.0f * kPi * static_cast<float>(index)) / static_cast<float>(spokes);
+        const ri::math::Vec3 inner{std::cos(a) * 0.12f, 0.0f, std::sin(a) * 0.12f};
+        const ri::math::Vec3 outer{std::cos(a) * 0.46f, 0.0f, std::sin(a) * 0.46f};
+        AppendBeamMesh(triangles, inner, outer, spoke);
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
 } // namespace
 
 bool IsNativeStructuralPrimitive(std::string_view type) {
@@ -1813,6 +1945,14 @@ bool IsNativeStructuralPrimitive(std::string_view type) {
         || type == "roof_gable"
         || type == "hipped_roof"
         || type == "rounded_box"
+        || type == "buttress"
+        || type == "recessed_wall_panel"
+        || type == "perforated_wall"
+        || type == "ribbed_slab"
+        || type == "beam_frame"
+        || type == "column_cluster"
+        || type == "catwalk_segment"
+        || type == "skylight_oculus"
         || type == "displacement"
         || type == "displacement_map"
         || type == "manifold_sweep"
@@ -1888,6 +2028,30 @@ std::optional<ConvexSolid> CreateConvexPrimitiveSolid(std::string_view type,
 CompiledMesh BuildPrimitiveMesh(std::string_view type, const StructuralPrimitiveOptions& options) {
     if (type == "rounded_box") {
         return CreateRoundedBoxMesh(options);
+    }
+    if (type == "buttress") {
+        return CreateButtressMesh(options);
+    }
+    if (type == "recessed_wall_panel") {
+        return CreateRecessedWallPanelMesh(options);
+    }
+    if (type == "perforated_wall") {
+        return CreatePerforatedWallMesh(options);
+    }
+    if (type == "ribbed_slab") {
+        return CreateRibbedSlabMesh(options);
+    }
+    if (type == "beam_frame") {
+        return CreateBeamFrameMesh(options);
+    }
+    if (type == "column_cluster") {
+        return CreateColumnClusterMesh(options);
+    }
+    if (type == "catwalk_segment") {
+        return CreateCatwalkSegmentMesh(options);
+    }
+    if (type == "skylight_oculus") {
+        return CreateSkylightOculusMesh(options);
     }
     if (type == "displacement" || type == "displacement_map") {
         return CreateHeightfieldMesh(options, false);
