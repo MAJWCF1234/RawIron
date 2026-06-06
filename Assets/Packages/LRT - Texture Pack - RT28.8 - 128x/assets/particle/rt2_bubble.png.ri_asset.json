@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "particle_rt2_bubble_png",
+  "type": "texture",
+  "displayName": "rt2_bubble",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/rt2_bubble.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "particle_rt2_bubble_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/rt2_bubble.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

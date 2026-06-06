@@ -56,5 +56,9 @@ struct GameManifest {
 [[nodiscard]] std::filesystem::path ResolveGameAssetPath(const std::filesystem::path& gameRoot,
                                                          std::string_view relativeUtf8);
 
-} // namespace ri::content
+/// Returns a compact health label for an optional on-disk asset.
+/// Used by editor/runtime diagnostics to keep file-state reporting consistent.
+[[nodiscard]] std::string DescribeOptionalAssetState(const std::filesystem::path& path,
+                                                     bool checkSqliteHeader = false);
 
+} // namespace ri::content

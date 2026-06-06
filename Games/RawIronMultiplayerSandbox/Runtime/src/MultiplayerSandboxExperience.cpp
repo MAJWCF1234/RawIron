@@ -8,7 +8,9 @@
 #include "RawIron/Core/Log.h"
 #include "RawIron/Games/GameConfigContracts.h"
 #include "RawIron/Games/GameRuntimeCore.h"
+#include "RawIron/Render/ShaderConfig.h"
 #include "RawIron/Render/ScenePreview.h"
+#include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
 #include "RawIron/Runtime/BotClients.h"
 #include "RawIron/Runtime/RuntimeCore.h"
@@ -77,11 +79,12 @@ struct RuntimeState {
     float bobAmplitude = 0.006f;
     float bobFrequencyHz = 1.25f;
     float bobSprintScale = 1.25f;
-    float fovBaseDegrees = 84.0f;
+    float fovBaseDegrees = 78.0f;
     float fovSprintAddDegrees = 4.0f;
     float fovLerpPerSecond = 10.0f;
-    float currentFovDegrees = 84.0f;
+    float currentFovDegrees = 78.0f;
     fs::path nativeSkyEquirectRelative{};
+    ri::render::ShaderPresentationConfig shaderPresentation{};
 };
 
 ri::runtime::RendezvousProviderKind ParseRendezvous(const std::string& v) {
@@ -104,6 +107,13 @@ std::optional<ri::content::GameManifest> ResolveStandaloneGameManifest(const Sta
     const fs::path workspaceRoot =
         options.workspaceRoot.empty() ? ri::content::DetectWorkspaceRoot(fs::current_path()) : options.workspaceRoot;
     return ri::content::ResolveGameManifest(workspaceRoot, options.gameId);
+}
+
+fs::path ResolvePreviewOutputPath(const ri::core::CommandLine& commandLine) {
+    if (const std::optional<std::string> output = commandLine.GetValue("--output"); output.has_value() && !output->empty()) {
+        return fs::path(*output);
+    }
+    return fs::current_path() / "rawiron_multiplayer_sandbox_preview.bmp";
 }
 
 ri::spatial::Aabb BuildPlayerBounds(const ri::math::Vec3& feet) {
@@ -368,6 +378,22 @@ ri::trace::MovementInput ReadMovementInput(RuntimeState& state) {
     };
 }
 
+void SyncInitialView(RuntimeState& state) {
+    const ri::math::Vec3 feet = FeetFromBounds(state.movement.body.bounds);
+    const ri::math::Vec3 eye{feet.x, feet.y + state.cameraBaseHeight, feet.z};
+
+    ri::scene::Node& rig = state.world.scene.GetNode(state.world.playerRig);
+    rig.localTransform.position = eye;
+    rig.localTransform.rotationDegrees = ri::math::Vec3{0.0f, state.yawDegrees, 0.0f};
+
+    ri::scene::Node& cameraNode = state.world.scene.GetNode(state.world.playerCameraNode);
+    cameraNode.localTransform.position = ri::math::Vec3{};
+    cameraNode.localTransform.rotationDegrees = ri::math::Vec3{state.pitchDegrees, 0.0f, 0.0f};
+    if (cameraNode.camera != ri::scene::kInvalidHandle) {
+        state.world.scene.GetCamera(cameraNode.camera).fieldOfViewDegrees = state.currentFovDegrees;
+    }
+}
+
 void SimulateAndApplyView(RuntimeState& state, const ri::trace::MovementInput& input, const float dt) {
     state.elapsedSeconds += dt;
     state.movement = ri::trace::SimulateMovementControllerStep(
@@ -549,28 +575,31 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         0.5f,
         40.0f);
     state.currentFovDegrees = state.fovBaseDegrees;
+    SyncInitialView(state);
 
+    state.previewOptions.width = options.width;
+    state.previewOptions.height = options.height;
     state.previewOptions.pointSampleTextures = false;
     state.previewOptions.adaptiveTextureSampling = true;
     state.previewOptions.clearTop = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "clear_top_r", 0.50f),
-        ri::content::ScriptScalarOr(rendering, "clear_top_g", 0.56f),
-        ri::content::ScriptScalarOr(rendering, "clear_top_b", 0.62f),
+        ri::content::ScriptScalarOr(rendering, "clear_top_r", 0.34f),
+        ri::content::ScriptScalarOr(rendering, "clear_top_g", 0.42f),
+        ri::content::ScriptScalarOr(rendering, "clear_top_b", 0.55f),
     };
     state.previewOptions.clearBottom = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_r", 0.26f),
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_g", 0.28f),
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_b", 0.30f),
+        ri::content::ScriptScalarOr(rendering, "clear_bottom_r", 0.05f),
+        ri::content::ScriptScalarOr(rendering, "clear_bottom_g", 0.08f),
+        ri::content::ScriptScalarOr(rendering, "clear_bottom_b", 0.12f),
     };
     state.previewOptions.fogColor = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "fog_r", 0.58f),
-        ri::content::ScriptScalarOr(rendering, "fog_g", 0.62f),
-        ri::content::ScriptScalarOr(rendering, "fog_b", 0.66f),
+        ri::content::ScriptScalarOr(rendering, "fog_r", 0.40f),
+        ri::content::ScriptScalarOr(rendering, "fog_g", 0.47f),
+        ri::content::ScriptScalarOr(rendering, "fog_b", 0.55f),
     };
     state.previewOptions.ambientLight = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "ambient_r", 0.22f),
-        ri::content::ScriptScalarOr(rendering, "ambient_g", 0.24f),
-        ri::content::ScriptScalarOr(rendering, "ambient_b", 0.27f),
+        ri::content::ScriptScalarOr(rendering, "ambient_r", 0.06f),
+        ri::content::ScriptScalarOr(rendering, "ambient_g", 0.07f),
+        ri::content::ScriptScalarOr(rendering, "ambient_b", 0.09f),
     };
     state.nativeRenderTuning.exposure = ri::content::ScriptScalarOrClamped(
         postprocess,
@@ -581,23 +610,30 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     state.nativeRenderTuning.contrast = ri::content::ScriptScalarOrClamped(
         postprocess,
         "native_contrast",
-        ri::content::ScriptScalarOrClamped(rendering, "native_contrast", 1.12f, 0.7f, 1.6f),
+        ri::content::ScriptScalarOrClamped(rendering, "native_contrast", 1.12f, 0.7f, 1.75f),
         0.7f,
         1.6f);
     state.nativeRenderTuning.saturation = ri::content::ScriptScalarOrClamped(
         postprocess,
         "native_saturation",
-        ri::content::ScriptScalarOrClamped(rendering, "native_saturation", 1.02f, 0.0f, 1.8f),
+        ri::content::ScriptScalarOrClamped(rendering, "native_saturation", 1.08f, 0.0f, 1.8f),
         0.0f,
         1.8f);
     state.nativeRenderTuning.fogDensity = ri::content::ScriptScalarOrClamped(
         postprocess,
         "native_fog_density",
-        ri::content::ScriptScalarOrClamped(rendering, "native_fog_density", 0.0035f, 0.0f, 0.05f),
+        ri::content::ScriptScalarOrClamped(rendering, "native_fog_density", 0.0015f, 0.0f, 0.05f),
         0.0f,
         0.05f);
     state.nativeRenderTuning.qualityTier =
         ri::content::ScriptScalarOrIntClamped(ui, "native_quality_tier", state.nativeRenderTuning.qualityTier, 0, 2);
+
+    std::string shaderCfgError;
+    if (ri::render::TryLoadShaderCfgFromRoot(manifest.rootPath, &state.shaderPresentation, &shaderCfgError)) {
+        ri::core::LogInfo("Loaded sandbox shader.cfg from game root.");
+    } else if (!shaderCfgError.empty()) {
+        ri::core::LogInfo("shader.cfg: " + shaderCfgError);
+    }
 
     const ri::math::Vec3 center = ri::spatial::Center(state.movement.body.bounds);
     const std::optional<ri::trace::TraceHit> groundProbe = state.traceScene.FindGroundHit(
@@ -657,6 +693,7 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
     int runtimeFrameIndex = 0;
     const auto benchmarkStart = std::chrono::steady_clock::now();
     const fs::path textureRootForVulkan = state.previewOptions.textureRoot.value_or(fs::path{});
+    ri::core::LogInfo(std::string("Native Vulkan hybrid HDR: ") + (options.hybridHdr ? "on" : "off"));
 
     const ri::render::vulkan::VulkanPreviewWindowOptions windowOptions{
         .windowTitle = "RawIron Multiplayer Sandbox",
@@ -665,6 +702,8 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
         .messageUserData = &state,
         .onWin32Message = &SandboxStandaloneWin32Hook,
         .outClientHwnd = &state.hwnd,
+        .enableHybridHdrPresentation = options.hybridHdr,
+        .shaderPresentation = state.shaderPresentation,
     };
 
     const ri::render::vulkan::VulkanNativeSceneFrameCallback buildFrame =
@@ -700,6 +739,8 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
             frame.nativeFogColorNear = state.previewOptions.fogColor;
             frame.nativeFogColorFar = state.previewOptions.fogColor * 1.06f;
             frame.nativeAmbientLight = state.previewOptions.ambientLight;
+            frame.postProcess.timeSeconds =
+                std::isfinite(state.elapsedSeconds) ? static_cast<float>(state.elapsedSeconds) : 0.0f;
 
             if (options.benchmarkFrames > 0) {
                 ++benchmarkedFrames;
@@ -763,6 +804,39 @@ void AttachSandboxNetModules(ri::runtime::RuntimeCore& runtime,
     runtime.AddModule(std::make_unique<ri::runtime::BotSwarmModule>(netPtr, swarm));
 }
 
+bool CaptureStandalonePreviewSnapshot(const RuntimeState& state,
+                                      const fs::path& outputPath,
+                                      std::string* error) {
+    ri::render::software::ScenePreviewCache cache{};
+    const ri::render::software::SoftwareImage image = ri::render::software::RenderScenePreview(
+        state.world.scene,
+        state.world.playerCameraNode,
+        state.previewOptions,
+        &cache);
+
+    if (!outputPath.parent_path().empty()) {
+        std::error_code ec{};
+        fs::create_directories(outputPath.parent_path(), ec);
+        if (ec) {
+            if (error != nullptr) {
+                *error = "Failed to create preview output directory: " + outputPath.parent_path().string();
+            }
+            return false;
+        }
+    }
+
+    if (!ri::render::software::SaveBmp(image, outputPath.string())) {
+        if (error != nullptr) {
+            *error = "Failed to save preview image: " + outputPath.string();
+        }
+        return false;
+    }
+
+    ri::core::LogInfo("Sandbox preview snapshot saved: " + outputPath.string());
+    ri::core::LogInfo("Snapshot size: " + std::to_string(image.width) + "x" + std::to_string(image.height));
+    return true;
+}
+
 } // namespace
 #endif
 
@@ -812,6 +886,16 @@ bool RunStandalone3D(const StandaloneOptions& options,
             }
             return false;
         }
+        const bool savePreview = commandLine.HasFlag("--save-preview") || commandLine.GetValue("--output").has_value();
+        if (savePreview) {
+            const fs::path outputPath = ResolvePreviewOutputPath(commandLine);
+            if (!CaptureStandalonePreviewSnapshot(state, outputPath, error)) {
+                return false;
+            }
+            ri::core::LogSection("RawIron Multiplayer Sandbox Preview");
+            ri::core::LogInfo("Snapshot demo completed without entering the live Vulkan loop.");
+            return true;
+        }
         if (!ri::games::AttachGameSimulationTick(runtime, [&state](const ri::core::FrameContext&) {
                 TickStandaloneFrame(state);
             })) {
@@ -831,7 +915,7 @@ bool RunStandalone3D(const StandaloneOptions& options,
         runtime.Shutdown();
         if (!ok) {
             if (error != nullptr) {
-                *error = runtimeError;
+                *error = runtimeError.empty() ? "Native Vulkan scene loop failed without reporting an error." : runtimeError;
             }
             return false;
         }

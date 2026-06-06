@@ -40,6 +40,7 @@ struct Action {
     bool injectCurrentExample = false;
 };
 std::vector<Action> BuildActions(const fs::path& buildRoot, const fs::path& sourceRoot);
+class ShellState;
 
 fs::path BuildTreeBinaryPath(const fs::path& buildRoot, const fs::path& relativeDir, const std::string& filename);
 /// Prefer the primary CMake output path; if missing, try other configs and flat layout (MSVC / mixed trees).
@@ -47,18 +48,26 @@ fs::path ResolveBuiltBinaryPath(const fs::path& buildRoot, const fs::path& relat
 std::optional<std::size_t> FindActionIndex(const std::vector<Action>& actions, std::string_view substring);
 bool TargetReady(const Action& action);
 std::string ActionReadyLabel(const Action& action);
+fs::path ResolveRiToolPath(const fs::path& buildRoot);
 std::wstring Widen(const std::string& value);
 std::string Narrow(const fs::path& path);
 std::string QuoteArgument(const std::string& value);
 std::string TrimLine(std::string value);
 std::string BuildCommandLine(const fs::path& target, const std::vector<std::string>& args);
 std::vector<std::string> ReadProcessOutput(const fs::path& target, const std::vector<std::string>& args, int& exitCode);
+std::optional<std::size_t> ResolveActionSelector(const std::vector<Action>& actions, std::string_view selector);
+int RunHeadlessAction(ShellState& shell, std::size_t actionIndex, std::ostream& out);
+int RunRiToolThroughShell(const fs::path& buildRoot, const std::vector<std::string>& args, std::ostream& out);
+void PrintActionCatalog(const ShellState& shell, std::ostream& out);
+const ri::shell::GameProject* FindGameProjectById(const ShellState& shell, std::string_view gameId);
 #if defined(_WIN32)
 bool LaunchDetachedProcess(const fs::path& target, const std::vector<std::string>& args);
 bool OpenFolder(const fs::path& target);
+bool LaunchRiToolConsole(const fs::path& buildRoot, const fs::path& sourceRoot);
 #else
 bool LaunchDetachedProcess(const fs::path& target, const std::vector<std::string>& args);
 bool OpenFolder(const fs::path& target);
+bool LaunchRiToolConsole(const fs::path& buildRoot, const fs::path& sourceRoot);
 #endif
 
 class ShellState {
@@ -136,6 +145,18 @@ public:
         return gameProjects_;
     }
 
+    fs::path ResolveEditorBinaryPath() const {
+        return ResolveBuiltBinaryPath(buildRoot_, fs::path("Apps") / "RawIron.Editor", "RawIron.Editor.exe");
+    }
+
+    bool CanLaunchEditorForGame(const ri::shell::GameProject& game) const {
+        return !game.root.empty() && fs::exists(game.root) && fs::exists(ResolveEditorBinaryPath());
+    }
+
+    bool CanOpenGameFolder(const ri::shell::GameProject& game) const {
+        return !game.root.empty() && fs::exists(game.root);
+    }
+
     const std::vector<std::string>& RecentSessions() const noexcept {
         return recentSessions_;
     }
@@ -180,11 +201,25 @@ public:
         RequestRedraw(windowHandle);
         return false;
     }
+
+    bool OpenConsole(void* windowHandle) {
+        if (LaunchRiToolConsole(buildRoot_, sourceRoot_)) {
+            AppendLog("Opened RawIron CLI console.");
+            RequestRedraw(windowHandle);
+            return true;
+        }
+        AppendLog("Could not open RawIron CLI console.");
+        RequestRedraw(windowHandle);
+        return false;
+    }
 #else
     bool LaunchEditorForGame(const ri::shell::GameProject&, void*) {
         return false;
     }
     bool OpenGameFolder(const ri::shell::GameProject&, void*) {
+        return false;
+    }
+    bool OpenConsole(void*) {
         return false;
     }
 #endif
@@ -327,4 +362,3 @@ private:
 };
 
 void PrintHeadlessSummary(const ShellState& shell);
-

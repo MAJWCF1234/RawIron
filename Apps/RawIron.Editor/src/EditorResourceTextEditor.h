@@ -33,6 +33,9 @@ void LayoutResourceTextEditorControl(HWND hwnd,
                                      const std::filesystem::path& loadedResourceAbsolutePath,
                                      const std::string& resourceEditorAuxMessage,
                                      const RECT& inspectorInner);
+void SyncResourceTextEditorContent(HWND resourceTextEditHwnd,
+                                   const std::string& loadedResourceUtf8,
+                                   bool resourceFileDirty);
 [[nodiscard]] bool SaveActiveResourceFileFromEditor(HWND resourceTextEditHwnd,
                                                     const std::filesystem::path& loadedResourceAbsolutePath,
                                                     std::string& loadedResourceUtf8);

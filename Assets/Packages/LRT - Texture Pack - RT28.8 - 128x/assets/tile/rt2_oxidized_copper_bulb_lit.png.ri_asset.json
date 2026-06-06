@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_oxidized_copper_bulb_lit_png",
+  "type": "texture",
+  "displayName": "rt2_oxidized_copper_bulb_lit",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_oxidized_copper_bulb_lit.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_oxidized_copper_bulb_lit_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_oxidized_copper_bulb_lit.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

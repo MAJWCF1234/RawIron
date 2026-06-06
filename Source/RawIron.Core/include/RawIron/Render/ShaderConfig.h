@@ -54,6 +54,35 @@ namespace ri::render {
 ///   `reshade_daltonize` / `daltonize` (Daltonize.fx — LMS simulate+compensate color-vision deficiency modes),
 ///   `reshade_display_depth` / `display_depth` (DisplayDepth.fx — depth/normal/split debug depth visualization),
 ///   `reshade_lut` / `lut` (LUT.fx — strip LUT color remap with independent chroma/luma amount),
+///   `colourfulness` / `colorfulness` / `sweetfx_colourfulness` (Colourfulness.fx bacondither — perceptual
+///     saturation with near-clip soft limit; `colourfulness` 0 neutral, negative desaturates, positive enriches),
+///   `filmic_pass` / `filmicpass` / `sweetfx_filmic_pass` (FilmicPass.fx — cinematic tone/colour curve;
+///     params `strength` (0 = skip), `fade`, `bleach`, `saturation`),
+///   `film_grain2` / `filmgrain2` / `sweetfx_film_grain2` (FilmGrain2.fx martinsh — animated 3D-Perlin grain,
+///     distinct from the simpler SweetFX `film` grain; params `amount` (0 = skip), `color_amount`,
+///     `luminance_amount`, `size`),
+///   `denoise` / `sweetfx_denoise` / `nvidia_denoise` (Denoise.fx KNN — spatial noise reduction on graded LDR;
+///     params `strength` (0 = skip), `noise_level`, `lerp_coefficient`, `weight_threshold`, `counter_threshold`,
+///     `gaussian_sigma`),
+///   `adaptive_sharpen` / `adaptivesharpen` / `reshade_adaptive_sharpen` (AdaptiveSharpen.fx bacondither —
+///     edge-aware sharpening; params `strength`/`curve_height` (0 = skip), `curve_slope`, overshoot/compression
+///     knobs, `scale_lim`, `scale_cs`, `pm_p`),
+///   `gaussian_blur` / `gaussianblur` / `reshade_gaussian_blur` (GaussianBlur.fx Ioxa — fused separable blur on
+///     graded LDR; params `strength` (0 = skip), `offset`, `radius` 0–4),
+///   `fine_sharp` / `finesharp` / `reshade_fine_sharp` (FineSharp.fx Didée — fused YUV sharpen chain; params
+///     `strength`/`sstr` (0 = skip), `equalization`/`cstr`, `x_strength`/`xstr`, `x_repair`/`xrep`, `l_strength`/`lstr`,
+///     `p_strength`/`pstr`, `mode` 0–2),
+///   `marty_bloom` / `reshade_marty_bloom` / `bloom_and_lens` (Bloom.fx Marty McFly — fused pyramid bloom;
+///     params `amount`/`fBloomAmount` (0 = skip), `threshold`, `saturation`, `mix_mode` 0–3, `tint` rgb object),
+///   `ring_dof` / `marty_dof` / `reshade_dof` (DOF.fx Marty McFly ring DOF — depth-aware bokeh; params `strength`
+///     (0 = skip), `auto_focus`, `manual_focus`, `focus_point`, `blur_radius`, ring knobs),
+///   `ambient_light` / `reshade_ambient_light` (AmbientLight.fx Ganossa — adaptive light bleed; params `intensity`
+///    /`alInt` (0 = skip), `threshold`, `adapt`, dirt/adaptive modes),
+///   `fake_motion_blur` / `reshade_fake_motion_blur` (FakeMotionBlur.fx — temporal smear; params `recall`/`mbRecall`
+///     (0 = skip), `softness`/`mbSoftness`; uses previous-frame history texture),
+///   `reflective_bump_mapping` / `rbm` / `reshade_reflective_bump_mapping` (ReflectiveBumpMapping.fx Marty McFly —
+///     screen-space glossy relief reflections; params `strength` (0 = skip), `blur_width`, `sample_count`,
+///     `relief_height`, fresnel/threshold/color-mask knobs),
 ///   `preset` (uses `preset`/`name` slug + `blend`), plus `output`.
 ///
 /// Resolution order: see `ResolveShaderCfgPath`.

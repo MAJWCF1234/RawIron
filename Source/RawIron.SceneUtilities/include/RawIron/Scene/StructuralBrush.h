@@ -1,7 +1,12 @@
 #pragma once
 
 #include "RawIron/Scene/Helpers.h"
+#include "RawIron/Structural/StructuralCompiler.h"
+#include "RawIron/Structural/StructuralGraph.h"
 #include "RawIron/Structural/StructuralPrimitives.h"
+
+#include <string>
+#include <vector>
 
 namespace ri::scene {
 
@@ -9,14 +14,14 @@ namespace ri::scene {
 [[nodiscard]] Mesh MeshFromStructuralCompiledMesh(const ri::structural::CompiledMesh& compiled,
                                                    std::string meshName);
 
-/// Placement and material defaults for `ri::structural::BuildPrimitiveMesh`.
+/// Placement and material defaults when spawning one structural primitive into the scene graph.
 struct StructuralBrushSpawnOptions {
-    std::string nodeName = "StructuralBrush";
+    std::string nodeName = "StructuralPrimitive";
     std::string_view structuralType = "box";
     ri::structural::StructuralPrimitiveOptions shape{};
     int parent = kInvalidHandle;
     Transform transform{};
-    std::string materialName = "struct_brush";
+    std::string materialName = "struct_primitive";
     ShadingModel shadingModel = ShadingModel::Lit;
     MaterialStyle materialStyle = MaterialStyle::Standard;
     MaterialWorkflow materialWorkflow = MaterialWorkflow::MetalRough;
@@ -41,8 +46,50 @@ struct StructuralBrushSpawnOptions {
     bool additiveBlend = false;
 };
 
-/// Instantiates the structural primitive as **`PrimitiveType::Custom`** geometry under `parent`.
-/// Returns [`kInvalidHandle`] when the structural compiler produced no geometry.
+/// Instantiates one structural primitive as **`PrimitiveType::Custom`** geometry under `parent`.
 [[nodiscard]] int AddStructuralBrushNode(Scene& scene, const StructuralBrushSpawnOptions& options);
+
+/// Compile a structural graph (solids, subtract cutters, mesh primitives) and spawn under one root.
+struct StructuralPrimitiveAssemblyOptions {
+    int parent = kInvalidHandle;
+    Transform transform{};
+    std::string rootNodeName = "StructuralPrimitiveAssembly";
+    std::vector<ri::structural::StructuralNode> nodes;
+    ri::structural::StructuralCompileOptions compileOptions{};
+    StructuralBrushSpawnOptions material{};
+};
+
+struct StructuralPrimitiveAssemblyResult {
+    int root = kInvalidHandle;
+    std::size_t compiledFragmentCount = 0;
+    std::size_t passthroughCount = 0;
+    std::vector<int> meshNodes;
+    std::vector<std::string> compileWarnings;
+};
+
+[[nodiscard]] ri::structural::StructuralNode MakeStructuralPrimitiveSolid(std::string id,
+                                                                          std::string_view structuralType,
+                                                                          ri::math::Vec3 position,
+                                                                          ri::math::Vec3 scale,
+                                                                          ri::math::Vec3 rotationDegrees = {});
+
+[[nodiscard]] ri::structural::StructuralNode MakeStructuralPrimitiveSubtract(std::string id,
+                                                                             std::string_view cutterType,
+                                                                             std::vector<std::string> targetIds,
+                                                                             ri::math::Vec3 position,
+                                                                             ri::math::Vec3 scale,
+                                                                             ri::math::Vec3 rotationDegrees = {});
+
+[[nodiscard]] ri::structural::StructuralNode MakeStructuralPrimitiveGraphNode(
+    std::string id,
+    std::string_view structuralType,
+    ri::math::Vec3 position,
+    ri::math::Vec3 scale,
+    const ri::structural::StructuralPrimitiveOptions& shape = {},
+    ri::math::Vec3 rotationDegrees = {});
+
+[[nodiscard]] StructuralPrimitiveAssemblyResult AddStructuralPrimitiveAssembly(
+    Scene& scene,
+    const StructuralPrimitiveAssemblyOptions& options);
 
 } // namespace ri::scene

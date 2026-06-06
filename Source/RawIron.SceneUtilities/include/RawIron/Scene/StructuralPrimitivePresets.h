@@ -40,7 +40,7 @@ struct StructuralPrimitivePreset {
     bool centerColumn = true;
 };
 
-/// Curated structural brush presets (editor + game assembly).
+/// Curated structural primitive presets (editor + game assembly).
 inline constexpr auto kStructuralPrimitivePresets = std::to_array<StructuralPrimitivePreset>({
     {.label = "box", .structuralType = "box"},
     {.label = "plane", .structuralType = "plane"},

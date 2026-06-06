@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_redstone_torch_png",
+  "type": "texture",
+  "displayName": "rt2_redstone_torch",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_redstone_torch.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_redstone_torch_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_redstone_torch.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

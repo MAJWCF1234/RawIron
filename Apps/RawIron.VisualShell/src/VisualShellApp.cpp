@@ -181,6 +181,16 @@ fs::path ResolveBuiltBinaryPath(const fs::path& buildRoot, const fs::path& relat
     }
     return primary;
 }
+
+fs::path ResolveRiToolPath(const fs::path& buildRoot) {
+#if defined(_WIN32)
+    const std::string exeSuffix = ".exe";
+#else
+    const std::string exeSuffix;
+#endif
+    return ResolveBuiltBinaryPath(buildRoot, fs::path("Tools") / "ri_tool", "ri_tool" + exeSuffix);
+}
+
 std::vector<Action> BuildActions(const fs::path& buildRoot, const fs::path& sourceRoot) {
 #if defined(_WIN32)
     const std::string exeSuffix = ".exe";
@@ -262,7 +272,7 @@ std::vector<Action> BuildActions(const fs::path& buildRoot, const fs::path& sour
         "Vulkan Diagnostics",
         "Check the Vulkan loader and current runtime status.",
         Action::Kind::RunCaptured,
-        ResolveBuiltBinaryPath(buildRoot, fs::path("Tools") / "ri_tool", "ri_tool" + exeSuffix),
+        ResolveRiToolPath(buildRoot),
         {
             "--vulkan-diagnostics",
         },
@@ -271,7 +281,7 @@ std::vector<Action> BuildActions(const fs::path& buildRoot, const fs::path& sour
         "Scene Kit Checks",
         "Run the ten Scene Kit example checks and render previews.",
         Action::Kind::RunCaptured,
-        ResolveBuiltBinaryPath(buildRoot, fs::path("Tools") / "ri_tool", "ri_tool" + exeSuffix),
+        ResolveRiToolPath(buildRoot),
         {
             "--scenekit-checks",
             "--root",
@@ -282,7 +292,7 @@ std::vector<Action> BuildActions(const fs::path& buildRoot, const fs::path& sour
         "Scene Kit Targets",
         "List the tracked RawIron Scene Kit parity examples.",
         Action::Kind::RunCaptured,
-        ResolveBuiltBinaryPath(buildRoot, fs::path("Tools") / "ri_tool", "ri_tool" + exeSuffix),
+        ResolveRiToolPath(buildRoot),
         {
             "--scenekit-targets",
         },
@@ -291,25 +301,38 @@ std::vector<Action> BuildActions(const fs::path& buildRoot, const fs::path& sour
         "Workspace Check",
         "Validate the RawIron workspace configuration and structure.",
         Action::Kind::RunCaptured,
-        ResolveBuiltBinaryPath(buildRoot, fs::path("Tools") / "ri_tool", "ri_tool" + exeSuffix),
+        ResolveRiToolPath(buildRoot),
         {
             "--workspace",
+            "--root",
+            Narrow(sourceRoot),
         },
     });
     actions.push_back(Action{
         "Asset Formats",
         "List supported asset formats and conversion capabilities.",
         Action::Kind::RunCaptured,
-        ResolveBuiltBinaryPath(buildRoot, fs::path("Tools") / "ri_tool", "ri_tool" + exeSuffix),
+        ResolveRiToolPath(buildRoot),
         {
             "--formats",
+        },
+    });
+    actions.push_back(Action{
+        "List Projects",
+        "Enumerate RawIron game projects under the current workspace.",
+        Action::Kind::RunCaptured,
+        ResolveRiToolPath(buildRoot),
+        {
+            "--list-projects",
+            "--root",
+            Narrow(sourceRoot),
         },
     });
     actions.push_back(Action{
         "Sample Scene Dump",
         "Output the current sample scene structure for inspection.",
         Action::Kind::RunCaptured,
-        ResolveBuiltBinaryPath(buildRoot, fs::path("Tools") / "ri_tool", "ri_tool" + exeSuffix),
+        ResolveRiToolPath(buildRoot),
         {
             "--sample-scene",
         },
@@ -467,12 +490,48 @@ bool OpenFolder(const fs::path& target) {
     const HINSTANCE result = ShellExecuteW(nullptr, L"open", wideTarget.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     return reinterpret_cast<intptr_t>(result) > 32;
 }
+
+bool LaunchRiToolConsole(const fs::path& buildRoot, const fs::path& sourceRoot) {
+    const fs::path riTool = ResolveRiToolPath(buildRoot);
+    if (riTool.empty() || !fs::exists(riTool)) {
+        return false;
+    }
+
+    const fs::path effectiveSourceRoot = sourceRoot.empty() ? fs::current_path() : sourceRoot;
+    const std::wstring sourceRootWide = effectiveSourceRoot.wstring();
+    const std::wstring riToolDirWide = riTool.parent_path().wstring();
+    const std::wstring sourceRootText = effectiveSourceRoot.wstring();
+    const std::wstring riToolText = riTool.wstring();
+    std::wstring parameters =
+        L"/K \"title RawIron CLI"
+        L" && cd /d \"" + sourceRootWide + L"\""
+        L" && set PATH=" + riToolDirWide + L";%PATH%"
+        L" && echo RawIron CLI ready."
+        L" && echo Workspace: " + sourceRootText +
+        L" && echo Tool: " + riToolText +
+        L" && echo Example: ri_tool --list-projects --root " + sourceRootText + L"\"";
+
+    const HINSTANCE result = ShellExecuteW(nullptr,
+                                           L"open",
+                                           L"cmd.exe",
+                                           parameters.c_str(),
+                                           sourceRootWide.c_str(),
+                                           SW_SHOWNORMAL);
+    if (reinterpret_cast<intptr_t>(result) <= 32) {
+        return false;
+    }
+    return true;
+}
 #else
 bool LaunchDetachedProcess(const fs::path&, const std::vector<std::string>&) {
     return false;
 }
 
 bool OpenFolder(const fs::path&) {
+    return false;
+}
+
+bool LaunchRiToolConsole(const fs::path&, const fs::path&) {
     return false;
 }
 #endif
@@ -491,4 +550,152 @@ void PrintHeadlessSummary(const ShellState& shell) {
         std::cout << index << ". " << ActionReadyLabel(action) << "\n";
         ++index;
     }
+}
+
+void PrintActionCatalog(const ShellState& shell, std::ostream& out) {
+    out << "[Shell Actions]\n";
+    out << "Build root: " << shell.BuildRoot().string() << "\n";
+    out << "Source root: " << shell.SourceRoot().string() << "\n";
+    std::size_t index = 1;
+    for (const Action& action : shell.Actions()) {
+        out << index << ". " << action.title << "\n";
+        out << "   Ready: " << (TargetReady(action) ? "yes" : "no") << "\n";
+        out << "   Kind: "
+            << (action.kind == Action::Kind::RunCaptured ? "captured"
+                : action.kind == Action::Kind::LaunchDetached ? "detached"
+                                                              : "folder")
+            << "\n";
+        out << "   Target: " << action.target.string() << "\n";
+        out << "   Detail: " << action.detail << "\n";
+        out << "   Args:";
+        if (action.args.empty()) {
+            out << " <none>";
+        } else {
+            for (const std::string& arg : action.args) {
+                out << " [" << arg << "]";
+            }
+        }
+        if (action.injectCurrentExample) {
+            out << " [inject-current-example]";
+        }
+        out << "\n";
+        ++index;
+    }
+}
+
+const ri::shell::GameProject* FindGameProjectById(const ShellState& shell, std::string_view gameId) {
+    if (gameId.empty()) {
+        return nullptr;
+    }
+    for (const ri::shell::GameProject& game : shell.GameProjects()) {
+        if (game.id == gameId) {
+            return &game;
+        }
+    }
+    return nullptr;
+}
+
+std::optional<std::size_t> ResolveActionSelector(const std::vector<Action>& actions, std::string_view selector) {
+    if (selector.empty()) {
+        return std::nullopt;
+    }
+
+    std::string selectorString(selector);
+    bool allDigits = !selectorString.empty();
+    for (const char ch : selectorString) {
+        if (ch < '0' || ch > '9') {
+            allDigits = false;
+            break;
+        }
+    }
+    if (allDigits) {
+        const std::size_t index = static_cast<std::size_t>(std::strtoul(selectorString.c_str(), nullptr, 10));
+        if (index >= 1 && index <= actions.size()) {
+            return index - 1;
+        }
+    }
+
+    for (std::size_t index = 0; index < actions.size(); ++index) {
+        if (actions[index].title == selector) {
+            return index;
+        }
+    }
+    return FindActionIndex(actions, selector);
+}
+
+int RunHeadlessAction(ShellState& shell, std::size_t actionIndex, std::ostream& out) {
+    if (actionIndex >= shell.Actions().size()) {
+        out << "Requested action index is out of range.\n";
+        return 2;
+    }
+
+    const Action& action = shell.Actions().at(actionIndex);
+    out << "[Shell Action]\n";
+    out << "Title: " << action.title << "\n";
+    out << "Kind: "
+        << (action.kind == Action::Kind::RunCaptured ? "captured"
+            : action.kind == Action::Kind::LaunchDetached ? "detached"
+                                                          : "folder")
+        << "\n";
+    out << "Target: " << action.target.string() << "\n";
+
+    std::vector<std::string> effectiveArgs = action.args;
+    if (action.injectCurrentExample) {
+        if (const auto* example = shell.CurrentExample(); example != nullptr) {
+            effectiveArgs.push_back("--example");
+            effectiveArgs.push_back(example->slug);
+        }
+    }
+    out << "Args:";
+    if (effectiveArgs.empty()) {
+        out << " <none>";
+    } else {
+        for (const std::string& arg : effectiveArgs) {
+            out << " [" << arg << "]";
+        }
+    }
+    out << "\n";
+
+    if (action.kind == Action::Kind::OpenFolder) {
+        const bool ok = OpenFolder(action.target);
+        out << (ok ? "Opened folder.\n" : "Failed to open folder.\n");
+        return ok ? 0 : 1;
+    }
+
+    if (action.kind == Action::Kind::LaunchDetached) {
+        const bool ok = LaunchDetachedProcess(action.target, effectiveArgs);
+        out << (ok ? "Launched detached process.\n" : "Failed to launch detached process.\n");
+        return ok ? 0 : 1;
+    }
+
+    if (!TargetReady(action)) {
+        out << "Target missing.\n";
+        return 1;
+    }
+
+    int exitCode = 0;
+    const std::vector<std::string> lines = ReadProcessOutput(action.target, effectiveArgs, exitCode);
+    for (const std::string& line : lines) {
+        out << line << "\n";
+    }
+    out << "Exit code: " << exitCode << "\n";
+    return exitCode;
+}
+
+int RunRiToolThroughShell(const fs::path& buildRoot, const std::vector<std::string>& args, std::ostream& out) {
+    const fs::path riTool = ResolveRiToolPath(buildRoot);
+    out << "[Shell Console]\n";
+    out << "Tool: " << riTool.string() << "\n";
+    if (riTool.empty() || !fs::exists(riTool)) {
+        out << "ri_tool.exe not found for this build.\n";
+        return 1;
+    }
+
+    int exitCode = 0;
+    const std::vector<std::string> lines = ReadProcessOutput(riTool, args, exitCode);
+    for (const std::string& line : lines) {
+        out << line << "\n";
+    }
+    out << "Exit code: " << exitCode << "\n";
+    return exitCode;
 }

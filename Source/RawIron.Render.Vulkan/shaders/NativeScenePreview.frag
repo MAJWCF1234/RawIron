@@ -9,6 +9,8 @@ layout(location = 5) in vec4 shadowClipPosition;
 layout(location = 6) in vec3 worldPositionWs;
 
 layout(location = 0) out vec4 fragColor;
+layout(location = 1) out vec4 fragNormalRoughness;
+layout(location = 2) out vec4 fragMaterial;
 
 layout(std140, set = 0, binding = 0) uniform CameraData {
     mat4 viewProjection;
@@ -238,6 +240,10 @@ const int kMaterialStyleLayered = 1 << 6;
 const int kMaterialStyleMixedMedia = 1 << 7;
 const int kMaterialStyleCrystal = 1 << 8;
 const int kMaterialWorkflowSpecGloss = 1 << 9;
+const int kMaterialStyleMetalLookup = 1 << 10;
+const int kMaterialHasNormalMap = 1 << 11;
+const int kMaterialHasOrmMap = 1 << 12;
+const int kMaterialWorldTileUv = 1 << 13;
 
 float Hash11(float p);
 float Hash21(vec2 p);
@@ -267,34 +273,68 @@ vec3 FresnelSchlick(float cosTheta, vec3 f0) {
     return f0 + (1.0 - f0) * pow(1.0 - cosTheta, 5.0);
 }
 
+vec3 FresnelSchlickRoughness(float cosTheta, vec3 f0, float roughness) {
+    vec3 roughLimit = max(vec3(1.0 - roughness), f0);
+    return f0 + (roughLimit - f0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+vec3 SoftEnergyLimit(vec3 color, float limit) {
+    vec3 safeLimit = vec3(max(limit, 1e-3));
+    return color / (vec3(1.0) + color / safeLimit);
+}
+
 mat3 CotangentFrame(vec3 n, vec3 positionWs, vec2 uv) {
     vec3 dp1 = dFdx(positionWs);
     vec3 dp2 = dFdy(positionWs);
     vec2 duv1 = dFdx(uv);
     vec2 duv2 = dFdy(uv);
-    vec3 dp2perp = cross(dp2, n);
-    vec3 dp1perp = cross(n, dp1);
-    vec3 tangent = dp2perp * duv1.x + dp1perp * duv2.x;
-    vec3 bitangent = dp2perp * duv1.y + dp1perp * duv2.y;
-    float invMax = inversesqrt(max(dot(tangent, tangent), dot(bitangent, bitangent)));
-    return mat3(tangent * invMax, bitangent * invMax, n);
+    vec3 tangent = dp1 * duv2.y - dp2 * duv1.y;
+    vec3 bitangent = dp2 * duv1.x - dp1 * duv2.x;
+    tangent -= n * dot(n, tangent);
+    float tangentLen = length(tangent);
+    if (tangentLen <= 1e-5) {
+        tangent = normalize(abs(n.z) < 0.999 ? cross(n, vec3(0.0, 0.0, 1.0)) : cross(n, vec3(0.0, 1.0, 0.0)));
+    } else {
+        tangent /= tangentLen;
+    }
+    bitangent = normalize(cross(n, tangent));
+    return mat3(tangent, bitangent, n);
 }
 
 vec3 ApplyNormalMap(vec3 baseNormal, vec2 uv) {
     vec3 tangentNormal = texture(normalTex, uv).xyz * 2.0 - 1.0;
-    tangentNormal.xy *= 0.9;
-    mat3 tbn = CotangentFrame(normalize(baseNormal), worldPositionWs, uv);
+    tangentNormal.xy *= 0.78;
+    tangentNormal = normalize(tangentNormal);
+    mat3 tbn = CotangentFrame(normalize(baseNormal), worldPositionWs - cameraData.cameraWorldPosition.xyz, uv);
     return normalize(tbn * tangentNormal);
 }
 
-vec3 ComputePseudoReflection(vec3 normal, vec3 viewDir, float roughness, vec3 ambientBoost) {
+vec3 ComputePseudoReflection(vec3 normal,
+                             vec3 viewDir,
+                             vec3 lightDir,
+                             vec3 lightColor,
+                             float roughness,
+                             vec3 ambientBoost) {
     vec3 reflected = reflect(-viewDir, normal);
     float horizon = clamp(reflected.y * 0.5 + 0.5, 0.0, 1.0);
-    vec3 sky = mix(vec3(0.08, 0.11, 0.15), vec3(0.46, 0.62, 0.88) + ambientBoost * 0.12, horizon);
-    vec3 ground = vec3(0.05, 0.045, 0.055) + ambientBoost * 0.04;
+    vec3 skyLow = vec3(0.07, 0.09, 0.12) + ambientBoost * 0.05;
+    vec3 skyHigh = vec3(0.45, 0.61, 0.88) + ambientBoost * 0.11;
+    vec3 groundLow = vec3(0.04, 0.04, 0.05) + ambientBoost * 0.025;
+    vec3 groundHigh = vec3(0.11, 0.09, 0.07) + ambientBoost * 0.04;
+    vec3 sky = mix(skyLow, skyHigh, horizon);
+    vec3 ground = mix(groundLow, groundHigh, 1.0 - horizon);
     vec3 env = mix(ground, sky, horizon);
     float reflectStrength = clamp(1.0 - roughness, 0.0, 1.0);
-    return env * (0.18 + reflectStrength * reflectStrength * 0.72);
+    float horizonGlow = pow(1.0 - abs(reflected.y), 3.0) * (0.18 + reflectStrength * 0.28);
+    float sunLobePower = mix(220.0, 26.0, roughness);
+    float sunLobe = pow(max(dot(reflected, lightDir), 0.0), sunLobePower);
+    vec3 sunGlint = lightColor * sunLobe * (1.6 + reflectStrength * 4.2);
+    vec3 sharpEnv = env + horizonGlow * vec3(0.10, 0.10, 0.11) + sunGlint;
+    vec3 softEnv = mix(env, vec3(dot(env, vec3(0.333))), 0.25);
+    vec3 ultraSoftEnv = mix(vec3(0.08, 0.09, 0.10), env, 0.45);
+    vec3 reflectedEnv = mix(sharpEnv, softEnv, smoothstep(0.18, 0.65, roughness));
+    reflectedEnv = mix(reflectedEnv, ultraSoftEnv, smoothstep(0.65, 1.0, roughness));
+    return reflectedEnv * (0.18 + reflectStrength * reflectStrength * 0.74);
 }
 
 vec3 ApplyRetroStyle(vec3 color, vec2 uv, float timeSeconds) {
@@ -451,104 +491,173 @@ vec3 CalibrateRoughStoneColor(vec3 color, float roughStone, bool layeredStyle, b
 }
 
 float ComputeShadowFactor(vec3 normal, vec3 lightDir) {
-    vec3 ndc = shadowClipPosition.xyz / max(shadowClipPosition.w, 1e-5);
-    vec2 uv = ndc.xy * 0.5 + 0.5;
-    float receiverDepth = ndc.z * 0.5 + 0.5;
-    if (uv.x <= 0.0 || uv.y <= 0.0 || uv.x >= 1.0 || uv.y >= 1.0 || receiverDepth <= 0.0 || receiverDepth >= 1.0) {
+    if (shadowClipPosition.w <= 1e-5) {
         return 1.0;
     }
-    const float tier = clamp(drawData.qualityTier, 0.0, 2.0);
-    float bias = max(0.0008, 0.0022 * (1.0 - max(dot(normal, lightDir), 0.0)));
-    if (tier >= 2.0) {
-        bias *= 0.92;
+    vec3 ndc = shadowClipPosition.xyz / shadowClipPosition.w;
+    vec2 uv = ndc.xy * 0.5 + 0.5;
+    float receiverDepth = ndc.z;
+    if (receiverDepth <= 0.0 || receiverDepth >= 1.0) {
+        return 1.0;
     }
+    // Fade the shadow contribution to fully-lit near the shadow-map coverage border so
+    // the limited camera-following region does not leave a hard ring on the ground where
+    // shadowed surfaces abruptly snap to lit as the player moves.
+    vec2 edge = min(uv, vec2(1.0) - uv);
+    float coverage = smoothstep(0.0, 0.07, min(edge.x, edge.y));
+    if (coverage <= 0.0) {
+        return 1.0;
+    }
+    float tier = clamp(drawData.qualityTier, 0.0, 2.0);
+    float ndotl = clamp(dot(normal, lightDir), 0.0, 1.0);
+    float bias = max(0.00035, 0.00055 + (1.0 - ndotl) * 0.0015);
+    bias *= tier >= 2.0 ? 0.85 : 1.10;
     vec2 texel = 1.0 / vec2(textureSize(shadowMapTex, 0));
     float lit = 0.0;
-    if (tier >= 2.0) {
-        for (int y = -2; y <= 2; ++y) {
-            for (int x = -2; x <= 2; ++x) {
-                float sampleDepth = texture(shadowMapTex, uv + vec2(float(x), float(y)) * texel).r;
-                lit += (receiverDepth - bias) <= sampleDepth ? 1.0 : 0.0;
-            }
+    float weightSum = 0.0;
+    int radius = tier >= 2.0 ? 3 : 2;
+    for (int y = -radius; y <= radius; ++y) {
+        for (int x = -radius; x <= radius; ++x) {
+            float dist = abs(float(x)) + abs(float(y));
+            float weight = 1.0 / (1.0 + dist * dist);
+            vec2 sampleUv = clamp(
+                uv + vec2(float(x), float(y)) * texel,
+                texel * 0.5,
+                vec2(1.0) - texel * 0.5);
+            float sampleDepth = texture(shadowMapTex, sampleUv).r;
+            float visibility = sampleDepth >= (receiverDepth - bias) ? 1.0 : 0.0;
+            lit += visibility * weight;
+            weightSum += weight;
         }
-        return lit / 25.0;
     }
-    for (int y = -1; y <= 1; ++y) {
-        for (int x = -1; x <= 1; ++x) {
-            float sampleDepth = texture(shadowMapTex, uv + vec2(float(x), float(y)) * texel).r;
-            lit += (receiverDepth - bias) <= sampleDepth ? 1.0 : 0.0;
-        }
-    }
-    return lit / 9.0;
+    float shadowTerm = lit / max(weightSum, 1e-5);
+    return mix(1.0, shadowTerm, coverage);
 }
 
 void main() {
-    const bool hybridHdrRadiance = cameraData.postProcessSecondary.w > 0.5;
-    const vec2 postUv01 = gl_FragCoord.xy * cameraData.viewportMetrics.zw;
-    vec2 materialUv = texCoord * drawData.tiling;
-    vec2 detailUv = materialUv * 1.85 + worldPositionWs.xz * 0.028;
-    vec3 normal = normalize(inNormal);
-    const vec3 viewDir = normalize(viewDirectionWs);
+    bool hybridHdrRadiance = cameraData.postProcessSecondary.w > 0.5;
+    vec2 postUv01 = gl_FragCoord.xy * cameraData.viewportMetrics.zw;
+    vec3 geomNormal = normalize(inNormal);
+    bool stableWorldFloor = (drawData.litShadingModel & kMaterialWorldTileUv) != 0;
+    bool largePlanarSurface = stableWorldFloor || max(drawData.tiling.x, drawData.tiling.y) > 16.0;
+    vec2 materialUv = stableWorldFloor ? texCoord : (texCoord * drawData.tiling);
+    vec2 detailUv = materialUv * 1.85;
+    if (!largePlanarSurface) {
+        detailUv += worldPositionWs.xz * 0.028;
+    }
+    vec3 normal = geomNormal;
+    vec3 viewDir = normalize(viewDirectionWs);
     if ((drawData.litShadingModel & 8) != 0 && dot(normal, viewDir) < 0.0) {
+        geomNormal = -geomNormal;
         normal = -normal;
     }
-    const bool retroStyle = (drawData.litShadingModel & kMaterialStyleRetro) != 0;
-    const bool layeredStyle = (drawData.litShadingModel & kMaterialStyleLayered) != 0;
-    const bool mixedMediaStyle = (drawData.litShadingModel & kMaterialStyleMixedMedia) != 0;
-    const bool crystalStyle = (drawData.litShadingModel & kMaterialStyleCrystal) != 0;
-    const bool specGlossWorkflow = (drawData.litShadingModel & kMaterialWorkflowSpecGloss) != 0;
+    bool retroStyle = (drawData.litShadingModel & kMaterialStyleRetro) != 0;
+    bool layeredStyle = (drawData.litShadingModel & kMaterialStyleLayered) != 0;
+    bool mixedMediaStyle = (drawData.litShadingModel & kMaterialStyleMixedMedia) != 0;
+    bool crystalStyle = (drawData.litShadingModel & kMaterialStyleCrystal) != 0;
+    bool metalLookupStyle = (drawData.litShadingModel & kMaterialStyleMetalLookup) != 0;
+    bool specGlossWorkflow = (drawData.litShadingModel & kMaterialWorkflowSpecGloss) != 0;
+    bool hasNormalMap = (drawData.litShadingModel & kMaterialHasNormalMap) != 0;
+    bool hasOrmMap = (drawData.litShadingModel & kMaterialHasOrmMap) != 0;
     vec3 albedo = inColor.rgb;
     float sampledAlpha = 1.0;
     vec3 emissiveTexel = vec3(0.0);
     vec3 ormTexel = vec3(1.0, drawData.roughness, drawData.metallic);
+    vec3 metalLookupColor = vec3(1.0);
+    float metalLookupAo = 1.0;
     if (drawData.useTexture != 0) {
         vec2 uv = materialUv;
         if (drawData.nativeWaterUvMotion != 0) {
-            const float t = drawData.nativeWaterTime;
-            const float s = 0.018 / max(drawData.tiling.x, 0.25);
+            float t = drawData.nativeWaterTime;
+            float s = 0.018 / max(drawData.tiling.x, 0.25);
             uv += vec2(
                 sin(t * 1.15 + texCoord.y * 5.5) * s,
                 cos(t * 0.95 + texCoord.x * 4.8) * s
             );
         }
-        vec4 texel = texture(albedoTex, uv);
-        albedo *= texel.rgb;
-        sampledAlpha = texel.a * texture(opacityTex, uv).r;
-        normal = ApplyNormalMap(normal, uv);
-        ormTexel = texture(ormTex, uv).rgb;
+        if (hasNormalMap) {
+            normal = ApplyNormalMap(normal, uv);
+        }
+        if (hasOrmMap) {
+            ormTexel = texture(ormTex, uv).rgb;
+        }
         emissiveTexel = texture(emissiveTex, uv).rgb;
+        if (metalLookupStyle) {
+            vec3 controlSample = texture(detailTex, uv).rgb;
+            vec2 lookupUv = vec2(clamp(drawData.metallic, 0.001, 0.999),
+                                  clamp(1.0 - drawData.roughness, 0.001, 0.999));
+            metalLookupColor = texture(albedoTex, lookupUv).rgb;
+            metalLookupAo = dot(controlSample, vec3(0.2126, 0.7152, 0.0722));
+            float detailRelief = smoothstep(0.10, 0.92, metalLookupAo);
+            albedo = mix(albedo, metalLookupColor, 0.15);
+            albedo *= mix(vec3(0.72), vec3(1.04), detailRelief);
+            sampledAlpha = texture(opacityTex, uv).r;
+        } else if (stableWorldFloor) {
+            vec2 uvDx = dFdx(uv);
+            vec2 uvDy = dFdy(uv);
+            vec4 texel = textureGrad(albedoTex, uv, uvDx, uvDy);
+            albedo *= texel.rgb;
+            sampledAlpha = texel.a * textureGrad(opacityTex, uv, uvDx, uvDy).r;
+        } else {
+            vec4 texel = texture(albedoTex, uv);
+            albedo *= texel.rgb;
+            sampledAlpha = texel.a * texture(opacityTex, uv).r;
+        }
         if (layeredStyle || mixedMediaStyle || crystalStyle) {
-            vec3 detailSample = texture(detailTex, detailUv).rgb;
-            float macroNoise = Hash21(floor(worldPositionWs.xz * 0.75) + vec2(worldPositionWs.y * 0.15));
-            float roughStoneDetail = smoothstep(0.86, 0.98, drawData.roughness) * (1.0 - drawData.metallic);
-            float detailMix = layeredStyle ? 0.16 : (mixedMediaStyle ? 0.13 : 0.09);
-            detailMix = mix(detailMix, max(detailMix, 0.18), roughStoneDetail);
-            vec3 coolWarmTint = mix(vec3(0.92, 0.95, 1.0), vec3(1.06, 1.0, 0.94), macroNoise);
-            vec3 stoneTint = mix(vec3(0.98, 0.97, 0.95), vec3(1.04, 1.02, 0.98), macroNoise);
-            vec3 macroTint = mix(coolWarmTint, stoneTint, roughStoneDetail);
-            float detailLuma = dot(detailSample, vec3(0.2126, 0.7152, 0.0722));
-            vec3 detailContrast = vec3(1.0 + (detailLuma - 0.52) * mix(0.18, 0.30, roughStoneDetail));
-            vec2 grainUv = mix(worldPositionWs.xy, worldPositionWs.xz, abs(normal.y));
-            float grainA = Hash21(floor(grainUv * 3.0 + worldPositionWs.zy * 0.17));
-            float grainB = Hash21(floor(grainUv * 9.0 + vec2(worldPositionWs.z, worldPositionWs.x) * 0.12));
-            float pore = smoothstep(0.64, 0.96, grainB) * 0.08;
-            detailContrast *= vec3(1.0 + (grainA - 0.5) * 0.08 - pore);
-            albedo *= mix(vec3(1.0), detailContrast * macroTint, detailMix);
+            if (!stableWorldFloor && !largePlanarSurface) {
+                vec3 detailSample = texture(detailTex, detailUv).rgb;
+                vec2 macroCoord = worldPositionWs.xz * 0.75;
+                float macroNoise = Hash21(floor(macroCoord) + vec2(worldPositionWs.y * 0.15));
+                float roughStoneDetail = smoothstep(0.86, 0.98, drawData.roughness) * (1.0 - drawData.metallic);
+                float detailMix = layeredStyle ? 0.16 : (mixedMediaStyle ? 0.13 : 0.09);
+                detailMix = mix(detailMix, max(detailMix, 0.18), roughStoneDetail);
+                vec3 coolWarmTint = mix(vec3(0.92, 0.95, 1.0), vec3(1.06, 1.0, 0.94), macroNoise);
+                vec3 stoneTint = mix(vec3(0.98, 0.97, 0.95), vec3(1.04, 1.02, 0.98), macroNoise);
+                vec3 macroTint = mix(coolWarmTint, stoneTint, roughStoneDetail);
+                float detailLuma = dot(detailSample, vec3(0.2126, 0.7152, 0.0722));
+                vec3 detailContrast = vec3(1.0 + (detailLuma - 0.52) * mix(0.18, 0.30, roughStoneDetail));
+                vec2 grainUv = mix(worldPositionWs.xy, worldPositionWs.xz, abs(normal.y));
+                float grainA = Hash21(floor(grainUv * 3.0 + worldPositionWs.zy * 0.17));
+                float grainB = Hash21(floor(grainUv * 9.0 + vec2(worldPositionWs.z, worldPositionWs.x) * 0.12));
+                float pore = smoothstep(0.64, 0.96, grainB) * 0.08;
+                detailContrast *= vec3(1.0 + (grainA - 0.5) * 0.08 - pore);
+                albedo *= mix(vec3(1.0), detailContrast * macroTint, detailMix);
+            } else if (stableWorldFloor) {
+                vec3 detailSample = texture(detailTex, detailUv).rgb;
+                vec2 macroCoord = materialUv * 0.33;
+                float macroNoise = Hash21(floor(macroCoord));
+                float roughStoneDetail = smoothstep(0.86, 0.98, drawData.roughness) * (1.0 - drawData.metallic);
+                float detailMix = layeredStyle ? 0.12 : (mixedMediaStyle ? 0.10 : 0.07);
+                detailMix = mix(detailMix, max(detailMix, 0.14), roughStoneDetail);
+                vec3 coolWarmTint = mix(vec3(0.92, 0.95, 1.0), vec3(1.06, 1.0, 0.94), macroNoise);
+                vec3 stoneTint = mix(vec3(0.98, 0.97, 0.95), vec3(1.04, 1.02, 0.98), macroNoise);
+                vec3 macroTint = mix(coolWarmTint, stoneTint, roughStoneDetail);
+                float detailLuma = dot(detailSample, vec3(0.2126, 0.7152, 0.0722));
+                vec3 detailContrast = vec3(1.0 + (detailLuma - 0.52) * mix(0.14, 0.22, roughStoneDetail));
+                vec2 grainUv = materialUv * 0.4;
+                float grainA = Hash21(floor(grainUv * 3.0));
+                float grainB = Hash21(floor(grainUv * 9.0));
+                float pore = smoothstep(0.64, 0.96, grainB) * 0.06;
+                detailContrast *= vec3(1.0 + (grainA - 0.5) * 0.06 - pore);
+                albedo *= mix(vec3(1.0), detailContrast * macroTint, detailMix);
+            }
         }
     }
     albedo = clamp(albedo, 0.0, 1.0);
     bool alphaCutout = (drawData.litShadingModel & 2) != 0;
     float outputAlpha = inColor.a * sampledAlpha;
     if (alphaCutout) {
-        const float cutoff = inColor.a;
-        const float feather = 0.20;
-        const float coverage = smoothstep(cutoff - feather, cutoff + feather * 0.45, sampledAlpha);
-        if (coverage < 0.004) {
+        float cutoff = inColor.a;
+        if (sampledAlpha < cutoff) {
             discard;
         }
-        albedo *= coverage;
         outputAlpha = 1.0;
     }
+    float materialFlags =
+        (metalLookupStyle ? 1.0 : 0.0) + (crystalStyle ? 2.0 : 0.0) + (mixedMediaStyle ? 4.0 : 0.0);
+    float emissiveMask = clamp(length(drawData.emissiveColor + emissiveTexel), 0.0, 8.0) / 8.0;
+    fragNormalRoughness = vec4(normal * 0.5 + 0.5, clamp(drawData.roughness, 0.04, 1.0));
+    fragMaterial = vec4(clamp(drawData.metallic, 0.0, 1.0), 1.0, emissiveMask, materialFlags);
 
     float tier = clamp(drawData.qualityTier, 0.0, 2.0);
     float exposure = cameraData.renderTuning.x;
@@ -606,25 +715,45 @@ void main() {
     float ao = 1.0;
     float roughness = drawData.roughness;
     float metallic = drawData.metallic;
-    if (specGlossWorkflow) {
+    if (metalLookupStyle) {
+        specColor = metalLookupColor;
+        roughness = clamp(mix(drawData.roughness, 1.0 - metalLookupAo, 0.16), 0.06, 1.0);
+        metallic = clamp(max(drawData.metallic, 0.98), 0.0, 1.0);
+        ao = clamp(mix(0.58, metalLookupAo, 0.72), 0.38, 1.0);
+    } else if (specGlossWorkflow && hasOrmMap) {
         float specStrength = clamp(max(max(ormTexel.r, ormTexel.g), ormTexel.b), 0.0, 1.0);
         specColor = mix(vec3(0.04), clamp(ormTexel.rgb, 0.0, 1.0), specStrength);
         roughness = clamp(mix(drawData.roughness, 1.0 - specStrength, 0.82), 0.04, 1.0);
         metallic = clamp(max(drawData.metallic, specStrength * 0.35), 0.0, 1.0);
         ao = clamp(0.78 + (1.0 - specStrength) * 0.22, 0.2, 1.0);
-    } else {
+    } else if (hasOrmMap) {
         roughness = clamp(mix(drawData.roughness, ormTexel.g, 0.85), 0.04, 1.0);
         metallic = clamp(mix(drawData.metallic, ormTexel.b, 0.85), 0.0, 1.0);
         ao = clamp(ormTexel.r, 0.2, 1.0);
         specColor = mix(vec3(0.04), albedo, metallic);
+    } else {
+        // Flat material (albedo-only): honour the authored scalars instead of the
+        // neutral ORM fallback so the surface does not glitch into wrong gloss/metal.
+        roughness = clamp(drawData.roughness, 0.04, 1.0);
+        metallic = clamp(drawData.metallic, 0.0, 1.0);
+        ao = 1.0;
+        specColor = mix(vec3(0.04), albedo, metallic);
     }
+    float normalVariance = clamp(length(fwidth(normal)), 0.0, 1.0);
+    if (metalLookupStyle) {
+        roughness = clamp(roughness + 0.06, 0.08, 1.0);
+    } else {
+        roughness = clamp(roughness + normalVariance * 0.18, 0.04, 1.0);
+    }
+    fragNormalRoughness = vec4(normal * 0.5 + 0.5, roughness);
+    fragMaterial = vec4(metallic, ao, emissiveMask, materialFlags);
     vec3 V = viewDir;
     vec3 H = normalize(lightDir + V);
     float nDotL = max(dot(normal, lightDir), 0.0);
     float nDotV = max(dot(normal, V), 0.0);
     float hDotV = max(dot(H, V), 0.0);
 
-    vec3 F0 = specGlossWorkflow ? specColor : mix(vec3(0.04), albedo, metallic);
+    vec3 F0 = (specGlossWorkflow || metalLookupStyle) ? specColor : mix(vec3(0.04), albedo, metallic);
     vec3 F = FresnelSchlick(hDotV, F0);
     float D = DistributionGGX(normal, H, roughness);
     float G = GeometrySmith(normal, V, lightDir, roughness);
@@ -635,40 +764,49 @@ void main() {
 
     vec3 kS = F;
     vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
-    const bool foliageCard = (drawData.litShadingModel & 16) != 0;
-    float shadow = ComputeShadowFactor(normal, lightDir);
-    if (alphaCutout) {
-        shadow = max(shadow, foliageCard ? 0.94 : 0.88);
-    }
-    if (foliageCard) {
-        shadow = 1.0;
-    }
+    bool foliageCard = (drawData.litShadingModel & 16) != 0;
+    float shadow = ComputeShadowFactor(geomNormal, lightDir);
     float diffuseTerm = mix(max(nDotL, 0.14), nDotL, foliageCard ? 0.35 : 0.75);
     vec3 diffuse = (kD * albedo / kPi) * diffuseTerm;
-    vec3 direct = (diffuse + (specular * max(nDotL, 0.0))) * lightColor * (foliageCard ? 1.05 : 1.30) * shadow;
+    vec3 direct = (diffuse + (specular * max(nDotL, 0.0))) * lightColor * (foliageCard ? 1.02 : (metalLookupStyle ? 0.95 : 1.18)) * shadow;
     vec3 ambientBoost = cameraData.presentationExtra.yzw;
-    vec3 ambient = albedo * (vec3(0.06, 0.065, 0.072) + ambientBoost * 0.14) * (1.0 - metallic * 0.45);
+    vec3 ambient = albedo * (vec3(0.08, 0.085, 0.09) + ambientBoost * 0.10) * (1.0 - metallic * 0.35);
     if (tier >= 1.0) {
         float hemi = normal.y * 0.5 + 0.5;
         float roughStone = smoothstep(0.86, 0.98, roughness) * (1.0 - metallic);
-        vec3 sky = mix(vec3(0.15, 0.18, 0.22), vec3(0.17, 0.17, 0.16), roughStone) + ambientBoost * 0.08;
-        vec3 ground = vec3(0.05, 0.046, 0.043) + ambientBoost * 0.045;
-        ambient += albedo * mix(ground, sky, hemi) * (foliageCard ? 0.10 : mix(0.075, 0.045, roughStone));
+        vec3 sky = mix(vec3(0.16, 0.18, 0.21), vec3(0.18, 0.18, 0.17), roughStone) + ambientBoost * 0.06;
+        vec3 ground = vec3(0.055, 0.052, 0.050) + ambientBoost * 0.035;
+        ambient += albedo * mix(ground, sky, hemi) * (foliageCard ? 0.12 : mix(0.095, 0.055, roughStone));
+    }
+    if (metalLookupStyle) {
+        ambient *= 0.72;
     }
     if (tier >= 2.0) {
+        float coatStrength = 0.14;
         vec3 coatF0 = vec3(0.04);
         vec3 coatF = FresnelSchlick(hDotV, coatF0);
         float coatD = DistributionGGX(normal, H, 0.15);
         float coatG = GeometrySmith(normal, V, lightDir, 0.15);
         vec3 clearcoat = (coatD * coatG * coatF) / max(4.0 * nDotV * nDotL, 1e-4);
-        direct += clearcoat * nDotL * 0.14;
+        direct *= 1.0 - coatStrength * 0.25;
+        direct += clearcoat * lightColor * nDotL * shadow * coatStrength;
     }
-    vec3 pseudoReflection = ComputePseudoReflection(normal, viewDir, roughness, ambientBoost);
+    vec3 pseudoReflectionNear = ComputePseudoReflection(normal, viewDir, lightDir, lightColor, roughness, ambientBoost);
+    vec3 bentNormal = normalize(normal + normalize(cross(normal, abs(normal.y) > 0.8 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0))) * 0.065);
+    vec3 pseudoReflectionFar = ComputePseudoReflection(bentNormal, viewDir, lightDir, lightColor, roughness + 0.18, ambientBoost);
+    vec3 pseudoReflection = mix(pseudoReflectionNear, pseudoReflectionFar, clamp(roughness * roughness, 0.0, 1.0));
     float fresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), crystalStyle ? 3.0 : 5.0);
+    vec3 indirectFresnel = FresnelSchlickRoughness(max(dot(normal, viewDir), 0.0), F0, roughness);
     float roughStone = smoothstep(0.86, 0.98, roughness) * (1.0 - metallic);
     float pseudoRtxStrength = layeredStyle ? 0.08 : (mixedMediaStyle ? 0.13 : (crystalStyle ? 0.28 : 0.05));
+    if (metalLookupStyle) {
+        pseudoRtxStrength = max(pseudoRtxStrength, 0.30);
+    }
     pseudoRtxStrength *= mix(1.0, 0.18, roughStone);
-    vec3 pseudoRtx = pseudoReflection * fresnel * pseudoRtxStrength;
+    vec3 pseudoRtx = pseudoReflection * mix(vec3(fresnel), indirectFresnel, metalLookupStyle ? 0.85 : 0.35) * pseudoRtxStrength;
+    if (metalLookupStyle) {
+        pseudoRtx += pseudoReflection * 0.16;
+    }
     if (crystalStyle) {
         pseudoRtx += pseudoReflection * (0.10 + (1.0 - roughness) * 0.18);
         emissiveTexel += albedo * vec3(0.04, 0.10, 0.16);
@@ -688,11 +826,24 @@ void main() {
     float localAtten = clamp(1.0 - (localDistance / localRange), 0.0, 1.0);
     localAtten *= localAtten;
     vec3 localColor = cameraData.localLightColorIntensity.rgb * cameraData.localLightColorIntensity.w;
-    litRgb += albedo * localColor * localNdotL * localAtten * (foliageCard ? 0.48 : 0.40);
+    vec3 localHalfInput = V + localDir;
+    vec3 localH = dot(localHalfInput, localHalfInput) > 1e-6 ? normalize(localHalfInput) : normal;
+    float localNdotV = max(dot(normal, V), 0.0);
+    float localHdotV = max(dot(localH, V), 0.0);
+    vec3 localF = FresnelSchlick(localHdotV, F0);
+    float localD = DistributionGGX(normal, localH, roughness);
+    float localG = GeometrySmith(normal, V, localDir, roughness);
+    vec3 localSpec = vec3(0.0);
+    if (localNdotL > 1e-4 && localNdotV > 1e-4) {
+        localSpec = (localD * localG * localF) / max(4.0 * localNdotV * localNdotL, 1e-4);
+    }
+    vec3 localDiffuse = ((vec3(1.0) - localF) * (1.0 - metallic) * albedo / kPi) * mix(max(localNdotL, 0.10), localNdotL, 0.8);
+    litRgb += (localDiffuse + localSpec) * localColor * localNdotL * localAtten * (foliageCard ? 0.72 : 1.0);
     litRgb = max(litRgb, albedo * (foliageCard ? 0.06 : 0.012));
     if (mixedMediaStyle) {
         litRgb = mix(litRgb, ApplyRetroStyle(litRgb, postUv01, cameraData.postProcessSecondary.z), 0.18);
     }
+    litRgb = SoftEnergyLimit(max(litRgb, vec3(0.0)), 12.0);
 
     float fogAmount = clamp(1.0 - exp2(-viewDistanceWs * fogDensity), 0.0, 1.0);
     float horizonFactor = clamp(1.0 - max(normalize(viewDirectionWs).y, 0.0), 0.0, 1.0);

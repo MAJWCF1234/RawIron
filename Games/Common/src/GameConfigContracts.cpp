@@ -97,6 +97,8 @@ ScriptScalarSchema MakeUiSchema(bool strictUnknownKeys) {
             {.key = "show_runtime_diagnostics", .required = true, .minValue = 0.0f, .maxValue = 1.0f},
             {.key = "show_objective_panel", .required = true, .minValue = 0.0f, .maxValue = 1.0f},
             {.key = "crosshair_scale", .required = true, .minValue = 0.1f, .maxValue = 4.0f},
+            {.key = "runtime_ui_boot_flow", .required = false, .minValue = 0.0f, .maxValue = 2.0f},
+            {.key = "runtime_ui_hotkeys_enabled", .required = false, .minValue = 0.0f, .maxValue = 1.0f},
         },
     };
 }

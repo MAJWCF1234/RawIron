@@ -39,6 +39,13 @@ Current enforced files:
 - `scripts/network.riscript`
 - `scripts/persistence.riscript`
 
+Standardized render appearance file:
+
+- `shader.cfg`
+- This is the reusable native Vulkan post-process and presentation stack for a game or template.
+- Prefer authoring the render look here instead of hardcoding post-process values inside a game runtime callback.
+- Shared engine loading can resolve the file from the game root first, with workspace-level fallbacks also supported by the common shader-config path.
+
 Policy:
 
 - Games may add new tuning only by extending shared engine-side contract definitions in `Games/Common/src/GameConfigContracts.cpp`.

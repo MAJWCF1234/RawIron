@@ -193,34 +193,14 @@ cd /d "%~dp0..\.."
 
 set "TARGET_EXE="
 
-REM Prefer game-local build output first (Games\LiminalHall\App), then legacy Apps path.
-if not defined TARGET_EXE if exist "build\dev-msvc\Games\LiminalHall\App\Release\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-msvc\Games\LiminalHall\App\Release\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\dev-msvc\Games\LiminalHall\App\RelWithDebInfo\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-msvc\Games\LiminalHall\App\RelWithDebInfo\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\dev-msvc\Games\LiminalHall\App\Debug\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-msvc\Games\LiminalHall\App\Debug\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\dev-msvc\Games\LiminalHall\App\MinSizeRel\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-msvc\Games\LiminalHall\App\MinSizeRel\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\dev-msvc\Games\LiminalHall\App\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-msvc\Games\LiminalHall\App\RawIron.LiminalGame.exe"
+if exist "build\build.ninja" (
+  echo Building RawIron.LiminalGame in build\ ...
+  cmake --build build --target RawIron.LiminalGame
+  if errorlevel 1 exit /b 1
+)
 
-if not defined TARGET_EXE if exist "build\dev-clang\Games\LiminalHall\App\Release\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-clang\Games\LiminalHall\App\Release\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\dev-clang\Games\LiminalHall\App\RelWithDebInfo\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-clang\Games\LiminalHall\App\RelWithDebInfo\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\dev-clang\Games\LiminalHall\App\Debug\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-clang\Games\LiminalHall\App\Debug\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\dev-clang\Games\LiminalHall\App\MinSizeRel\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-clang\Games\LiminalHall\App\MinSizeRel\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\dev-clang\Games\LiminalHall\App\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-clang\Games\LiminalHall\App\RawIron.LiminalGame.exe"
-
-if not defined TARGET_EXE if exist "build\dev-mingw\Games\LiminalHall\App\Release\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-mingw\Games\LiminalHall\App\Release\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\dev-mingw\Games\LiminalHall\App\RelWithDebInfo\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-mingw\Games\LiminalHall\App\RelWithDebInfo\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\dev-mingw\Games\LiminalHall\App\Debug\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-mingw\Games\LiminalHall\App\Debug\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\dev-mingw\Games\LiminalHall\App\MinSizeRel\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-mingw\Games\LiminalHall\App\MinSizeRel\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\dev-mingw\Games\LiminalHall\App\RawIron.LiminalGame.exe" set "TARGET_EXE=build\dev-mingw\Games\LiminalHall\App\RawIron.LiminalGame.exe"
-
-if not defined TARGET_EXE if exist "build\Games\LiminalHall\App\Release\RawIron.LiminalGame.exe" set "TARGET_EXE=build\Games\LiminalHall\App\Release\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\Games\LiminalHall\App\RelWithDebInfo\RawIron.LiminalGame.exe" set "TARGET_EXE=build\Games\LiminalHall\App\RelWithDebInfo\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\Games\LiminalHall\App\Debug\RawIron.LiminalGame.exe" set "TARGET_EXE=build\Games\LiminalHall\App\Debug\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\Games\LiminalHall\App\MinSizeRel\RawIron.LiminalGame.exe" set "TARGET_EXE=build\Games\LiminalHall\App\MinSizeRel\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\Games\LiminalHall\App\RawIron.LiminalGame.exe" set "TARGET_EXE=build\Games\LiminalHall\App\RawIron.LiminalGame.exe"
-
-if not defined TARGET_EXE if exist "build\Apps\RawIron.LiminalGame\Release\RawIron.LiminalGame.exe" set "TARGET_EXE=build\Apps\RawIron.LiminalGame\Release\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\Apps\RawIron.LiminalGame\RelWithDebInfo\RawIron.LiminalGame.exe" set "TARGET_EXE=build\Apps\RawIron.LiminalGame\RelWithDebInfo\RawIron.LiminalGame.exe"
-if not defined TARGET_EXE if exist "build\Apps\RawIron.LiminalGame\Debug\RawIron.LiminalGame.exe" set "TARGET_EXE=build\Apps\RawIron.LiminalGame\Debug\RawIron.LiminalGame.exe"
+if exist "build\Games\LiminalHall\App\RawIron.LiminalGame.exe" set "TARGET_EXE=build\Games\LiminalHall\App\RawIron.LiminalGame.exe"
+if not defined TARGET_EXE if exist "build\Apps\RawIron.LiminalGame\RawIron.LiminalGame.exe" set "TARGET_EXE=build\Apps\RawIron.LiminalGame\RawIron.LiminalGame.exe"
 
 if not defined TARGET_EXE goto :missing_liminal
 
@@ -270,4 +250,3 @@ echo RawIron.LiminalGame.exe was not found.
 echo Build the project first with CMake, then run this launcher again.
 pause
 exit /b 1
-

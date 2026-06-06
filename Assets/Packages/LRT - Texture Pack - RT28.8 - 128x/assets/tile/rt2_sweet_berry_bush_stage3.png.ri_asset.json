@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_sweet_berry_bush_stage3_png",
+  "type": "texture",
+  "displayName": "rt2_sweet_berry_bush_stage3",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_sweet_berry_bush_stage3.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_sweet_berry_bush_stage3_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_sweet_berry_bush_stage3.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

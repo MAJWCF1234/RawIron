@@ -13,6 +13,21 @@
 namespace ri::editor {
 
 #if defined(_WIN32)
+namespace {
+
+[[nodiscard]] std::wstring ReadWindowText(HWND hwnd) {
+    if (hwnd == nullptr) {
+        return {};
+    }
+    const int len = GetWindowTextLengthW(hwnd);
+    std::wstring wide(static_cast<std::size_t>(std::max(0, len) + 2), L'\0');
+    const int copied = len <= 0 ? 0 : GetWindowTextW(hwnd, wide.data(), len + 1);
+    wide.resize(static_cast<std::size_t>(std::max(0, copied)));
+    return wide;
+}
+
+} // namespace
+
 void DestroyResourceTextEditorControl(HWND& resourceTextEditHwnd) {
     if (resourceTextEditHwnd != nullptr) {
         DestroyWindow(resourceTextEditHwnd);
@@ -53,6 +68,7 @@ void EnsureResourceTextEditorCreated(HWND hwnd,
                         nullptr);
     if (resourceTextEditHwnd != nullptr) {
         SendMessageW(resourceTextEditHwnd, WM_SETFONT, reinterpret_cast<WPARAM>(bodyFont), MAKELPARAM(TRUE, 0));
+        SendMessageW(resourceTextEditHwnd, EM_SETLIMITTEXT, 0, 0);
         resourceFileDirty = false;
         SetFocus(resourceTextEditHwnd);
     }
@@ -86,19 +102,27 @@ void LayoutResourceTextEditorControl(HWND hwnd,
     SetWindowPos(resourceTextEditHwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 }
 
+void SyncResourceTextEditorContent(HWND resourceTextEditHwnd,
+                                   const std::string& loadedResourceUtf8,
+                                   const bool resourceFileDirty) {
+    if (resourceTextEditHwnd == nullptr || resourceFileDirty) {
+        return;
+    }
+    const std::wstring wanted = EditorRenderer::Utf8ToWide(loadedResourceUtf8);
+    const std::wstring current = ReadWindowText(resourceTextEditHwnd);
+    if (current == wanted) {
+        return;
+    }
+    SetWindowTextW(resourceTextEditHwnd, wanted.c_str());
+}
+
 bool SaveActiveResourceFileFromEditor(HWND resourceTextEditHwnd,
                                       const std::filesystem::path& loadedResourceAbsolutePath,
                                       std::string& loadedResourceUtf8) {
     if (resourceTextEditHwnd == nullptr || loadedResourceAbsolutePath.empty()) {
         return false;
     }
-    const int len = GetWindowTextLengthW(resourceTextEditHwnd);
-    std::wstring wide(static_cast<std::size_t>(len + 2), L'\0');
-    const int copied = len <= 0 ? 0 : GetWindowTextW(resourceTextEditHwnd, wide.data(), len + 1);
-    if (copied < 0) {
-        return false;
-    }
-    wide.resize(static_cast<std::size_t>(std::max(0, copied)));
+    const std::wstring wide = ReadWindowText(resourceTextEditHwnd);
     const std::string utf8 = EditorRenderer::WideToUtf8(wide);
     if (!SaveResourceDocumentUtf8(loadedResourceAbsolutePath, utf8)) {
         return false;

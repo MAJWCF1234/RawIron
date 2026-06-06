@@ -26,10 +26,11 @@ void AnimateHook(ri::scene::StarterScene& starterScene, const double elapsedSeco
 }
 
 void ConfigureHook(ri::render::software::ScenePreviewOptions& options) {
-    options.clearTop = ri::math::Vec3{0.70f, 0.73f, 0.78f};
-    options.clearBottom = ri::math::Vec3{0.54f, 0.58f, 0.63f};
-    options.fogColor = ri::math::Vec3{0.78f, 0.80f, 0.84f};
-    options.ambientLight = ri::math::Vec3{0.18f, 0.19f, 0.21f};
+    options.pointSampleTextures = false;
+    options.clearTop = ri::math::Vec3{0.34f, 0.42f, 0.55f};
+    options.clearBottom = ri::math::Vec3{0.05f, 0.08f, 0.12f};
+    options.fogColor = ri::math::Vec3{0.40f, 0.47f, 0.55f};
+    options.ambientLight = ri::math::Vec3{0.06f, 0.07f, 0.09f};
 }
 
 } // namespace

@@ -86,6 +86,8 @@ struct Material {
     std::string occlusionTexture{};
     /// Optional extra texture used by layered materials for macro/detail breakup.
     std::string detailTexture{};
+    /// UVs were baked into mesh texcoords in world tile units; `textureTiling` is {1,1}.
+    bool bakedWorldTileUv = false;
 };
 
 struct Mesh {

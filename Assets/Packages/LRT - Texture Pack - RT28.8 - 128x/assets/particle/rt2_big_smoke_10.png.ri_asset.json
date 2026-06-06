@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "particle_rt2_big_smoke_10_png",
+  "type": "texture",
+  "displayName": "rt2_big_smoke_10",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/rt2_big_smoke_10.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "particle_rt2_big_smoke_10_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/rt2_big_smoke_10.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

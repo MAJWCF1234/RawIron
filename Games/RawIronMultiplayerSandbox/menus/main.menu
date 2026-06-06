@@ -1,0 +1,6 @@
+menu "main" {
+  title "RawIron Multiplayer Sandbox"
+  item "Play" action="play"
+  item "Options" action="options"
+  item "Quit" action="quit"
+}

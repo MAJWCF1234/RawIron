@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_jungle_leaves_rt2_jungle_leaves1_png",
+  "type": "texture",
+  "displayName": "rt2_jungle_leaves1",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/jungle_leaves/rt2_jungle_leaves1.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_jungle_leaves_rt2_jungle_leaves1_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/jungle_leaves/rt2_jungle_leaves1.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

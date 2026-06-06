@@ -165,6 +165,125 @@ StructuralPrimitiveBundleResult SpawnStructuralPrimitiveBundle(Scene& scene,
     return result;
 }
 
+StructuralPrimitiveAssemblyResult SpawnStructuralPrimitiveAssembly(Scene& scene,
+                                                                   const StructuralPrimitiveAssemblyParams& params) {
+    StructuralPrimitiveAssemblyOptions assembly{};
+    assembly.rootNodeName = params.rootNodeName;
+    assembly.parent = params.parent;
+    assembly.transform.position = params.transform.position;
+    assembly.transform.rotationDegrees = params.transform.rotationDegrees;
+    assembly.transform.scale = params.transform.scale;
+    assembly.nodes = params.nodes;
+    assembly.compileOptions = params.compileOptions;
+
+    StructuralBrushSpawnOptions& brush = assembly.material;
+    brush.materialName = params.material.materialName;
+    brush.shadingModel = params.material.shadingModel;
+    brush.materialStyle = params.material.materialStyle;
+    brush.materialWorkflow = params.material.materialWorkflow;
+    brush.baseColor = params.material.baseColor;
+    brush.baseColorTexture = params.material.baseColorTexture;
+    brush.normalTexture = params.material.normalTexture;
+    brush.ormTexture = params.material.ormTexture;
+    brush.roughnessTexture = params.material.roughnessTexture;
+    brush.metallicTexture = params.material.metallicTexture;
+    brush.emissiveTexture = params.material.emissiveTexture;
+    brush.opacityTexture = params.material.opacityTexture;
+    brush.occlusionTexture = params.material.occlusionTexture;
+    brush.detailTexture = params.material.detailTexture;
+    brush.textureTiling = params.material.textureTiling;
+    brush.emissiveColor = params.material.emissiveColor;
+    brush.metallic = params.material.metallic;
+    brush.roughness = params.material.roughness;
+    brush.opacity = params.material.opacity;
+    brush.alphaCutoff = params.material.alphaCutoff;
+    brush.doubleSided = params.material.doubleSided;
+    brush.transparent = params.material.transparent;
+    brush.additiveBlend = params.material.additiveBlend;
+
+    return AddStructuralPrimitiveAssembly(scene, assembly);
+}
+
+std::vector<ri::structural::StructuralNode> BuildSandboxStructuralHallNodes() {
+    std::vector<ri::structural::StructuralNode> nodes;
+    nodes.reserve(8U);
+
+    ri::structural::StructuralNode shell = MakeStructuralPrimitiveSolid(
+        "sandbox_hall_shell",
+        "hollow_box",
+        ri::math::Vec3{0.0f, 3.0f, 0.0f},
+        ri::math::Vec3{14.0f, 5.5f, 10.0f});
+    shell.name = "SandboxHallShell";
+    shell.thickness = 0.18f;
+    nodes.push_back(std::move(shell));
+
+    nodes.push_back(MakeStructuralPrimitiveSubtract(
+        "sandbox_hall_door_cut",
+        "box",
+        {"sandbox_hall_shell"},
+        ri::math::Vec3{0.0f, 1.6f, 5.35f},
+        ri::math::Vec3{2.4f, 3.2f, 0.7f}));
+
+    nodes.push_back(MakeStructuralPrimitiveSubtract(
+        "sandbox_hall_window_cut",
+        "box",
+        {"sandbox_hall_shell"},
+        ri::math::Vec3{-4.8f, 3.6f, 5.35f},
+        ri::math::Vec3{2.2f, 1.6f, 0.6f}));
+
+    nodes.push_back(MakeStructuralPrimitiveSubtract(
+        "sandbox_hall_sky_cut",
+        "box",
+        {"sandbox_hall_shell"},
+        ri::math::Vec3{0.0f, 9.5f, 0.0f},
+        ri::math::Vec3{18.0f, 8.0f, 14.0f}));
+
+    ri::structural::StructuralNode perforated = MakeStructuralPrimitiveGraphNode(
+        "sandbox_hall_perforated",
+        "perforated_wall",
+        ri::math::Vec3{3.8f, 2.4f, 0.0f},
+        ri::math::Vec3{0.35f, 4.6f, 6.2f});
+    perforated.name = "SandboxHallPerforatedPartition";
+    perforated.cellsX = 6;
+    perforated.cellsY = 4;
+    perforated.thickness = 0.1f;
+    nodes.push_back(std::move(perforated));
+
+    nodes.push_back(MakeStructuralPrimitiveGraphNode(
+        "sandbox_hall_ramp",
+        "ramp",
+        ri::math::Vec3{-6.2f, 0.35f, -1.5f},
+        ri::math::Vec3{4.2f, 0.75f, 5.8f}));
+
+    nodes.push_back(MakeStructuralPrimitiveGraphNode(
+        "sandbox_hall_arch",
+        "arch",
+        ri::math::Vec3{0.0f, 0.55f, -5.6f},
+        ri::math::Vec3{5.5f, 4.8f, 1.2f},
+        ri::structural::StructuralPrimitiveOptions{.thickness = 0.18f, .spanDegrees = 180.0f, .archStyle = "round"}));
+
+    return nodes;
+}
+
+StructuralPrimitiveAssemblyResult SpawnSandboxStructuralHall(Scene& scene,
+                                                               const int parent,
+                                                               const ri::math::Vec3 worldOrigin,
+                                                               const std::string_view rootName) {
+    StructuralPrimitiveAssemblyParams params{};
+    params.parent = parent;
+    params.transform.position = worldOrigin;
+    params.rootNodeName = std::string(rootName);
+    params.nodes = BuildSandboxStructuralHallNodes();
+    params.material.baseColor = ri::math::Vec3{0.78f, 0.80f, 0.84f};
+    params.material.baseColorTexture = "smooth_stone.png";
+    params.material.materialStyle = MaterialStyle::Layered;
+    params.material.detailTexture = "concrete_silver_olo32.png";
+    params.material.textureTiling = ri::math::Vec2{2.5f, 2.5f};
+    params.material.roughness = 0.90f;
+    params.material.materialName = std::string(rootName) + "_mat";
+    return SpawnStructuralPrimitiveAssembly(scene, params);
+}
+
 std::vector<StructuralGalleryMaterialPreset> BuildDefaultStructuralGalleryMaterials() {
     std::vector<StructuralGalleryMaterialPreset> rows;
     rows.reserve(7U);
@@ -289,6 +408,7 @@ StructuralPrimitiveGalleryResult SpawnStructuralPrimitiveGallery(Scene& scene,
     result.boundsExtents = ri::math::Vec3{width * 0.5f, options.itemScale.y * 1.2f, depth * 0.5f};
 
     if (options.includePlatform) {
+        const float tileWorldSize = std::max(options.platformTileWorldSize, 0.25f);
         RuntimeMaterialParams platformMaterial =
             MakeGalleryMaterial("catalog_platform",
                                 "smooth_stone.png",
@@ -296,7 +416,7 @@ StructuralPrimitiveGalleryResult SpawnStructuralPrimitiveGallery(Scene& scene,
                                 MaterialStyle::Layered,
                                 0.0f,
                                 0.92f,
-                                ri::math::Vec2{width / 8.0f, depth / 8.0f});
+                                ri::math::Vec2{width / tileWorldSize, depth / tileWorldSize});
         platformMaterial.detailTexture = "concrete_silver_olo32.png";
 
         StructuralPrimitiveBundleParams platform{};
@@ -311,6 +431,10 @@ StructuralPrimitiveGalleryResult SpawnStructuralPrimitiveGallery(Scene& scene,
 
     const float startX = -spanX * 0.5f;
     const float startZ = -spanZ * 0.5f;
+    // Platform top sits at y=0 in gallery root space (center at -thickness/2, half-height thickness/2).
+    // Seat catalog items on that surface with a tiny lift to avoid depth fighting with the ground face.
+    constexpr float kPlatformTopY = 0.0f;
+    constexpr float kPlatformContactEpsilon = 0.004f;
     for (std::size_t rowIndex = 0; rowIndex < materialRows.size(); ++rowIndex) {
         const StructuralGalleryMaterialPreset& row = materialRows[rowIndex];
         for (std::size_t columnIndex = 0; columnIndex < kStructuralPrimitivePresets.size(); ++columnIndex) {
@@ -323,7 +447,7 @@ StructuralPrimitiveGalleryResult SpawnStructuralPrimitiveGallery(Scene& scene,
             item.parent = result.root;
             item.transform.position = ri::math::Vec3{
                 startX + static_cast<float>(columnIndex) * options.cellSpacing.x,
-                (options.platformThickness * 0.5f) + (scale.y * 0.52f),
+                kPlatformTopY + (scale.y * 0.5f) + kPlatformContactEpsilon,
                 startZ + static_cast<float>(rowIndex) * options.cellSpacing.y,
             };
             item.transform.scale = scale;

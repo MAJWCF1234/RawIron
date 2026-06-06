@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_lava_flow_png",
+  "type": "texture",
+  "displayName": "rt2_lava_flow",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_lava_flow.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_lava_flow_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_lava_flow.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

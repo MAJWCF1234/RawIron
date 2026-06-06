@@ -293,6 +293,9 @@ void MergePresentationObject(std::string_view obj, PostProcessParameters& p) {
     set("sweet_fx_smaa_strength", p.sweetFxSmaaStrength);
     set("reshade_daltonize_strength", p.reshadeDaltonizeStrength);
     set("reshade_display_depth_strength", p.reshadeDisplayDepthStrength);
+    if (const std::optional<double> compositeBypass = detail::ExtractJsonDouble(obj, "composite_bypass")) {
+        p.reshadeDisplayDepthStrength = *compositeBypass >= 0.5 ? 2.0f : 0.0f;
+    }
     set("reshade_lut_amount_chroma", p.reshadeLutAmountChroma);
     set("reshade_lut_amount_luma", p.reshadeLutAmountLuma);
     set("reshade_lut_strength", p.reshadeLutStrength);
@@ -756,6 +759,124 @@ void MergePresentationObject(std::string_view obj, PostProcessParameters& p) {
     set("pd80_sc2_correction_method", p.pd80Sc2CorrectionMethod);
     set("pd80_sc2_saturation_scale", p.pd80Sc2SaturationScale);
     set("pd80_sc2_lightness_scale", p.pd80Sc2LightnessScale);
+    set("colourfulness", p.colourfulness);
+    set("colorfulness", p.colourfulness);
+    set("colourfulness_limit_luma", p.colourfulnessLimitLuma);
+    set("filmic_pass_strength", p.filmicPassStrength);
+    set("filmic_pass_fade", p.filmicPassFade);
+    set("filmic_pass_bleach", p.filmicPassBleach);
+    set("filmic_pass_saturation", p.filmicPassSaturation);
+    set("film_grain2_amount", p.filmGrain2Amount);
+    set("film_grain2_color_amount", p.filmGrain2ColorAmount);
+    set("film_grain2_luminance_amount", p.filmGrain2LuminanceAmount);
+    set("film_grain2_size", p.filmGrain2Size);
+    set("denoise_strength", p.denoiseStrength);
+    set("denoise_noise_level", p.denoiseNoiseLevel);
+    set("denoise_lerp_coefficient", p.denoiseLerpCoefficient);
+    set("denoise_weight_threshold", p.denoiseWeightThreshold);
+    set("denoise_counter_threshold", p.denoiseCounterThreshold);
+    set("denoise_gaussian_sigma", p.denoiseGaussianSigma);
+    set("adaptive_sharpen_strength", p.adaptiveSharpenStrength);
+    set("adaptive_sharpen_curve_slope", p.adaptiveSharpenCurveSlope);
+    set("adaptive_sharpen_light_overshoot", p.adaptiveSharpenLightOvershoot);
+    set("adaptive_sharpen_dark_overshoot", p.adaptiveSharpenDarkOvershoot);
+    set("adaptive_sharpen_light_compr_low", p.adaptiveSharpenLightComprLow);
+    set("adaptive_sharpen_light_compr_high", p.adaptiveSharpenLightComprHigh);
+    set("adaptive_sharpen_dark_compr_low", p.adaptiveSharpenDarkComprLow);
+    set("adaptive_sharpen_dark_compr_high", p.adaptiveSharpenDarkComprHigh);
+    set("adaptive_sharpen_scale_lim", p.adaptiveSharpenScaleLim);
+    set("adaptive_sharpen_scale_cs", p.adaptiveSharpenScaleCs);
+    set("adaptive_sharpen_pm_p", p.adaptiveSharpenPmP);
+    set("gaussian_blur_strength", p.gaussianBlurStrength);
+    set("gaussian_blur_offset", p.gaussianBlurOffset);
+    if (const std::optional<double> v = detail::ExtractJsonDouble(obj, "gaussian_blur_radius")) {
+        p.gaussianBlurRadius = static_cast<int>(*v);
+    }
+    set("fine_sharp_strength", p.fineSharpStrength);
+    set("fine_sharp_equalization", p.fineSharpEqualization);
+    set("fine_sharp_x_strength", p.fineSharpXStrength);
+    set("fine_sharp_x_repair", p.fineSharpXRepair);
+    set("fine_sharp_l_strength", p.fineSharpLStrength);
+    set("fine_sharp_p_strength", p.fineSharpPStrength);
+    if (const std::optional<double> v = detail::ExtractJsonDouble(obj, "fine_sharp_mode")) {
+        p.fineSharpMode = static_cast<int>(*v);
+    }
+    set("marty_bloom_threshold", p.martyBloomThreshold);
+    set("marty_bloom_amount", p.martyBloomAmount);
+    set("marty_bloom_saturation", p.martyBloomSaturation);
+    if (const std::optional<double> v = detail::ExtractJsonDouble(obj, "marty_bloom_mix_mode")) {
+        p.martyBloomMixMode = static_cast<int>(*v);
+    }
+    if (const auto tint = TryParseJsonVec3(obj, "marty_bloom_tint")) {
+        p.martyBloomTint = *tint;
+    }
+    set("creator_dof_strength", p.creatorDofStrength);
+    if (const std::optional<bool> v = detail::ExtractJsonBool(obj, "creator_dof_auto_focus")) {
+        p.creatorDofAutoFocus = *v;
+    }
+    set("creator_dof_manual_focus", p.creatorDofManualFocusDepth);
+    set("creator_dof_infinite_focus", p.creatorDofInfiniteFocus);
+    if (const auto fp = TryParseJsonVec2(obj, "creator_dof_focus_point")) {
+        p.creatorDofFocusPoint = *fp;
+    }
+    set("creator_dof_focus_radius", p.creatorDofFocusRadius);
+    if (const std::optional<double> v = detail::ExtractJsonDouble(obj, "creator_dof_focus_samples")) {
+        p.creatorDofFocusSamples = static_cast<int>(*v);
+    }
+    set("creator_dof_near_blur_curve", p.creatorDofNearBlurCurve);
+    set("creator_dof_far_blur_curve", p.creatorDofFarBlurCurve);
+    set("creator_dof_blur_radius", p.creatorDofBlurRadius);
+    if (const std::optional<double> v = detail::ExtractJsonDouble(obj, "creator_dof_ring_samples")) {
+        p.creatorDofRingSamples = static_cast<int>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(obj, "creator_dof_ring_rings")) {
+        p.creatorDofRingRings = static_cast<int>(*v);
+    }
+    set("creator_dof_ring_threshold", p.creatorDofRingThreshold);
+    set("creator_dof_ring_gain", p.creatorDofRingGain);
+    set("creator_dof_ring_bias", p.creatorDofRingBias);
+    set("creator_dof_ring_fringe", p.creatorDofRingFringe);
+    set("ambient_light_intensity", p.ambientLightIntensity);
+    set("ambient_light_threshold", p.ambientLightThreshold);
+    if (const std::optional<bool> v = detail::ExtractJsonBool(obj, "ambient_light_adaptation")) {
+        p.ambientLightAdaptation = *v;
+    }
+    set("ambient_light_adapt", p.ambientLightAdapt);
+    set("ambient_light_adapt_base_mult", p.ambientLightAdaptBaseMult);
+    if (const std::optional<double> v = detail::ExtractJsonDouble(obj, "ambient_light_adapt_black_level")) {
+        p.ambientLightAdaptBlackLevel = static_cast<int>(*v);
+    }
+    if (const std::optional<bool> v = detail::ExtractJsonBool(obj, "ambient_light_dither")) {
+        p.ambientLightDither = *v;
+    }
+    if (const std::optional<bool> v = detail::ExtractJsonBool(obj, "ambient_light_dirt")) {
+        p.ambientLightDirt = *v;
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(obj, "ambient_light_adaptive_mode")) {
+        p.ambientLightAdaptiveMode = static_cast<int>(*v);
+    }
+    set("ambient_light_dirt_int", p.ambientLightDirtInt);
+    set("ambient_light_dirt_ovr_int", p.ambientLightDirtOvrInt);
+    set("fake_motion_blur_recall", p.fakeMotionBlurRecall);
+    set("fake_motion_blur_softness", p.fakeMotionBlurSoftness);
+    set("reflective_bump_mapping_strength", p.reflectiveBumpMappingStrength);
+    set("reflective_bump_mapping_blur_width", p.reflectiveBumpMappingBlurWidthPixels);
+    if (const std::optional<double> v = detail::ExtractJsonDouble(obj, "reflective_bump_mapping_sample_count")) {
+        p.reflectiveBumpMappingSampleCount = static_cast<int>(*v);
+    }
+    set("reflective_bump_mapping_relief_height", p.reflectiveBumpMappingReliefHeight);
+    set("reflective_bump_mapping_fresnel_reflectance", p.reflectiveBumpMappingFresnelReflectance);
+    set("reflective_bump_mapping_fresnel_mult", p.reflectiveBumpMappingFresnelMult);
+    set("reflective_bump_mapping_lower_threshold", p.reflectiveBumpMappingLowerThreshold);
+    set("reflective_bump_mapping_upper_threshold", p.reflectiveBumpMappingUpperThreshold);
+    set("reflective_bump_mapping_color_mask_red", p.reflectiveBumpMappingColorMaskRed);
+    set("reflective_bump_mapping_color_mask_orange", p.reflectiveBumpMappingColorMaskOrange);
+    set("reflective_bump_mapping_color_mask_yellow", p.reflectiveBumpMappingColorMaskYellow);
+    set("reflective_bump_mapping_color_mask_green", p.reflectiveBumpMappingColorMaskGreen);
+    set("reflective_bump_mapping_color_mask_cyan", p.reflectiveBumpMappingColorMaskCyan);
+    set("reflective_bump_mapping_color_mask_blue", p.reflectiveBumpMappingColorMaskBlue);
+    set("reflective_bump_mapping_color_mask_magenta", p.reflectiveBumpMappingColorMaskMagenta);
+    set("reflective_bump_mapping_depth_far_plane", p.reflectiveBumpMappingDepthFarPlane);
 
     if (const auto lift = TryParseJsonVec3(obj, "lift_rgb")) {
         p.liftRgb = *lift;
@@ -1136,6 +1257,438 @@ void MergeVibrance(std::string_view p, PostProcessParameters& layer) {
         layer.vibranceRgbBalance = *bal;
     } else if (const auto bal = TryParseJsonVec3(p, "rgb_balance")) {
         layer.vibranceRgbBalance = *bal;
+    }
+    MergePresentationObject(p, layer);
+}
+
+void MergeColourfulness(std::string_view p, PostProcessParameters& layer) {
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "colourfulness")) {
+        layer.colourfulness = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "colorfulness")) {
+        layer.colourfulness = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "amount")) {
+        layer.colourfulness = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "limit_luma")) {
+        layer.colourfulnessLimitLuma = static_cast<float>(*v);
+    }
+    MergePresentationObject(p, layer);
+}
+
+void MergeFilmicPass(std::string_view p, PostProcessParameters& layer) {
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "strength")) {
+        layer.filmicPassStrength = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fade")) {
+        layer.filmicPassFade = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "bleach")) {
+        layer.filmicPassBleach = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "saturation")) {
+        layer.filmicPassSaturation = static_cast<float>(*v);
+    }
+    MergePresentationObject(p, layer);
+}
+
+void MergeFilmGrain2(std::string_view p, PostProcessParameters& layer) {
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "amount")) {
+        layer.filmGrain2Amount = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "color_amount")) {
+        layer.filmGrain2ColorAmount = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "luminance_amount")) {
+        layer.filmGrain2LuminanceAmount = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "size")) {
+        layer.filmGrain2Size = static_cast<float>(*v);
+    }
+    MergePresentationObject(p, layer);
+}
+
+void MergeDenoise(std::string_view p, PostProcessParameters& layer) {
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "strength")) {
+        layer.denoiseStrength = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "noise_level")) {
+        layer.denoiseNoiseLevel = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "lerp_coefficient")) {
+        layer.denoiseLerpCoefficient = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "weight_threshold")) {
+        layer.denoiseWeightThreshold = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "counter_threshold")) {
+        layer.denoiseCounterThreshold = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "gaussian_sigma")) {
+        layer.denoiseGaussianSigma = static_cast<float>(*v);
+    }
+    MergePresentationObject(p, layer);
+}
+
+void MergeAdaptiveSharpen(std::string_view p, PostProcessParameters& layer) {
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "strength")) {
+        layer.adaptiveSharpenStrength = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "curve_height")) {
+        layer.adaptiveSharpenStrength = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "curve_slope")) {
+        layer.adaptiveSharpenCurveSlope = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "light_overshoot")) {
+        layer.adaptiveSharpenLightOvershoot = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "dark_overshoot")) {
+        layer.adaptiveSharpenDarkOvershoot = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "light_compr_low")) {
+        layer.adaptiveSharpenLightComprLow = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "light_compr_high")) {
+        layer.adaptiveSharpenLightComprHigh = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "dark_compr_low")) {
+        layer.adaptiveSharpenDarkComprLow = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "dark_compr_high")) {
+        layer.adaptiveSharpenDarkComprHigh = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "scale_lim")) {
+        layer.adaptiveSharpenScaleLim = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "scale_cs")) {
+        layer.adaptiveSharpenScaleCs = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "pm_p")) {
+        layer.adaptiveSharpenPmP = static_cast<float>(*v);
+    }
+    MergePresentationObject(p, layer);
+}
+
+void MergeGaussianBlur(std::string_view p, PostProcessParameters& layer) {
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "strength")) {
+        layer.gaussianBlurStrength = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "offset")) {
+        layer.gaussianBlurOffset = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "radius")) {
+        layer.gaussianBlurRadius = static_cast<int>(*v);
+    }
+    MergePresentationObject(p, layer);
+}
+
+void MergeFineSharp(std::string_view p, PostProcessParameters& layer) {
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "strength")) {
+        layer.fineSharpStrength = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "sstr")) {
+        layer.fineSharpStrength = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "equalization")) {
+        layer.fineSharpEqualization = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "cstr")) {
+        layer.fineSharpEqualization = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "x_strength")) {
+        layer.fineSharpXStrength = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "xstr")) {
+        layer.fineSharpXStrength = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "x_repair")) {
+        layer.fineSharpXRepair = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "xrep")) {
+        layer.fineSharpXRepair = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "l_strength")) {
+        layer.fineSharpLStrength = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "lstr")) {
+        layer.fineSharpLStrength = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "p_strength")) {
+        layer.fineSharpPStrength = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "pstr")) {
+        layer.fineSharpPStrength = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "mode")) {
+        layer.fineSharpMode = static_cast<int>(*v);
+    }
+    MergePresentationObject(p, layer);
+}
+
+void MergeMartyBloom(std::string_view p, PostProcessParameters& layer) {
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "amount")) {
+        layer.martyBloomAmount = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fBloomAmount")) {
+        layer.martyBloomAmount = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "threshold")) {
+        layer.martyBloomThreshold = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fBloomThreshold")) {
+        layer.martyBloomThreshold = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "saturation")) {
+        layer.martyBloomSaturation = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fBloomSaturation")) {
+        layer.martyBloomSaturation = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "mix_mode")) {
+        layer.martyBloomMixMode = static_cast<int>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "iBloomMixmode")) {
+        layer.martyBloomMixMode = static_cast<int>(*v);
+    }
+    if (const auto tint = TryParseJsonVec3(p, "tint")) {
+        layer.martyBloomTint = *tint;
+    }
+    if (const auto tint = TryParseJsonVec3(p, "fBloomTint")) {
+        layer.martyBloomTint = *tint;
+    }
+    MergePresentationObject(p, layer);
+}
+
+void MergeRingDof(std::string_view p, PostProcessParameters& layer) {
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "strength")) {
+        layer.creatorDofStrength = static_cast<float>(*v);
+    }
+    if (const std::optional<bool> v = detail::ExtractJsonBool(p, "auto_focus")) {
+        layer.creatorDofAutoFocus = *v;
+    } else if (const std::optional<bool> v = detail::ExtractJsonBool(p, "DOF_AUTOFOCUS")) {
+        layer.creatorDofAutoFocus = *v;
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "manual_focus")) {
+        layer.creatorDofManualFocusDepth = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "DOF_MANUALFOCUSDEPTH")) {
+        layer.creatorDofManualFocusDepth = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "infinite_focus")) {
+        layer.creatorDofInfiniteFocus = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "DOF_INFINITEFOCUS")) {
+        layer.creatorDofInfiniteFocus = static_cast<float>(*v);
+    }
+    if (const auto fp = TryParseJsonVec2(p, "focus_point")) {
+        layer.creatorDofFocusPoint = *fp;
+    } else if (const auto fp = TryParseJsonVec2(p, "DOF_FOCUSPOINT")) {
+        layer.creatorDofFocusPoint = *fp;
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "focus_radius")) {
+        layer.creatorDofFocusRadius = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "DOF_FOCUSRADIUS")) {
+        layer.creatorDofFocusRadius = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "focus_samples")) {
+        layer.creatorDofFocusSamples = static_cast<int>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "DOF_FOCUSSAMPLES")) {
+        layer.creatorDofFocusSamples = static_cast<int>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "near_blur_curve")) {
+        layer.creatorDofNearBlurCurve = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "DOF_NEARBLURCURVE")) {
+        layer.creatorDofNearBlurCurve = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "far_blur_curve")) {
+        layer.creatorDofFarBlurCurve = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "DOF_FARBLURCURVE")) {
+        layer.creatorDofFarBlurCurve = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "blur_radius")) {
+        layer.creatorDofBlurRadius = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "DOF_BLURRADIUS")) {
+        layer.creatorDofBlurRadius = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "ring_samples")) {
+        layer.creatorDofRingSamples = static_cast<int>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "iRingDOFSamples")) {
+        layer.creatorDofRingSamples = static_cast<int>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "ring_rings")) {
+        layer.creatorDofRingRings = static_cast<int>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "iRingDOFRings")) {
+        layer.creatorDofRingRings = static_cast<int>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "ring_threshold")) {
+        layer.creatorDofRingThreshold = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRingDOFThreshold")) {
+        layer.creatorDofRingThreshold = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "ring_gain")) {
+        layer.creatorDofRingGain = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRingDOFGain")) {
+        layer.creatorDofRingGain = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "ring_bias")) {
+        layer.creatorDofRingBias = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRingDOFBias")) {
+        layer.creatorDofRingBias = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "ring_fringe")) {
+        layer.creatorDofRingFringe = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRingDOFFringe")) {
+        layer.creatorDofRingFringe = static_cast<float>(*v);
+    }
+    MergePresentationObject(p, layer);
+}
+
+void MergeAmbientLight(std::string_view p, PostProcessParameters& layer) {
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "intensity")) {
+        layer.ambientLightIntensity = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "alInt")) {
+        layer.ambientLightIntensity = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "threshold")) {
+        layer.ambientLightThreshold = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "alThreshold")) {
+        layer.ambientLightThreshold = static_cast<float>(*v);
+    }
+    if (const std::optional<bool> v = detail::ExtractJsonBool(p, "adaptation")) {
+        layer.ambientLightAdaptation = *v;
+    } else if (const std::optional<bool> v = detail::ExtractJsonBool(p, "AL_Adaptation")) {
+        layer.ambientLightAdaptation = *v;
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "adapt")) {
+        layer.ambientLightAdapt = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "alAdapt")) {
+        layer.ambientLightAdapt = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "adapt_base_mult")) {
+        layer.ambientLightAdaptBaseMult = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "alAdaptBaseMult")) {
+        layer.ambientLightAdaptBaseMult = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "adapt_black_level")) {
+        layer.ambientLightAdaptBlackLevel = static_cast<int>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "alAdaptBaseBlackLvL")) {
+        layer.ambientLightAdaptBlackLevel = static_cast<int>(*v);
+    }
+    if (const std::optional<bool> v = detail::ExtractJsonBool(p, "dither")) {
+        layer.ambientLightDither = *v;
+    } else if (const std::optional<bool> v = detail::ExtractJsonBool(p, "AL_Dither")) {
+        layer.ambientLightDither = *v;
+    }
+    if (const std::optional<bool> v = detail::ExtractJsonBool(p, "dirt")) {
+        layer.ambientLightDirt = *v;
+    } else if (const std::optional<bool> v = detail::ExtractJsonBool(p, "AL_Dirt")) {
+        layer.ambientLightDirt = *v;
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "adaptive_mode")) {
+        layer.ambientLightAdaptiveMode = static_cast<int>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "AL_Adaptive")) {
+        layer.ambientLightAdaptiveMode = static_cast<int>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "dirt_int")) {
+        layer.ambientLightDirtInt = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "alDirtInt")) {
+        layer.ambientLightDirtInt = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "dirt_ovr_int")) {
+        layer.ambientLightDirtOvrInt = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "alDirtOVInt")) {
+        layer.ambientLightDirtOvrInt = static_cast<float>(*v);
+    }
+    MergePresentationObject(p, layer);
+}
+
+void MergeFakeMotionBlur(std::string_view p, PostProcessParameters& layer) {
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "recall")) {
+        layer.fakeMotionBlurRecall = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "mbRecall")) {
+        layer.fakeMotionBlurRecall = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "softness")) {
+        layer.fakeMotionBlurSoftness = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "mbSoftness")) {
+        layer.fakeMotionBlurSoftness = static_cast<float>(*v);
+    }
+    MergePresentationObject(p, layer);
+}
+
+void MergeReflectiveBumpMapping(std::string_view p, PostProcessParameters& layer) {
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "strength")) {
+        layer.reflectiveBumpMappingStrength = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "blur_width")) {
+        layer.reflectiveBumpMappingBlurWidthPixels = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRBM_BlurWidthPixels")) {
+        layer.reflectiveBumpMappingBlurWidthPixels = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "sample_count")) {
+        layer.reflectiveBumpMappingSampleCount = static_cast<int>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "iRBM_SampleCount")) {
+        layer.reflectiveBumpMappingSampleCount = static_cast<int>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "relief_height")) {
+        layer.reflectiveBumpMappingReliefHeight = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRBM_ReliefHeight")) {
+        layer.reflectiveBumpMappingReliefHeight = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fresnel_reflectance")) {
+        layer.reflectiveBumpMappingFresnelReflectance = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRBM_FresnelReflectance")) {
+        layer.reflectiveBumpMappingFresnelReflectance = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fresnel_mult")) {
+        layer.reflectiveBumpMappingFresnelMult = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRBM_FresnelMult")) {
+        layer.reflectiveBumpMappingFresnelMult = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "lower_threshold")) {
+        layer.reflectiveBumpMappingLowerThreshold = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRBM_LowerThreshold")) {
+        layer.reflectiveBumpMappingLowerThreshold = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "upper_threshold")) {
+        layer.reflectiveBumpMappingUpperThreshold = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRBM_UpperThreshold")) {
+        layer.reflectiveBumpMappingUpperThreshold = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "color_mask_red")) {
+        layer.reflectiveBumpMappingColorMaskRed = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRBM_ColorMask_Red")) {
+        layer.reflectiveBumpMappingColorMaskRed = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "color_mask_orange")) {
+        layer.reflectiveBumpMappingColorMaskOrange = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRBM_ColorMask_Orange")) {
+        layer.reflectiveBumpMappingColorMaskOrange = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "color_mask_yellow")) {
+        layer.reflectiveBumpMappingColorMaskYellow = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRBM_ColorMask_Yellow")) {
+        layer.reflectiveBumpMappingColorMaskYellow = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "color_mask_green")) {
+        layer.reflectiveBumpMappingColorMaskGreen = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRBM_ColorMask_Green")) {
+        layer.reflectiveBumpMappingColorMaskGreen = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "color_mask_cyan")) {
+        layer.reflectiveBumpMappingColorMaskCyan = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRBM_ColorMask_Cyan")) {
+        layer.reflectiveBumpMappingColorMaskCyan = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "color_mask_blue")) {
+        layer.reflectiveBumpMappingColorMaskBlue = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRBM_ColorMask_Blue")) {
+        layer.reflectiveBumpMappingColorMaskBlue = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "color_mask_magenta")) {
+        layer.reflectiveBumpMappingColorMaskMagenta = static_cast<float>(*v);
+    } else if (const std::optional<double> v = detail::ExtractJsonDouble(p, "fRBM_ColorMask_Magenta")) {
+        layer.reflectiveBumpMappingColorMaskMagenta = static_cast<float>(*v);
+    }
+    if (const std::optional<double> v = detail::ExtractJsonDouble(p, "depth_far_plane")) {
+        layer.reflectiveBumpMappingDepthFarPlane = static_cast<float>(*v);
     }
     MergePresentationObject(p, layer);
 }
@@ -4000,6 +4553,42 @@ bool ApplyEffectBlock(std::string_view effect, PostProcessParameters& accum) {
         MergeReShadeDisplayDepth(p, layer);
     } else if (typeNorm == "reshade_lut" || typeNorm == "lut") {
         MergeReShadeLut(p, layer);
+    } else if (typeNorm == "colourfulness" || typeNorm == "colorfulness" || typeNorm == "sweetfx_colourfulness"
+        || typeNorm == "reshade_colourfulness") {
+        MergeColourfulness(p, layer);
+    } else if (typeNorm == "filmic_pass" || typeNorm == "filmicpass" || typeNorm == "sweetfx_filmic_pass"
+        || typeNorm == "reshade_filmic_pass") {
+        MergeFilmicPass(p, layer);
+    } else if (typeNorm == "film_grain2" || typeNorm == "filmgrain2" || typeNorm == "sweetfx_film_grain2"
+        || typeNorm == "reshade_film_grain2") {
+        MergeFilmGrain2(p, layer);
+    } else if (typeNorm == "denoise" || typeNorm == "sweetfx_denoise" || typeNorm == "reshade_denoise"
+        || typeNorm == "nvidia_denoise") {
+        MergeDenoise(p, layer);
+    } else if (typeNorm == "adaptive_sharpen" || typeNorm == "adaptivesharpen" || typeNorm == "sweetfx_adaptive_sharpen"
+        || typeNorm == "reshade_adaptive_sharpen") {
+        MergeAdaptiveSharpen(p, layer);
+    } else if (typeNorm == "gaussian_blur" || typeNorm == "gaussianblur" || typeNorm == "sweetfx_gaussian_blur"
+        || typeNorm == "reshade_gaussian_blur") {
+        MergeGaussianBlur(p, layer);
+    } else if (typeNorm == "fine_sharp" || typeNorm == "finesharp" || typeNorm == "sweetfx_fine_sharp"
+        || typeNorm == "reshade_fine_sharp") {
+        MergeFineSharp(p, layer);
+    } else if (typeNorm == "marty_bloom" || typeNorm == "reshade_marty_bloom" || typeNorm == "bloom_and_lens"
+        || typeNorm == "sweetfx_marty_bloom" || typeNorm == "reshade_bloom_fx") {
+        MergeMartyBloom(p, layer);
+    } else if (typeNorm == "ring_dof" || typeNorm == "reshade_ring_dof" || typeNorm == "marty_dof"
+        || typeNorm == "creator_dof" || typeNorm == "reshade_dof") {
+        MergeRingDof(p, layer);
+    } else if (typeNorm == "ambient_light" || typeNorm == "reshade_ambient_light"
+        || typeNorm == "sweetfx_ambient_light") {
+        MergeAmbientLight(p, layer);
+    } else if (typeNorm == "fake_motion_blur" || typeNorm == "reshade_fake_motion_blur"
+        || typeNorm == "motion_blur_fake") {
+        MergeFakeMotionBlur(p, layer);
+    } else if (typeNorm == "reflective_bump_mapping" || typeNorm == "reflective_bumpmapping"
+        || typeNorm == "reshade_reflective_bump_mapping" || typeNorm == "rbm" || typeNorm == "marty_rbm") {
+        MergeReflectiveBumpMapping(p, layer);
     } else if (typeNorm == "legacy_post" || typeNorm == "stylized" || typeNorm == "vintage") {
         MergePresentationObject(p, layer);
     } else {

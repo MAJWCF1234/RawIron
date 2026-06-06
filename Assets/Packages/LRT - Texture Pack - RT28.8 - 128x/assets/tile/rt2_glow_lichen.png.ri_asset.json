@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_glow_lichen_png",
+  "type": "texture",
+  "displayName": "rt2_glow_lichen",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_glow_lichen.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_glow_lichen_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_glow_lichen.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

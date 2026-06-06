@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <fstream>
 #include <span>
 #include <string_view>
 #include <unordered_set>
@@ -97,8 +98,8 @@ constexpr std::array kRequiredGameFiles = {
     "ai/factions.cfg",
     "ai/perception.cfg",
     "ai/squad.tactics",
-    "ui/layout.xml",
-    "ui/styling.css",
+    "ui/main.ui.json",
+    "ui/vn_intro.ui.json",
     "tests/gameplay.test.riscript",
     "tests/rendering.test.riscript",
     "tests/network.test.riscript",
@@ -118,6 +119,38 @@ constexpr std::array<std::string_view, 5> kRequiredRuntimeServices = {
     "paths",
     "frame-clock",
 };
+
+} // namespace
+
+std::string DescribeOptionalAssetState(const fs::path& path, const bool checkSqliteHeader) {
+    std::error_code ec{};
+    if (!fs::exists(path, ec)) {
+        return "missing";
+    }
+    if (fs::is_directory(path, ec)) {
+        return "invalid-dir";
+    }
+    const std::uintmax_t sizeBytes = fs::file_size(path, ec);
+    if (ec || sizeBytes == 0U) {
+        return "empty";
+    }
+    if (checkSqliteHeader) {
+        std::ifstream stream(path, std::ios::binary);
+        if (!stream.is_open()) {
+            return "unreadable";
+        }
+        char header[16]{};
+        stream.read(header, sizeof(header));
+        const std::streamsize readCount = stream.gcount();
+        static constexpr const char* kSqliteMagic = "SQLite format 3";
+        if (readCount < 15 || std::string_view(header, 15) != kSqliteMagic) {
+            return "invalid-header";
+        }
+    }
+    return "ok";
+}
+
+namespace {
 
 bool IsSemanticVersionTriplet(std::string_view value) {
     int componentCount = 0;
@@ -546,13 +579,13 @@ std::vector<std::string> ValidateGameProjectFormat(const GameManifest& manifest)
         fs::exists(squadTacticsPath) && !IsNonEmptyFile(squadTacticsPath)) {
         issues.push_back("ai/squad.tactics must be a non-empty file.");
     }
-    if (const fs::path uiLayoutPath = root / "ui" / "layout.xml";
-        fs::exists(uiLayoutPath) && !IsNonEmptyFile(uiLayoutPath)) {
-        issues.push_back("ui/layout.xml must be a non-empty file.");
+    if (const fs::path uiMainManifestPath = root / "ui" / "main.ui.json";
+        fs::exists(uiMainManifestPath) && !IsNonEmptyFile(uiMainManifestPath)) {
+        issues.push_back("ui/main.ui.json must be a non-empty file.");
     }
-    if (const fs::path uiStylingPath = root / "ui" / "styling.css";
-        fs::exists(uiStylingPath) && !IsNonEmptyFile(uiStylingPath)) {
-        issues.push_back("ui/styling.css must be a non-empty file.");
+    if (const fs::path uiVnManifestPath = root / "ui" / "vn_intro.ui.json";
+        fs::exists(uiVnManifestPath) && !IsNonEmptyFile(uiVnManifestPath)) {
+        issues.push_back("ui/vn_intro.ui.json must be a non-empty file.");
     }
     if (const fs::path gameplayTestsPath = root / "tests" / "gameplay.test.riscript";
         fs::exists(gameplayTestsPath) && !IsNonEmptyFile(gameplayTestsPath)) {

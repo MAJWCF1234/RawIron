@@ -4,7 +4,25 @@
 
 namespace ri::ui {
 
-/// Relative path from workspace/repository root to the stock menu manifest (`Assets/UI/default_menu.ui.json`).
+/// Primary game-local UI flow manifest.
+[[nodiscard]] constexpr std::string_view PrimaryUiManifestRelativePath() noexcept {
+    return "ui/main.ui.json";
+}
+
+[[nodiscard]] inline std::filesystem::path PrimaryUiManifestPath(const std::filesystem::path& gameRoot) {
+    return gameRoot / PrimaryUiManifestRelativePath();
+}
+
+/// Primary game-local VN/dialogue flow manifest.
+[[nodiscard]] constexpr std::string_view PrimaryVisualNovelManifestRelativePath() noexcept {
+    return "ui/vn_intro.ui.json";
+}
+
+[[nodiscard]] inline std::filesystem::path PrimaryVisualNovelManifestPath(const std::filesystem::path& gameRoot) {
+    return gameRoot / PrimaryVisualNovelManifestRelativePath();
+}
+
+/// Relative path from workspace/repository root to the stock menu template manifest.
 [[nodiscard]] constexpr std::string_view DefaultUiManifestRelativePath() noexcept {
     return "Assets/UI/default_menu.ui.json";
 }

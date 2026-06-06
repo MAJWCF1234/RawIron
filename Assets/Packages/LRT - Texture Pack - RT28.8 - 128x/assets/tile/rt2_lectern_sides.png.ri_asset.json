@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_lectern_sides_png",
+  "type": "texture",
+  "displayName": "rt2_lectern_sides",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_lectern_sides.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_lectern_sides_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_lectern_sides.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

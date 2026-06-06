@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "environment_rt2_rain_png",
+  "type": "texture",
+  "displayName": "rt2_rain",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/environment/rt2_rain.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "environment_rt2_rain_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/environment/rt2_rain.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

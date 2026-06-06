@@ -867,10 +867,10 @@ void DrawPrimitiveNode(SoftwareImage& image,
     }
 
     const ri::math::Vec2 tiling = material.textureTiling;
-    const std::vector<ri::math::Vec3> smoothedNormals =
-        (mesh.primitive == ri::scene::PrimitiveType::Custom || mesh.primitive == ri::scene::PrimitiveType::Sphere)
-        ? BuildMeshVertexNormals(mesh)
-        : std::vector<ri::math::Vec3>{};
+    const bool hasExplicitNormals = mesh.normals.size() == mesh.positions.size();
+    const bool needsSmoothNormals = mesh.primitive == ri::scene::PrimitiveType::Sphere && !hasExplicitNormals;
+    const std::vector<ri::math::Vec3> vertexNormals =
+        hasExplicitNormals ? BuildMeshVertexNormals(mesh) : (needsSmoothNormals ? BuildMeshVertexNormals(mesh) : std::vector<ri::math::Vec3>{});
 
     const auto drawQuadWorld = [&](const std::array<ri::math::Vec3, 4>& localVertices,
                                    const std::array<ri::math::Vec2, 4>& localUv) {
@@ -1016,9 +1016,9 @@ void DrawPrimitiveNode(SoftwareImage& image,
                     uva,
                     uvb,
                     uvc,
-                    smoothedNormals.empty() ? nullptr : &smoothedNormals[static_cast<std::size_t>(ia)],
-                    smoothedNormals.empty() ? nullptr : &smoothedNormals[static_cast<std::size_t>(ib)],
-                    smoothedNormals.empty() ? nullptr : &smoothedNormals[static_cast<std::size_t>(ic)]);
+                    vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ia)],
+                    vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ib)],
+                    vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ic)]);
             }
             break;
         }
@@ -1055,9 +1055,9 @@ void DrawPrimitiveNode(SoftwareImage& image,
                     uva,
                     uvb,
                     uvc,
-                    smoothedNormals.empty() ? nullptr : &smoothedNormals[static_cast<std::size_t>(ia)],
-                    smoothedNormals.empty() ? nullptr : &smoothedNormals[static_cast<std::size_t>(ib)],
-                    smoothedNormals.empty() ? nullptr : &smoothedNormals[static_cast<std::size_t>(ic)]);
+                    vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ia)],
+                    vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ib)],
+                    vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ic)]);
             }
             break;
         }

@@ -31,13 +31,12 @@ FilesInspectorPanelModel BuildFilesInspectorPanelModel(const WorkspaceResourceEn
                                                        const bool resourceFileDirty,
                                                        const std::string& resourceFocusSummary) {
     FilesInspectorPanelModel model{};
-    model.heading = "Project files (levels, scripts, config, data, AI, plugins, UI, assets)";
-    model.sectionLabel = "Project shortcuts";
-    model.emptySelectionMessage = "Pick a file in Resources, or switch tabs for scene nodes.";
+    model.heading = "Project workspace";
+    model.sectionLabel = "Jump to core files";
+    model.emptySelectionMessage = "Choose a file from Project Archive to inspect or edit it here.";
     model.auxMessage = auxMessage;
     model.saveLabel = resourceFileDirty ? "Save*" : "Save";
-    model.footerHint =
-        "Ctrl+S saves resource when Files + modified. Ctrl+Shift+M scaffolds missing project files. Key 4 opens Files tab. Focus: "
+    model.footerHint = "Ctrl+S saves the active resource. Ctrl+Shift+M scaffolds missing project files. Focus: "
         + resourceFocusSummary;
 
     if (selectedEntry == nullptr) {

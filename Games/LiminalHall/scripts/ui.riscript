@@ -1,9 +1,17 @@
 # RawIron UI Script v1 (scalar contract)
 # Required by RawIron game format v1.3.5.
 # Values are numeric for ScriptScalars parsing.
+# Primary flow authoring now lives in:
+#   ui/main.ui.json
+#   ui/vn_intro.ui.json
+# Keep ui/layout.xml and ui/styling.css as support assets for HUD/chrome.
+# runtime_ui_boot_flow: 0=gameplay, 1=menu, 2=vn
+# runtime_ui_hotkeys_enabled: allow F1/F2 manifest switching in standalone runtime
 
 show_runtime_diagnostics = 0
 show_objective_panel = 1
 crosshair_mode = 1
 crosshair_scale = 1.0
 hud_style_variant = 1
+runtime_ui_boot_flow = 1
+runtime_ui_hotkeys_enabled = 1

@@ -298,10 +298,63 @@ layout(std140, set = 0, binding = 0) uniform CameraData {
     vec4 pd80HbPack1;
     vec4 pd80HbPack2;
     vec4 pd80Sc2Pack0;
+    /// Colourfulness.fx: x=colourfulness, y=limit luma, zw unused.
+    vec4 creatorColourfulnessPack;
+    /// FilmicPass.fx: x=strength, y=fade, z=bleach, w=saturation.
+    vec4 creatorFilmicPassPack;
+    /// FilmGrain2.fx: x=amount, y=color amount, z=luminance amount, w=grain size.
+    vec4 creatorFilmGrain2Pack;
+    /// Denoise.fx KNN: x=strength, y=noise level, z=lerp coefficient, w=weight threshold.
+    vec4 creatorDenoisePack;
+    /// Denoise.fx KNN: x=counter threshold, y=gaussian sigma, zw unused.
+    vec4 creatorDenoisePack2;
+    /// AdaptiveSharpen.fx: x=curve_height, y=curve_slope, z=L_overshoot, w=D_overshoot.
+    vec4 creatorAdaptiveSharpenPack0;
+    /// AdaptiveSharpen.fx: x=L_compr_low, y=L_compr_high, z=D_compr_low, w=D_compr_high.
+    vec4 creatorAdaptiveSharpenPack1;
+    /// AdaptiveSharpen.fx: x=scale_lim, y=scale_cs, z=pm_p, w unused.
+    vec4 creatorAdaptiveSharpenPack2;
+    /// GaussianBlur.fx: x=strength, y=offset, z=radius (0–4), w unused.
+    vec4 creatorGaussianBlurPack;
+    /// FineSharp.fx: x=sstr, y=cstr, z=xstr, w=xrep.
+    vec4 creatorFineSharpPack0;
+    /// FineSharp.fx: x=lstr, y=pstr, z=mode (0–2), w unused.
+    vec4 creatorFineSharpPack1;
+    /// Bloom.fx Marty McFly: x=threshold, y=amount, z=saturation, w=mix mode (0–3).
+    vec4 creatorMartyBloomPack0;
+    /// Bloom.fx Marty McFly: xyz=tint, w unused.
+    vec4 creatorMartyBloomPack1;
+    /// DOF.fx RingDOF: x=strength, y=autoFocus, z=manualFocusDepth, w=infiniteFocus.
+    vec4 creatorDofPack0;
+    /// DOF.fx RingDOF: xy=focusPoint, z=focusRadius, w=focusSamples.
+    vec4 creatorDofPack1;
+    /// DOF.fx RingDOF: x=nearBlurCurve, y=farBlurCurve, z=blurRadius, w=ringSamples.
+    vec4 creatorDofPack2;
+    /// DOF.fx RingDOF: x=ringRings, y=ringThreshold, z=ringGain, w=ringFringe.
+    vec4 creatorDofPack3;
+    /// DOF.fx RingDOF: x=ringBias, yzw unused.
+    vec4 creatorDofPack4;
+    /// AmbientLight.fx: x=intensity, y=threshold, z=adapt, w=adaptBaseMult.
+    vec4 creatorAmbientLightPack0;
+    /// AmbientLight.fx: x=adaptBlackLevel, y=dither, z=dirt, w=adaptiveMode.
+    vec4 creatorAmbientLightPack1;
+    /// AmbientLight.fx: x=dirtInt, y=dirtOvrInt, z=timePhase, w unused.
+    vec4 creatorAmbientLightPack2;
+    /// FakeMotionBlur.fx: x=recall, y=softness, zw unused.
+    vec4 creatorFakeMotionBlurPack0;
+    /// ReflectiveBumpMapping.fx: x=strength, y=blurWidthPixels, z=reliefHeight, w=fresnelReflectance.
+    vec4 creatorReflectiveBumpMappingPack0;
+    /// ReflectiveBumpMapping.fx: x=fresnelMult, y=lowerThreshold, z=upperThreshold, w=sampleCount.
+    vec4 creatorReflectiveBumpMappingPack1;
+    /// ReflectiveBumpMapping.fx: rgba color masks for red/orange/yellow/green.
+    vec4 creatorReflectiveBumpMappingPack2;
+    /// ReflectiveBumpMapping.fx: rgb color masks for cyan/blue/magenta, w=depthFarPlane.
+    vec4 creatorReflectiveBumpMappingPack3;
 } cameraData;
 
 layout(set = 1, binding = 0) uniform sampler2D hdrSceneLinear;
 layout(set = 1, binding = 1) uniform sampler2D sceneDepth;
+layout(set = 1, binding = 2) uniform sampler2D fakeMotionBlurHistory;
 layout(set = 2, binding = 0) uniform sampler2D sweetFxLayerTexture;
 layout(set = 3, binding = 0) uniform sampler2D sweetFxSmaaAreaTexture;
 layout(set = 4, binding = 0) uniform sampler2D sweetFxSmaaSearchTexture;
@@ -1405,6 +1458,121 @@ vec3 ApplyPd80HqBloom(vec2 sampleUv, vec2 px, vec3 colorIn) {
     return mix(colorIn, clamp(outColor, 0.0, 1.0), master);
 }
 
+const float kCreatorMartyGaussWeights[11] = float[11](
+    0.082607, 0.080977, 0.076276, 0.069041, 0.060049,
+    0.050187, 0.040306, 0.031105, 0.023066, 0.016436, 0.011254);
+
+vec3 EvaluatePreMartyBloomSource(vec2 sampleUv, vec2 px);
+
+vec4 CreatorMartyBloomPass0(vec2 uv, vec2 px, float threshold) {
+    vec4 bloom = vec4(0.0);
+    const vec2 offsets[4] = vec2[4](
+        vec2(1.0, 1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0), vec2(-1.0, -1.0));
+    for (int i = 0; i < 4; ++i) {
+        vec2 bloomuv = uv + offsets[i] * px * 2.0;
+        vec3 src = EvaluatePreMartyBloomSource(bloomuv, px);
+        vec4 tempbloom = vec4(src, 0.0);
+        tempbloom.w = max(0.0, dot(tempbloom.xyz, vec3(0.333333)) - threshold);
+        tempbloom.xyz = max(vec3(0.0), tempbloom.xyz - vec3(threshold));
+        bloom += tempbloom;
+    }
+    return bloom * 0.25;
+}
+
+vec4 CreatorMartyBloomPass1(vec2 uv, vec2 px) {
+    vec4 bloom = vec4(0.0);
+    const vec2 offsets[8] = vec2[8](
+        vec2(1.0, 1.0), vec2(0.0, -1.0), vec2(-1.0, 1.0), vec2(-1.0, -1.0),
+        vec2(0.0, 1.0), vec2(0.0, -1.0), vec2(1.0, 0.0), vec2(-1.0, 0.0));
+    float threshold = cameraData.creatorMartyBloomPack0.x;
+    for (int i = 0; i < 8; ++i) {
+        bloom += CreatorMartyBloomPass0(uv + offsets[i] * px * 4.0, px, threshold);
+    }
+    return bloom * 0.125;
+}
+
+vec4 CreatorMartyBloomPass2(vec2 uv, vec2 px) {
+    vec4 bloom = vec4(0.0);
+    const vec2 offsets[8] = vec2[8](
+        vec2(0.707, 0.707), vec2(0.707, -0.707), vec2(-0.707, 0.707), vec2(-0.707, -0.707),
+        vec2(0.0, 1.0), vec2(0.0, -1.0), vec2(1.0, 0.0), vec2(-1.0, 0.0));
+    for (int i = 0; i < 8; ++i) {
+        bloom += CreatorMartyBloomPass1(uv + offsets[i] * px * 8.0, px);
+    }
+    return bloom * 0.5;
+}
+
+vec4 CreatorMartyGaussBlurPass2(vec2 coord, vec2 px, float mult, bool isBlurVert) {
+    vec4 sum = vec4(0.0);
+    vec2 axis = isBlurVert ? vec2(0.0, 1.0) : vec2(1.0, 0.0);
+    for (int i = -10; i <= 10; ++i) {
+        float currweight = kCreatorMartyGaussWeights[abs(i)];
+        vec2 sampleCoord = coord + axis * float(i) * px * mult;
+        sum += CreatorMartyBloomPass2(sampleCoord, px) * currweight;
+    }
+    return sum;
+}
+
+vec4 CreatorMartyBloomPass3(vec2 uv, vec2 px, float bloomAmount) {
+    vec4 bloom = CreatorMartyGaussBlurPass2(uv, px, 16.0, false);
+    bloom.xyz *= bloomAmount;
+    return bloom;
+}
+
+vec4 CreatorMartyGaussBlurPass3(vec2 coord, vec2 px, float mult, bool isBlurVert) {
+    vec4 sum = vec4(0.0);
+    vec2 axis = isBlurVert ? vec2(0.0, 1.0) : vec2(1.0, 0.0);
+    float bloomAmount = cameraData.creatorMartyBloomPack0.y;
+    for (int i = -10; i <= 10; ++i) {
+        float currweight = kCreatorMartyGaussWeights[abs(i)];
+        vec2 sampleCoord = coord + axis * float(i) * px * mult;
+        sum += CreatorMartyBloomPass3(sampleCoord, px, bloomAmount) * currweight;
+    }
+    return sum;
+}
+
+vec4 CreatorMartyBloomPass4(vec2 uv, vec2 px) {
+    vec4 bloom;
+    bloom.xyz = CreatorMartyGaussBlurPass3(uv, px, 16.0, true).xyz * 2.5;
+    bloom.w = 0.0;
+    return bloom;
+}
+
+/// Bloom.fx Marty McFly — fused pyramid bloom + LightingCombine bloom section.
+vec3 ApplyCreatorMartyBloom(vec2 sampleUv, vec2 px, vec3 colorIn) {
+    vec4 pack0 = cameraData.creatorMartyBloomPack0;
+    float threshold = pack0.x;
+    float bloomAmount = pack0.y;
+    if (bloomAmount <= 1e-6) {
+        return colorIn;
+    }
+    float saturation = pack0.z;
+    int mixMode = clamp(int(pack0.w + 0.5), 0, 3);
+    vec3 tint = cameraData.creatorMartyBloomPack1.xyz;
+
+    vec3 colorbloom = CreatorMartyBloomPass2(sampleUv, px).rgb
+        + CreatorMartyBloomPass4(sampleUv, px).rgb * 9.0;
+    colorbloom *= 0.1;
+    colorbloom = clamp(colorbloom, 0.0, 1.0);
+    float colorbloomgray = dot(colorbloom, vec3(0.333333));
+    colorbloom = mix(vec3(colorbloomgray), colorbloom, saturation);
+    colorbloom *= tint;
+
+    vec3 color = colorIn;
+    if (mixMode == 0) {
+        color += colorbloom;
+    } else if (mixMode == 1) {
+        color = 1.0 - (1.0 - color) * (1.0 - colorbloom);
+    } else if (mixMode == 2) {
+        color = max(
+            vec3(0.0),
+            max(color, mix(color, (1.0 - (1.0 - clamp(colorbloom, 0.0, 1.0)) * (1.0 - clamp(colorbloom, 0.0, 1.0))), 1.0)));
+    } else {
+        color = max(color, colorbloom);
+    }
+    return clamp(color, 0.0, 1.0);
+}
+
 vec3 Pd80DsHsvToRgb(vec3 c);
 
 /// PD80_04_Selective_Color_v2.fx — v2 path layered atop base selective-color output.
@@ -2117,8 +2285,10 @@ vec3 ApplyPostProcessFx(vec3 color, vec2 uv01) {
 
 vec3 ApplyPd80ShadowsMidtonesHighlights(vec2 sampleUv, vec3 colorIn);
 
-/// Pre-stack through CAS … ColorMatrix (matches reference BackBuffer before PD80 luma sharpen passes).
-vec3 EvaluatePrePostProcessChainBase(vec2 sampleUv, vec2 px) {
+vec3 ApplyPd80LumaSharpen(vec2 sampleUv, vec2 px);
+
+/// Pre-stack through CAS … PD80 HQ bloom (reference BackBuffer input for Marty bloom pyramid).
+vec3 EvaluatePrePostProcessChainThroughHqBloom(vec2 sampleUv, vec2 px) {
     float exposure = max(cameraData.renderTuning.x, 1e-5);
     float contrast = cameraData.renderTuning.y;
     float saturation = cameraData.renderTuning.z;
@@ -2189,6 +2359,16 @@ vec3 EvaluatePrePostProcessChainBase(vec2 sampleUv, vec2 px) {
     mapped = ApplyPd80RtCorrectColor(sampleUv, mapped);
     mapped = ApplyPd80FilmicAdaptation(sampleUv, mapped);
     mapped = ApplyPd80HqBloom(sampleUv, px, mapped);
+    return mapped;
+}
+
+vec3 EvaluatePreMartyBloomSource(vec2 sampleUv, vec2 px) {
+    return EvaluatePrePostProcessChainThroughHqBloom(sampleUv, px);
+}
+
+vec3 EvaluatePrePostProcessChainBaseInner(vec2 sampleUv, vec2 px) {
+    vec3 mapped = EvaluatePrePostProcessChainThroughHqBloom(sampleUv, px);
+    mapped = ApplyCreatorMartyBloom(sampleUv, px, mapped);
     mapped = ApplyPd80PosterizePixelate(sampleUv, mapped);
     mapped = ApplyPd80MagicalRectangle(sampleUv, mapped);
     mapped = ApplyPd80ShadowsMidtonesHighlights(sampleUv, mapped);
@@ -2223,6 +2403,578 @@ vec3 EvaluatePrePostProcessChainBase(vec2 sampleUv, vec2 px) {
         cameraData.colorMatrixRowBStr.xyz,
         cameraData.colorMatrixRowBStr.w);
     return mapped;
+}
+
+vec3 CreatorChainSample(vec2 sampleUv, vec2 px);
+
+/// Denoise.fx (NVIDIA KNN, WindowRadius=3) on the graded LDR chain.
+vec3 ApplyCreatorDenoiseKnnLdr(vec2 sampleUv, vec2 px, vec3 orig, vec4 pack, vec4 pack2) {
+    float master = pack.x;
+    if (master <= 1e-6) {
+        return orig;
+    }
+    const int kWindowRadius = 3;
+    const float noiseLevel = max(pack.y, 0.01);
+    const float lerpCoeff = clamp(pack.z, 0.0, 1.0);
+    const float weightThreshold = clamp(pack.w, 0.0, 1.0);
+    const float counterThreshold = clamp(pack2.x, 0.0, 1.0);
+    const float gaussianSigma = max(pack2.y, 1.0);
+
+    float iWindowArea = float(2 * kWindowRadius + 1);
+    iWindowArea *= iWindowArea;
+
+    vec3 result = vec3(0.0);
+    float counter = 0.0;
+    float sumW = 0.0;
+    for (int j = -kWindowRadius; j <= kWindowRadius; ++j) {
+        for (int i = -kWindowRadius; i <= kWindowRadius; ++i) {
+            vec2 uv = sampleUv + px * vec2(float(i), float(j));
+            vec3 texIJ = CreatorChainSample(uv, px);
+            float weight = dot(orig - texIJ, orig - texIJ);
+            weight = exp(-(weight / noiseLevel + float(i * i + j * j) / gaussianSigma));
+            counter += float(weight > weightThreshold);
+            sumW += weight;
+            result += texIJ * weight;
+        }
+    }
+    result /= max(sumW, 1e-6);
+    float lerpQ = (counter > (counterThreshold * iWindowArea)) ? (1.0 - lerpCoeff) : lerpCoeff;
+    result = mix(result, orig, lerpQ);
+    return mix(orig, result, master);
+}
+
+vec3 EvaluatePrePostProcessChainBase(vec2 sampleUv, vec2 px) {
+    return EvaluatePrePostProcessChainBaseInner(sampleUv, px);
+}
+
+vec3 CreatorGaussianHorizAt(vec2 uv, vec2 px, float blurOffset, int tapCount, float offsets[18], float weights[18]) {
+    vec3 color = EvaluatePrePostProcessChainBaseInner(uv, px) * weights[0];
+    for (int i = 1; i < 18; ++i) {
+        if (i >= tapCount) {
+            break;
+        }
+        vec2 delta = vec2(offsets[i] * px.x * blurOffset, 0.0);
+        color += EvaluatePrePostProcessChainBaseInner(uv + delta, px) * weights[i];
+        color += EvaluatePrePostProcessChainBaseInner(uv - delta, px) * weights[i];
+    }
+    return color;
+}
+
+vec3 CreatorGaussianBlurVertical(vec2 uv, vec2 px, float blurOffset, int tapCount, float vOffsets[18], float vWeights[18], float hOffsets[18], float hWeights[18]) {
+    vec3 color = CreatorGaussianHorizAt(uv, px, blurOffset, tapCount, hOffsets, hWeights);
+    color *= vWeights[0];
+    for (int i = 1; i < 18; ++i) {
+        if (i >= tapCount) {
+            break;
+        }
+        vec2 delta = vec2(0.0, vOffsets[i] * px.y * blurOffset);
+        color += CreatorGaussianHorizAt(uv + delta, px, blurOffset, tapCount, hOffsets, hWeights) * vWeights[i];
+        color += CreatorGaussianHorizAt(uv - delta, px, blurOffset, tapCount, hOffsets, hWeights) * vWeights[i];
+    }
+    return color;
+}
+
+vec3 CreatorGaussianBlurAt(vec2 uv, vec2 px) {
+    vec4 pack = cameraData.creatorGaussianBlurPack;
+    float strength = pack.x;
+    if (strength <= 1e-6) {
+        return EvaluatePrePostProcessChainBaseInner(uv, px);
+    }
+    float blurOffset = max(pack.y, 0.0);
+    int radius = clamp(int(pack.z + 0.5), 0, 4);
+    vec3 orig = EvaluatePrePostProcessChainBaseInner(uv, px);
+    vec3 color = orig;
+
+    if (radius == 0) {
+        float offsets[18] = float[18](0.0, 1.1824255238, 3.0293122308, 5.0040701377, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        float weights[18] = float[18](0.39894, 0.2959599993, 0.0045656525, 0.00000149278686458842, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        color = CreatorGaussianBlurVertical(uv, px, blurOffset, 4, offsets, weights, offsets, weights);
+    } else if (radius == 1) {
+        float offsets[18] = float[18](0.0, 1.4584295168, 3.40398480678, 5.3518057801, 7.302940716, 9.2581597095, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        float weights[18] = float[18](0.13298, 0.23227575, 0.1353261595, 0.0511557427, 0.01253922, 0.0019913644, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        color = CreatorGaussianBlurVertical(uv, px, blurOffset, 6, offsets, weights, offsets, weights);
+    } else if (radius == 2) {
+        float offsets[18] = float[18](0.0, 1.4895848401, 3.4757135714, 5.4618796741, 7.4481042327, 9.4344079746, 11.420811147, 13.4073334, 15.3939936778, 17.3808101174, 19.3677999584, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        float weights[18] = float[18](0.06649, 0.1284697563, 0.111918249, 0.0873132676, 0.0610011113, 0.0381655709, 0.0213835661, 0.0107290241, 0.0048206869, 0.0019396469, 0.0006988718, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        color = CreatorGaussianBlurVertical(uv, px, blurOffset, 11, offsets, weights, offsets, weights);
+    } else if (radius == 3) {
+        float offsets[18] = float[18](0.0, 1.4953705027, 3.4891992113, 5.4830312105, 7.4768683759, 9.4707125766, 11.4645656736, 13.4584295168, 15.4523059431, 17.4461967743, 19.4401038149, 21.43402885, 23.4279736431, 25.4219399344, 27.4159294386, 0.0, 0.0, 0.0);
+        float weights[18] = float[18](0.0443266667, 0.0872994708, 0.0820892038, 0.0734818355, 0.0626171681, 0.0507956191, 0.0392263968, 0.0288369812, 0.0201808877, 0.0134446557, 0.0085266392, 0.0051478359, 0.0029586248, 0.0016187257, 0.0008430913, 0.0, 0.0, 0.0);
+        color = CreatorGaussianBlurVertical(uv, px, blurOffset, 15, offsets, weights, offsets, weights);
+    } else {
+        float offsets[18] = float[18](0.0, 1.4953705027, 3.4891992113, 5.4830312105, 7.4768683759, 9.4707125766, 11.4645656736, 13.4584295168, 15.4523059431, 17.4461967743, 19.4661974725, 21.4627427973, 23.4592916956, 25.455844494, 27.4524015179, 29.4489630909, 31.445529535, 33.4421011704);
+        float weights[18] = float[18](0.033245, 0.0659162217, 0.0636705814, 0.0598194658, 0.0546642566, 0.0485871646, 0.0420045997, 0.0353207015, 0.0288880982, 0.0229808311, 0.0177815511, 0.013382297, 0.0097960001, 0.0069746748, 0.0048301008, 0.0032534598, 0.0021315311, 0.0013582974);
+        color = CreatorGaussianBlurVertical(uv, px, blurOffset, 18, offsets, weights, offsets, weights);
+    }
+    return mix(orig, clamp(color, 0.0, 1.0), strength);
+}
+
+vec3 CreatorChainSample(vec2 sampleUv, vec2 px) {
+    return CreatorGaussianBlurAt(sampleUv, px);
+}
+
+vec3 CreatorAsGetB(vec2 sampleUv, vec2 px) {
+    return clamp(CreatorChainSample(sampleUv, px), 0.0, 1.0);
+}
+
+vec2 CreatorAsPass0At(vec2 centerUv, vec2 px) {
+    vec3 c[13];
+    c[0] = CreatorAsGetB(centerUv, px);
+    c[1] = CreatorAsGetB(centerUv + px * vec2(-1.0, -1.0), px);
+    c[2] = CreatorAsGetB(centerUv + px * vec2(0.0, -1.0), px);
+    c[3] = CreatorAsGetB(centerUv + px * vec2(1.0, -1.0), px);
+    c[4] = CreatorAsGetB(centerUv + px * vec2(-1.0, 0.0), px);
+    c[5] = CreatorAsGetB(centerUv + px * vec2(1.0, 0.0), px);
+    c[6] = CreatorAsGetB(centerUv + px * vec2(-1.0, 1.0), px);
+    c[7] = CreatorAsGetB(centerUv + px * vec2(0.0, 1.0), px);
+    c[8] = CreatorAsGetB(centerUv + px * vec2(1.0, 1.0), px);
+    c[9] = CreatorAsGetB(centerUv + px * vec2(0.0, -2.0), px);
+    c[10] = CreatorAsGetB(centerUv + px * vec2(-2.0, 0.0), px);
+    c[11] = CreatorAsGetB(centerUv + px * vec2(2.0, 0.0), px);
+    c[12] = CreatorAsGetB(centerUv + px * vec2(0.0, 2.0), px);
+
+    float luma = sqrt(dot(vec3(0.2558, 0.6511, 0.0931), c[0] * c[0]));
+    vec3 blur = (2.0 * (c[2] + c[4] + c[5] + c[7]) + (c[1] + c[3] + c[6] + c[8]) + 4.0 * c[0]) / 16.0;
+    float cComp = clamp(4.0 / 15.0 + 0.9 * exp2(dot(blur, vec3(-37.0 / 15.0))), 0.0, 1.0);
+
+    float edge = length(
+        1.38 * abs(blur - c[0])
+        + 1.15 * (abs(blur - c[2]) + abs(blur - c[4]) + abs(blur - c[5]) + abs(blur - c[7]))
+        + 0.92 * (abs(blur - c[1]) + abs(blur - c[3]) + abs(blur - c[6]) + abs(blur - c[8]))
+        + 0.23 * (abs(blur - c[9]) + abs(blur - c[10]) + abs(blur - c[11]) + abs(blur - c[12])));
+    return vec2(edge * cComp, luma);
+}
+
+float CreatorAsSoftLim(float v, float s) {
+    float r = v / s;
+    return clamp(abs(r) * (27.0 + r * r) / (27.0 + 9.0 * r * r), 0.0, 1.0) * s;
+}
+
+float CreatorAsWpmean(float a, float b, float w, float p) {
+    return pow(abs(w) * pow(abs(a), p) + abs(1.0 - w) * pow(abs(b), p), 1.0 / p);
+}
+
+float CreatorAsMdiff(float l0, float l1, float l2, float l3, float l4, float l5, float l6, float lg) {
+    return abs(lg - l1) + abs(lg - l2) + abs(lg - l3) + abs(lg - l4)
+        + 0.5 * (abs(lg - l5) + abs(lg - l6));
+}
+
+/// AdaptiveSharpen.fx (bacondither, fast_ops path) fused into one composite evaluation.
+vec3 ApplyCreatorAdaptiveSharpen(vec2 sampleUv, vec2 px) {
+    vec4 p0 = cameraData.creatorAdaptiveSharpenPack0;
+    float curveHeight = p0.x;
+    if (curveHeight <= 1e-6) {
+        return ApplyPd80LumaSharpen(sampleUv, px);
+    }
+    float curveSlope = max(p0.y, 0.01);
+    float L_overshoot = max(p0.z, 0.001);
+    float D_overshoot = max(p0.w, 0.001);
+    vec4 p1 = cameraData.creatorAdaptiveSharpenPack1;
+    float L_compr_low = p1.x;
+    float L_compr_high = p1.y;
+    float D_compr_low = p1.z;
+    float D_compr_high = p1.w;
+    vec4 p2 = cameraData.creatorAdaptiveSharpenPack2;
+    float scale_lim = max(p2.x, 0.01);
+    float scale_cs = p2.y;
+    float pm_p = max(p2.z, 0.01);
+
+    vec3 origsat = clamp(ApplyPd80LumaSharpen(sampleUv, px), 0.0, 1.0);
+
+    const ivec2 dOff[25] = ivec2[25](
+        ivec2(0, 0), ivec2(-1, -1), ivec2(0, -1), ivec2(1, -1), ivec2(-1, 0),
+        ivec2(1, 0), ivec2(-1, 1), ivec2(0, 1), ivec2(1, 1), ivec2(0, -2),
+        ivec2(-2, 0), ivec2(2, 0), ivec2(0, 2), ivec2(0, 3), ivec2(1, 2),
+        ivec2(-1, 2), ivec2(3, 0), ivec2(2, 1), ivec2(2, -1), ivec2(-3, 0),
+        ivec2(-2, 1), ivec2(-2, -1), ivec2(0, -3), ivec2(1, -2), ivec2(-1, -2));
+
+    vec2 d[25];
+    for (int k = 0; k < 25; ++k) {
+        d[k] = CreatorAsPass0At(sampleUv + px * vec2(dOff[k]), px);
+    }
+
+    float maxedge = max(
+        max(max(max(d[1].x, d[2].x), max(d[3].x, d[4].x)), max(max(d[5].x, d[6].x), max(d[7].x, d[8].x))),
+        max(max(max(d[9].x, d[10].x), max(d[11].x, d[12].x)), d[0].x));
+
+    float sbe = clamp((d[2].x + d[9].x + d[22].x + 0.056) / (abs(maxedge) + 0.03) - 0.85, 0.0, 1.0)
+        * clamp((d[7].x + d[12].x + d[13].x + 0.056) / (abs(maxedge) + 0.03) - 0.85, 0.0, 1.0)
+        + clamp((d[4].x + d[10].x + d[19].x + 0.056) / (abs(maxedge) + 0.03) - 0.85, 0.0, 1.0)
+          * clamp((d[5].x + d[11].x + d[16].x + 0.056) / (abs(maxedge) + 0.03) - 0.85, 0.0, 1.0)
+        + clamp((d[1].x + d[24].x + d[21].x + 0.056) / (abs(maxedge) + 0.03) - 0.85, 0.0, 1.0)
+          * clamp((d[8].x + d[14].x + d[17].x + 0.056) / (abs(maxedge) + 0.03) - 0.85, 0.0, 1.0)
+        + clamp((d[3].x + d[23].x + d[18].x + 0.056) / (abs(maxedge) + 0.03) - 0.85, 0.0, 1.0)
+          * clamp((d[6].x + d[20].x + d[15].x + 0.056) / (abs(maxedge) + 0.03) - 0.85, 0.0, 1.0);
+
+    vec2 cs = mix(vec2(L_compr_low, D_compr_low), vec2(L_compr_high, D_compr_high), clamp(1.091 * sbe - 2.282, 0.0, 1.0));
+
+    float luma[25];
+    for (int k = 0; k < 25; ++k) {
+        luma[k] = d[k].y;
+    }
+
+    const vec3 W1 = vec3(0.5, 1.0, 1.41421356237);
+    const vec3 W2 = vec3(0.86602540378, 1.0, 0.54772255751);
+    vec3 dW = (mix(W1, W2, clamp(2.4 * d[0].x - 0.82, 0.0, 1.0)));
+    dW = dW * dW;
+
+    float mdiffC0 = 0.02 + 3.0 * (abs(luma[0] - luma[2]) + abs(luma[0] - luma[4]) + abs(luma[0] - luma[5])
+        + abs(luma[0] - luma[7])
+        + 0.25 * (abs(luma[0] - luma[1]) + abs(luma[0] - luma[3]) + abs(luma[0] - luma[6]) + abs(luma[0] - luma[8])));
+
+    float weights[12];
+    weights[0] = min(mdiffC0 / CreatorAsMdiff(luma[24], luma[21], luma[2], luma[4], luma[9], luma[10], luma[1], luma[0]), dW.y);
+    weights[1] = dW.x;
+    weights[2] = min(mdiffC0 / CreatorAsMdiff(luma[23], luma[18], luma[5], luma[2], luma[9], luma[11], luma[3], luma[0]), dW.y);
+    weights[3] = dW.x;
+    weights[4] = dW.x;
+    weights[5] = min(mdiffC0 / CreatorAsMdiff(luma[4], luma[20], luma[15], luma[7], luma[10], luma[12], luma[6], luma[0]), dW.y);
+    weights[6] = dW.x;
+    weights[7] = min(mdiffC0 / CreatorAsMdiff(luma[5], luma[7], luma[17], luma[14], luma[12], luma[11], luma[8], luma[0]), dW.y);
+    weights[8] = min(mdiffC0 / CreatorAsMdiff(luma[2], luma[24], luma[23], luma[22], luma[1], luma[3], luma[9], luma[0]), dW.z);
+    weights[9] = min(mdiffC0 / CreatorAsMdiff(luma[20], luma[19], luma[21], luma[4], luma[1], luma[6], luma[10], luma[0]), dW.z);
+    weights[10] = min(mdiffC0 / CreatorAsMdiff(luma[17], luma[5], luma[18], luma[16], luma[3], luma[8], luma[11], luma[0]), dW.z);
+    weights[11] = min(mdiffC0 / CreatorAsMdiff(luma[13], luma[15], luma[7], luma[14], luma[6], luma[8], luma[12], luma[0]), dW.z);
+
+    weights[0] = (max(max((weights[8] + weights[9]) / 4.0, weights[0]), 0.25) + weights[0]) / 2.0;
+    weights[2] = (max(max((weights[8] + weights[10]) / 4.0, weights[2]), 0.25) + weights[2]) / 2.0;
+    weights[5] = (max(max((weights[9] + weights[11]) / 4.0, weights[5]), 0.25) + weights[5]) / 2.0;
+    weights[7] = (max(max((weights[10] + weights[11]) / 4.0, weights[7]), 0.25) + weights[7]) / 2.0;
+
+    float lowthrsum = 0.0;
+    float weightsum = 0.0;
+    float negLaplace = 0.0;
+    for (int pix = 0; pix < 12; ++pix) {
+        float lowthr = clamp(13.2 * d[pix + 1].x - 0.221, 0.01, 1.0);
+        negLaplace += (luma[pix + 1] * luma[pix + 1]) * (weights[pix] * lowthr);
+        weightsum += weights[pix] * lowthr;
+        lowthrsum += lowthr / 12.0;
+    }
+    negLaplace = sqrt(negLaplace / max(weightsum, 1e-6));
+
+    float sharpenVal = curveHeight / (curveHeight * curveSlope * pow(abs(d[0].x), 3.5) + 0.625);
+    float sharpdiff = (d[0].y - negLaplace) * (lowthrsum * sharpenVal + 0.01);
+
+    float minOvershoot = min(abs(L_overshoot), abs(D_overshoot));
+    float fskipTh = 0.114 * pow(minOvershoot, 0.676) + 3.20e-4;
+
+    if (abs(sharpdiff) > fskipTh) {
+        for (int i = 0; i < 24; i += 2) {
+            float temp = luma[i];
+            luma[i] = min(luma[i], luma[i + 1]);
+            luma[i + 1] = max(temp, luma[i + 1]);
+        }
+        for (int ii = 24; ii > 0; ii -= 2) {
+            float temp = luma[0];
+            luma[0] = min(luma[0], luma[ii]);
+            luma[ii] = max(temp, luma[ii]);
+            temp = luma[24];
+            luma[24] = max(luma[24], luma[ii - 1]);
+            luma[ii - 1] = min(temp, luma[ii - 1]);
+        }
+        for (int i = 1; i < 23; i += 2) {
+            float temp = luma[i];
+            luma[i] = min(luma[i], luma[i + 1]);
+            luma[i + 1] = max(temp, luma[i + 1]);
+        }
+        for (int ii = 23; ii > 1; ii -= 2) {
+            float temp = luma[1];
+            luma[1] = min(luma[1], luma[ii]);
+            luma[ii] = max(temp, luma[ii]);
+            temp = luma[23];
+            luma[23] = max(luma[23], luma[ii - 1]);
+            luma[ii - 1] = min(temp, luma[ii - 1]);
+        }
+
+        float nmax = (max(luma[23], d[0].y) * 2.0 + luma[24]) / 3.0;
+        float nmin = (min(luma[1], d[0].y) * 2.0 + luma[0]) / 3.0;
+        float minDist = min(abs(nmax - d[0].y), abs(d[0].y - nmin));
+        float posScale = minDist + L_overshoot;
+        float negScale = minDist + D_overshoot;
+        posScale = min(posScale, scale_lim * (1.0 - scale_cs) + posScale * scale_cs);
+        negScale = min(negScale, scale_lim * (1.0 - scale_cs) + negScale * scale_cs);
+
+        float posPart = max(sharpdiff, 0.0);
+        float negPart = min(sharpdiff, 0.0);
+        sharpdiff = CreatorAsWpmean(posPart, CreatorAsSoftLim(posPart, posScale), cs.x, pm_p)
+            - CreatorAsWpmean(negPart, CreatorAsSoftLim(negPart, negScale), cs.y, pm_p);
+    }
+
+    float sharpdiffLim = clamp(d[0].y + sharpdiff, 0.0, 1.0) - d[0].y;
+    float satmul = (d[0].y + max(sharpdiffLim * 0.9, sharpdiffLim) * 1.03 + 0.03) / (d[0].y + 0.03);
+    vec3 res = vec3(d[0].y) + (sharpdiffLim * 3.0 + sharpdiff) / 4.0 + (origsat - vec3(d[0].y)) * satmul;
+    return clamp(res, 0.0, 1.0);
+}
+
+const mat3 kCreatorFineSharpRgbToYuv = mat3(
+    vec3(0.2126, 0.7152, 0.0722),
+    vec3(-0.1145721061, -0.3854278940, 0.4999999999),
+    vec3(0.4999999999, -0.4541529069, -0.0458470931));
+const mat3 kCreatorFineSharpYuvToRgb = mat3(
+    vec3(1.0, 0.0, 1.5748),
+    vec3(1.0, -0.187348, -0.467626),
+    vec3(1.0, 1.8556, 0.0));
+
+void CreatorFineSharpSort(inout float a1, inout float a2) {
+    float t = min(a1, a2);
+    a2 = max(a1, a2);
+    a1 = t;
+}
+
+float CreatorFineSharpMedian3(float a1, float a2, float a3) {
+    CreatorFineSharpSort(a2, a3);
+    CreatorFineSharpSort(a1, a2);
+    return min(a2, a3);
+}
+
+float CreatorFineSharpMedian5(float a1, float a2, float a3, float a4, float a5) {
+    CreatorFineSharpSort(a1, a2);
+    CreatorFineSharpSort(a3, a4);
+    CreatorFineSharpSort(a1, a3);
+    CreatorFineSharpSort(a2, a4);
+    return CreatorFineSharpMedian3(a2, a3, a5);
+}
+
+float CreatorFineSharpMedian9(float a1, float a2, float a3, float a4, float a5, float a6, float a7, float a8, float a9) {
+    CreatorFineSharpSort(a1, a2);
+    CreatorFineSharpSort(a3, a4);
+    CreatorFineSharpSort(a5, a6);
+    CreatorFineSharpSort(a7, a8);
+    CreatorFineSharpSort(a1, a3);
+    CreatorFineSharpSort(a5, a7);
+    CreatorFineSharpSort(a1, a5);
+    CreatorFineSharpSort(a3, a5);
+    CreatorFineSharpSort(a3, a7);
+    CreatorFineSharpSort(a2, a4);
+    CreatorFineSharpSort(a6, a8);
+    CreatorFineSharpSort(a4, a8);
+    CreatorFineSharpSort(a4, a6);
+    CreatorFineSharpSort(a2, a6);
+    return CreatorFineSharpMedian5(a2, a4, a5, a7, a9);
+}
+
+void CreatorFineSharpSortMinMax7(inout float a1, inout float a2, inout float a3, inout float a4, inout float a5, inout float a6, inout float a7) {
+    CreatorFineSharpSort(a1, a2);
+    CreatorFineSharpSort(a3, a4);
+    CreatorFineSharpSort(a5, a6);
+    CreatorFineSharpSort(a1, a3);
+    CreatorFineSharpSort(a1, a5);
+    CreatorFineSharpSort(a2, a6);
+    CreatorFineSharpSort(a4, a5);
+    CreatorFineSharpSort(a1, a7);
+    CreatorFineSharpSort(a6, a7);
+}
+
+void CreatorFineSharpSortMinMax9(inout float a1, inout float a2, inout float a3, inout float a4, inout float a5, inout float a6, inout float a7, inout float a8, inout float a9) {
+    CreatorFineSharpSort(a1, a2);
+    CreatorFineSharpSort(a3, a4);
+    CreatorFineSharpSort(a5, a6);
+    CreatorFineSharpSort(a7, a8);
+    CreatorFineSharpSort(a1, a3);
+    CreatorFineSharpSort(a5, a7);
+    CreatorFineSharpSort(a1, a5);
+    CreatorFineSharpSort(a2, a4);
+    CreatorFineSharpSort(a6, a8);
+    CreatorFineSharpSort(a4, a8);
+    CreatorFineSharpSort(a1, a9);
+    CreatorFineSharpSort(a8, a9);
+}
+
+void CreatorFineSharpSort9Partial2(inout float a1, inout float a2, inout float a3, inout float a4, inout float a5, inout float a6, inout float a7, inout float a8, inout float a9) {
+    CreatorFineSharpSortMinMax9(a1, a2, a3, a4, a5, a6, a7, a8, a9);
+    CreatorFineSharpSortMinMax7(a2, a3, a4, a5, a6, a7, a8);
+}
+
+vec4 CreatorFineSharpP0At(vec2 uv, vec2 px) {
+    vec3 rgb = CreatorChainSample(uv, px);
+    vec3 yuv = kCreatorFineSharpRgbToYuv * rgb + vec3(0.0, 0.5, 0.5);
+    return vec4(yuv, yuv.x);
+}
+
+float CreatorFineSharpY0(vec2 uv, vec2 px) {
+    return CreatorFineSharpP0At(uv, px).x;
+}
+
+vec4 CreatorFineSharpP1FromP0(vec2 uv, vec2 px) {
+    vec4 o = CreatorFineSharpP0At(uv, px);
+    o.x += o.x;
+    o.x += CreatorFineSharpY0(uv + px * vec2(0.0, -1.0), px)
+        + CreatorFineSharpY0(uv + px * vec2(-1.0, 0.0), px)
+        + CreatorFineSharpY0(uv + px * vec2(1.0, 0.0), px)
+        + CreatorFineSharpY0(uv + px * vec2(0.0, 1.0), px);
+    o.x += o.x;
+    o.x += CreatorFineSharpY0(uv + px * vec2(-1.0, -1.0), px)
+        + CreatorFineSharpY0(uv + px * vec2(1.0, -1.0), px)
+        + CreatorFineSharpY0(uv + px * vec2(-1.0, 1.0), px)
+        + CreatorFineSharpY0(uv + px * vec2(1.0, 1.0), px);
+    o.x *= 0.0625;
+    return o;
+}
+
+float CreatorFineSharpY1(vec2 uv, vec2 px) {
+    return CreatorFineSharpP1FromP0(uv, px).x;
+}
+
+vec4 CreatorFineSharpP2FromP1(vec2 uv, vec2 px) {
+    vec4 o = CreatorFineSharpP1FromP0(uv, px);
+    o.x = CreatorFineSharpMedian9(
+        CreatorFineSharpY1(uv + px * vec2(-1.0, -1.0), px),
+        CreatorFineSharpY1(uv + px * vec2(0.0, -1.0), px),
+        CreatorFineSharpY1(uv + px * vec2(1.0, -1.0), px),
+        CreatorFineSharpY1(uv + px * vec2(-1.0, 0.0), px),
+        o.x,
+        CreatorFineSharpY1(uv + px * vec2(1.0, 0.0), px),
+        CreatorFineSharpY1(uv + px * vec2(-1.0, 1.0), px),
+        CreatorFineSharpY1(uv + px * vec2(0.0, 1.0), px),
+        CreatorFineSharpY1(uv + px * vec2(1.0, 1.0), px));
+    return o;
+}
+
+vec4 CreatorFineSharpP2FromP0Direct(vec2 uv, vec2 px) {
+    vec4 o = CreatorFineSharpP0At(uv, px);
+    o.x = CreatorFineSharpMedian9(
+        CreatorFineSharpY0(uv + px * vec2(-1.0, -1.0), px),
+        CreatorFineSharpY0(uv + px * vec2(0.0, -1.0), px),
+        CreatorFineSharpY0(uv + px * vec2(1.0, -1.0), px),
+        CreatorFineSharpY0(uv + px * vec2(-1.0, 0.0), px),
+        o.x,
+        CreatorFineSharpY0(uv + px * vec2(1.0, 0.0), px),
+        CreatorFineSharpY0(uv + px * vec2(-1.0, 1.0), px),
+        CreatorFineSharpY0(uv + px * vec2(0.0, 1.0), px),
+        CreatorFineSharpY0(uv + px * vec2(1.0, 1.0), px));
+    return o;
+}
+
+float CreatorFineSharpY2p0(vec2 uv, vec2 px) {
+    return CreatorFineSharpP2FromP0Direct(uv, px).x;
+}
+
+vec4 CreatorFineSharpP1FromP2FromP0(vec2 uv, vec2 px) {
+    vec4 o = CreatorFineSharpP2FromP0Direct(uv, px);
+    o.x += o.x;
+    o.x += CreatorFineSharpY2p0(uv + px * vec2(0.0, -1.0), px)
+        + CreatorFineSharpY2p0(uv + px * vec2(-1.0, 0.0), px)
+        + CreatorFineSharpY2p0(uv + px * vec2(1.0, 0.0), px)
+        + CreatorFineSharpY2p0(uv + px * vec2(0.0, 1.0), px);
+    o.x += o.x;
+    o.x += CreatorFineSharpY2p0(uv + px * vec2(-1.0, -1.0), px)
+        + CreatorFineSharpY2p0(uv + px * vec2(1.0, -1.0), px)
+        + CreatorFineSharpY2p0(uv + px * vec2(-1.0, 1.0), px)
+        + CreatorFineSharpY2p0(uv + px * vec2(1.0, 1.0), px);
+    o.x *= 0.0625;
+    return o;
+}
+
+float CreatorFineSharpY1p2p0(vec2 uv, vec2 px) {
+    return CreatorFineSharpP1FromP2FromP0(uv, px).x;
+}
+
+vec4 CreatorFineSharpP2FromP1FromP2FromP0(vec2 uv, vec2 px) {
+    vec4 o = CreatorFineSharpP1FromP2FromP0(uv, px);
+    o.x = CreatorFineSharpMedian9(
+        CreatorFineSharpY1p2p0(uv + px * vec2(-1.0, -1.0), px),
+        CreatorFineSharpY1p2p0(uv + px * vec2(0.0, -1.0), px),
+        CreatorFineSharpY1p2p0(uv + px * vec2(1.0, -1.0), px),
+        CreatorFineSharpY1p2p0(uv + px * vec2(-1.0, 0.0), px),
+        o.x,
+        CreatorFineSharpY1p2p0(uv + px * vec2(1.0, 0.0), px),
+        CreatorFineSharpY1p2p0(uv + px * vec2(-1.0, 1.0), px),
+        CreatorFineSharpY1p2p0(uv + px * vec2(0.0, 1.0), px),
+        CreatorFineSharpY1p2p0(uv + px * vec2(1.0, 1.0), px));
+    return o;
+}
+
+vec4 CreatorFineSharpGrainAt(vec2 uv, vec2 px, int mode) {
+    if (mode == 0) {
+        return CreatorFineSharpP2FromP1(uv, px);
+    }
+    if (mode == 1) {
+        return CreatorFineSharpP1FromP2FromP0(uv, px);
+    }
+    return CreatorFineSharpP2FromP1FromP2FromP0(uv, px);
+}
+
+float CreatorFineSharpSharpDiff(vec4 c, float sstr, float lstr, float pstr, float ldmp) {
+    float t = c.a - c.x;
+    return sign(t) * (sstr / 255.0) * pow(abs(t) / (lstr / 255.0), 1.0 / pstr) * ((t * t) / (t * t + ldmp / 65025.0));
+}
+
+vec4 CreatorFineSharpP3At(vec2 uv, vec2 px, float sstr, float cstr, float lstr, float pstr, float ldmp, int mode) {
+    vec4 o = CreatorFineSharpGrainAt(uv, px, mode);
+    float sd = CreatorFineSharpSharpDiff(o, sstr, lstr, pstr, ldmp);
+    o.x = o.a + sd;
+    sd += sd;
+    sd += CreatorFineSharpSharpDiff(CreatorFineSharpGrainAt(uv + px * vec2(0.0, -1.0), px, mode), sstr, lstr, pstr, ldmp)
+        + CreatorFineSharpSharpDiff(CreatorFineSharpGrainAt(uv + px * vec2(-1.0, 0.0), px, mode), sstr, lstr, pstr, ldmp)
+        + CreatorFineSharpSharpDiff(CreatorFineSharpGrainAt(uv + px * vec2(1.0, 0.0), px, mode), sstr, lstr, pstr, ldmp)
+        + CreatorFineSharpSharpDiff(CreatorFineSharpGrainAt(uv + px * vec2(0.0, 1.0), px, mode), sstr, lstr, pstr, ldmp);
+    sd += sd;
+    sd += CreatorFineSharpSharpDiff(CreatorFineSharpGrainAt(uv + px * vec2(-1.0, -1.0), px, mode), sstr, lstr, pstr, ldmp)
+        + CreatorFineSharpSharpDiff(CreatorFineSharpGrainAt(uv + px * vec2(1.0, -1.0), px, mode), sstr, lstr, pstr, ldmp)
+        + CreatorFineSharpSharpDiff(CreatorFineSharpGrainAt(uv + px * vec2(-1.0, 1.0), px, mode), sstr, lstr, pstr, ldmp)
+        + CreatorFineSharpSharpDiff(CreatorFineSharpGrainAt(uv + px * vec2(1.0, 1.0), px, mode), sstr, lstr, pstr, ldmp);
+    sd *= 0.0625;
+    o.x -= cstr * sd;
+    o.a = o.x;
+    return o;
+}
+
+vec4 CreatorFineSharpP4At(vec2 uv, vec2 px, float sstr, float cstr, float lstr, float pstr, float ldmp, int mode) {
+    vec4 o = CreatorFineSharpP3At(uv, px, sstr, cstr, lstr, pstr, ldmp, mode);
+    float t1 = CreatorFineSharpP3At(uv + px * vec2(-1.0, -1.0), px, sstr, cstr, lstr, pstr, ldmp, mode).a;
+    float t2 = CreatorFineSharpP3At(uv + px * vec2(0.0, -1.0), px, sstr, cstr, lstr, pstr, ldmp, mode).a;
+    float t3 = CreatorFineSharpP3At(uv + px * vec2(1.0, -1.0), px, sstr, cstr, lstr, pstr, ldmp, mode).a;
+    float t4 = CreatorFineSharpP3At(uv + px * vec2(-1.0, 0.0), px, sstr, cstr, lstr, pstr, ldmp, mode).a;
+    float t5 = o.a;
+    float t6 = CreatorFineSharpP3At(uv + px * vec2(1.0, 0.0), px, sstr, cstr, lstr, pstr, ldmp, mode).a;
+    float t7 = CreatorFineSharpP3At(uv + px * vec2(-1.0, 1.0), px, sstr, cstr, lstr, pstr, ldmp, mode).a;
+    float t8 = CreatorFineSharpP3At(uv + px * vec2(0.0, 1.0), px, sstr, cstr, lstr, pstr, ldmp, mode).a;
+    float t9 = CreatorFineSharpP3At(uv + px * vec2(1.0, 1.0), px, sstr, cstr, lstr, pstr, ldmp, mode).a;
+    o.x += t1 + t2 + t3 + t4 + t6 + t7 + t8 + t9;
+    o.x /= 9.0;
+    o.x = 9.9 * (o.a - o.x) + o.a;
+    CreatorFineSharpSort9Partial2(t1, t2, t3, t4, t5, t6, t7, t8, t9);
+    o.x = max(o.x, min(t2, o.a));
+    o.x = min(o.x, max(t8, o.a));
+    return o;
+}
+
+vec4 CreatorFineSharpP5At(vec2 uv, vec2 px, float sstr, float cstr, float xstr, float xrep, float lstr, float pstr, float ldmp, int mode) {
+    vec4 o = CreatorFineSharpP4At(uv, px, sstr, cstr, lstr, pstr, ldmp, mode);
+    float edge = abs(
+        CreatorFineSharpP4At(uv + px * vec2(0.0, -1.0), px, sstr, cstr, lstr, pstr, ldmp, mode).x
+        + CreatorFineSharpP4At(uv + px * vec2(-1.0, 0.0), px, sstr, cstr, lstr, pstr, ldmp, mode).x
+        + CreatorFineSharpP4At(uv + px * vec2(1.0, 0.0), px, sstr, cstr, lstr, pstr, ldmp, mode).x
+        + CreatorFineSharpP4At(uv + px * vec2(0.0, 1.0), px, sstr, cstr, lstr, pstr, ldmp, mode).x
+        - 4.0 * o.x);
+    o.x = mix(o.a, o.x, xstr * (1.0 - clamp(edge * xrep, 0.0, 1.0)));
+    return o;
+}
+
+vec3 CreatorFineSharpP6At(vec2 uv, vec2 px, float sstr, float cstr, float xstr, float xrep, float lstr, float pstr, float ldmp, int mode) {
+    vec4 yuv = CreatorFineSharpP5At(uv, px, sstr, cstr, xstr, xrep, lstr, pstr, ldmp, mode);
+    return kCreatorFineSharpYuvToRgb * (yuv.xyz - vec3(0.0, 0.5, 0.5));
+}
+
+/// FineSharp.fx (Didée / JPulowski) — fused 7-pass YUV sharpen chain (Mode1/2/3).
+vec3 ApplyCreatorFineSharp(vec2 sampleUv, vec2 px) {
+    vec4 p0 = cameraData.creatorFineSharpPack0;
+    float sstr = p0.x;
+    if (sstr <= 1e-6) {
+        return ApplyPd80LumaSharpen(sampleUv, px);
+    }
+    float cstr = p0.y;
+    float xstr = p0.z;
+    float xrep = p0.w;
+    vec4 p1 = cameraData.creatorFineSharpPack1;
+    float lstr = max(p1.x, 1e-4);
+    float pstr = max(p1.y, 1e-4);
+    int mode = clamp(int(p1.z + 0.5), 0, 2);
+    float ldmp = sstr + 0.1;
+    return clamp(
+        CreatorFineSharpP6At(sampleUv, px, sstr, cstr, xstr, xrep, lstr, pstr, ldmp, mode),
+        0.0,
+        1.0);
 }
 
 const float kPd80LsPi = 3.14159265359;
@@ -2269,7 +3021,7 @@ vec3 Pd80LsGaussianBlurH(vec2 texcoord, vec2 px, float blurSigma) {
     float sigmaX = 1.0 / (sqrt(2.0 * kPd80LsPi) * bSigma);
     float sigmaY = exp(-0.5 / (bSigma * bSigma));
     float sigmaZ = sigmaY * sigmaY;
-    vec3 color = EvaluatePrePostProcessChainBase(texcoord, px) * sigmaX;
+    vec3 color = EvaluatePrePostProcessChainBaseInner(texcoord, px) * sigmaX;
     float sigmaSum = sigmaX;
     sigmaX *= sigmaY;
     sigmaY *= sigmaZ;
@@ -2277,8 +3029,8 @@ vec3 Pd80LsGaussianBlurH(vec2 texcoord, vec2 px, float blurSigma) {
         if (i >= loops) {
             break;
         }
-        color += EvaluatePrePostProcessChainBase(texcoord + vec2(pxlOffset * pxw, 0.0), px) * sigmaX;
-        color += EvaluatePrePostProcessChainBase(texcoord - vec2(pxlOffset * pxw, 0.0), px) * sigmaX;
+        color += EvaluatePrePostProcessChainBaseInner(texcoord + vec2(pxlOffset * pxw, 0.0), px) * sigmaX;
+        color += EvaluatePrePostProcessChainBaseInner(texcoord - vec2(pxlOffset * pxw, 0.0), px) * sigmaX;
         sigmaSum += 2.0 * sigmaX;
         pxlOffset += 1.0;
         sigmaX *= sigmaY;
@@ -2323,7 +3075,7 @@ vec3 ApplyPd80LumaSharpen(vec2 sampleUv, vec2 px) {
     vec4 pk0 = cameraData.pd80LsPack0;
     float master = clamp(pk0.x, 0.0, 1.0);
     if (master < 1e-6) {
-        return EvaluatePrePostProcessChainBase(sampleUv, px);
+        return EvaluatePrePostProcessChainBaseInner(sampleUv, px);
     }
     float blurSigma = max(pk0.y, 1e-4);
     float Sharpening = pk0.z;
@@ -2339,7 +3091,7 @@ vec3 ApplyPd80LumaSharpen(vec2 sampleUv, vec2 px) {
     float depthEnd = pk2.z;
     float depthCurve = max(pk2.w, 0.05);
 
-    vec3 orig = EvaluatePrePostProcessChainBase(sampleUv, px);
+    vec3 orig = EvaluatePrePostProcessChainBaseInner(sampleUv, px);
     vec3 gaussian = Pd80LsGaussianBlurHV(sampleUv, px, blurSigma);
 
     float depthLin = texture(sceneDepth, sampleUv).r;
@@ -2368,7 +3120,16 @@ vec3 ApplyPd80LumaSharpen(vec2 sampleUv, vec2 px) {
 }
 
 vec3 EvaluatePrePostProcessChainCore(vec2 sampleUv, vec2 px) {
-    return ApplyPd80LumaSharpen(sampleUv, px);
+    vec3 center;
+    if (cameraData.creatorFineSharpPack0.x > 1e-6) {
+        center = ApplyCreatorFineSharp(sampleUv, px);
+    } else if (cameraData.creatorAdaptiveSharpenPack0.x > 1e-6) {
+        center = ApplyCreatorAdaptiveSharpen(sampleUv, px);
+    } else {
+        center = ApplyPd80LumaSharpen(sampleUv, px);
+    }
+    return ApplyCreatorDenoiseKnnLdr(
+        sampleUv, px, center, cameraData.creatorDenoisePack, cameraData.creatorDenoisePack2);
 }
 
 vec3 Pd80CaHueToRgb(float H) {
@@ -4584,9 +5345,552 @@ vec3 ApplyPd80ColorGradients(vec2 sampleUv, vec3 colorIn) {
     return mix(colorIn, clamp(color, 0.0, 1.0), master);
 }
 
+/// Colourfulness.fx (bacondither) — perceptual saturation with near-clip soft limit (LDR gamma input).
+vec3 ApplyCreatorColourfulness(vec3 c0, vec4 packIn) {
+    float amt = packIn.x;
+    if (abs(amt) < 1e-4) {
+        return c0;
+    }
+    float limLuma = clamp(packIn.y, 0.1, 1.0);
+    const vec3 lumacoeff = vec3(0.2558, 0.6511, 0.0931);
+    c0 = clamp(c0, 0.0, 1.0);
+    float luma = sqrt(dot(clamp(c0 * abs(c0), 0.0, 1.0), lumacoeff));
+    vec3 diffLuma = c0 - luma;
+    vec3 cDiff = diffLuma * (amt + 1.0) - diffLuma;
+    if (amt > 0.0) {
+        vec3 rlcDiff = clamp((cDiff * 1.2) + c0, -0.0001, 1.0001) - c0;
+        float maxd = max(diffLuma.r, max(diffLuma.g, diffLuma.b));
+        float mind = min(diffLuma.r, min(diffLuma.g, diffLuma.b));
+        float poslim = (1.0002 - luma) / (abs(maxd) + 0.0001);
+        float neglim = (luma + 0.0002) / (abs(mind) + 0.0001);
+        vec3 diffmax = diffLuma * min(min(poslim, neglim), 32.0) - diffLuma;
+        // wpmean(diffmax, rlcDiff, limLuma): pow(|w|*sqrt|a| + |1-w|*sqrt|b|, 2)
+        vec3 wp = abs(limLuma) * sqrt(abs(diffmax)) + abs(1.0 - limLuma) * sqrt(abs(rlcDiff));
+        vec3 lim = max(wp * wp, vec3(1e-7));
+        // soft_lim(cDiff, lim) = (cDiff*lim) / sqrt(lim*lim + cDiff*cDiff)
+        cDiff = (cDiff * lim) / sqrt(lim * lim + cDiff * cDiff);
+    }
+    return clamp(c0 + cDiff, 0.0, 1.0);
+}
+
+/// FilmicPass.fx — cinematic tone/colour curve. Author defaults baked as constants; creator drives
+/// strength/fade/bleach/saturation.
+vec3 ApplyCreatorFilmicPass(vec3 inColor, vec4 packIn) {
+    float Strength = packIn.x;
+    if (Strength <= 0.0) {
+        return inColor;
+    }
+    float Fade = packIn.y;
+    float Bleach = packIn.z;
+    float Saturation = packIn.w;
+    const float Contrast = 1.0;
+    const float Linearization = 0.5;
+    const float BaseGamma = 1.0;
+    const float EffectGamma = 0.65;
+    const float a = 1.0; // RedCurve
+    const float b = 1.0; // GreenCurve
+    const float cc = 1.0; // BlueCurve
+    const float d = 1.5; // BaseCurve
+    const vec3 LumCoeff = vec3(0.212656, 0.715158, 0.072186);
+
+    vec3 B = clamp(inColor, 0.0, 1.0);
+    vec3 H = vec3(0.01);
+    B = pow(B, vec3(Linearization));
+    B = mix(H, B, Contrast);
+    float A = dot(B, LumCoeff);
+    vec3 D = vec3(A);
+    B = pow(abs(B), vec3(1.0 / BaseGamma));
+
+    float y = 1.0 / (1.0 + exp(a / 2.0));
+    float z = 1.0 / (1.0 + exp(b / 2.0));
+    float w = 1.0 / (1.0 + exp(cc / 2.0));
+    float v = 1.0 / (1.0 + exp(d / 2.0));
+
+    vec3 C = B;
+    D.r = (1.0 / (1.0 + exp(-a * (D.r - 0.5))) - y) / (1.0 - 2.0 * y);
+    D.g = (1.0 / (1.0 + exp(-b * (D.g - 0.5))) - z) / (1.0 - 2.0 * z);
+    D.b = (1.0 / (1.0 + exp(-cc * (D.b - 0.5))) - w) / (1.0 - 2.0 * w);
+    D = pow(abs(D), vec3(1.0 / EffectGamma));
+    vec3 Di = vec3(1.0) - D;
+    D = mix(D, Di, Bleach);
+    // EffectGammaR/G/B == 1 → no per-channel gamma here.
+
+    C.r = (D.r < 0.5) ? (2.0 * D.r - 1.0) * (B.r - B.r * B.r) + B.r
+                      : (2.0 * D.r - 1.0) * (sqrt(B.r) - B.r) + B.r;
+    C.g = (D.g < 0.5) ? (2.0 * D.g - 1.0) * (B.g - B.g * B.g) + B.g
+                      : (2.0 * D.g - 1.0) * (sqrt(B.g) - B.g) + B.g;
+    C.b = (D.b < 0.5) ? (2.0 * D.b - 1.0) * (B.b - B.b * B.b) + B.b
+                      : (2.0 * D.b - 1.0) * (sqrt(B.b) - B.b) + B.b;
+
+    vec3 F = mix(B, C, Strength);
+    F = (1.0 / (1.0 + exp(-d * (F - 0.5))) - vec3(v)) / (1.0 - 2.0 * v);
+
+    float r2R = 1.0 - Saturation;
+    float g2R = Saturation;
+    float b2R = Saturation;
+    float r2G = Saturation;
+    float g2G = (1.0 - Fade) - Saturation;
+    float b2G = Fade + Saturation;
+    float r2B = Saturation;
+    float g2B = Fade + Saturation;
+    float b2B = (1.0 - Fade) - Saturation;
+
+    vec3 iF = F;
+    F.r = iF.r * r2R + iF.g * g2R + iF.b * b2R;
+    F.g = iF.r * r2G + iF.g * g2G + iF.b * b2G;
+    F.b = iF.r * r2B + iF.g * g2B + iF.b * b2B;
+
+    float N = dot(F, LumCoeff);
+    vec3 Cn = (N < 0.5) ? (2.0 * N - 1.0) * (F - F * F) + F
+                        : (2.0 * N - 1.0) * (sqrt(max(F, vec3(0.0))) - F) + F;
+    Cn = pow(max(Cn, vec3(0.0)), vec3(1.0 / Linearization));
+    return mix(B, Cn, Strength);
+}
+
+vec4 CreatorGrainRnm(vec2 tc) {
+    float noise = sin(dot(tc, vec2(12.9898, 78.233))) * 43758.5453;
+    float nr = fract(noise) * 2.0 - 1.0;
+    float ng = fract(noise * 1.2154) * 2.0 - 1.0;
+    float nb = fract(noise * 1.3453) * 2.0 - 1.0;
+    float na = fract(noise * 1.3647) * 2.0 - 1.0;
+    return vec4(nr, ng, nb, na);
+}
+
+float CreatorGrainPnoise3D(vec3 p) {
+    const float permTexUnit = 1.0 / 256.0;
+    const float permTexUnitHalf = 0.5 / 256.0;
+    vec3 pi = permTexUnit * floor(p) + permTexUnitHalf;
+    vec3 pf = fract(p);
+    float perm00 = CreatorGrainRnm(pi.xy).a;
+    vec3 grad000 = CreatorGrainRnm(vec2(perm00, pi.z)).rgb * 4.0 - 1.0;
+    float n000 = dot(grad000, pf);
+    vec3 grad001 = CreatorGrainRnm(vec2(perm00, pi.z + permTexUnit)).rgb * 4.0 - 1.0;
+    float n001 = dot(grad001, pf - vec3(0.0, 0.0, 1.0));
+    float perm01 = CreatorGrainRnm(pi.xy + vec2(0.0, permTexUnit)).a;
+    vec3 grad010 = CreatorGrainRnm(vec2(perm01, pi.z)).rgb * 4.0 - 1.0;
+    float n010 = dot(grad010, pf - vec3(0.0, 1.0, 0.0));
+    vec3 grad011 = CreatorGrainRnm(vec2(perm01, pi.z + permTexUnit)).rgb * 4.0 - 1.0;
+    float n011 = dot(grad011, pf - vec3(0.0, 1.0, 1.0));
+    float perm10 = CreatorGrainRnm(pi.xy + vec2(permTexUnit, 0.0)).a;
+    vec3 grad100 = CreatorGrainRnm(vec2(perm10, pi.z)).rgb * 4.0 - 1.0;
+    float n100 = dot(grad100, pf - vec3(1.0, 0.0, 0.0));
+    vec3 grad101 = CreatorGrainRnm(vec2(perm10, pi.z + permTexUnit)).rgb * 4.0 - 1.0;
+    float n101 = dot(grad101, pf - vec3(1.0, 0.0, 1.0));
+    float perm11 = CreatorGrainRnm(pi.xy + vec2(permTexUnit, permTexUnit)).a;
+    vec3 grad110 = CreatorGrainRnm(vec2(perm11, pi.z)).rgb * 4.0 - 1.0;
+    float n110 = dot(grad110, pf - vec3(1.0, 1.0, 0.0));
+    vec3 grad111 = CreatorGrainRnm(vec2(perm11, pi.z + permTexUnit)).rgb * 4.0 - 1.0;
+    float n111 = dot(grad111, pf - vec3(1.0, 1.0, 1.0));
+    float fadeX = pf.x * pf.x * pf.x * (pf.x * (pf.x * 6.0 - 15.0) + 10.0);
+    vec4 nX = mix(vec4(n000, n001, n010, n011), vec4(n100, n101, n110, n111), fadeX);
+    float fadeY = pf.y * pf.y * pf.y * (pf.y * (pf.y * 6.0 - 15.0) + 10.0);
+    vec2 nXy = mix(nX.xy, nX.zw, fadeY);
+    float fadeZ = pf.z * pf.z * pf.z * (pf.z * (pf.z * 6.0 - 15.0) + 10.0);
+    return mix(nXy.x, nXy.y, fadeZ);
+}
+
+vec2 CreatorGrainCoordRot(vec2 tc, float angle, float aspect) {
+    float rotX = ((tc.x * 2.0 - 1.0) * aspect * cos(angle)) - ((tc.y * 2.0 - 1.0) * sin(angle));
+    float rotY = ((tc.y * 2.0 - 1.0) * cos(angle)) + ((tc.x * 2.0 - 1.0) * aspect * sin(angle));
+    rotX = (rotX / aspect) * 0.5 + 0.5;
+    rotY = rotY * 0.5 + 0.5;
+    return vec2(rotX, rotY);
+}
+
+/// FilmGrain2.fx (martinsh) — animated 3D-Perlin grain, luminance-masked, optional coloured noise.
+vec3 ApplyCreatorFilmGrain2(vec2 texCoord, vec3 col, vec4 packIn, vec2 screenSize, float aspect, float timer) {
+    float grainamount = packIn.x;
+    if (grainamount <= 0.0) {
+        return col;
+    }
+    float coloramount = clamp(packIn.y, 0.0, 1.0);
+    float lumamount = clamp(packIn.z, 0.0, 1.0);
+    float grainsize = max(packIn.w, 0.5);
+    vec3 rotOffset = vec3(1.425, 3.892, 5.835);
+    vec2 rotCoordsR = CreatorGrainCoordRot(texCoord, timer + rotOffset.x, aspect);
+    vec3 noise = vec3(CreatorGrainPnoise3D(vec3(rotCoordsR * screenSize / grainsize, 0.0)));
+    if (coloramount > 0.0) {
+        vec2 rotCoordsG = CreatorGrainCoordRot(texCoord, timer + rotOffset.y, aspect);
+        vec2 rotCoordsB = CreatorGrainCoordRot(texCoord, timer + rotOffset.z, aspect);
+        noise.g = mix(noise.r, CreatorGrainPnoise3D(vec3(rotCoordsG * screenSize / grainsize, 1.0)), coloramount);
+        noise.b = mix(noise.r, CreatorGrainPnoise3D(vec3(rotCoordsB * screenSize / grainsize, 2.0)), coloramount);
+    }
+    const vec3 lumcoeff = vec3(0.299, 0.587, 0.114);
+    float luminance = mix(0.0, dot(col, lumcoeff), lumamount);
+    float lum = smoothstep(0.2, 0.0, luminance);
+    lum += luminance;
+    noise = mix(noise, vec3(0.0), pow(lum, 4.0));
+    return col + noise * grainamount;
+}
+
+/// DOF.fx Marty McFly RingDOF — fused focus + fringe + ring bokeh.
+float CreatorDofGetCoC(vec2 coords, vec2 px) {
+    float scenedepth = texture(sceneDepth, coords).r;
+    float scenefocus = 0.0;
+    vec4 pack0 = cameraData.creatorDofPack0;
+    vec4 pack1 = cameraData.creatorDofPack1;
+    float infiniteFocus = max(pack0.w, 0.01);
+    if (pack0.y > 0.5) {
+        vec2 focusPoint = pack1.xy;
+        int focusSamples = clamp(int(pack1.w + 0.5), 3, 10);
+        float focusRadius = pack1.z;
+        for (int r = 0; r < focusSamples; ++r) {
+            float angle = (6.2831853 / float(focusSamples)) * float(r);
+            vec2 offset = vec2(cos(angle), sin(angle));
+            offset.y *= cameraData.viewportMetrics.x / max(cameraData.viewportMetrics.y, 1.0);
+            scenefocus += texture(sceneDepth, offset * focusRadius + focusPoint).r;
+        }
+        scenefocus /= float(focusSamples);
+    } else {
+        scenefocus = pack0.z;
+    }
+    scenefocus = smoothstep(0.0, infiniteFocus, scenefocus);
+    scenedepth = smoothstep(0.0, infiniteFocus, scenedepth);
+    float farBlurDepth = scenefocus * pow(4.0, cameraData.creatorDofPack2.y);
+    float scenecoc;
+    if (scenedepth < scenefocus) {
+        scenecoc = (scenedepth - scenefocus) / max(scenefocus, 1e-4);
+    } else {
+        scenecoc = (scenedepth - scenefocus) / max(farBlurDepth - scenefocus, 1e-4);
+        scenecoc = clamp(scenecoc, 0.0, 1.0);
+    }
+    return clamp(scenecoc * 0.5 + 0.5, 0.0, 1.0);
+}
+
+vec3 ApplyCreatorRingDof(vec2 sampleUv, vec2 px, vec3 colorIn) {
+    float strength = cameraData.creatorDofPack0.x;
+    if (strength <= 1e-6) {
+        return colorIn;
+    }
+    vec4 pack2 = cameraData.creatorDofPack2;
+    vec4 pack3 = cameraData.creatorDofPack3;
+    float centerDepth = CreatorDofGetCoC(sampleUv, px);
+    float blurAmount = abs(centerDepth * 2.0 - 1.0);
+    float discRadius = blurAmount * pack2.z;
+    discRadius *= (centerDepth < 0.5) ? (1.0 / max(pack2.x * 2.0, 1.0)) : 1.0;
+    if (discRadius < 1.2) {
+        return colorIn;
+    }
+
+    vec3 scenecolor = colorIn;
+    float fringe = pack3.w;
+    vec2 fringeScale = fringe * discRadius * px;
+    scenecolor.r = texture(hdrSceneLinear, sampleUv + vec2(0.0, 1.0) * fringeScale).r;
+    scenecolor.g = texture(hdrSceneLinear, sampleUv + vec2(-0.866, -0.5) * fringeScale).g;
+    scenecolor.b = texture(hdrSceneLinear, sampleUv + vec2(0.866, -0.5) * fringeScale).b;
+
+    vec3 blurcolor = scenecolor;
+    float blurWeight = 1.0;
+    int ringRings = clamp(int(pack3.x + 0.5), 1, 8);
+    int ringSamplesBase = clamp(int(pack2.w + 0.5), 5, 30);
+    float ringThreshold = pack3.y;
+    float ringGain = pack3.z;
+    float ringBias = cameraData.creatorDofPack4.x;
+
+    for (int g = 1; g <= ringRings; ++g) {
+        int ringsamples = g * ringSamplesBase;
+        for (int j = 0; j < ringsamples; ++j) {
+            float stepAngle = 6.2831853 / float(ringsamples);
+            vec2 sampleoffset = vec2(cos(float(j) * stepAngle), sin(float(j) * stepAngle));
+            vec3 tap = texture(hdrSceneLinear, sampleUv + sampleoffset * px * discRadius * float(g) / float(ringRings)).rgb;
+            float tapluma = dot(tap, vec3(0.333));
+            float tapthresh = max((tapluma - ringThreshold) * ringGain, 0.0);
+            tap *= 1.0 + tapthresh * blurAmount;
+            float tapDepth = CreatorDofGetCoC(sampleUv + sampleoffset * px * discRadius * float(g) / float(ringRings), px);
+            float tapw = (tapDepth >= centerDepth * 0.99) ? 1.0 : pow(abs(tapDepth * 2.0 - 1.0), 4.0);
+            tapw *= mix(1.0, float(g) / float(ringRings), ringBias);
+            blurcolor += tap * tapw;
+            blurWeight += tapw;
+        }
+    }
+    blurcolor /= max(blurWeight, 1e-4);
+    vec3 result = mix(colorIn, blurcolor, smoothstep(1.2, 2.0, discRadius));
+    return mix(colorIn, result, strength);
+}
+
+vec3 CreatorAmbientLightDetectHigh(vec2 uv) {
+    vec3 x = texture(hdrSceneLinear, uv).rgb;
+    x *= pow(max(max(x.r, max(x.g, x.b)), 0.0), 2.0);
+    float base = (x.r + x.g + x.b) / 3.0;
+    float nR = (x.r * 2.0) - base;
+    float nG = (x.g * 2.0) - base;
+    float nB = (x.b * 2.0) - base;
+    if (nR < 0.0) { nG += nR / 2.0; nB += nR / 2.0; nR = 0.0; }
+    if (nG < 0.0) { nB += nG / 2.0; nR = (nR > -nG / 2.0) ? nR + nG / 2.0 : 0.0; nG = 0.0; }
+    if (nB < 0.0) { nR = (nR > -nB / 2.0) ? nR + nB / 2.0 : 0.0; nG = (nG > -nB / 2.0) ? nG + nB / 2.0 : 0.0; nB = 0.0; }
+    if (nR > 1.0) { nG += (nR - 1.0) / 2.0; nB += (nR - 1.0) / 2.0; nR = 1.0; }
+    if (nG > 1.0) { nB += (nG - 1.0) / 2.0; nR = (nR + (nG - 1.0) < 1.0) ? nR + (nG - 1.0) / 2.0 : 1.0; nG = 1.0; }
+    if (nB > 1.0) { nR = (nR + (nB - 1.0) < 1.0) ? nR + (nB - 1.0) / 2.0 : 1.0; nG = (nG + (nB - 1.0) < 1.0) ? nG + (nB - 1.0) / 2.0 : 1.0; nB = 1.0; }
+    return vec3(nR, nG, nB);
+}
+
+vec3 CreatorAmbientLightBlurAt(vec2 uv, vec2 px, bool horizontal, float threshold, float stepMult) {
+    const float sampleOffsets[5] = float[5](0.0, 2.4347826, 4.3478260, 6.2608695, 8.1739130);
+    const float sampleWeights[5] = float[5](0.16818994, 0.27276957, 0.111690125, 0.024067905, 0.0021112196);
+    vec2 blurPx = px * 16.0;
+    vec3 accum = CreatorAmbientLightDetectHigh(uv) * sampleWeights[0];
+    accum = max(accum - threshold, 0.0);
+    for (int i = 1; i < 5; ++i) {
+        vec2 delta = horizontal ? vec2(sampleOffsets[i] * blurPx.x, 0.0) : vec2(0.0, sampleOffsets[i] * blurPx.y);
+        vec3 tap = CreatorAmbientLightDetectHigh(uv + delta);
+        tap = max(tap - threshold, 0.0);
+        accum += tap * sampleWeights[i] * stepMult;
+        tap = CreatorAmbientLightDetectHigh(uv - delta);
+        tap = max(tap - threshold, 0.0);
+        accum += tap * sampleWeights[i] * stepMult;
+    }
+    return accum;
+}
+
+vec3 CreatorAmbientLightBlurredHigh(vec2 uv, vec2 px, float threshold, float timePhase) {
+    float stepMult = 1.08 + mod(timePhase, 6.28) * 0.0002;
+    vec3 color = CreatorAmbientLightDetectHigh(uv);
+    for (int passIndex = 0; passIndex < 6; ++passIndex) {
+        color = CreatorAmbientLightBlurAt(uv, px, (passIndex % 2) == 0, threshold, stepMult);
+    }
+    return color;
+}
+
+float CreatorAmbientLightDetectLow(vec2 px) {
+    vec3 detectLow = vec3(0.0);
+    int sampleCount = 0;
+    for (float i = 0.0; i <= 1.0; i += 0.0625) {
+        for (float j = 0.0; j <= 1.0; j += 0.0625) {
+            detectLow += CreatorAmbientLightDetectHigh(vec2(i, j));
+            sampleCount += 1;
+        }
+    }
+    detectLow /= float(sampleCount);
+    return sqrt(0.241 * detectLow.r * detectLow.r + 0.691 * detectLow.g * detectLow.g + 0.068 * detectLow.b * detectLow.b);
+}
+
+vec3 CreatorAmbientLightProceduralDirt(vec2 uv) {
+    vec2 p = uv * vec2(13.0, 7.0);
+    float n = fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+    float streak = pow(max(1.0 - abs(uv.y - 0.5) * 1.6, 0.0), 3.0);
+    return vec3(0.55 + 0.35 * n) * (0.35 + 0.65 * streak);
+}
+
+vec3 CreatorAmbientLightProceduralDirtOvr(vec2 uv, vec3 tint, float timePhase) {
+    vec2 p = uv * 8.0 + vec2(timePhase * 0.01, 0.0);
+    float n = fract(sin(dot(p, vec2(41.23, 17.91))) * 1031.73);
+    return tint * (0.25 + 0.75 * n) * pow(max(1.0 - length(uv - 0.5), 0.0), 1.5);
+}
+
+vec3 ApplyCreatorAmbientLight(vec2 sampleUv, vec2 px, vec3 colorIn) {
+    vec4 pack0 = cameraData.creatorAmbientLightPack0;
+    float alInt = pack0.x;
+    if (alInt <= 1e-6) {
+        return colorIn;
+    }
+    vec4 pack1 = cameraData.creatorAmbientLightPack1;
+    vec4 pack2 = cameraData.creatorAmbientLightPack2;
+    float threshold = pack0.y;
+    bool useAdaptation = pack2.w > 0.5;
+    bool useDither = pack1.y > 0.5;
+    bool useDirt = pack1.z > 0.5;
+    int adaptiveMode = clamp(int(pack1.w + 0.5), 0, 2);
+    float adaptAmount = 0.0;
+    if (useAdaptation) {
+        float low = pow(CreatorAmbientLightDetectLow(px) * 1.25, 2.0);
+        adaptAmount = low * (low + 1.0) * pack0.z * alInt * 5.0;
+    }
+
+    vec3 high = min(CreatorAmbientLightBlurredHigh(sampleUv, px, threshold, pack2.z), vec3(0.0325)) * 1.15;
+    vec3 highOrig = high;
+    if (useDirt) {
+        vec3 dirt = CreatorAmbientLightProceduralDirt(sampleUv);
+        vec3 dirtOvrWarm = CreatorAmbientLightProceduralDirtOvr(sampleUv, vec3(1.0, 0.55, 0.25), pack2.z);
+        vec3 dirtOvrCold = CreatorAmbientLightProceduralDirtOvr(sampleUv, vec3(0.25, 0.45, 1.0), pack2.z);
+        float maxhigh = max(high.r, max(high.g, high.b));
+        float threshDiff = maxhigh - 3.2;
+        if (threshDiff > 0.0) {
+            high = (high / maxhigh) * 3.2;
+        }
+        vec3 highDirt = highOrig * high * pack2.x;
+        float highMix = max(highOrig.r + highOrig.g + highOrig.b, 1e-4);
+        float red = highOrig.r / highMix;
+        float green = highOrig.g / highMix;
+        float blue = highOrig.b / highMix;
+        highOrig = highOrig + highDirt;
+        if (adaptiveMode == 2) {
+            high = high + high * dirtOvrWarm * pack2.y * green;
+            high = high + highDirt;
+            high = high + highOrig * dirtOvrCold * pack2.y * blue;
+            high = high + highOrig * dirtOvrWarm * pack2.y * red;
+        } else if (adaptiveMode == 1) {
+            high = high + highDirt;
+            high = high + highOrig * dirtOvrCold * pack2.y;
+        } else {
+            high = high + highDirt;
+            high = high + highOrig * dirtOvrWarm * pack2.y;
+        }
+    }
+
+    vec3 base = colorIn;
+    float dither = 0.0;
+    if (useDither) {
+        dither = 0.15 * (1.0 / (pow(2.0, 10.0) - 1.0));
+        dither = mix(2.0 * dither, -2.0 * dither, fract(dot(sampleUv, cameraData.viewportMetrics.xy * vec2(1.0 / 16.0, 10.0 / 36.0)) + 0.25));
+    }
+
+    if (useAdaptation) {
+        base *= max(0.0, 1.0 - adaptAmount * 0.75 * pack0.w * pow(abs(1.0 - (base.x + base.y + base.z) / 3.0), pack1.x));
+        vec3 highSampleMix = (1.0 - ((1.0 - base) * (1.0 - high))) + dither;
+        vec3 baseSample = mix(base, highSampleMix, max(0.0, alInt - adaptAmount));
+        float baseSampleMix = baseSample.r + baseSample.g + baseSample.b;
+        return baseSampleMix > 0.008 ? baseSample : mix(base, highSampleMix, max(0.0, (alInt - adaptAmount) * 0.85) * baseSampleMix);
+    }
+    vec3 highSampleMix = (1.0 - ((1.0 - base) * (1.0 - high))) + dither;
+    vec3 baseSample = mix(base, highSampleMix, alInt);
+    float baseSampleMix = baseSample.r + baseSample.g + baseSample.b;
+    return baseSampleMix > 0.008 ? baseSample : mix(base, highSampleMix, max(0.0, alInt * 0.85) * baseSampleMix);
+}
+
+float CreatorRbmGetLinearDepth(vec2 coords) {
+    return texture(sceneDepth, coords).r;
+}
+
+vec3 CreatorRbmGetPosition(vec2 coords, float depthFarPlane) {
+    float eyeDepth = CreatorRbmGetLinearDepth(coords) * depthFarPlane;
+    return vec3((coords * 2.0 - 1.0) * eyeDepth, eyeDepth);
+}
+
+vec3 CreatorRbmGetNormalFromDepth(vec2 coords, vec2 px, float depthFarPlane) {
+    vec3 centerPos = CreatorRbmGetPosition(coords, depthFarPlane);
+    vec2 offs = px * 1.0;
+    vec3 ddx1 = CreatorRbmGetPosition(coords + vec2(offs.x, 0.0), depthFarPlane) - centerPos;
+    vec3 ddx2 = centerPos - CreatorRbmGetPosition(coords - vec2(offs.x, 0.0), depthFarPlane);
+    vec3 ddy1 = CreatorRbmGetPosition(coords + vec2(0.0, offs.y), depthFarPlane) - centerPos;
+    vec3 ddy2 = centerPos - CreatorRbmGetPosition(coords - vec2(0.0, offs.y), depthFarPlane);
+    ddx1 = mix(ddx1, ddx2, step(abs(ddx2.z), abs(ddx1.z)));
+    ddy1 = mix(ddy1, ddy2, step(abs(ddy2.z), abs(ddy1.z)));
+    return normalize(cross(ddy1, ddx1));
+}
+
+vec3 CreatorRbmGetNormalFromColor(vec2 coords, vec2 offset, float scale, float sharpness, float scenedepth) {
+    const vec3 lumCoeff = vec3(0.299, 0.587, 0.114);
+    float hpx = dot(texture(hdrSceneLinear, coords + vec2(offset.x, 0.0)).rgb, lumCoeff) * scale;
+    float hmx = dot(texture(hdrSceneLinear, coords - vec2(offset.x, 0.0)).rgb, lumCoeff) * scale;
+    float hpy = dot(texture(hdrSceneLinear, coords + vec2(0.0, offset.y)).rgb, lumCoeff) * scale;
+    float hmy = dot(texture(hdrSceneLinear, coords - vec2(0.0, offset.y)).rgb, lumCoeff) * scale;
+    float dpx = CreatorRbmGetLinearDepth(coords + vec2(offset.x, 0.0));
+    float dmx = CreatorRbmGetLinearDepth(coords - vec2(offset.x, 0.0));
+    float dpy = CreatorRbmGetLinearDepth(coords + vec2(0.0, offset.y));
+    float dmy = CreatorRbmGetLinearDepth(coords - vec2(0.0, offset.y));
+    vec2 xymult = vec2(abs(dmx - dpx), abs(dmy - dpy)) * sharpness;
+    xymult = max(vec2(0.0), vec2(1.0) - xymult);
+    float ddx = (hmx - hpx) / (2.0 * offset.x) * xymult.x;
+    float ddy = (hmy - hpy) / (2.0 * offset.y) * xymult.y;
+    return normalize(vec3(ddx, ddy, 1.0));
+}
+
+vec3 CreatorRbmBlendNormals(vec3 n1, vec3 n2) {
+    return normalize(vec3(n1.xy * n2.z + n2.xy * n1.z, n1.z * n2.z));
+}
+
+vec3 CreatorRbmRgb2Hsv(vec3 rgb) {
+    vec4 k = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    vec4 p = rgb.g < rgb.b ? vec4(rgb.bg, k.wz) : vec4(rgb.gb, k.xy);
+    vec4 q = rgb.r < p.x ? vec4(p.xyw, rgb.r) : vec4(rgb.r, p.yzx);
+    float d = q.x - min(q.w, q.y);
+    float e = 1.0e-10;
+    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+float CreatorRbmGetHueMaskFull(float hue, vec4 pack2, vec4 pack3) {
+    float sMod = 0.0;
+    sMod += pack2.x * (1.0 - min(1.0, abs(hue / 0.08333333)));
+    sMod += pack2.y * (1.0 - min(1.0, abs((0.08333333 - hue) / (-0.08333333))));
+    sMod += pack2.z * (1.0 - min(1.0, abs((0.16666667 - hue) / (-0.16666667))));
+    sMod += pack2.w * (1.0 - min(1.0, abs((0.33333333 - hue) / 0.16666667)));
+    sMod += pack3.x * (1.0 - min(1.0, abs((0.5 - hue) / 0.16666667)));
+    sMod += pack3.y * (1.0 - min(1.0, abs((0.66666667 - hue) / 0.16666667)));
+    sMod += pack3.z * (1.0 - min(1.0, abs((0.83333333 - hue) / 0.16666667)));
+    sMod += pack2.x * (1.0 - min(1.0, abs((1.0 - hue) / 0.16666667)));
+    return sMod;
+}
+
+/// ReflectiveBumpMapping.fx Marty McFly — screen-space glossy relief reflections.
+vec3 ApplyCreatorReflectiveBumpMapping(vec2 sampleUv, vec2 px, vec3 colorIn) {
+    vec4 pack0 = cameraData.creatorReflectiveBumpMappingPack0;
+    float strength = pack0.x;
+    if (strength <= 1e-6) {
+        return colorIn;
+    }
+    vec4 pack1 = cameraData.creatorReflectiveBumpMappingPack1;
+    vec4 pack2 = cameraData.creatorReflectiveBumpMappingPack2;
+    vec4 pack3 = cameraData.creatorReflectiveBumpMappingPack3;
+    float depthFarPlane = max(pack3.w, 1.0);
+    float scenedepth = CreatorRbmGetLinearDepth(sampleUv);
+    vec3 surfaceNormals = CreatorRbmGetNormalFromDepth(sampleUv, px, depthFarPlane);
+    vec2 colorOffset = 0.01 * px / max(scenedepth, 1e-4);
+    float colorScale = 0.0002 / max(scenedepth, 1e-4) + 0.1;
+    vec3 textureNormals = CreatorRbmGetNormalFromColor(sampleUv, colorOffset, colorScale, 1000.0, scenedepth);
+    vec3 sceneNormals = CreatorRbmBlendNormals(surfaceNormals, textureNormals);
+    sceneNormals = normalize(mix(surfaceNormals, sceneNormals, pack0.z));
+    vec3 screenSpacePosition = CreatorRbmGetPosition(sampleUv, depthFarPlane);
+    vec3 viewDirection = normalize(screenSpacePosition);
+    vec3 color = colorIn;
+    vec3 bump = vec3(0.0);
+    int sampleCount = clamp(int(pack1.w + 0.5), 16, 128);
+    float blurWidth = max(pack0.y, 0.0);
+    for (int i = 1; i <= 128; ++i) {
+        if (i > sampleCount) {
+            break;
+        }
+        vec2 currentOffset = sampleUv
+            + sceneNormals.xy * px * (float(i) / float(sampleCount)) * blurWidth;
+        vec3 texelSample = texture(hdrSceneLinear, currentOffset).rgb;
+        float depthDiff = smoothstep(0.005, 0.0, scenedepth - CreatorRbmGetLinearDepth(currentOffset));
+        float colorWeight = smoothstep(pack1.y, pack1.z + 0.00001, dot(texelSample, vec3(0.299, 0.587, 0.114)));
+        bump += mix(color, texelSample, depthDiff * colorWeight);
+    }
+    bump /= float(sampleCount);
+    float cosphi = dot(-viewDirection, sceneNormals);
+    float schlickReflectance = mix(pow(1.0 - cosphi, 5.0), 1.0, pack0.w);
+    schlickReflectance = clamp(schlickReflectance * pack1.x, 0.0, 1.0);
+    vec3 hsvcol = CreatorRbmRgb2Hsv(color);
+    float colorMask = CreatorRbmGetHueMaskFull(hsvcol.x, pack2, pack3);
+    colorMask = mix(1.0, colorMask, smoothstep(0.0, 0.2, hsvcol.y) * smoothstep(0.0, 0.1, hsvcol.z));
+    vec3 reflected = mix(color, bump, schlickReflectance * colorMask);
+    return mix(colorIn, reflected, strength);
+}
+
+vec3 ApplyCreatorFakeMotionBlur(vec2 sampleUv, vec2 px, vec3 colorIn) {
+    vec4 pack = cameraData.creatorFakeMotionBlurPack0;
+    float recall = pack.x;
+    if (recall <= 1e-6) {
+        return colorIn;
+    }
+    float softness = max(pack.y, 0.0);
+    vec3 curr = colorIn;
+    vec3 prevSingle = texture(fakeMotionBlurHistory, sampleUv).rgb;
+    vec3 prev = prevSingle;
+    vec3 diff3 = abs(prevSingle - curr) * 2.0;
+    float diff = min(diff3.r + diff3.g + diff3.b, recall);
+    const float weight[11] = float[11](
+        0.082607, 0.040484, 0.038138, 0.034521, 0.030025,
+        0.025094, 0.020253, 0.015553, 0.011533, 0.008218, 0.005627);
+    vec3 blurredPrev = prev * weight[0];
+    float pixelBlur = softness * 13.0 * diff * px.x;
+    float pixelBlur2 = softness * 11.0 * diff * px.y;
+    for (int z = 1; z < 11; ++z) {
+        blurredPrev += texture(fakeMotionBlurHistory, sampleUv + vec2(float(z) * pixelBlur, 0.0)).rgb * weight[z];
+        blurredPrev += texture(fakeMotionBlurHistory, sampleUv - vec2(float(z) * pixelBlur, 0.0)).rgb * weight[z];
+        blurredPrev += texture(fakeMotionBlurHistory, sampleUv + vec2(0.0, float(z) * pixelBlur2)).rgb * weight[z];
+        blurredPrev += texture(fakeMotionBlurHistory, sampleUv - vec2(0.0, float(z) * pixelBlur2)).rgb * weight[z];
+    }
+    return mix(curr, blurredPrev, diff + 0.1);
+}
+
 void main() {
     vec2 sampleUv = vec2(vUv.x, 1.0 - vUv.y);
     vec2 px = vec2(cameraData.viewportMetrics.z, cameraData.viewportMetrics.w);
+    if (cameraData.reshadeDisplayDepthPack.y > 1.5) {
+        fragColor = vec4(texture(hdrSceneLinear, sampleUv).rgb, 1.0);
+        return;
+    }
     float ditherAmt = clamp(cameraData.presentationColorGrading.y, 0.0, 1.0);
     float debandAmt = clamp(cameraData.presentationColorGrading.z, 0.0, 0.12);
     float vignetteAmt = clamp(cameraData.presentationColorGrading.w, 0.0, 1.0);
@@ -4620,6 +5924,19 @@ void main() {
     mapped = ApplyPd80DepthSlicer(sampleUv, mapped);
     mapped = ApplyPd80ColorGamut(mapped);
     mapped = ApplyPd80ColorSpaceCurves(sampleUv, mapped);
+    mapped = ApplyCreatorFilmicPass(mapped, cameraData.creatorFilmicPassPack);
+    mapped = ApplyCreatorColourfulness(mapped, cameraData.creatorColourfulnessPack);
+    mapped = ApplyCreatorFilmGrain2(
+        sampleUv,
+        mapped,
+        cameraData.creatorFilmGrain2Pack,
+        cameraData.viewportMetrics.xy,
+        aspectView,
+        cameraData.postProcessSecondary.z);
+    mapped = ApplyCreatorReflectiveBumpMapping(sampleUv, px, mapped);
+    mapped = ApplyCreatorAmbientLight(sampleUv, px, mapped);
+    mapped = ApplyCreatorRingDof(sampleUv, px, mapped);
+    mapped = ApplyCreatorFakeMotionBlur(sampleUv, px, mapped);
     mapped = ApplySweetFxCompare(beforeSplit, mapped, sampleUv, cameraData.sweetFxComparePack);
     mapped = ApplySweetFxSplitscreen(beforeSplit, mapped, sampleUv, cameraData.sweetFxSplitscreenModeStrength);
     fragColor = vec4(clamp(mapped, 0.0, 1.0), 1.0);

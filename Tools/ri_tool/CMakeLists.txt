@@ -1,5 +1,12 @@
 add_executable(ri_tool
+  ../../Apps/RawIron.Editor/src/EditorProjectScaffolding.cpp
+  ../../Apps/RawIron.Editor/src/EditorWorkspace.cpp
   src/main.cpp
+)
+
+target_include_directories(ri_tool
+  PRIVATE
+    ${PROJECT_SOURCE_DIR}/Apps/RawIron.Editor/src
 )
 
 target_link_libraries(ri_tool
@@ -47,6 +54,33 @@ if (RAWIRON_BUILD_TESTS)
     "Workspace root: ${RAWIRON_TOOL_WORKSPACE_ROOT_NATIVE}"
     "Assets/Source: ${RAWIRON_TOOL_WORKSPACE_ASSETS_NATIVE}"
     "Projects/Sandbox/Scenes: ${RAWIRON_TOOL_WORKSPACE_SCENES_NATIVE}"
+  )
+  file(TO_NATIVE_PATH "${PROJECT_SOURCE_DIR}/Games/RawIronMultiplayerSandbox" RAWIRON_TOOL_MPS_ROOT_NATIVE)
+  set(rawiron_tool_projects_expected
+    "Workspace root: ${RAWIRON_TOOL_WORKSPACE_ROOT_NATIVE}"
+    "project id=liminal-hall"
+    "project id=rawiron-multiplayer-sandbox"
+    "project id=wilderness-ruins"
+    "Project count: 3"
+  )
+  set(rawiron_tool_describe_project_expected
+    "Project id: rawiron-multiplayer-sandbox"
+    "Project root: ${RAWIRON_TOOL_MPS_ROOT_NATIVE}"
+    "Runtime module: RawIron.Game.MultiplayerSandbox"
+    "Editor launch token: --game=rawiron-multiplayer-sandbox"
+    "Format validation: pass"
+  )
+  set(rawiron_tool_doctor_project_expected
+    "Doctor project id: rawiron-multiplayer-sandbox"
+    "Runtime module: RawIron.Game.MultiplayerSandbox"
+    "Doctor result: healthy"
+  )
+  set(rawiron_tool_list_resources_expected
+    "Project id: liminal-hall"
+    "Filter category: Level"
+    "[Levels] levels/assembly.primitives.csv"
+    "[Levels] levels/assembly.structural.csv"
+    "Resource rows:"
   )
   set(rawiron_tool_reference_expected
     "Scene Kit parity gate: 11 tracked references"
@@ -131,6 +165,8 @@ if (RAWIRON_BUILD_TESTS)
   )
   set(rawiron_scene_state_root "${CMAKE_CURRENT_BINARY_DIR}/scene-state-smoke")
   set(rawiron_scene_state_path "${rawiron_scene_state_root}/tool_scene_state.ri_state")
+  set(rawiron_project_create_root "${CMAKE_CURRENT_BINARY_DIR}/project-create-smoke/ToolCliSample")
+  file(TO_NATIVE_PATH "${rawiron_project_create_root}" rawiron_project_create_root_native)
   set(rawiron_scene_state_save_expected
     "Saved scene state."
     "Output: ${rawiron_scene_state_path}"
@@ -141,6 +177,14 @@ if (RAWIRON_BUILD_TESTS)
     "Input: ${rawiron_scene_state_path}"
     "Scene: ToolStateScene"
     "Nodes: 13"
+  )
+  set(rawiron_tool_create_project_expected
+    "Created RawIron project."
+    "Project id: tool-cli-sample"
+    "Project name: Tool CLI Sample"
+    "Project root: ${rawiron_project_create_root_native}"
+    "Manifest path: ${rawiron_project_create_root_native}/manifest.json"
+    "Editor launch token: --game=tool-cli-sample"
   )
   set(rawiron_workspace_required
     "Documentation"
@@ -190,6 +234,64 @@ if (RAWIRON_BUILD_TESTS)
       "-DEXPECTED_STRINGS=${rawiron_tool_workspace_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
       "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
+    NAME RawIron.Tool.ListProjects
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--list-projects;--root;${PROJECT_SOURCE_DIR}"
+      "-DEXPECTED_STRINGS=${rawiron_tool_projects_expected}"
+      "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
+    NAME RawIron.Tool.DescribeProject
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--describe-project;--game;rawiron-multiplayer-sandbox;--root;${PROJECT_SOURCE_DIR}"
+      "-DEXPECTED_STRINGS=${rawiron_tool_describe_project_expected}"
+      "-DFORBIDDEN_STRINGS=failed;exception;Format validation: fail"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
+    NAME RawIron.Tool.DoctorProject
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--doctor-project;--game;rawiron-multiplayer-sandbox;--root;${PROJECT_SOURCE_DIR}"
+      "-DEXPECTED_STRINGS=${rawiron_tool_doctor_project_expected}"
+      "-DFORBIDDEN_STRINGS=failed;exception;Doctor result: unhealthy"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
+    NAME RawIron.Tool.ListProjectResources
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--list-project-resources;--game;liminal-hall;--resource-category;levels;--root;${PROJECT_SOURCE_DIR}"
+      "-DEXPECTED_STRINGS=${rawiron_tool_list_resources_expected}"
+      "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
+    NAME RawIron.Tool.CreateProject
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--create-project;tool-cli-sample;--name;Tool CLI Sample;--author;RawIron Tooling;--type;game;--version;1.0.0;--description;Created by tool test.;--root;${PROJECT_SOURCE_DIR};--game-root;${rawiron_project_create_root}"
+      "-DEXPECTED_STRINGS=${rawiron_tool_create_project_expected}"
+      "-DFORBIDDEN_STRINGS=failed;exception;Format validation: fail"
+      "${rawiron_tool_runtime_dll_arg}"
+      "-DCLEAN_PATHS_RAW=${rawiron_project_create_root}"
+      "-DVERIFY_FILES_ROOT=${rawiron_project_create_root}"
+      "-DREQUIRED_RELATIVE_FILES=manifest.json;levels/assembly.primitives.csv;scripts/gameplay.riscript;config/game.cfg"
       -P "${rawiron_verify_command_output}"
   )
 

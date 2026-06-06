@@ -37,6 +37,19 @@ fs::path ResolveWorkspaceRoot(const std::optional<std::string>& workspaceRootArg
     return ri::content::DetectWorkspaceRoot(fs::current_path());
 }
 
+std::optional<ri::games::liminal::RuntimeUiBootFlow> ParseRuntimeUiBootFlow(std::string_view value) {
+    if (value == "gameplay" || value == "off") {
+        return ri::games::liminal::RuntimeUiBootFlow::Gameplay;
+    }
+    if (value == "menu") {
+        return ri::games::liminal::RuntimeUiBootFlow::Menu;
+    }
+    if (value == "vn" || value == "visual-novel") {
+        return ri::games::liminal::RuntimeUiBootFlow::VisualNovel;
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -54,6 +67,8 @@ int main(int argc, char** argv) {
         ri::core::LogInfo("  --window-title=<text>       Override window title");
         ri::core::LogInfo("  --mouse-sensitivity=<float> Degrees-per-pixel override");
         ri::core::LogInfo("  --no-mouse-capture          Disable recenter/capture for debugging");
+        ri::core::LogInfo("  --boot-ui=gameplay|menu|vn  Override game-local runtime UI boot flow");
+        ri::core::LogInfo("  --disable-ui-hotkeys        Disable F1/F2 runtime UI flow toggles");
         ri::core::LogInfo("  --start-from-checkpoint     Resume startup from persisted checkpoint slot if present");
         ri::core::LogInfo("  --checkpoint-slot=<id>      Checkpoint slot id (default: autosave)");
         ri::core::LogInfo("  --resume-query=<query>      URL-style query string (?startFromCheckpoint=1&checkpointSlot=...)");
@@ -118,6 +133,17 @@ int main(int argc, char** argv) {
     if (const auto windowTitle = commandLine.GetValue("--window-title");
         windowTitle.has_value() && !windowTitle->empty()) {
         options.windowTitle = *windowTitle;
+    }
+    if (const auto bootUi = commandLine.GetValue("--boot-ui"); bootUi.has_value() && !bootUi->empty()) {
+        if (const std::optional<ri::games::liminal::RuntimeUiBootFlow> bootFlow = ParseRuntimeUiBootFlow(*bootUi);
+            bootFlow.has_value()) {
+            options.runtimeUiBootFlowOverride = *bootFlow;
+        } else {
+            ri::core::LogInfo("Invalid --boot-ui value; using game-local ui.riscript policy.");
+        }
+    }
+    if (commandLine.HasFlag("--disable-ui-hotkeys")) {
+        options.runtimeUiHotkeysEnabledOverride = false;
     }
     options.captureMouse = !commandLine.HasFlag("--no-mouse-capture");
     options.startFromCheckpoint = commandLine.HasFlag("--start-from-checkpoint");

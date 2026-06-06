@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "startScreen": "title",
+  "screens": [
+    {
+      "id": "title",
+      "title": "RawIron Multiplayer Sandbox",
+      "background": {
+        "tint": [0.03, 0.05, 0.08, 0.98]
+      },
+      "blocks": [
+        { "type": "heading", "text": "RawIron Multiplayer Sandbox", "align": "center" },
+        { "type": "spacer", "height": 18 },
+        { "type": "paragraph", "text": "Shared menu flow for the network proving ground.", "align": "center" },
+        { "type": "spacer", "height": 24 },
+        { "type": "button", "label": "Open Catalog", "action": { "type": "emit", "id": "game.start" } },
+        { "type": "button", "label": "Session Notes", "action": { "type": "navigate", "target": "session_notes" } },
+        { "type": "button", "label": "Quit", "action": { "type": "emit", "id": "app.quit" } }
+      ]
+    },
+    {
+      "id": "session_notes",
+      "title": "Session notes",
+      "background": {
+        "tint": [0.05, 0.06, 0.08, 0.96]
+      },
+      "advance": {
+        "onSpace": true,
+        "onClick": true,
+        "onEnter": true,
+        "action": { "type": "navigate", "target": "title" }
+      },
+      "blocks": [
+        { "type": "historyNote", "text": "Sandbox boot", "backlogOnly": true },
+        { "type": "say", "speaker": "Ops", "text": "This game-local menu flow belongs to the sandbox project, not a repo-wide sample." },
+        { "type": "spacer", "height": 14 },
+        { "type": "narration", "text": "Use it for mode notes, host/client guidance, or network session walkthroughs.", "align": "left" },
+        { "type": "label", "text": "Space or click to return", "align": "center" }
+      ]
+    }
+  ]
+}

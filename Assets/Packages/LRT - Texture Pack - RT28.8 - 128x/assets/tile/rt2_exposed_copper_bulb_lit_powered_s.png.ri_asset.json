@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_exposed_copper_bulb_lit_powered_s_png",
+  "type": "texture",
+  "displayName": "rt2_exposed_copper_bulb_lit_powered_s",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_exposed_copper_bulb_lit_powered_s.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_exposed_copper_bulb_lit_powered_s_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_exposed_copper_bulb_lit_powered_s.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

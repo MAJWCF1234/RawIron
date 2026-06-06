@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_bookshelf_png",
+  "type": "texture",
+  "displayName": "rt2_bookshelf",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_bookshelf.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_bookshelf_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_bookshelf.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

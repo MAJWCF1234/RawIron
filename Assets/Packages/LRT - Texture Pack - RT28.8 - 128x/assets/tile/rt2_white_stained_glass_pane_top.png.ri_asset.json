@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_white_stained_glass_pane_top_png",
+  "type": "texture",
+  "displayName": "rt2_white_stained_glass_pane_top",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_white_stained_glass_pane_top.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_white_stained_glass_pane_top_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_white_stained_glass_pane_top.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

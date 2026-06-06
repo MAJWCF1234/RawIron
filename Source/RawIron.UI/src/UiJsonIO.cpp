@@ -6,6 +6,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <iomanip>
+#include <limits>
 #include <optional>
 #include <sstream>
 
@@ -14,6 +16,140 @@ namespace ri::ui {
 namespace json = ri::core::detail;
 
 namespace {
+
+[[nodiscard]] std::string EscapeJsonString(std::string_view text) {
+    static constexpr char kHex[] = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(text.size() + 8);
+    for (const unsigned char ch : text) {
+        switch (ch) {
+            case '\\': out += "\\\\"; break;
+            case '"': out += "\\\""; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (ch < 0x20U) {
+                    out += "\\u00";
+                    out.push_back(kHex[(ch >> 4U) & 0x0FU]);
+                    out.push_back(kHex[ch & 0x0FU]);
+                } else {
+                    out.push_back(static_cast<char>(ch));
+                }
+                break;
+        }
+    }
+    return out;
+}
+
+void AppendJsonIndent(std::ostringstream& out, const int indent) {
+    for (int i = 0; i < indent; ++i) {
+        out << ' ';
+    }
+}
+
+[[nodiscard]] std::string FormatJsonFloat(const float value) {
+    if (!std::isfinite(value)) {
+        return "0";
+    }
+    std::ostringstream out;
+    out << std::setprecision(std::numeric_limits<float>::max_digits10) << value;
+    return out.str();
+}
+
+void AppendUiActionJson(std::ostringstream& out, const UiAction& action, const int indent) {
+    AppendJsonIndent(out, indent);
+    out << "{ ";
+    switch (action.kind) {
+        case UiActionKind::Navigate:
+            out << "\"type\": \"navigate\", \"target\": \"" << EscapeJsonString(action.target) << "\"";
+            break;
+        case UiActionKind::Emit:
+            out << "\"type\": \"emit\", \"id\": \"" << EscapeJsonString(action.target) << "\"";
+            break;
+        case UiActionKind::Back:
+            out << "\"type\": \"back\"";
+            break;
+        case UiActionKind::SetVariable:
+            out << "\"type\": \"setVar\", \"id\": \"" << EscapeJsonString(action.target)
+                << "\", \"value\": \"" << EscapeJsonString(action.value) << "\"";
+            break;
+        case UiActionKind::None:
+            out << "\"type\": \"none\"";
+            break;
+    }
+    if (!action.whenVar.empty()) {
+        out << ", \"when\": { \"var\": \"" << EscapeJsonString(action.whenVar)
+            << "\", \"equals\": \"" << EscapeJsonString(action.whenEquals) << "\" }";
+    }
+    if (!action.setVarId.empty()) {
+        out << ", \"setVar\": { \"id\": \"" << EscapeJsonString(action.setVarId)
+            << "\", \"value\": \"" << EscapeJsonString(action.setVarValue) << "\" }";
+    }
+    out << " }";
+}
+
+void AppendUiBlockJson(std::ostringstream& out, const UiBlock& block, const int indent) {
+    AppendJsonIndent(out, indent);
+    out << "{ ";
+    switch (block.kind) {
+        case UiBlockKind::Heading: out << "\"type\": \"heading\""; break;
+        case UiBlockKind::Paragraph: out << "\"type\": \"paragraph\""; break;
+        case UiBlockKind::Label: out << "\"type\": \"label\""; break;
+        case UiBlockKind::Spacer: out << "\"type\": \"spacer\""; break;
+        case UiBlockKind::Separator: out << "\"type\": \"separator\""; break;
+        case UiBlockKind::Button: out << "\"type\": \"button\""; break;
+        case UiBlockKind::Say: out << "\"type\": \"say\""; break;
+        case UiBlockKind::Narration: out << "\"type\": \"narration\""; break;
+        case UiBlockKind::Choices: out << "\"type\": \"choices\""; break;
+        case UiBlockKind::Image: out << "\"type\": \"image\""; break;
+        case UiBlockKind::HistoryNote: out << "\"type\": \"historyNote\""; break;
+    }
+    if (!block.text.empty()) out << ", \"text\": \"" << EscapeJsonString(block.text) << "\"";
+    if (!block.align.empty()) out << ", \"align\": \"" << EscapeJsonString(block.align) << "\"";
+    if (block.kind == UiBlockKind::Spacer) out << ", \"height\": " << FormatJsonFloat(block.spacerHeight);
+    if (!block.label.empty()) out << ", \"label\": \"" << EscapeJsonString(block.label) << "\"";
+    if (!block.speaker.empty()) out << ", \"speaker\": \"" << EscapeJsonString(block.speaker) << "\"";
+    if (!block.voiceHint.empty()) out << ", \"voice\": \"" << EscapeJsonString(block.voiceHint) << "\"";
+    if (!block.portraitRelativePath.empty()) out << ", \"portrait\": \"" << EscapeJsonString(block.portraitRelativePath) << "\"";
+    if (!block.portraitSide.empty()) out << ", \"side\": \"" << EscapeJsonString(block.portraitSide) << "\"";
+    if (!block.imageRelativePath.empty()) out << ", \"image\": \"" << EscapeJsonString(block.imageRelativePath) << "\"";
+    if (!block.imageAnchor.empty()) out << ", \"anchor\": \"" << EscapeJsonString(block.imageAnchor) << "\"";
+    if (block.imageHeightHint > 0.0f) out << ", \"heightHint\": " << FormatJsonFloat(block.imageHeightHint);
+    if (!block.visibleWhenVar.empty()) {
+        out << ", \"visibleWhen\": { \"var\": \"" << EscapeJsonString(block.visibleWhenVar)
+            << "\", \"equals\": \"" << EscapeJsonString(block.visibleWhenEquals) << "\" }";
+    }
+    if (!block.rememberInHistory) out << ", \"rememberInHistory\": false";
+    if (block.historyBacklogOnly) out << ", \"backlogOnly\": true";
+    if (block.action.kind != UiActionKind::None || !block.action.setVarId.empty() || !block.action.whenVar.empty()) {
+        out << ", \"action\": ";
+        AppendUiActionJson(out, block.action, 0);
+    }
+    if (!block.choices.empty()) {
+        out << ", \"choices\": [\n";
+        for (std::size_t i = 0; i < block.choices.size(); ++i) {
+            const UiChoiceItem& choice = block.choices[i];
+            AppendJsonIndent(out, indent + 2);
+            out << "{ \"label\": \"" << EscapeJsonString(choice.label) << "\", \"action\": ";
+            AppendUiActionJson(out, choice.action, 0);
+            if (!choice.visibleWhenVar.empty()) {
+                out << ", \"visibleWhen\": { \"var\": \"" << EscapeJsonString(choice.visibleWhenVar)
+                    << "\", \"equals\": \"" << EscapeJsonString(choice.visibleWhenEquals) << "\" }";
+            }
+            out << " }";
+            if (i + 1 < block.choices.size()) {
+                out << ",";
+            }
+            out << "\n";
+        }
+        AppendJsonIndent(out, indent);
+        out << "]";
+    }
+    out << " }";
+}
 
 [[nodiscard]] std::string ReadEntireFile(const std::filesystem::path& path) {
     std::ifstream stream(path, std::ios::binary);
@@ -371,6 +507,82 @@ bool TryLoadUiManifestFromJsonFile(const std::filesystem::path& path, UiManifest
         return false;
     }
     return TryParseUiManifestFromJson(text, outManifest, errorMessage);
+}
+
+std::string SerializeUiManifestToJson(const UiManifest& manifest) {
+    std::ostringstream out;
+    out << "{\n";
+    out << "  \"schemaVersion\": " << manifest.schemaVersion << ",\n";
+    out << "  \"startScreen\": \"" << EscapeJsonString(manifest.startScreenId) << "\"";
+    if (!manifest.variables.empty()) {
+        out << ",\n  \"variables\": [\n";
+        for (std::size_t i = 0; i < manifest.variables.size(); ++i) {
+            const UiVariableDef& var = manifest.variables[i];
+            out << "    { \"id\": \"" << EscapeJsonString(var.id) << "\", \"value\": \"" << EscapeJsonString(var.value) << "\" }";
+            if (i + 1 < manifest.variables.size()) {
+                out << ",";
+            }
+            out << "\n";
+        }
+        out << "  ]";
+    }
+    out << ",\n  \"screens\": [\n";
+    for (std::size_t i = 0; i < manifest.screens.size(); ++i) {
+        const UiScreen& screen = manifest.screens[i];
+        out << "    {\n";
+        out << "      \"id\": \"" << EscapeJsonString(screen.id) << "\",\n";
+        out << "      \"title\": \"" << EscapeJsonString(screen.title) << "\",\n";
+        out << "      \"background\": {\n";
+        out << "        \"tint\": [" << FormatJsonFloat(screen.backgroundRgba[0]) << ", "
+            << FormatJsonFloat(screen.backgroundRgba[1]) << ", "
+            << FormatJsonFloat(screen.backgroundRgba[2]) << ", "
+            << FormatJsonFloat(screen.backgroundRgba[3]) << "]";
+        if (!screen.backgroundImageRelative.empty()) {
+            out << ",\n        \"image\": \"" << EscapeJsonString(screen.backgroundImageRelative) << "\"\n";
+        } else {
+            out << "\n";
+        }
+        out << "      }";
+        if (!screen.musicHint.empty()) {
+            out << ",\n      \"music\": \"" << EscapeJsonString(screen.musicHint) << "\"";
+        }
+        if (screen.advanceOnSpace || screen.advanceOnClick || screen.advanceOnEnter
+            || screen.advanceOnMouseWheel || screen.advanceAfterSeconds > 0.0f
+            || screen.advanceAction.kind != UiActionKind::None
+            || !screen.advanceAction.setVarId.empty() || !screen.advanceAction.whenVar.empty()) {
+            out << ",\n      \"advance\": {\n";
+            out << "        \"onSpace\": " << (screen.advanceOnSpace ? "true" : "false") << ",\n";
+            out << "        \"onClick\": " << (screen.advanceOnClick ? "true" : "false") << ",\n";
+            out << "        \"onEnter\": " << (screen.advanceOnEnter ? "true" : "false") << ",\n";
+            out << "        \"onMouseWheel\": " << (screen.advanceOnMouseWheel ? "true" : "false");
+            if (screen.advanceAfterSeconds > 0.0f) {
+                out << ",\n        \"delaySeconds\": " << FormatJsonFloat(screen.advanceAfterSeconds);
+            }
+            if (screen.advanceAction.kind != UiActionKind::None
+                || !screen.advanceAction.setVarId.empty() || !screen.advanceAction.whenVar.empty()) {
+                out << ",\n        \"action\": ";
+                AppendUiActionJson(out, screen.advanceAction, 0);
+            }
+            out << "\n      }";
+        }
+        out << ",\n      \"blocks\": [\n";
+        for (std::size_t j = 0; j < screen.blocks.size(); ++j) {
+            AppendUiBlockJson(out, screen.blocks[j], 8);
+            if (j + 1 < screen.blocks.size()) {
+                out << ",";
+            }
+            out << "\n";
+        }
+        out << "      ]\n";
+        out << "    }";
+        if (i + 1 < manifest.screens.size()) {
+            out << ",";
+        }
+        out << "\n";
+    }
+    out << "  ]\n";
+    out << "}\n";
+    return out.str();
 }
 
 } // namespace ri::ui

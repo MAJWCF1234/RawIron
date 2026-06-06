@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_fire_1_png",
+  "type": "texture",
+  "displayName": "rt2_fire_1",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_fire_1.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_fire_1_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_fire_1.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "item_rt2_beef_png",
+  "type": "texture",
+  "displayName": "rt2_beef",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/rt2_beef.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "item_rt2_beef_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/rt2_beef.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

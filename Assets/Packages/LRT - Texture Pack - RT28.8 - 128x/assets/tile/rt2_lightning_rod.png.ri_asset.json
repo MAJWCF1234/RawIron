@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_lightning_rod_png",
+  "type": "texture",
+  "displayName": "rt2_lightning_rod",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_lightning_rod.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_lightning_rod_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_lightning_rod.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

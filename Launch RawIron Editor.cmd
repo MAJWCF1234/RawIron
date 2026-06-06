@@ -18,23 +18,27 @@ call :try_exe "%CD%\%CMAKE_BUILD_DIR%\Apps\RawIron.Editor\RelWithDebInfo\RawIron
 call :try_exe "%CD%\build\dev-msvc\Apps\RawIron.Editor\RelWithDebInfo\RawIron.Editor.exe"
 call :try_exe "%CD%\build\dev-msvc\Apps\RawIron.Editor\Release\RawIron.Editor.exe"
 call :try_exe "%CD%\build\dev-msvc\Apps\RawIron.Editor\Debug\RawIron.Editor.exe"
-call :try_exe "%CD%\build\dev-mingw\Apps\RawIron.Editor\RawIron.Editor.exe"
-call :try_exe "%CD%\build\dev-mingw\Apps\RawIron.Editor\Debug\RawIron.Editor.exe"
 call :try_exe "%LOCALAPPDATA%\RawIron\cmake-build\dev-msvc\Apps\RawIron.Editor\RelWithDebInfo\RawIron.Editor.exe"
 call :try_exe "%LOCALAPPDATA%\RawIron\cmake-build\dev-msvc\Apps\RawIron.Editor\Release\RawIron.Editor.exe"
 
 if not defined TARGET_EXE (
-  echo RawIron.Editor.exe not found. Attempting one-shot build...
+  echo RawIron.Editor.exe not found in the standard build outputs. Attempting in-place build...
   echo.
   where cmake >nul 2>&1
   if errorlevel 1 (
     echo ERROR: cmake is not on PATH. Install CMake or build the editor manually.
     goto :fail
   )
-  cmake -S "%CD%" -B "%CD%\%CMAKE_BUILD_DIR%" -DRAWIRON_BUILD_EDITOR=ON -DRAWIRON_BUILD_LIMINAL_GAME=ON >nul 2>&1
-  cmake --build "%CD%\%CMAKE_BUILD_DIR%" --target RawIron.Editor >nul 2>&1
+  if exist "%CD%\%CMAKE_BUILD_DIR%\CMakeCache.txt" (
+    cmake --build "%CD%\%CMAKE_BUILD_DIR%" --target RawIron.Editor >nul 2>&1
+  ) else (
+    echo ERROR: build\ is not configured yet. Configure it first, then rerun this launcher.
+    goto :fail
+  )
   call :try_exe "%CD%\%CMAKE_BUILD_DIR%\Apps\RawIron.Editor\RawIron.Editor.exe"
   call :try_exe "%CD%\%CMAKE_BUILD_DIR%\Apps\RawIron.Editor\Debug\RawIron.Editor.exe"
+  call :try_exe "%CD%\%CMAKE_BUILD_DIR%\Apps\RawIron.Editor\Release\RawIron.Editor.exe"
+  call :try_exe "%CD%\%CMAKE_BUILD_DIR%\Apps\RawIron.Editor\RelWithDebInfo\RawIron.Editor.exe"
 )
 
 if not defined TARGET_EXE goto :fail
@@ -87,8 +91,7 @@ echo Expected locations include:
 echo   %CD%\build\Apps\RawIron.Editor\RawIron.Editor.exe
 echo   %CD%\build\dev-msvc\Apps\RawIron.Editor\RelWithDebInfo\RawIron.Editor.exe
 echo.
-echo Manual build:
-echo   cmake -S . -B build -DRAWIRON_BUILD_EDITOR=ON -DRAWIRON_BUILD_LIMINAL_GAME=ON
+echo In-place build:
 echo   cmake --build build --target RawIron.Editor
 echo.
 echo Or set: set RAWIRON_EDITOR_EXE=D:\path\to\RawIron.Editor.exe

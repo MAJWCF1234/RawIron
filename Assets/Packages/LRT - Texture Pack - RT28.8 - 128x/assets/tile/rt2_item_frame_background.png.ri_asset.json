@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_item_frame_background_png",
+  "type": "texture",
+  "displayName": "rt2_item_frame_background",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_item_frame_background.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_item_frame_background_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_item_frame_background.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

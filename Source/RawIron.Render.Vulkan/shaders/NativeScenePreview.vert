@@ -235,7 +235,13 @@ void main() {
     float vdLen = length(v);
     viewDirectionWs = vdLen > 1e-5 ? (v / vdLen) : vec3(0.0, 0.0, 1.0);
     viewDistanceWs = vdLen;
-    outNormal = normalize(mat3(drawData.model) * inNormal);
+    // Use the inverse-transpose for nonuniform scale, but avoid poisoning lighting when
+    // authoring/import creates a collapsed transform.
+    mat3 normalModel = mat3(drawData.model);
+    float normalDet = determinant(normalModel);
+    vec3 transformedNormal =
+        abs(normalDet) > 1e-6 ? (transpose(inverse(normalModel)) * inNormal) : inNormal;
+    outNormal = normalize(length(transformedNormal) > 1e-6 ? transformedNormal : vec3(0.0, 1.0, 0.0));
     outColor = drawData.color;
-    texCoord = inUv * drawData.tiling;
+    texCoord = inUv;
 }

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "item_rt2_emerald_png",
+  "type": "texture",
+  "displayName": "rt2_emerald",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/rt2_emerald.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "item_rt2_emerald_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/rt2_emerald.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

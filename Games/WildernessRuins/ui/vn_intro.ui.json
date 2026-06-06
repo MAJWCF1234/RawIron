@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "startScreen": "campfire_opening",
+  "variables": [
+    { "id": "route", "value": "" }
+  ],
+  "screens": [
+    {
+      "id": "campfire_opening",
+      "title": "Campfire briefing",
+      "background": { "tint": [0.06, 0.05, 0.03, 0.97] },
+      "blocks": [
+        { "type": "heading", "text": "Wilderness Ruins story flow", "align": "center" },
+        { "type": "spacer", "height": 16 },
+        { "type": "say", "speaker": "Guide", "text": "Pick how the first approach into the ruins feels." },
+        { "type": "spacer", "height": 16 },
+        {
+          "type": "choices",
+          "choices": [
+            { "label": "Quiet approach", "action": { "type": "navigate", "target": "route_quiet", "setVar": { "id": "route", "value": "quiet" } } },
+            { "label": "Storm approach", "action": { "type": "navigate", "target": "route_storm", "setVar": { "id": "route", "value": "storm" } } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "route_quiet",
+      "title": "Quiet approach",
+      "background": { "tint": [0.04, 0.07, 0.06, 0.96] },
+      "advance": { "onSpace": true, "onEnter": true, "action": { "type": "navigate", "target": "campfire_opening" } },
+      "blocks": [
+        { "type": "say", "speaker": "Guide", "text": "The trail is still. Every snapped branch sounds deliberate." },
+        { "type": "label", "text": "Space to return", "align": "center" }
+      ]
+    },
+    {
+      "id": "route_storm",
+      "title": "Storm approach",
+      "background": { "tint": [0.03, 0.05, 0.08, 0.96] },
+      "advance": { "onSpace": true, "onEnter": true, "action": { "type": "navigate", "target": "campfire_opening" } },
+      "blocks": [
+        { "type": "say", "speaker": "Guide", "text": "Rain shears across the stones and turns the ruin into a silhouette." },
+        { "type": "label", "text": "Space to return", "align": "center" }
+      ]
+    }
+  ]
+}

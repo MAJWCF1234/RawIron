@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_lily_of_the_valley_png",
+  "type": "texture",
+  "displayName": "rt2_lily_of_the_valley",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_lily_of_the_valley.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_lily_of_the_valley_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_lily_of_the_valley.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

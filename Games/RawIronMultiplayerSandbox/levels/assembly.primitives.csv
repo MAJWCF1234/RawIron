@@ -1,6 +1,6 @@
 id,type,x,y,z,sx,sy,sz,material,tileX,tileY
-catalog_platform_fallback,box,0,-0.4,0,340,0.8,55,concrete,42,7
+catalog_platform_fallback,box,0,-0.4,0,340,0.8,55,concrete,227,37
 catalog_spawn_marker,box,-159,0.12,-20,2.4,0.24,2.4,grit,1,1
-catalog_left_rail,box,0,0.18,-27,340,0.18,0.35,steel,42,1
-catalog_right_rail,box,0,0.18,27,340,0.18,0.35,steel,42,1
-catalog_center_guide,box,0,0.21,0,340,0.08,0.12,grit,42,1
+catalog_left_rail,box,0,0.18,-27,340,0.18,0.35,steel,227,1
+catalog_right_rail,box,0,0.18,27,340,0.18,0.35,steel,227,1
+catalog_center_guide,box,0,0.21,0,340,0.08,0.12,grit,227,1

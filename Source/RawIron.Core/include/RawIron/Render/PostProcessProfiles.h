@@ -640,6 +640,109 @@ struct PostProcessParameters {
     float pd80Sc2CorrectionMethod = 1.0f;
     float pd80Sc2SaturationScale = 1.0f;
     float pd80Sc2LightnessScale = 1.0f;
+    /// Colourfulness.fx (bacondither) — perceptual saturation that protects near-clipping detail.
+    /// `colourfulness` 0 = neutral/skip; negative desaturates, positive (with soft limit) enriches.
+    float colourfulness = 0.0f;
+    float colourfulnessLimitLuma = 0.7f;
+    /// FilmicPass.fx — cinematic tone/colour curve. `filmicPassStrength` 0 = skip (opt-in).
+    float filmicPassStrength = 0.0f;
+    float filmicPassFade = 0.4f;
+    float filmicPassBleach = 0.0f;
+    float filmicPassSaturation = -0.15f;
+    /// FilmGrain2.fx (martinsh) — animated 3D-Perlin grain (distinct from the simpler SweetFX grain).
+    /// `filmGrain2Amount` 0 = skip.
+    float filmGrain2Amount = 0.0f;
+    float filmGrain2ColorAmount = 0.6f;
+    float filmGrain2LuminanceAmount = 1.0f;
+    float filmGrain2Size = 1.6f;
+    /// Denoise.fx (NVIDIA KNN path) — spatial noise reduction on the graded LDR chain.
+    /// `denoiseStrength` 0 = skip.
+    float denoiseStrength = 0.0f;
+    float denoiseNoiseLevel = 0.15f;
+    float denoiseLerpCoefficient = 0.8f;
+    float denoiseWeightThreshold = 0.03f;
+    float denoiseCounterThreshold = 0.05f;
+    float denoiseGaussianSigma = 50.0f;
+    /// AdaptiveSharpen.fx (bacondither) — edge-aware adaptive sharpening on the graded LDR chain.
+    /// `adaptiveSharpenStrength` maps to reference `curve_height`; 0 = skip.
+    float adaptiveSharpenStrength = 0.0f;
+    float adaptiveSharpenCurveSlope = 0.5f;
+    float adaptiveSharpenLightOvershoot = 0.003f;
+    float adaptiveSharpenDarkOvershoot = 0.009f;
+    float adaptiveSharpenLightComprLow = 0.167f;
+    float adaptiveSharpenLightComprHigh = 0.334f;
+    float adaptiveSharpenDarkComprLow = 0.250f;
+    float adaptiveSharpenDarkComprHigh = 0.500f;
+    float adaptiveSharpenScaleLim = 0.1f;
+    float adaptiveSharpenScaleCs = 0.056f;
+    float adaptiveSharpenPmP = 0.7f;
+    /// GaussianBlur.fx (Ioxa) — separable gaussian on graded LDR; `gaussianBlurStrength` 0 = skip.
+    float gaussianBlurStrength = 0.0f;
+    float gaussianBlurOffset = 1.0f;
+    int gaussianBlurRadius = 1;
+    /// FineSharp.fx (Didée / JPulowski) — YUV multi-pass sharpening; `fineSharpStrength` (`sstr`) 0 = skip.
+    float fineSharpStrength = 0.0f;
+    float fineSharpEqualization = 0.9f;
+    float fineSharpXStrength = 0.19f;
+    float fineSharpXRepair = 0.25f;
+    float fineSharpLStrength = 1.49f;
+    float fineSharpPStrength = 1.272f;
+    int fineSharpMode = 0;
+    /// Bloom.fx Marty McFly — pyramid bloom + screen/lighten combine; `martyBloomAmount` 0 = skip.
+    float martyBloomThreshold = 0.8f;
+    float martyBloomAmount = 0.0f;
+    float martyBloomSaturation = 0.8f;
+    int martyBloomMixMode = 2;
+    ri::math::Vec3 martyBloomTint{0.7f, 0.8f, 1.0f};
+    /// DOF.fx Marty McFly ring DOF — `creatorDofStrength` 0 = skip.
+    float creatorDofStrength = 0.0f;
+    bool creatorDofAutoFocus = true;
+    float creatorDofManualFocusDepth = 0.02f;
+    float creatorDofInfiniteFocus = 1.0f;
+    ri::math::Vec2 creatorDofFocusPoint{0.5f, 0.5f};
+    float creatorDofFocusRadius = 0.05f;
+    int creatorDofFocusSamples = 6;
+    float creatorDofNearBlurCurve = 1.6f;
+    float creatorDofFarBlurCurve = 2.0f;
+    float creatorDofBlurRadius = 15.0f;
+    int creatorDofRingSamples = 6;
+    int creatorDofRingRings = 4;
+    float creatorDofRingThreshold = 0.7f;
+    float creatorDofRingGain = 27.0f;
+    float creatorDofRingBias = 0.0f;
+    float creatorDofRingFringe = 0.5f;
+    /// AmbientLight.fx Ganossa — `ambientLightIntensity` 0 = skip.
+    float ambientLightIntensity = 0.0f;
+    float ambientLightThreshold = 15.0f;
+    bool ambientLightAdaptation = true;
+    float ambientLightAdapt = 0.7f;
+    float ambientLightAdaptBaseMult = 1.0f;
+    int ambientLightAdaptBlackLevel = 2;
+    bool ambientLightDither = true;
+    bool ambientLightDirt = true;
+    int ambientLightAdaptiveMode = 0;
+    float ambientLightDirtInt = 1.0f;
+    float ambientLightDirtOvrInt = 1.0f;
+    /// FakeMotionBlur.fx Ganossa — `fakeMotionBlurRecall` 0 = skip.
+    float fakeMotionBlurRecall = 0.0f;
+    float fakeMotionBlurSoftness = 1.0f;
+    /// ReflectiveBumpMapping.fx Marty McFly — `reflectiveBumpMappingStrength` 0 = skip.
+    float reflectiveBumpMappingStrength = 0.0f;
+    float reflectiveBumpMappingBlurWidthPixels = 100.0f;
+    int reflectiveBumpMappingSampleCount = 32;
+    float reflectiveBumpMappingReliefHeight = 0.3f;
+    float reflectiveBumpMappingFresnelReflectance = 0.3f;
+    float reflectiveBumpMappingFresnelMult = 0.5f;
+    float reflectiveBumpMappingLowerThreshold = 0.1f;
+    float reflectiveBumpMappingUpperThreshold = 0.2f;
+    float reflectiveBumpMappingColorMaskRed = 1.0f;
+    float reflectiveBumpMappingColorMaskOrange = 1.0f;
+    float reflectiveBumpMappingColorMaskYellow = 1.0f;
+    float reflectiveBumpMappingColorMaskGreen = 1.0f;
+    float reflectiveBumpMappingColorMaskCyan = 1.0f;
+    float reflectiveBumpMappingColorMaskBlue = 1.0f;
+    float reflectiveBumpMappingColorMaskMagenta = 1.0f;
+    float reflectiveBumpMappingDepthFarPlane = 1000.0f;
 };
 
 struct PostProcessPresetDefinition {
@@ -955,7 +1058,7 @@ inline PostProcessParameters SanitizePostProcessParameters(const PostProcessPara
     out.reshadeDaltonizeType = std::clamp(input.reshadeDaltonizeType, 0, 2);
     out.reshadeDaltonizeStrength = ClampFinite(input.reshadeDaltonizeStrength, 0.0f, 1.0f, 0.0f);
     out.reshadeDisplayDepthPresentType = std::clamp(input.reshadeDisplayDepthPresentType, 0, 2);
-    out.reshadeDisplayDepthStrength = ClampFinite(input.reshadeDisplayDepthStrength, 0.0f, 1.0f, 0.0f);
+    out.reshadeDisplayDepthStrength = ClampFinite(input.reshadeDisplayDepthStrength, 0.0f, 2.0f, 0.0f);
     out.reshadeLutAmountChroma = ClampFinite(input.reshadeLutAmountChroma, 0.0f, 1.0f, 1.0f);
     out.reshadeLutAmountLuma = ClampFinite(input.reshadeLutAmountLuma, 0.0f, 1.0f, 1.0f);
     out.reshadeLutStrength = ClampFinite(input.reshadeLutStrength, 0.0f, 1.0f, 0.0f);
@@ -1494,6 +1597,114 @@ inline PostProcessParameters SanitizePostProcessParameters(const PostProcessPara
         static_cast<float>(std::clamp(static_cast<int>(std::lround(input.pd80Sc2CorrectionMethod)), 0, 1));
     out.pd80Sc2SaturationScale = ClampFinite(input.pd80Sc2SaturationScale, 0.0f, 2.0f, 1.0f);
     out.pd80Sc2LightnessScale = ClampFinite(input.pd80Sc2LightnessScale, 0.0f, 2.0f, 1.0f);
+    out.colourfulness = ClampFinite(input.colourfulness, -1.0f, 2.0f, 0.0f);
+    out.colourfulnessLimitLuma = ClampFinite(input.colourfulnessLimitLuma, 0.1f, 1.0f, 0.7f);
+    out.filmicPassStrength = ClampFinite(input.filmicPassStrength, 0.0f, 1.5f, 0.0f);
+    out.filmicPassFade = ClampFinite(input.filmicPassFade, 0.0f, 0.6f, 0.4f);
+    out.filmicPassBleach = ClampFinite(input.filmicPassBleach, -0.5f, 1.0f, 0.0f);
+    out.filmicPassSaturation = ClampFinite(input.filmicPassSaturation, -1.0f, 1.0f, -0.15f);
+    out.filmGrain2Amount = ClampFinite(input.filmGrain2Amount, 0.0f, 0.2f, 0.0f);
+    out.filmGrain2ColorAmount = ClampFinite(input.filmGrain2ColorAmount, 0.0f, 1.0f, 0.6f);
+    out.filmGrain2LuminanceAmount = ClampFinite(input.filmGrain2LuminanceAmount, 0.0f, 1.0f, 1.0f);
+    out.filmGrain2Size = ClampFinite(input.filmGrain2Size, 1.5f, 2.5f, 1.6f);
+    out.denoiseStrength = ClampFinite(input.denoiseStrength, 0.0f, 1.0f, 0.0f);
+    out.denoiseNoiseLevel = ClampFinite(input.denoiseNoiseLevel, 0.01f, 1.0f, 0.15f);
+    out.denoiseLerpCoefficient = ClampFinite(input.denoiseLerpCoefficient, 0.0f, 1.0f, 0.8f);
+    out.denoiseWeightThreshold = ClampFinite(input.denoiseWeightThreshold, 0.0f, 1.0f, 0.03f);
+    out.denoiseCounterThreshold = ClampFinite(input.denoiseCounterThreshold, 0.0f, 1.0f, 0.05f);
+    out.denoiseGaussianSigma = ClampFinite(input.denoiseGaussianSigma, 1.0f, 100.0f, 50.0f);
+    out.adaptiveSharpenStrength = ClampFinite(input.adaptiveSharpenStrength, 0.0f, 2.0f, 0.0f);
+    out.adaptiveSharpenCurveSlope = ClampFinite(input.adaptiveSharpenCurveSlope, 0.01f, 2.0f, 0.5f);
+    out.adaptiveSharpenLightOvershoot = ClampFinite(input.adaptiveSharpenLightOvershoot, 0.001f, 0.1f, 0.003f);
+    out.adaptiveSharpenDarkOvershoot = ClampFinite(input.adaptiveSharpenDarkOvershoot, 0.001f, 0.1f, 0.009f);
+    out.adaptiveSharpenLightComprLow = ClampFinite(input.adaptiveSharpenLightComprLow, 0.0f, 1.0f, 0.167f);
+    out.adaptiveSharpenLightComprHigh = ClampFinite(input.adaptiveSharpenLightComprHigh, 0.0f, 1.0f, 0.334f);
+    out.adaptiveSharpenDarkComprLow = ClampFinite(input.adaptiveSharpenDarkComprLow, 0.0f, 1.0f, 0.250f);
+    out.adaptiveSharpenDarkComprHigh = ClampFinite(input.adaptiveSharpenDarkComprHigh, 0.0f, 1.0f, 0.500f);
+    out.adaptiveSharpenScaleLim = ClampFinite(input.adaptiveSharpenScaleLim, 0.01f, 1.0f, 0.1f);
+    out.adaptiveSharpenScaleCs = ClampFinite(input.adaptiveSharpenScaleCs, 0.0f, 1.0f, 0.056f);
+    out.adaptiveSharpenPmP = ClampFinite(input.adaptiveSharpenPmP, 0.01f, 1.0f, 0.7f);
+    out.gaussianBlurStrength = ClampFinite(input.gaussianBlurStrength, 0.0f, 1.0f, 0.0f);
+    out.gaussianBlurOffset = ClampFinite(input.gaussianBlurOffset, 0.0f, 1.0f, 1.0f);
+    out.gaussianBlurRadius = std::clamp(input.gaussianBlurRadius, 0, 4);
+    out.fineSharpStrength = ClampFinite(input.fineSharpStrength, 0.0f, 8.0f, 0.0f);
+    out.fineSharpEqualization = ClampFinite(input.fineSharpEqualization, 0.0f, 1.249f, 0.9f);
+    out.fineSharpXStrength = ClampFinite(input.fineSharpXStrength, 0.0f, 1.0f, 0.19f);
+    out.fineSharpXRepair = ClampFinite(input.fineSharpXRepair, 0.0f, 1.0f, 0.25f);
+    out.fineSharpLStrength = ClampFinite(input.fineSharpLStrength, 0.01f, 8.0f, 1.49f);
+    out.fineSharpPStrength = ClampFinite(input.fineSharpPStrength, 0.01f, 8.0f, 1.272f);
+    out.fineSharpMode = std::clamp(input.fineSharpMode, 0, 2);
+    out.martyBloomThreshold = ClampFinite(input.martyBloomThreshold, 0.1f, 1.0f, 0.8f);
+    out.martyBloomAmount = ClampFinite(input.martyBloomAmount, 0.0f, 20.0f, 0.0f);
+    out.martyBloomSaturation = ClampFinite(input.martyBloomSaturation, 0.0f, 2.0f, 0.8f);
+    out.martyBloomMixMode = std::clamp(input.martyBloomMixMode, 0, 3);
+    out.martyBloomTint = {
+        ClampFinite(input.martyBloomTint.x, 0.0f, 4.0f, 0.7f),
+        ClampFinite(input.martyBloomTint.y, 0.0f, 4.0f, 0.8f),
+        ClampFinite(input.martyBloomTint.z, 0.0f, 4.0f, 1.0f),
+    };
+    out.creatorDofStrength = ClampFinite(input.creatorDofStrength, 0.0f, 1.0f, 0.0f);
+    out.creatorDofAutoFocus = input.creatorDofAutoFocus;
+    out.creatorDofManualFocusDepth = ClampFinite(input.creatorDofManualFocusDepth, 0.0f, 1.0f, 0.02f);
+    out.creatorDofInfiniteFocus = ClampFinite(input.creatorDofInfiniteFocus, 0.01f, 1.0f, 1.0f);
+    out.creatorDofFocusPoint = {
+        ClampFinite(input.creatorDofFocusPoint.x, 0.0f, 1.0f, 0.5f),
+        ClampFinite(input.creatorDofFocusPoint.y, 0.0f, 1.0f, 0.5f),
+    };
+    out.creatorDofFocusRadius = ClampFinite(input.creatorDofFocusRadius, 0.02f, 0.2f, 0.05f);
+    out.creatorDofFocusSamples = std::clamp(input.creatorDofFocusSamples, 3, 10);
+    out.creatorDofNearBlurCurve = ClampFinite(input.creatorDofNearBlurCurve, 0.5f, 1000.0f, 1.6f);
+    out.creatorDofFarBlurCurve = ClampFinite(input.creatorDofFarBlurCurve, 0.05f, 5.0f, 2.0f);
+    out.creatorDofBlurRadius = ClampFinite(input.creatorDofBlurRadius, 2.0f, 100.0f, 15.0f);
+    out.creatorDofRingSamples = std::clamp(input.creatorDofRingSamples, 5, 30);
+    out.creatorDofRingRings = std::clamp(input.creatorDofRingRings, 1, 8);
+    out.creatorDofRingThreshold = ClampFinite(input.creatorDofRingThreshold, 0.5f, 3.0f, 0.7f);
+    out.creatorDofRingGain = ClampFinite(input.creatorDofRingGain, 0.1f, 30.0f, 27.0f);
+    out.creatorDofRingBias = ClampFinite(input.creatorDofRingBias, 0.0f, 2.0f, 0.0f);
+    out.creatorDofRingFringe = ClampFinite(input.creatorDofRingFringe, 0.0f, 1.0f, 0.5f);
+    out.ambientLightIntensity = ClampFinite(input.ambientLightIntensity, 0.0f, 20.0f, 0.0f);
+    out.ambientLightThreshold = ClampFinite(input.ambientLightThreshold, 0.0f, 100.0f, 15.0f);
+    out.ambientLightAdaptation = input.ambientLightAdaptation;
+    out.ambientLightAdapt = ClampFinite(input.ambientLightAdapt, 0.0f, 4.0f, 0.7f);
+    out.ambientLightAdaptBaseMult = ClampFinite(input.ambientLightAdaptBaseMult, 0.0f, 4.0f, 1.0f);
+    out.ambientLightAdaptBlackLevel = std::clamp(input.ambientLightAdaptBlackLevel, 0, 4);
+    out.ambientLightDither = input.ambientLightDither;
+    out.ambientLightDirt = input.ambientLightDirt;
+    out.ambientLightAdaptiveMode = std::clamp(input.ambientLightAdaptiveMode, 0, 2);
+    out.ambientLightDirtInt = ClampFinite(input.ambientLightDirtInt, 0.0f, 2.0f, 1.0f);
+    out.ambientLightDirtOvrInt = ClampFinite(input.ambientLightDirtOvrInt, 0.0f, 2.0f, 1.0f);
+    out.fakeMotionBlurRecall = ClampFinite(input.fakeMotionBlurRecall, 0.0f, 1.0f, 0.0f);
+    out.fakeMotionBlurSoftness = ClampFinite(input.fakeMotionBlurSoftness, 0.0f, 2.0f, 1.0f);
+    out.reflectiveBumpMappingStrength = ClampFinite(input.reflectiveBumpMappingStrength, 0.0f, 1.0f, 0.0f);
+    out.reflectiveBumpMappingBlurWidthPixels =
+        ClampFinite(input.reflectiveBumpMappingBlurWidthPixels, 0.0f, 400.0f, 100.0f);
+    out.reflectiveBumpMappingSampleCount = std::clamp(input.reflectiveBumpMappingSampleCount, 16, 128);
+    out.reflectiveBumpMappingReliefHeight =
+        ClampFinite(input.reflectiveBumpMappingReliefHeight, 0.0f, 2.0f, 0.3f);
+    out.reflectiveBumpMappingFresnelReflectance =
+        ClampFinite(input.reflectiveBumpMappingFresnelReflectance, 0.0f, 1.0f, 0.3f);
+    out.reflectiveBumpMappingFresnelMult =
+        ClampFinite(input.reflectiveBumpMappingFresnelMult, 0.0f, 1.0f, 0.5f);
+    out.reflectiveBumpMappingLowerThreshold =
+        ClampFinite(input.reflectiveBumpMappingLowerThreshold, 0.0f, 1.0f, 0.1f);
+    out.reflectiveBumpMappingUpperThreshold =
+        ClampFinite(input.reflectiveBumpMappingUpperThreshold, 0.0f, 1.0f, 0.2f);
+    out.reflectiveBumpMappingColorMaskRed =
+        ClampFinite(input.reflectiveBumpMappingColorMaskRed, 0.0f, 1.0f, 1.0f);
+    out.reflectiveBumpMappingColorMaskOrange =
+        ClampFinite(input.reflectiveBumpMappingColorMaskOrange, 0.0f, 1.0f, 1.0f);
+    out.reflectiveBumpMappingColorMaskYellow =
+        ClampFinite(input.reflectiveBumpMappingColorMaskYellow, 0.0f, 1.0f, 1.0f);
+    out.reflectiveBumpMappingColorMaskGreen =
+        ClampFinite(input.reflectiveBumpMappingColorMaskGreen, 0.0f, 1.0f, 1.0f);
+    out.reflectiveBumpMappingColorMaskCyan =
+        ClampFinite(input.reflectiveBumpMappingColorMaskCyan, 0.0f, 1.0f, 1.0f);
+    out.reflectiveBumpMappingColorMaskBlue =
+        ClampFinite(input.reflectiveBumpMappingColorMaskBlue, 0.0f, 1.0f, 1.0f);
+    out.reflectiveBumpMappingColorMaskMagenta =
+        ClampFinite(input.reflectiveBumpMappingColorMaskMagenta, 0.0f, 1.0f, 1.0f);
+    out.reflectiveBumpMappingDepthFarPlane =
+        ClampFinite(input.reflectiveBumpMappingDepthFarPlane, 1.0f, 10000.0f, 1000.0f);
     return out;
 }
 
@@ -2994,6 +3205,126 @@ inline PostProcessParameters BlendPostProcessParameters(
             static_cast<int>(std::lround(std::lerp(a.pd80Sc2CorrectionMethod, b.pd80Sc2CorrectionMethod, t))), 0, 1)),
         .pd80Sc2SaturationScale = a.pd80Sc2SaturationScale + ((b.pd80Sc2SaturationScale - a.pd80Sc2SaturationScale) * t),
         .pd80Sc2LightnessScale = a.pd80Sc2LightnessScale + ((b.pd80Sc2LightnessScale - a.pd80Sc2LightnessScale) * t),
+        .colourfulness = a.colourfulness + ((b.colourfulness - a.colourfulness) * t),
+        .colourfulnessLimitLuma = a.colourfulnessLimitLuma + ((b.colourfulnessLimitLuma - a.colourfulnessLimitLuma) * t),
+        .filmicPassStrength = a.filmicPassStrength + ((b.filmicPassStrength - a.filmicPassStrength) * t),
+        .filmicPassFade = a.filmicPassFade + ((b.filmicPassFade - a.filmicPassFade) * t),
+        .filmicPassBleach = a.filmicPassBleach + ((b.filmicPassBleach - a.filmicPassBleach) * t),
+        .filmicPassSaturation = a.filmicPassSaturation + ((b.filmicPassSaturation - a.filmicPassSaturation) * t),
+        .filmGrain2Amount = a.filmGrain2Amount + ((b.filmGrain2Amount - a.filmGrain2Amount) * t),
+        .filmGrain2ColorAmount = a.filmGrain2ColorAmount + ((b.filmGrain2ColorAmount - a.filmGrain2ColorAmount) * t),
+        .filmGrain2LuminanceAmount =
+            a.filmGrain2LuminanceAmount + ((b.filmGrain2LuminanceAmount - a.filmGrain2LuminanceAmount) * t),
+        .filmGrain2Size = a.filmGrain2Size + ((b.filmGrain2Size - a.filmGrain2Size) * t),
+        .denoiseStrength = a.denoiseStrength + ((b.denoiseStrength - a.denoiseStrength) * t),
+        .denoiseNoiseLevel = a.denoiseNoiseLevel + ((b.denoiseNoiseLevel - a.denoiseNoiseLevel) * t),
+        .denoiseLerpCoefficient = a.denoiseLerpCoefficient + ((b.denoiseLerpCoefficient - a.denoiseLerpCoefficient) * t),
+        .denoiseWeightThreshold = a.denoiseWeightThreshold + ((b.denoiseWeightThreshold - a.denoiseWeightThreshold) * t),
+        .denoiseCounterThreshold = a.denoiseCounterThreshold + ((b.denoiseCounterThreshold - a.denoiseCounterThreshold) * t),
+        .denoiseGaussianSigma = a.denoiseGaussianSigma + ((b.denoiseGaussianSigma - a.denoiseGaussianSigma) * t),
+        .adaptiveSharpenStrength = a.adaptiveSharpenStrength + ((b.adaptiveSharpenStrength - a.adaptiveSharpenStrength) * t),
+        .adaptiveSharpenCurveSlope = a.adaptiveSharpenCurveSlope + ((b.adaptiveSharpenCurveSlope - a.adaptiveSharpenCurveSlope) * t),
+        .adaptiveSharpenLightOvershoot =
+            a.adaptiveSharpenLightOvershoot + ((b.adaptiveSharpenLightOvershoot - a.adaptiveSharpenLightOvershoot) * t),
+        .adaptiveSharpenDarkOvershoot =
+            a.adaptiveSharpenDarkOvershoot + ((b.adaptiveSharpenDarkOvershoot - a.adaptiveSharpenDarkOvershoot) * t),
+        .adaptiveSharpenLightComprLow =
+            a.adaptiveSharpenLightComprLow + ((b.adaptiveSharpenLightComprLow - a.adaptiveSharpenLightComprLow) * t),
+        .adaptiveSharpenLightComprHigh =
+            a.adaptiveSharpenLightComprHigh + ((b.adaptiveSharpenLightComprHigh - a.adaptiveSharpenLightComprHigh) * t),
+        .adaptiveSharpenDarkComprLow =
+            a.adaptiveSharpenDarkComprLow + ((b.adaptiveSharpenDarkComprLow - a.adaptiveSharpenDarkComprLow) * t),
+        .adaptiveSharpenDarkComprHigh =
+            a.adaptiveSharpenDarkComprHigh + ((b.adaptiveSharpenDarkComprHigh - a.adaptiveSharpenDarkComprHigh) * t),
+        .adaptiveSharpenScaleLim = a.adaptiveSharpenScaleLim + ((b.adaptiveSharpenScaleLim - a.adaptiveSharpenScaleLim) * t),
+        .adaptiveSharpenScaleCs = a.adaptiveSharpenScaleCs + ((b.adaptiveSharpenScaleCs - a.adaptiveSharpenScaleCs) * t),
+        .adaptiveSharpenPmP = a.adaptiveSharpenPmP + ((b.adaptiveSharpenPmP - a.adaptiveSharpenPmP) * t),
+        .gaussianBlurStrength = a.gaussianBlurStrength + ((b.gaussianBlurStrength - a.gaussianBlurStrength) * t),
+        .gaussianBlurOffset = a.gaussianBlurOffset + ((b.gaussianBlurOffset - a.gaussianBlurOffset) * t),
+        .gaussianBlurRadius = (t < 0.5f) ? a.gaussianBlurRadius : b.gaussianBlurRadius,
+        .fineSharpStrength = a.fineSharpStrength + ((b.fineSharpStrength - a.fineSharpStrength) * t),
+        .fineSharpEqualization = a.fineSharpEqualization + ((b.fineSharpEqualization - a.fineSharpEqualization) * t),
+        .fineSharpXStrength = a.fineSharpXStrength + ((b.fineSharpXStrength - a.fineSharpXStrength) * t),
+        .fineSharpXRepair = a.fineSharpXRepair + ((b.fineSharpXRepair - a.fineSharpXRepair) * t),
+        .fineSharpLStrength = a.fineSharpLStrength + ((b.fineSharpLStrength - a.fineSharpLStrength) * t),
+        .fineSharpPStrength = a.fineSharpPStrength + ((b.fineSharpPStrength - a.fineSharpPStrength) * t),
+        .fineSharpMode = (t < 0.5f) ? a.fineSharpMode : b.fineSharpMode,
+        .martyBloomThreshold = a.martyBloomThreshold + ((b.martyBloomThreshold - a.martyBloomThreshold) * t),
+        .martyBloomAmount = a.martyBloomAmount + ((b.martyBloomAmount - a.martyBloomAmount) * t),
+        .martyBloomSaturation = a.martyBloomSaturation + ((b.martyBloomSaturation - a.martyBloomSaturation) * t),
+        .martyBloomMixMode = (t < 0.5f) ? a.martyBloomMixMode : b.martyBloomMixMode,
+        .martyBloomTint = {
+            a.martyBloomTint.x + ((b.martyBloomTint.x - a.martyBloomTint.x) * t),
+            a.martyBloomTint.y + ((b.martyBloomTint.y - a.martyBloomTint.y) * t),
+            a.martyBloomTint.z + ((b.martyBloomTint.z - a.martyBloomTint.z) * t),
+        },
+        .creatorDofStrength = a.creatorDofStrength + ((b.creatorDofStrength - a.creatorDofStrength) * t),
+        .creatorDofAutoFocus = (t < 0.5f) ? a.creatorDofAutoFocus : b.creatorDofAutoFocus,
+        .creatorDofManualFocusDepth =
+            a.creatorDofManualFocusDepth + ((b.creatorDofManualFocusDepth - a.creatorDofManualFocusDepth) * t),
+        .creatorDofInfiniteFocus =
+            a.creatorDofInfiniteFocus + ((b.creatorDofInfiniteFocus - a.creatorDofInfiniteFocus) * t),
+        .creatorDofFocusPoint = {
+            a.creatorDofFocusPoint.x + ((b.creatorDofFocusPoint.x - a.creatorDofFocusPoint.x) * t),
+            a.creatorDofFocusPoint.y + ((b.creatorDofFocusPoint.y - a.creatorDofFocusPoint.y) * t),
+        },
+        .creatorDofFocusRadius = a.creatorDofFocusRadius + ((b.creatorDofFocusRadius - a.creatorDofFocusRadius) * t),
+        .creatorDofFocusSamples = (t < 0.5f) ? a.creatorDofFocusSamples : b.creatorDofFocusSamples,
+        .creatorDofNearBlurCurve = a.creatorDofNearBlurCurve + ((b.creatorDofNearBlurCurve - a.creatorDofNearBlurCurve) * t),
+        .creatorDofFarBlurCurve = a.creatorDofFarBlurCurve + ((b.creatorDofFarBlurCurve - a.creatorDofFarBlurCurve) * t),
+        .creatorDofBlurRadius = a.creatorDofBlurRadius + ((b.creatorDofBlurRadius - a.creatorDofBlurRadius) * t),
+        .creatorDofRingSamples = (t < 0.5f) ? a.creatorDofRingSamples : b.creatorDofRingSamples,
+        .creatorDofRingRings = (t < 0.5f) ? a.creatorDofRingRings : b.creatorDofRingRings,
+        .creatorDofRingThreshold = a.creatorDofRingThreshold + ((b.creatorDofRingThreshold - a.creatorDofRingThreshold) * t),
+        .creatorDofRingGain = a.creatorDofRingGain + ((b.creatorDofRingGain - a.creatorDofRingGain) * t),
+        .creatorDofRingBias = a.creatorDofRingBias + ((b.creatorDofRingBias - a.creatorDofRingBias) * t),
+        .creatorDofRingFringe = a.creatorDofRingFringe + ((b.creatorDofRingFringe - a.creatorDofRingFringe) * t),
+        .ambientLightIntensity = a.ambientLightIntensity + ((b.ambientLightIntensity - a.ambientLightIntensity) * t),
+        .ambientLightThreshold = a.ambientLightThreshold + ((b.ambientLightThreshold - a.ambientLightThreshold) * t),
+        .ambientLightAdaptation = (t < 0.5f) ? a.ambientLightAdaptation : b.ambientLightAdaptation,
+        .ambientLightAdapt = a.ambientLightAdapt + ((b.ambientLightAdapt - a.ambientLightAdapt) * t),
+        .ambientLightAdaptBaseMult =
+            a.ambientLightAdaptBaseMult + ((b.ambientLightAdaptBaseMult - a.ambientLightAdaptBaseMult) * t),
+        .ambientLightAdaptBlackLevel = (t < 0.5f) ? a.ambientLightAdaptBlackLevel : b.ambientLightAdaptBlackLevel,
+        .ambientLightDither = (t < 0.5f) ? a.ambientLightDither : b.ambientLightDither,
+        .ambientLightDirt = (t < 0.5f) ? a.ambientLightDirt : b.ambientLightDirt,
+        .ambientLightAdaptiveMode = (t < 0.5f) ? a.ambientLightAdaptiveMode : b.ambientLightAdaptiveMode,
+        .ambientLightDirtInt = a.ambientLightDirtInt + ((b.ambientLightDirtInt - a.ambientLightDirtInt) * t),
+        .ambientLightDirtOvrInt = a.ambientLightDirtOvrInt + ((b.ambientLightDirtOvrInt - a.ambientLightDirtOvrInt) * t),
+        .fakeMotionBlurRecall = a.fakeMotionBlurRecall + ((b.fakeMotionBlurRecall - a.fakeMotionBlurRecall) * t),
+        .fakeMotionBlurSoftness = a.fakeMotionBlurSoftness + ((b.fakeMotionBlurSoftness - a.fakeMotionBlurSoftness) * t),
+        .reflectiveBumpMappingStrength =
+            a.reflectiveBumpMappingStrength + ((b.reflectiveBumpMappingStrength - a.reflectiveBumpMappingStrength) * t),
+        .reflectiveBumpMappingBlurWidthPixels = a.reflectiveBumpMappingBlurWidthPixels
+            + ((b.reflectiveBumpMappingBlurWidthPixels - a.reflectiveBumpMappingBlurWidthPixels) * t),
+        .reflectiveBumpMappingSampleCount =
+            (t < 0.5f) ? a.reflectiveBumpMappingSampleCount : b.reflectiveBumpMappingSampleCount,
+        .reflectiveBumpMappingReliefHeight = a.reflectiveBumpMappingReliefHeight
+            + ((b.reflectiveBumpMappingReliefHeight - a.reflectiveBumpMappingReliefHeight) * t),
+        .reflectiveBumpMappingFresnelReflectance = a.reflectiveBumpMappingFresnelReflectance
+            + ((b.reflectiveBumpMappingFresnelReflectance - a.reflectiveBumpMappingFresnelReflectance) * t),
+        .reflectiveBumpMappingFresnelMult = a.reflectiveBumpMappingFresnelMult
+            + ((b.reflectiveBumpMappingFresnelMult - a.reflectiveBumpMappingFresnelMult) * t),
+        .reflectiveBumpMappingLowerThreshold = a.reflectiveBumpMappingLowerThreshold
+            + ((b.reflectiveBumpMappingLowerThreshold - a.reflectiveBumpMappingLowerThreshold) * t),
+        .reflectiveBumpMappingUpperThreshold = a.reflectiveBumpMappingUpperThreshold
+            + ((b.reflectiveBumpMappingUpperThreshold - a.reflectiveBumpMappingUpperThreshold) * t),
+        .reflectiveBumpMappingColorMaskRed = a.reflectiveBumpMappingColorMaskRed
+            + ((b.reflectiveBumpMappingColorMaskRed - a.reflectiveBumpMappingColorMaskRed) * t),
+        .reflectiveBumpMappingColorMaskOrange = a.reflectiveBumpMappingColorMaskOrange
+            + ((b.reflectiveBumpMappingColorMaskOrange - a.reflectiveBumpMappingColorMaskOrange) * t),
+        .reflectiveBumpMappingColorMaskYellow = a.reflectiveBumpMappingColorMaskYellow
+            + ((b.reflectiveBumpMappingColorMaskYellow - a.reflectiveBumpMappingColorMaskYellow) * t),
+        .reflectiveBumpMappingColorMaskGreen = a.reflectiveBumpMappingColorMaskGreen
+            + ((b.reflectiveBumpMappingColorMaskGreen - a.reflectiveBumpMappingColorMaskGreen) * t),
+        .reflectiveBumpMappingColorMaskCyan = a.reflectiveBumpMappingColorMaskCyan
+            + ((b.reflectiveBumpMappingColorMaskCyan - a.reflectiveBumpMappingColorMaskCyan) * t),
+        .reflectiveBumpMappingColorMaskBlue = a.reflectiveBumpMappingColorMaskBlue
+            + ((b.reflectiveBumpMappingColorMaskBlue - a.reflectiveBumpMappingColorMaskBlue) * t),
+        .reflectiveBumpMappingColorMaskMagenta = a.reflectiveBumpMappingColorMaskMagenta
+            + ((b.reflectiveBumpMappingColorMaskMagenta - a.reflectiveBumpMappingColorMaskMagenta) * t),
+        .reflectiveBumpMappingDepthFarPlane = a.reflectiveBumpMappingDepthFarPlane
+            + ((b.reflectiveBumpMappingDepthFarPlane - a.reflectiveBumpMappingDepthFarPlane) * t),
     });
 }
 

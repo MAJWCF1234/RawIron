@@ -25,6 +25,7 @@ target_link_libraries(RawIron.Game.LiminalHall
     RawIron::Runtime
     RawIron::SceneUtilities
     RawIron::Trace
+    RawIron::UI
     RawIron::World
 )
 

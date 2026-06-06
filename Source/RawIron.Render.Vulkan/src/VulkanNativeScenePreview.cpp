@@ -11,6 +11,8 @@
 #include "RawIron/Render/VulkanCommandList.h"
 #include "RawIron/Math/Vec2.h"
 #include "RawIron/Render/PreviewTexture.h"
+
+#include "ProceduralMaterialMaps.h"
 #include "RawIron/Scene/SceneKit.h"
 #include "RawIron/Scene/SceneRenderSubmission.h"
 #include "RawIron/Scene/SceneUtils.h"
@@ -28,6 +30,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -90,6 +93,16 @@ constexpr std::int32_t kNativeMaterialStyleLayered = 1 << 6;
 constexpr std::int32_t kNativeMaterialStyleMixedMedia = 1 << 7;
 constexpr std::int32_t kNativeMaterialStyleCrystal = 1 << 8;
 constexpr std::int32_t kNativeMaterialWorkflowSpecGloss = 1 << 9;
+constexpr std::int32_t kNativeMaterialStyleMetalLookup = 1 << 10;
+constexpr std::int32_t kNativeMaterialHasNormalMap = 1 << 11;
+constexpr std::int32_t kNativeMaterialHasOrmMap = 1 << 12;
+constexpr std::int32_t kNativeMaterialWorldTileUv = 1 << 13;
+
+// When a lit, textured material does not author its own normal/ORM maps, the engine
+// derives them from the albedo (Sobel-based relief + cavity occlusion) so flat
+// materials gain depth instead of rendering glitchy/flat. Metal-lookup palette
+// materials are skipped because their "albedo" is a lookup gradient, not a surface.
+constexpr bool kNativeGenerateMissingMaterialMaps = true;
 
 struct NativeScenePreviewData {
     const ri::scene::Scene* scene = nullptr;
@@ -379,6 +392,58 @@ struct NativeScenePreviewData {
     std::array<float, 4> pd80HbPack1{};
     std::array<float, 4> pd80HbPack2{};
     std::array<float, 4> pd80Sc2Pack0{};
+    /// Colourfulness.fx: x=colourfulness, y=limit luma, zw unused.
+    std::array<float, 4> creatorColourfulnessPack{};
+    /// FilmicPass.fx: x=strength, y=fade, z=bleach, w=saturation.
+    std::array<float, 4> creatorFilmicPassPack{};
+    /// FilmGrain2.fx: x=amount, y=color amount, z=luminance amount, w=grain size.
+    std::array<float, 4> creatorFilmGrain2Pack{};
+    /// Denoise.fx KNN: x=strength, y=noise level, z=lerp coefficient, w=weight threshold.
+    std::array<float, 4> creatorDenoisePack{};
+    /// Denoise.fx KNN: x=counter threshold, y=gaussian sigma, zw unused.
+    std::array<float, 4> creatorDenoisePack2{};
+    /// AdaptiveSharpen.fx: x=curve_height, y=curve_slope, z=L_overshoot, w=D_overshoot.
+    std::array<float, 4> creatorAdaptiveSharpenPack0{};
+    /// AdaptiveSharpen.fx: x=L_compr_low, y=L_compr_high, z=D_compr_low, w=D_compr_high.
+    std::array<float, 4> creatorAdaptiveSharpenPack1{};
+    /// AdaptiveSharpen.fx: x=scale_lim, y=scale_cs, z=pm_p, w unused.
+    std::array<float, 4> creatorAdaptiveSharpenPack2{};
+    /// GaussianBlur.fx: x=strength, y=offset, z=radius (0–4), w unused.
+    std::array<float, 4> creatorGaussianBlurPack{};
+    /// FineSharp.fx: x=sstr, y=cstr, z=xstr, w=xrep.
+    std::array<float, 4> creatorFineSharpPack0{};
+    /// FineSharp.fx: x=lstr, y=pstr, z=mode (0–2), w unused.
+    std::array<float, 4> creatorFineSharpPack1{};
+    /// Bloom.fx Marty McFly: x=threshold, y=amount, z=saturation, w=mix mode (0–3).
+    std::array<float, 4> creatorMartyBloomPack0{};
+    /// Bloom.fx Marty McFly: xyz=tint, w unused.
+    std::array<float, 4> creatorMartyBloomPack1{};
+    /// DOF.fx RingDOF: x=strength, y=autoFocus, z=manualFocusDepth, w=infiniteFocus.
+    std::array<float, 4> creatorDofPack0{};
+    /// DOF.fx RingDOF: xy=focusPoint, z=focusRadius, w=focusSamples.
+    std::array<float, 4> creatorDofPack1{};
+    /// DOF.fx RingDOF: x=nearBlurCurve, y=farBlurCurve, z=blurRadius, w=ringSamples.
+    std::array<float, 4> creatorDofPack2{};
+    /// DOF.fx RingDOF: x=ringRings, y=ringThreshold, z=ringGain, w=ringFringe.
+    std::array<float, 4> creatorDofPack3{};
+    /// DOF.fx RingDOF: x=ringBias, yzw unused.
+    std::array<float, 4> creatorDofPack4{};
+    /// AmbientLight.fx: x=intensity, y=threshold, z=adapt, w=adaptBaseMult.
+    std::array<float, 4> creatorAmbientLightPack0{};
+    /// AmbientLight.fx: x=adaptBlackLevel, y=dither, z=dirt, w=adaptiveMode.
+    std::array<float, 4> creatorAmbientLightPack1{};
+    /// AmbientLight.fx: x=dirtInt, y=dirtOvrInt, z=timePhase, w unused.
+    std::array<float, 4> creatorAmbientLightPack2{};
+    /// FakeMotionBlur.fx: x=recall, y=softness, zw unused.
+    std::array<float, 4> creatorFakeMotionBlurPack0{};
+    /// ReflectiveBumpMapping.fx: x=strength, y=blurWidthPixels, z=reliefHeight, w=fresnelReflectance.
+    std::array<float, 4> creatorReflectiveBumpMappingPack0{};
+    /// ReflectiveBumpMapping.fx: x=fresnelMult, y=lowerThreshold, z=upperThreshold, w=sampleCount.
+    std::array<float, 4> creatorReflectiveBumpMappingPack1{};
+    /// ReflectiveBumpMapping.fx: rgba color masks for red/orange/yellow/green.
+    std::array<float, 4> creatorReflectiveBumpMappingPack2{};
+    /// ReflectiveBumpMapping.fx: rgb color masks for cyan/blue/magenta, w=depthFarPlane.
+    std::array<float, 4> creatorReflectiveBumpMappingPack3{};
     /// Column-major `mat4` for `NativeSkybox.vert` (`projection * skyRotation`).
     std::array<float, 16> skyClipFromLocal{};
     /// Column-major `mat4`; upper 3x3 maps eye-space directions to world for equirect sampling.
@@ -596,9 +661,35 @@ struct alignas(16) CameraUniformStd140 {
     float pd80HbPack1[4]{};
     float pd80HbPack2[4]{};
     float pd80Sc2Pack0[4]{};
+    float creatorColourfulnessPack[4]{};
+    float creatorFilmicPassPack[4]{};
+    float creatorFilmGrain2Pack[4]{};
+    float creatorDenoisePack[4]{};
+    float creatorDenoisePack2[4]{};
+    float creatorAdaptiveSharpenPack0[4]{};
+    float creatorAdaptiveSharpenPack1[4]{};
+    float creatorAdaptiveSharpenPack2[4]{};
+    float creatorGaussianBlurPack[4]{};
+    float creatorFineSharpPack0[4]{};
+    float creatorFineSharpPack1[4]{};
+    float creatorMartyBloomPack0[4]{};
+    float creatorMartyBloomPack1[4]{};
+    float creatorDofPack0[4]{};
+    float creatorDofPack1[4]{};
+    float creatorDofPack2[4]{};
+    float creatorDofPack3[4]{};
+    float creatorDofPack4[4]{};
+    float creatorAmbientLightPack0[4]{};
+    float creatorAmbientLightPack1[4]{};
+    float creatorAmbientLightPack2[4]{};
+    float creatorFakeMotionBlurPack0[4]{};
+    float creatorReflectiveBumpMappingPack0[4]{};
+    float creatorReflectiveBumpMappingPack1[4]{};
+    float creatorReflectiveBumpMappingPack2[4]{};
+    float creatorReflectiveBumpMappingPack3[4]{};
 };
 
-static_assert(sizeof(CameraUniformStd140) == 3248, "Must match NativeScenePreview shader CameraData std140 layout.");
+static_assert(sizeof(CameraUniformStd140) == 3664, "Must match NativeScenePreview shader CameraData std140 layout.");
 
 void StoreMat4ColumnMajorGlsl(const ri::math::Mat4& matrix, float destination[16]) {
     for (int column = 0; column < 4; ++column) {
@@ -1056,10 +1147,11 @@ ri::math::Mat4 BuildLookAtMatrix(const ri::math::Vec3& eye, const ri::math::Vec3
     view.m[1][1] = up.y;
     view.m[1][2] = up.z;
     view.m[1][3] = -ri::math::Dot(up, eye);
-    view.m[2][0] = -forward.x;
-    view.m[2][1] = -forward.y;
-    view.m[2][2] = -forward.z;
-    view.m[2][3] = ri::math::Dot(forward, eye);
+    // Match the engine camera convention: objects in front of the camera live at positive view-space Z.
+    view.m[2][0] = forward.x;
+    view.m[2][1] = forward.y;
+    view.m[2][2] = forward.z;
+    view.m[2][3] = -ri::math::Dot(forward, eye);
     view.m[3][0] = 0.0f;
     view.m[3][1] = 0.0f;
     view.m[3][2] = 0.0f;
@@ -1076,11 +1168,12 @@ ri::math::Mat4 BuildOrthographicMatrix(const float left,
     ri::math::Mat4 projection{};
     projection.m[0][0] = 2.0f / std::max(right - left, 0.001f);
     projection.m[1][1] = 2.0f / std::max(top - bottom, 0.001f);
-    projection.m[2][2] = -2.0f / std::max(farPlane - nearPlane, 0.001f);
+    // Vulkan uses clip-space depth in [0, 1], the same convention as the main preview camera.
+    projection.m[2][2] = 1.0f / std::max(farPlane - nearPlane, 0.001f);
     projection.m[3][3] = 1.0f;
     projection.m[0][3] = -(right + left) / std::max(right - left, 0.001f);
     projection.m[1][3] = -(top + bottom) / std::max(top - bottom, 0.001f);
-    projection.m[2][3] = -(farPlane + nearPlane) / std::max(farPlane - nearPlane, 0.001f);
+    projection.m[2][3] = -nearPlane / std::max(farPlane - nearPlane, 0.001f);
     return projection;
 }
 
@@ -1421,9 +1514,25 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
     const ri::math::Vec3 lightEye = shadowCenter - sunToSurface * 120.0f;
     const ri::math::Mat4 lightView =
         BuildLookAtMatrix(lightEye, shadowCenter, ri::math::Vec3{0.0f, 1.0f, 0.0f});
-    constexpr float orthoRadius = 85.0f;
-    const ri::math::Mat4 lightProjection =
-        BuildOrthographicMatrix(-orthoRadius, orthoRadius, -orthoRadius, orthoRadius, 8.0f, 260.0f);
+    constexpr float orthoRadius = 60.0f;
+    ri::math::Mat4 lightProjection =
+        BuildOrthographicMatrix(-orthoRadius, orthoRadius, -orthoRadius, orthoRadius, 6.0f, 180.0f);
+
+    // Stabilise the camera-following shadow map by snapping its projection to the
+    // shadow-map texel grid at the follow center (not world origin). Without this,
+    // the ortho slides continuously with the camera and shadow texels crawl across
+    // surfaces, which reads as geometry shifting when the view moves.
+    constexpr float kShadowMapResolutionF = 4096.0f;
+    const float halfResolution = kShadowMapResolutionF * 0.5f;
+    {
+        const ri::math::Mat4 unsnapped = ri::math::Multiply(lightProjection, lightView);
+        const ri::math::Vec3 shadowNdc = ri::math::TransformPoint(unsnapped, shadowCenter);
+        const float snappedX = std::round(shadowNdc.x * halfResolution) / halfResolution;
+        const float snappedY = std::round(shadowNdc.y * halfResolution) / halfResolution;
+        lightProjection.m[0][3] += (snappedX - shadowNdc.x);
+        lightProjection.m[1][3] += (snappedY - shadowNdc.y);
+    }
+
     const ri::math::Mat4 lightViewProjection = ri::math::Multiply(lightProjection, lightView);
     StoreMat4ColumnMajorGlsl(lightViewProjection, data.lightViewProjection.data());
 
@@ -1504,13 +1613,14 @@ CpuMeshGeometry BuildIndexedMeshGeometryUv(const std::vector<ri::math::Vec3>& po
                                            const std::vector<ri::math::Vec3>* explicitNormals,
                                            const std::vector<ri::math::Vec2>& texCoords,
                                            const std::vector<std::uint32_t>& indices,
-                                           bool hasUv) {
+                                           bool hasUv,
+                                           bool flatShaded) {
     CpuMeshGeometry geometry{};
     if (positions.empty() || indices.empty() || (indices.size() % 3U) != 0U) {
         return geometry;
     }
 
-    std::vector<ri::math::Vec3> averagedNormals(positions.size(), ri::math::Vec3{0.0f, 0.0f, 0.0f});
+    std::vector<ri::math::Vec3> vertexNormals(positions.size(), ri::math::Vec3{0.0f, 0.0f, 0.0f});
     if (explicitNormals != nullptr && explicitNormals->size() == positions.size()) {
         for (std::size_t index = 0; index < positions.size(); ++index) {
             ri::math::Vec3 normal = (*explicitNormals)[index];
@@ -1519,9 +1629,9 @@ CpuMeshGeometry BuildIndexedMeshGeometryUv(const std::vector<ri::math::Vec3>& po
             } else {
                 normal = ri::math::Normalize(normal);
             }
-            averagedNormals[index] = normal;
+            vertexNormals[index] = normal;
         }
-    } else {
+    } else if (!flatShaded) {
         for (std::size_t triangleIndex = 0; triangleIndex + 2U < indices.size(); triangleIndex += 3U) {
             const std::uint32_t ia = indices[triangleIndex + 0U];
             const std::uint32_t ib = indices[triangleIndex + 1U];
@@ -1531,18 +1641,18 @@ CpuMeshGeometry BuildIndexedMeshGeometryUv(const std::vector<ri::math::Vec3>& po
             }
             const ri::math::Vec3 faceNormal =
                 ri::math::Cross(positions[ib] - positions[ia], positions[ic] - positions[ia]);
-            averagedNormals[ia] = averagedNormals[ia] + faceNormal;
-            averagedNormals[ib] = averagedNormals[ib] + faceNormal;
-            averagedNormals[ic] = averagedNormals[ic] + faceNormal;
+            vertexNormals[ia] = vertexNormals[ia] + faceNormal;
+            vertexNormals[ib] = vertexNormals[ib] + faceNormal;
+            vertexNormals[ic] = vertexNormals[ic] + faceNormal;
         }
         for (std::size_t index = 0; index < positions.size(); ++index) {
-            ri::math::Vec3 normal = averagedNormals[index];
+            ri::math::Vec3 normal = vertexNormals[index];
             if (ri::math::Length(normal) <= 0.0001f) {
                 normal = ri::math::Vec3{0.0f, 1.0f, 0.0f};
             } else {
                 normal = ri::math::Normalize(normal);
             }
-            averagedNormals[index] = normal;
+            vertexNormals[index] = normal;
         }
     }
 
@@ -1561,9 +1671,21 @@ CpuMeshGeometry BuildIndexedMeshGeometryUv(const std::vector<ri::math::Vec3>& po
             }
             return ri::math::Vec2{0.0f, 0.0f};
         };
+        ri::math::Vec3 faceNormal{0.0f, 1.0f, 0.0f};
+        if (flatShaded && explicitNormals == nullptr) {
+            faceNormal = ri::math::Cross(positions[ib] - positions[ia], positions[ic] - positions[ia]);
+            if (ri::math::Length(faceNormal) <= 0.0001f) {
+                faceNormal = ri::math::Vec3{0.0f, 1.0f, 0.0f};
+            } else {
+                faceNormal = ri::math::Normalize(faceNormal);
+            }
+        }
         for (const std::uint32_t corner : {ia, ib, ic}) {
             NativeSceneVertex vertex{};
-            SetNativeVertex(vertex, positions[corner], averagedNormals[corner], cornerUv(corner));
+            SetNativeVertex(vertex,
+                            positions[corner],
+                            flatShaded && explicitNormals == nullptr ? faceNormal : vertexNormals[corner],
+                            cornerUv(corner));
             geometry.vertices.push_back(vertex);
             geometry.indices.push_back(static_cast<std::uint32_t>(geometry.vertices.size() - 1U));
         }
@@ -1591,6 +1713,7 @@ CpuMeshGeometry BuildNativeMeshGeometry(const ri::scene::Mesh& mesh) {
         const bool hasUv = mesh.texCoords.size() == mesh.positions.size();
         const std::vector<ri::math::Vec3>* explicitNormals =
             mesh.normals.size() == mesh.positions.size() ? &mesh.normals : nullptr;
+        const bool flatShaded = mesh.primitive == ri::scene::PrimitiveType::Custom && explicitNormals == nullptr;
         if (!mesh.indices.empty()) {
             std::vector<std::uint32_t> indices;
             indices.reserve(mesh.indices.size());
@@ -1599,10 +1722,20 @@ CpuMeshGeometry BuildNativeMeshGeometry(const ri::scene::Mesh& mesh) {
                     indices.push_back(static_cast<std::uint32_t>(index));
                 }
             }
-            return BuildIndexedMeshGeometryUv(mesh.positions, explicitNormals, mesh.texCoords, indices, hasUv);
+            return BuildIndexedMeshGeometryUv(mesh.positions,
+                                              explicitNormals,
+                                              mesh.texCoords,
+                                              indices,
+                                              hasUv,
+                                              flatShaded);
         }
         return BuildIndexedMeshGeometryUv(
-            mesh.positions, explicitNormals, mesh.texCoords, BuildSequentialIndices(mesh.positions), hasUv);
+            mesh.positions,
+            explicitNormals,
+            mesh.texCoords,
+            BuildSequentialIndices(mesh.positions),
+            hasUv,
+            flatShaded);
     }
     }
     return {};
@@ -1625,6 +1758,20 @@ CpuMeshGeometry BuildNativeMeshGeometry(const ri::scene::Mesh& mesh) {
         return true;
     }
     return false;
+}
+
+[[nodiscard]] bool NativePreviewPathUsesMetalLookupPalette(const std::string& path) {
+    std::string lower = path;
+    for (char& character : lower) {
+        character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    }
+    return lower.find("metalcolormap.png") != std::string::npos;
+}
+
+[[nodiscard]] bool NativePreviewUsesMetalLookupPalette(const ri::scene::Material& material,
+                                                       const std::string& resolvedAlbedoPath) {
+    return NativePreviewPathUsesMetalLookupPalette(material.baseColorTexture) ||
+           NativePreviewPathUsesMetalLookupPalette(resolvedAlbedoPath);
 }
 
 [[nodiscard]] std::string ResolveNativePreviewAlbedoRelPath(const ri::scene::Material& material,
@@ -1834,6 +1981,33 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                 if (material.materialWorkflow == ri::scene::MaterialWorkflow::SpecGloss) {
                     draw.materialStyleFlags |= kNativeMaterialWorkflowSpecGloss;
                 }
+                const bool metalLookupMaterial =
+                    NativePreviewUsesMetalLookupPalette(material, draw.resolvedAlbedoRelPath);
+                if (metalLookupMaterial) {
+                    draw.materialStyleFlags |= kNativeMaterialStyleMetalLookup;
+                }
+                if (material.bakedWorldTileUv) {
+                    draw.materialStyleFlags |= kNativeMaterialWorldTileUv;
+                }
+                const bool hasRealAlbedo =
+                    !draw.resolvedAlbedoRelPath.empty()
+                    && (!material.baseColorTexture.empty()
+                        || (!material.baseColorTextureFrames.empty()
+                            && !material.baseColorTextureFrames.front().empty()));
+                const bool canGenerateMaps = kNativeGenerateMissingMaterialMaps && draw.litShadingModel
+                                             && draw.useTexture && hasRealAlbedo && !metalLookupMaterial;
+                const bool specGlossWorkflow =
+                    material.materialWorkflow == ri::scene::MaterialWorkflow::SpecGloss;
+                // Normal maps are workflow-agnostic, but the generated map is ORM-packed
+                // (R=AO,G=rough,B=metal); SpecGloss materials would misread it as a spec
+                // colour, so only hydrate ORM for the MetalRough path.
+                if (!material.bakedWorldTileUv
+                    && (!material.normalTexture.empty() || canGenerateMaps)) {
+                    draw.materialStyleFlags |= kNativeMaterialHasNormalMap;
+                }
+                if (!material.ormTexture.empty() || (canGenerateMaps && !specGlossWorkflow)) {
+                    draw.materialStyleFlags |= kNativeMaterialHasOrmMap;
+                }
                 draw.doubleSided = material.doubleSided;
                 draw.additiveBlend = material.additiveBlend;
                 data.draws.push_back(draw);
@@ -1842,6 +2016,18 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
             default:
                 break;
             }
+        }
+
+        if (submissionCamera != ri::scene::kInvalidHandle) {
+            const float aspectRatio = static_cast<float>(std::max(width, 1))
+                / static_cast<float>(std::max(height, 1));
+            const ri::math::Mat4 view = ri::scene::BuildCameraViewMatrix(scene, submissionCamera);
+            const ri::math::Mat4 projection = ri::scene::BuildCameraProjectionMatrix(
+                scene,
+                submissionCamera,
+                aspectRatio,
+                photoMode);
+            StoreMat4ColumnMajorGlsl(ri::math::Multiply(projection, view), data.viewProjection);
         }
 
         {
@@ -2988,6 +3174,162 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
         sanitizedPost.pd80Sc2SaturationScale,
         sanitizedPost.pd80Sc2LightnessScale,
     };
+    outData->creatorColourfulnessPack = {
+        sanitizedPost.colourfulness,
+        sanitizedPost.colourfulnessLimitLuma,
+        0.0f,
+        0.0f,
+    };
+    outData->creatorFilmicPassPack = {
+        sanitizedPost.filmicPassStrength,
+        sanitizedPost.filmicPassFade,
+        sanitizedPost.filmicPassBleach,
+        sanitizedPost.filmicPassSaturation,
+    };
+    outData->creatorFilmGrain2Pack = {
+        sanitizedPost.filmGrain2Amount,
+        sanitizedPost.filmGrain2ColorAmount,
+        sanitizedPost.filmGrain2LuminanceAmount,
+        sanitizedPost.filmGrain2Size,
+    };
+    outData->creatorDenoisePack = {
+        sanitizedPost.denoiseStrength,
+        sanitizedPost.denoiseNoiseLevel,
+        sanitizedPost.denoiseLerpCoefficient,
+        sanitizedPost.denoiseWeightThreshold,
+    };
+    outData->creatorDenoisePack2 = {
+        sanitizedPost.denoiseCounterThreshold,
+        sanitizedPost.denoiseGaussianSigma,
+        0.0f,
+        0.0f,
+    };
+    outData->creatorAdaptiveSharpenPack0 = {
+        sanitizedPost.adaptiveSharpenStrength,
+        sanitizedPost.adaptiveSharpenCurveSlope,
+        sanitizedPost.adaptiveSharpenLightOvershoot,
+        sanitizedPost.adaptiveSharpenDarkOvershoot,
+    };
+    outData->creatorAdaptiveSharpenPack1 = {
+        sanitizedPost.adaptiveSharpenLightComprLow,
+        sanitizedPost.adaptiveSharpenLightComprHigh,
+        sanitizedPost.adaptiveSharpenDarkComprLow,
+        sanitizedPost.adaptiveSharpenDarkComprHigh,
+    };
+    outData->creatorAdaptiveSharpenPack2 = {
+        sanitizedPost.adaptiveSharpenScaleLim,
+        sanitizedPost.adaptiveSharpenScaleCs,
+        sanitizedPost.adaptiveSharpenPmP,
+        0.0f,
+    };
+    outData->creatorGaussianBlurPack = {
+        sanitizedPost.gaussianBlurStrength,
+        sanitizedPost.gaussianBlurOffset,
+        static_cast<float>(sanitizedPost.gaussianBlurRadius),
+        0.0f,
+    };
+    outData->creatorFineSharpPack0 = {
+        sanitizedPost.fineSharpStrength,
+        sanitizedPost.fineSharpEqualization,
+        sanitizedPost.fineSharpXStrength,
+        sanitizedPost.fineSharpXRepair,
+    };
+    outData->creatorFineSharpPack1 = {
+        sanitizedPost.fineSharpLStrength,
+        sanitizedPost.fineSharpPStrength,
+        static_cast<float>(sanitizedPost.fineSharpMode),
+        0.0f,
+    };
+    outData->creatorMartyBloomPack0 = {
+        sanitizedPost.martyBloomThreshold,
+        sanitizedPost.martyBloomAmount,
+        sanitizedPost.martyBloomSaturation,
+        static_cast<float>(sanitizedPost.martyBloomMixMode),
+    };
+    outData->creatorMartyBloomPack1 = {
+        sanitizedPost.martyBloomTint.x,
+        sanitizedPost.martyBloomTint.y,
+        sanitizedPost.martyBloomTint.z,
+        0.0f,
+    };
+    outData->creatorDofPack0 = {
+        sanitizedPost.creatorDofStrength,
+        sanitizedPost.creatorDofAutoFocus ? 1.0f : 0.0f,
+        sanitizedPost.creatorDofManualFocusDepth,
+        sanitizedPost.creatorDofInfiniteFocus,
+    };
+    outData->creatorDofPack1 = {
+        sanitizedPost.creatorDofFocusPoint.x,
+        sanitizedPost.creatorDofFocusPoint.y,
+        sanitizedPost.creatorDofFocusRadius,
+        static_cast<float>(sanitizedPost.creatorDofFocusSamples),
+    };
+    outData->creatorDofPack2 = {
+        sanitizedPost.creatorDofNearBlurCurve,
+        sanitizedPost.creatorDofFarBlurCurve,
+        sanitizedPost.creatorDofBlurRadius,
+        static_cast<float>(sanitizedPost.creatorDofRingSamples),
+    };
+    outData->creatorDofPack3 = {
+        static_cast<float>(sanitizedPost.creatorDofRingRings),
+        sanitizedPost.creatorDofRingThreshold,
+        sanitizedPost.creatorDofRingGain,
+        sanitizedPost.creatorDofRingFringe,
+    };
+    outData->creatorDofPack4 = {
+        sanitizedPost.creatorDofRingBias,
+        0.0f,
+        0.0f,
+        0.0f,
+    };
+    outData->creatorAmbientLightPack0 = {
+        sanitizedPost.ambientLightIntensity,
+        sanitizedPost.ambientLightThreshold,
+        sanitizedPost.ambientLightAdapt,
+        sanitizedPost.ambientLightAdaptBaseMult,
+    };
+    outData->creatorAmbientLightPack1 = {
+        static_cast<float>(sanitizedPost.ambientLightAdaptBlackLevel),
+        sanitizedPost.ambientLightDither ? 1.0f : 0.0f,
+        sanitizedPost.ambientLightDirt ? 1.0f : 0.0f,
+        static_cast<float>(sanitizedPost.ambientLightAdaptiveMode),
+    };
+    outData->creatorAmbientLightPack2 = {
+        sanitizedPost.ambientLightDirtInt,
+        sanitizedPost.ambientLightDirtOvrInt,
+        sanitizedPost.timeSeconds,
+        sanitizedPost.ambientLightAdaptation ? 1.0f : 0.0f,
+    };
+    outData->creatorFakeMotionBlurPack0 = {
+        sanitizedPost.fakeMotionBlurRecall,
+        sanitizedPost.fakeMotionBlurSoftness,
+        0.0f,
+        0.0f,
+    };
+    outData->creatorReflectiveBumpMappingPack0 = {
+        sanitizedPost.reflectiveBumpMappingStrength,
+        sanitizedPost.reflectiveBumpMappingBlurWidthPixels,
+        sanitizedPost.reflectiveBumpMappingReliefHeight,
+        sanitizedPost.reflectiveBumpMappingFresnelReflectance,
+    };
+    outData->creatorReflectiveBumpMappingPack1 = {
+        sanitizedPost.reflectiveBumpMappingFresnelMult,
+        sanitizedPost.reflectiveBumpMappingLowerThreshold,
+        sanitizedPost.reflectiveBumpMappingUpperThreshold,
+        static_cast<float>(sanitizedPost.reflectiveBumpMappingSampleCount),
+    };
+    outData->creatorReflectiveBumpMappingPack2 = {
+        sanitizedPost.reflectiveBumpMappingColorMaskRed,
+        sanitizedPost.reflectiveBumpMappingColorMaskOrange,
+        sanitizedPost.reflectiveBumpMappingColorMaskYellow,
+        sanitizedPost.reflectiveBumpMappingColorMaskGreen,
+    };
+    outData->creatorReflectiveBumpMappingPack3 = {
+        sanitizedPost.reflectiveBumpMappingColorMaskCyan,
+        sanitizedPost.reflectiveBumpMappingColorMaskBlue,
+        sanitizedPost.reflectiveBumpMappingColorMaskMagenta,
+        sanitizedPost.reflectiveBumpMappingDepthFarPlane,
+    };
     outData->renderQualityTier = std::clamp(frame.renderQualityTier, 0, 2);
     const float vw = static_cast<float>(std::max(width, 1));
     const float vh = static_cast<float>(std::max(height, 1));
@@ -3247,6 +3589,146 @@ ImageResource CreateHdrSceneColorImage(VkPhysicalDevice physicalDevice,
     return resource;
 }
 
+ImageResource CreateRgba8HistoryImage(VkPhysicalDevice physicalDevice,
+                                      VkDevice device,
+                                      VkFormat format,
+                                      const std::uint32_t width,
+                                      const std::uint32_t height) {
+    ImageResource resource{};
+    const VkImageCreateInfo imageInfo{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = format,
+        .extent = {width, height, 1},
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+    ExpectVk(vkCreateImage(device, &imageInfo, nullptr, &resource.image), "vkCreateImage(fake-motion-blur-history)");
+
+    VkMemoryRequirements requirements{};
+    vkGetImageMemoryRequirements(device, resource.image, &requirements);
+    const VkMemoryAllocateInfo allocateInfo{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = requirements.size,
+        .memoryTypeIndex = FindMemoryType(physicalDevice, requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
+    };
+    ExpectVk(vkAllocateMemory(device, &allocateInfo, nullptr, &resource.memory), "vkAllocateMemory(fake-motion-blur-history)");
+    ExpectVk(vkBindImageMemory(device, resource.image, resource.memory, 0), "vkBindImageMemory(fake-motion-blur-history)");
+
+    const VkImageViewCreateInfo viewInfo{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = resource.image,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = format,
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+    };
+    ExpectVk(vkCreateImageView(device, &viewInfo, nullptr, &resource.view), "vkCreateImageView(fake-motion-blur-history)");
+    return resource;
+}
+
+void TransitionImageLayout(VkCommandBuffer commandBuffer,
+                           VkImage image,
+                           VkImageLayout oldLayout,
+                           VkImageLayout newLayout,
+                           VkAccessFlags srcAccessMask,
+                           VkAccessFlags dstAccessMask,
+                           VkPipelineStageFlags srcStage,
+                           VkPipelineStageFlags dstStage) {
+    const VkImageMemoryBarrier barrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .srcAccessMask = srcAccessMask,
+        .dstAccessMask = dstAccessMask,
+        .oldLayout = oldLayout,
+        .newLayout = newLayout,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = image,
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+    };
+    vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+}
+
+void RecordFakeMotionBlurHistoryCopy(VkCommandBuffer commandBuffer,
+                                     VkImage swapchainImage,
+                                     VkImage historyImage,
+                                     VkExtent2D extent) {
+    TransitionImageLayout(commandBuffer,
+                          swapchainImage,
+                          VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                          VK_ACCESS_MEMORY_READ_BIT,
+                          VK_ACCESS_TRANSFER_READ_BIT,
+                          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT);
+    TransitionImageLayout(commandBuffer,
+                          historyImage,
+                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                          VK_ACCESS_SHADER_READ_BIT,
+                          VK_ACCESS_TRANSFER_WRITE_BIT,
+                          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+    const VkImageCopy copyRegion{
+        .srcSubresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+        .srcOffset = {0, 0, 0},
+        .dstSubresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+        .dstOffset = {0, 0, 0},
+        .extent = {extent.width, extent.height, 1},
+    };
+    vkCmdCopyImage(commandBuffer,
+                   swapchainImage,
+                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   historyImage,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   1,
+                   &copyRegion);
+
+    TransitionImageLayout(commandBuffer,
+                          swapchainImage,
+                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                          VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                          VK_ACCESS_TRANSFER_READ_BIT,
+                          VK_ACCESS_MEMORY_READ_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    TransitionImageLayout(commandBuffer,
+                          historyImage,
+                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                          VK_ACCESS_TRANSFER_WRITE_BIT,
+                          VK_ACCESS_SHADER_READ_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+}
+
 struct GpuAlbedoImage {
     VkImage image = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
@@ -3299,18 +3781,24 @@ void SubmitOneTimeCommands(VkDevice device,
     vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
 
-GpuAlbedoImage CreateGpuAlbedoImageRgba8(VkPhysicalDevice physicalDevice,
-                                         VkDevice device,
-                                         VkCommandPool commandPool,
-                                         VkQueue queue,
-                                         const int width,
-                                         const int height,
-                                         const std::uint8_t* rgbaPixels) {
+// Uploads an RGBA8 texture. `format` selects the colour-space interpretation: colour
+// maps (albedo/emissive/detail) use VK_FORMAT_R8G8B8A8_SRGB so they are gamma-decoded on
+// sample, while data maps (normal/ORM/opacity) MUST use VK_FORMAT_R8G8B8A8_UNORM so their
+// raw bytes are read verbatim -- an sRGB normal/ORM is silently warped by the hardware.
+GpuAlbedoImage CreateGpuRgba8Image(VkPhysicalDevice physicalDevice,
+                                   VkDevice device,
+                                   VkCommandPool commandPool,
+                                   VkQueue queue,
+                                   const int width,
+                                   const int height,
+                                   const std::uint8_t* rgbaPixels,
+                                   const VkFormat format) {
     if (width <= 0 || height <= 0 || rgbaPixels == nullptr) {
         return {};
     }
 
-    const VkDeviceSize pixelBytes = static_cast<VkDeviceSize>(width * height * 4);
+    const VkDeviceSize pixelBytes =
+        static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4ULL;
     BufferResource staging = CreateBuffer(physicalDevice,
                                             device,
                                             pixelBytes,
@@ -3325,7 +3813,7 @@ GpuAlbedoImage CreateGpuAlbedoImageRgba8(VkPhysicalDevice physicalDevice,
     const VkImageCreateInfo imageInfo{
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .imageType = VK_IMAGE_TYPE_2D,
-        .format = VK_FORMAT_R8G8B8A8_SRGB,
+        .format = format,
         .extent = {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1},
         .mipLevels = 1,
         .arrayLayers = 1,
@@ -3428,7 +3916,7 @@ GpuAlbedoImage CreateGpuAlbedoImageRgba8(VkPhysicalDevice physicalDevice,
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .image = out.image,
         .viewType = VK_IMAGE_VIEW_TYPE_2D,
-        .format = VK_FORMAT_R8G8B8A8_SRGB,
+        .format = format,
         .subresourceRange =
             {
                 .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -3442,11 +3930,410 @@ GpuAlbedoImage CreateGpuAlbedoImageRgba8(VkPhysicalDevice physicalDevice,
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// On-disk cache for generated material maps.
+//
+// Generated normal/ORM maps are derived from the source albedo. To avoid paying
+// the generation cost on every launch, results are persisted as a tiny raw RGBA
+// blob keyed by source path + parameters + generator version, and invalidated
+// when the source texture's modification time changes.
+// ---------------------------------------------------------------------------
+namespace procedural_cache {
+
+constexpr std::uint32_t kMagic = 0x314D4952U; // "RIM1"
+
+[[nodiscard]] std::int64_t SourceModificationStamp(const fs::path& sourcePath) {
+    std::error_code ec{};
+    const auto stamp = fs::last_write_time(sourcePath, ec);
+    if (ec) {
+        return 0;
+    }
+    return static_cast<std::int64_t>(stamp.time_since_epoch().count());
+}
+
+// Stable FNV-1a 64-bit. std::hash is implementation-defined (varies by stdlib/build and
+// can collide), which is unsafe for an on-disk cache key; this is deterministic forever.
+[[nodiscard]] std::uint64_t StableHash64(const std::string& text) {
+    std::uint64_t hash = 0xCBF29CE484222325ULL;
+    for (const unsigned char byte : text) {
+        hash ^= static_cast<std::uint64_t>(byte);
+        hash *= 0x00000100000001B3ULL;
+    }
+    return hash;
+}
+
+[[nodiscard]] fs::path CacheFilePath(const fs::path& cacheDir, const std::string& cacheKey) {
+    const std::uint64_t hashed = StableHash64(cacheKey);
+    char name[32] = {};
+    std::snprintf(name, sizeof(name), "%016llx.rimap", static_cast<unsigned long long>(hashed));
+    return cacheDir / name;
+}
+
+[[nodiscard]] ri::render::software::RgbaImage Read(const fs::path& cacheFile, const std::int64_t expectedStamp) {
+    ri::render::software::RgbaImage image{};
+    std::ifstream stream(cacheFile, std::ios::binary);
+    if (!stream) {
+        return image;
+    }
+    std::uint32_t magic = 0;
+    std::int32_t version = 0;
+    std::uint32_t buildId = 0;
+    std::int64_t stamp = 0;
+    std::int32_t width = 0;
+    std::int32_t height = 0;
+    stream.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+    stream.read(reinterpret_cast<char*>(&version), sizeof(version));
+    stream.read(reinterpret_cast<char*>(&buildId), sizeof(buildId));
+    stream.read(reinterpret_cast<char*>(&stamp), sizeof(stamp));
+    stream.read(reinterpret_cast<char*>(&width), sizeof(width));
+    stream.read(reinterpret_cast<char*>(&height), sizeof(height));
+    if (!stream || magic != kMagic || version != ri::render::vulkan::kProceduralMapGeneratorVersion
+        || buildId != ri::render::vulkan::ProceduralGeneratorBuildId()
+        || stamp != expectedStamp || width <= 0 || height <= 0) {
+        return image;
+    }
+    const std::size_t byteCount = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4U;
+    image.rgba.resize(byteCount);
+    stream.read(reinterpret_cast<char*>(image.rgba.data()), static_cast<std::streamsize>(byteCount));
+    if (!stream) {
+        return ri::render::software::RgbaImage{};
+    }
+    image.width = width;
+    image.height = height;
+    return image;
+}
+
+void Write(const fs::path& cacheFile,
+           const std::int64_t sourceStamp,
+           const ri::render::software::RgbaImage& image) {
+    if (!image.Valid()) {
+        return;
+    }
+    std::error_code ec{};
+    fs::create_directories(cacheFile.parent_path(), ec);
+    std::ofstream stream(cacheFile, std::ios::binary | std::ios::trunc);
+    if (!stream) {
+        return;
+    }
+    const std::int32_t version = ri::render::vulkan::kProceduralMapGeneratorVersion;
+    const std::uint32_t buildId = ri::render::vulkan::ProceduralGeneratorBuildId();
+    const std::int32_t width = image.width;
+    const std::int32_t height = image.height;
+    stream.write(reinterpret_cast<const char*>(&kMagic), sizeof(kMagic));
+    stream.write(reinterpret_cast<const char*>(&version), sizeof(version));
+    stream.write(reinterpret_cast<const char*>(&buildId), sizeof(buildId));
+    stream.write(reinterpret_cast<const char*>(&sourceStamp), sizeof(sourceStamp));
+    stream.write(reinterpret_cast<const char*>(&width), sizeof(width));
+    stream.write(reinterpret_cast<const char*>(&height), sizeof(height));
+    stream.write(reinterpret_cast<const char*>(image.rgba.data()),
+                 static_cast<std::streamsize>(image.rgba.size()));
+}
+
+} // namespace procedural_cache
+
+// Colour maps are gamma-decoded on sample; data maps (normal/ORM/opacity) must be read
+// verbatim, otherwise the hardware sRGB curve warps their meaning (e.g. a 128/128/255
+// "neutral" normal becomes garbage). See CreateGpuRgba8Image.
+inline constexpr VkFormat kColorTextureFormat = VK_FORMAT_R8G8B8A8_SRGB;
+inline constexpr VkFormat kDataTextureFormat = VK_FORMAT_R8G8B8A8_UNORM;
+
+enum class ProceduralMapKind : std::int32_t {
+    NormalFromAlbedo = 0,
+    OrmFromAlbedo = 1,
+    OrmFromNormal = 2,
+};
+
+// Matches the push_constant block in ProceduralMaps.comp (tightly packed 4-byte scalars).
+struct ProceduralMapPushConstants {
+    std::int32_t width = 0;
+    std::int32_t height = 0;
+    std::int32_t kind = 0;
+    std::int32_t wrap = 1;
+    std::int32_t applyHeightTransform = 0;
+    std::int32_t invertHeight = 0;
+    float strength = 1.2f;
+    float heightBias = 0.0f;
+    float heightScale = 1.0f;
+    float baseRoughness = 0.85f;
+    float baseMetallic = 0.0f;
+    float aoStrength = 0.6f;
+    float roughnessDetail = 0.25f;
+};
+
+// Vulkan compute path for procedural material-map generation. Produces output that
+// matches the CPU reference generators in ProceduralMaterialMaps.cpp, then reads the
+// result back into an RgbaImage so it flows through the very same on-disk cache. If
+// the device/queue cannot support compute (or any setup step fails) it reports
+// unavailable and callers transparently fall back to the CPU generators.
+struct ProceduralMapGpuGenerator {
+    VkDevice device = VK_NULL_HANDLE;
+    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+    VkQueue queue = VK_NULL_HANDLE;
+    VkCommandPool commandPool = VK_NULL_HANDLE;
+    VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
+    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+    VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+    bool available = false;
+
+    [[nodiscard]] bool isAvailable() const { return available; }
+
+    void initialize(VkPhysicalDevice physDevice, VkDevice dev, VkQueue computeQueue, std::uint32_t queueFamily) {
+        physicalDevice = physDevice;
+        device = dev;
+        queue = computeQueue;
+
+        // Escape hatch for parity testing / driver issues: force the CPU reference path.
+        if (EnvironmentPath("RAWIRON_DISABLE_GPU_PROCGEN").has_value()) {
+            return;
+        }
+
+        // The shared graphics queue family must also advertise compute support.
+        std::uint32_t familyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, nullptr);
+        if (queueFamily >= familyCount) {
+            return;
+        }
+        std::vector<VkQueueFamilyProperties> families(familyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, families.data());
+        if ((families[queueFamily].queueFlags & VK_QUEUE_COMPUTE_BIT) == 0U) {
+            return;
+        }
+
+        const fs::path shaderDir = ResolveVulkanNativeShaderDirectory();
+        const fs::path shaderPath = shaderDir / "ProceduralMaps.comp.spv";
+        std::error_code ec{};
+        if (shaderDir.empty() || !fs::exists(shaderPath, ec)) {
+            return;
+        }
+
+        try {
+            const VkCommandPoolCreateInfo poolInfo{
+                .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+                .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+                .queueFamilyIndex = queueFamily,
+            };
+            ExpectVk(vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool), "vkCreateCommandPool(procgen)");
+
+            const std::array<VkDescriptorSetLayoutBinding, 2> bindings{{
+                {.binding = 0,
+                 .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                 .descriptorCount = 1,
+                 .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT},
+                {.binding = 1,
+                 .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                 .descriptorCount = 1,
+                 .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT},
+            }};
+            const VkDescriptorSetLayoutCreateInfo layoutInfo{
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+                .bindingCount = static_cast<std::uint32_t>(bindings.size()),
+                .pBindings = bindings.data(),
+            };
+            ExpectVk(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &setLayout),
+                     "vkCreateDescriptorSetLayout(procgen)");
+
+            const VkPushConstantRange pushRange{
+                .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                .offset = 0,
+                .size = sizeof(ProceduralMapPushConstants),
+            };
+            const VkPipelineLayoutCreateInfo pipelineLayoutInfo{
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+                .setLayoutCount = 1,
+                .pSetLayouts = &setLayout,
+                .pushConstantRangeCount = 1,
+                .pPushConstantRanges = &pushRange,
+            };
+            ExpectVk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout),
+                     "vkCreatePipelineLayout(procgen)");
+
+            const VkShaderModule module = CreateShaderModule(device, shaderPath);
+            const VkComputePipelineCreateInfo pipelineInfo{
+                .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+                .stage =
+                    {
+                        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                        .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                        .module = module,
+                        .pName = "main",
+                    },
+                .layout = pipelineLayout,
+            };
+            const VkResult pipelineResult =
+                vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline);
+            vkDestroyShaderModule(device, module, nullptr);
+            ExpectVk(pipelineResult, "vkCreateComputePipelines(procgen)");
+
+            const VkDescriptorPoolSize poolSize{
+                .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 2,
+            };
+            const VkDescriptorPoolCreateInfo descPoolInfo{
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                .maxSets = 1,
+                .poolSizeCount = 1,
+                .pPoolSizes = &poolSize,
+            };
+            ExpectVk(vkCreateDescriptorPool(device, &descPoolInfo, nullptr, &descriptorPool),
+                     "vkCreateDescriptorPool(procgen)");
+
+            const VkDescriptorSetAllocateInfo setAllocInfo{
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                .descriptorPool = descriptorPool,
+                .descriptorSetCount = 1,
+                .pSetLayouts = &setLayout,
+            };
+            ExpectVk(vkAllocateDescriptorSets(device, &setAllocInfo, &descriptorSet),
+                     "vkAllocateDescriptorSets(procgen)");
+
+            available = true;
+        } catch (const std::exception&) {
+            destroy();
+        }
+    }
+
+    void destroy() {
+        available = false;
+        if (device == VK_NULL_HANDLE) {
+            return;
+        }
+        if (pipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(device, pipeline, nullptr);
+            pipeline = VK_NULL_HANDLE;
+        }
+        if (pipelineLayout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+            pipelineLayout = VK_NULL_HANDLE;
+        }
+        if (setLayout != VK_NULL_HANDLE) {
+            vkDestroyDescriptorSetLayout(device, setLayout, nullptr);
+            setLayout = VK_NULL_HANDLE;
+        }
+        if (descriptorPool != VK_NULL_HANDLE) {
+            vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+            descriptorPool = VK_NULL_HANDLE;
+            descriptorSet = VK_NULL_HANDLE;
+        }
+        if (commandPool != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(device, commandPool, nullptr);
+            commandPool = VK_NULL_HANDLE;
+        }
+        device = VK_NULL_HANDLE;
+    }
+
+    // Runs the compute generator and reads the result back. Returns an empty image on
+    // any failure so the caller falls back to the CPU path.
+    [[nodiscard]] ri::render::software::RgbaImage generate(const ProceduralMapKind kind,
+                                                           const ri::render::software::RgbaImage& source,
+                                                           const ProceduralNormalMapOptions& normalOptions,
+                                                           const ProceduralOrmMapOptions& ormOptions) {
+        if (!available || !source.Valid()) {
+            return {};
+        }
+        const VkDeviceSize byteSize = static_cast<VkDeviceSize>(source.width) * static_cast<VkDeviceSize>(source.height) * 4U;
+        if (byteSize == 0U) {
+            return {};
+        }
+
+        BufferResource srcBuffer{};
+        BufferResource dstBuffer{};
+        ri::render::software::RgbaImage result{};
+        try {
+            srcBuffer = CreateBuffer(physicalDevice, device, byteSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            dstBuffer = CreateBuffer(physicalDevice, device, byteSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+            void* mapped = nullptr;
+            ExpectVk(vkMapMemory(device, srcBuffer.memory, 0, byteSize, 0, &mapped), "vkMapMemory(procgen-src)");
+            std::memcpy(mapped, source.rgba.data(), static_cast<std::size_t>(byteSize));
+            vkUnmapMemory(device, srcBuffer.memory);
+
+            const std::array<VkDescriptorBufferInfo, 2> bufferInfos{{
+                {.buffer = srcBuffer.buffer, .offset = 0, .range = byteSize},
+                {.buffer = dstBuffer.buffer, .offset = 0, .range = byteSize},
+            }};
+            const std::array<VkWriteDescriptorSet, 2> writes{{
+                {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                 .dstSet = descriptorSet,
+                 .dstBinding = 0,
+                 .descriptorCount = 1,
+                 .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                 .pBufferInfo = &bufferInfos[0]},
+                {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                 .dstSet = descriptorSet,
+                 .dstBinding = 1,
+                 .descriptorCount = 1,
+                 .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                 .pBufferInfo = &bufferInfos[1]},
+            }};
+            vkUpdateDescriptorSets(device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
+
+            ProceduralMapPushConstants push{};
+            push.width = source.width;
+            push.height = source.height;
+            push.kind = static_cast<std::int32_t>(kind);
+            push.wrap = (kind == ProceduralMapKind::NormalFromAlbedo ? normalOptions.wrap : ormOptions.wrap) ? 1 : 0;
+            push.strength = normalOptions.strength;
+            push.heightBias = normalOptions.heightBias;
+            push.heightScale = normalOptions.heightScale;
+            push.invertHeight = normalOptions.invertHeight ? 1 : 0;
+            push.applyHeightTransform =
+                (kind == ProceduralMapKind::NormalFromAlbedo
+                 && (normalOptions.invertHeight || normalOptions.heightBias != 0.0f || normalOptions.heightScale != 1.0f))
+                    ? 1
+                    : 0;
+            push.baseRoughness = ormOptions.baseRoughness;
+            push.baseMetallic = ormOptions.baseMetallic;
+            push.aoStrength = ormOptions.aoStrength;
+            push.roughnessDetail = ormOptions.roughnessDetail;
+
+            const std::uint32_t groupsX = (static_cast<std::uint32_t>(source.width) + 7U) / 8U;
+            const std::uint32_t groupsY = (static_cast<std::uint32_t>(source.height) + 7U) / 8U;
+            SubmitOneTimeCommands(device, commandPool, queue, [&](VkCommandBuffer cmd) {
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0,
+                                        nullptr);
+                vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+                vkCmdDispatch(cmd, groupsX, groupsY, 1);
+                const VkBufferMemoryBarrier barrier{
+                    .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                    .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                    .dstAccessMask = VK_ACCESS_HOST_READ_BIT,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .buffer = dstBuffer.buffer,
+                    .offset = 0,
+                    .size = byteSize,
+                };
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0,
+                                     nullptr, 1, &barrier, 0, nullptr);
+            });
+
+            result.width = source.width;
+            result.height = source.height;
+            result.rgba.resize(static_cast<std::size_t>(byteSize));
+            void* readback = nullptr;
+            ExpectVk(vkMapMemory(device, dstBuffer.memory, 0, byteSize, 0, &readback), "vkMapMemory(procgen-dst)");
+            std::memcpy(result.rgba.data(), readback, static_cast<std::size_t>(byteSize));
+            vkUnmapMemory(device, dstBuffer.memory);
+        } catch (const std::exception&) {
+            result = {};
+        }
+        DestroyBuffer(device, srcBuffer);
+        DestroyBuffer(device, dstBuffer);
+        return result;
+    }
+};
+
 struct NativeAlbedoTextureCache {
     VkDevice device = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
     VkQueue graphicsQueue = VK_NULL_HANDLE;
+    ProceduralMapGpuGenerator gpuGenerator{};
     VkDescriptorPool textureDescriptorPool = VK_NULL_HANDLE;
     VkDescriptorSetLayout textureSetLayout = VK_NULL_HANDLE;
     VkSampler linearSampler = VK_NULL_HANDLE;
@@ -3457,11 +4344,14 @@ struct NativeAlbedoTextureCache {
     VkDescriptorSet whiteDescriptorSet = VK_NULL_HANDLE;
     std::unordered_map<std::string, GpuAlbedoImage> imagesByKey{};
     std::unordered_map<std::string, VkDescriptorSet> descriptorByKey{};
+    std::unordered_map<std::string, fs::path> siblingMapByKey{};
+    fs::path proceduralCacheDir{};
 
     void destroy() {
         if (device == VK_NULL_HANDLE) {
             return;
         }
+        gpuGenerator.destroy();
         descriptorByKey.clear();
         whiteDescriptorSet = VK_NULL_HANDLE;
         if (textureDescriptorPool != VK_NULL_HANDLE) {
@@ -3502,11 +4392,14 @@ struct NativeAlbedoTextureCache {
     [[nodiscard]] const GpuAlbedoImage& ResolveFallbackFlatNormal() const { return flatNormalImage; }
     [[nodiscard]] const GpuAlbedoImage& ResolveFallbackOrm() const { return ormDefaultImage; }
 
-    [[nodiscard]] const GpuAlbedoImage* resolveImageForAbsolutePath(const fs::path& absolutePath) {
+    [[nodiscard]] const GpuAlbedoImage* resolveImageForAbsolutePath(const fs::path& absolutePath,
+                                                                    const VkFormat format) {
         if (absolutePath.empty()) {
             return nullptr;
         }
-        const std::string key = absolutePath.generic_string();
+        // Key on the colour-space too: the same file used as both colour and data must not
+        // alias to a single (wrongly-decoded) GPU image.
+        const std::string key = absolutePath.generic_string() + "|fmt=" + std::to_string(static_cast<int>(format));
         if (const auto it = imagesByKey.find(key); it != imagesByKey.end()) {
             return &it->second;
         }
@@ -3516,13 +4409,178 @@ struct NativeAlbedoTextureCache {
             return nullptr;
         }
 
-        GpuAlbedoImage gpuImage = CreateGpuAlbedoImageRgba8(
-            physicalDevice, device, commandPool, graphicsQueue, rgba.width, rgba.height, rgba.rgba.data());
+        GpuAlbedoImage gpuImage = CreateGpuRgba8Image(
+            physicalDevice, device, commandPool, graphicsQueue, rgba.width, rgba.height, rgba.rgba.data(), format);
         if (gpuImage.view == VK_NULL_HANDLE) {
             return nullptr;
         }
         const auto [it, _] = imagesByKey.emplace(key, std::move(gpuImage));
         return &it->second;
+    }
+
+    [[nodiscard]] const GpuAlbedoImage* uploadGeneratedImage(const std::string& key,
+                                                             const ri::render::software::RgbaImage& image,
+                                                             const VkFormat format) {
+        if (!image.Valid()) {
+            return nullptr;
+        }
+        if (const auto it = imagesByKey.find(key); it != imagesByKey.end()) {
+            return &it->second;
+        }
+        GpuAlbedoImage gpuImage = CreateGpuRgba8Image(
+            physicalDevice, device, commandPool, graphicsQueue, image.width, image.height, image.rgba.data(), format);
+        if (gpuImage.view == VK_NULL_HANDLE) {
+            return nullptr;
+        }
+        const auto [it, _] = imagesByKey.emplace(key, std::move(gpuImage));
+        return &it->second;
+    }
+
+    // Runs the GPU compute generator when available and falls back to the CPU reference
+    // implementation otherwise. Both paths produce equivalent output that is then cached.
+    [[nodiscard]] ri::render::software::RgbaImage generateMap(const ProceduralMapKind kind,
+                                                             const ri::render::software::RgbaImage& source,
+                                                             const ProceduralNormalMapOptions& normalOptions,
+                                                             const ProceduralOrmMapOptions& ormOptions) {
+        if (gpuGenerator.isAvailable()) {
+            ri::render::software::RgbaImage gpu = gpuGenerator.generate(kind, source, normalOptions, ormOptions);
+            if (gpu.Valid()) {
+                return gpu;
+            }
+        }
+        switch (kind) {
+            case ProceduralMapKind::NormalFromAlbedo:
+                return ri::render::vulkan::GenerateNormalMapFromAlbedo(source, normalOptions);
+            case ProceduralMapKind::OrmFromAlbedo:
+                return ri::render::vulkan::GenerateOrmMapFromAlbedo(source, ormOptions);
+            case ProceduralMapKind::OrmFromNormal:
+                return ri::render::vulkan::GenerateOrmMapFromNormal(source, ormOptions);
+        }
+        return {};
+    }
+
+    // Derives and caches a normal map from the albedo at the given path. Returns the flat-normal
+    // fallback view's owner only via nullptr when generation is unavailable.
+    [[nodiscard]] const GpuAlbedoImage* resolveGeneratedNormal(const fs::path& albedoPath) {
+        if (albedoPath.empty()) {
+            return nullptr;
+        }
+        const std::string key = std::string("__gen_normal__|") + albedoPath.generic_string();
+        if (const auto it = imagesByKey.find(key); it != imagesByKey.end()) {
+            return &it->second;
+        }
+        const ri::render::software::RgbaImage normal = generateOrLoadCached(
+            albedoPath,
+            key,
+            [this](const ri::render::software::RgbaImage& albedo) {
+                return generateMap(ProceduralMapKind::NormalFromAlbedo, albedo,
+                                   ri::render::vulkan::ProceduralNormalMapOptions{},
+                                   ri::render::vulkan::ProceduralOrmMapOptions{});
+            });
+        return uploadGeneratedImage(key, normal, kDataTextureFormat);
+    }
+
+    [[nodiscard]] const GpuAlbedoImage* resolveGeneratedOrm(const fs::path& albedoPath,
+                                                            const float baseRoughness,
+                                                            const float baseMetallic) {
+        if (albedoPath.empty()) {
+            return nullptr;
+        }
+        const std::string key = std::string("__gen_orm__|") + albedoPath.generic_string()
+                                + "|r=" + std::to_string(baseRoughness) + "|m=" + std::to_string(baseMetallic);
+        if (const auto it = imagesByKey.find(key); it != imagesByKey.end()) {
+            return &it->second;
+        }
+        const ri::render::software::RgbaImage orm = generateOrLoadCached(
+            albedoPath,
+            key,
+            [this, baseRoughness, baseMetallic](const ri::render::software::RgbaImage& albedo) {
+                ri::render::vulkan::ProceduralOrmMapOptions options{};
+                options.baseRoughness = baseRoughness;
+                options.baseMetallic = baseMetallic;
+                return generateMap(ProceduralMapKind::OrmFromAlbedo, albedo,
+                                   ri::render::vulkan::ProceduralNormalMapOptions{}, options);
+            });
+        return uploadGeneratedImage(key, orm, kDataTextureFormat);
+    }
+
+    // Higher-quality ORM derived by cross-referencing an authored/discovered normal map
+    // (occlusion from curvature, roughness from slope) instead of luminance heuristics.
+    [[nodiscard]] const GpuAlbedoImage* resolveGeneratedOrmFromNormal(const fs::path& normalPath,
+                                                                      const float baseRoughness,
+                                                                      const float baseMetallic) {
+        if (normalPath.empty()) {
+            return nullptr;
+        }
+        const std::string key = std::string("__gen_orm_xnormal__|") + normalPath.generic_string()
+                                + "|r=" + std::to_string(baseRoughness) + "|m=" + std::to_string(baseMetallic);
+        if (const auto it = imagesByKey.find(key); it != imagesByKey.end()) {
+            return &it->second;
+        }
+        const ri::render::software::RgbaImage orm = generateOrLoadCached(
+            normalPath,
+            key,
+            [this, baseRoughness, baseMetallic](const ri::render::software::RgbaImage& normal) {
+                ri::render::vulkan::ProceduralOrmMapOptions options{};
+                options.baseRoughness = baseRoughness;
+                options.baseMetallic = baseMetallic;
+                return generateMap(ProceduralMapKind::OrmFromNormal, normal,
+                                   ri::render::vulkan::ProceduralNormalMapOptions{}, options);
+            });
+        return uploadGeneratedImage(key, orm, kDataTextureFormat);
+    }
+
+    // Looks for an authored sibling map next to the albedo using the texture-pack naming
+    // convention ("<name>.png" -> "<name><suffix>.png", e.g. "_n" / "_s"). Results are
+    // memoised because descriptorFor runs per draw. Returns an empty path when none exists.
+    [[nodiscard]] fs::path probeSiblingMap(const fs::path& albedoPath, const std::string& suffix) {
+        if (albedoPath.empty()) {
+            return {};
+        }
+        const std::string cacheKey = albedoPath.generic_string() + "|" + suffix;
+        if (const auto it = siblingMapByKey.find(cacheKey); it != siblingMapByKey.end()) {
+            return it->second;
+        }
+        fs::path result{};
+        const std::string stem = albedoPath.stem().string();
+        // Do not stack suffixes on maps that are already normal/spec/roughness channels.
+        const bool alreadySuffixed = stem.size() >= 2
+                                     && (stem.ends_with("_n") || stem.ends_with("_s") || stem.ends_with("_r"));
+        if (!alreadySuffixed) {
+            const fs::path sibling = albedoPath.parent_path() / (stem + suffix + albedoPath.extension().string());
+            std::error_code ec{};
+            if (fs::exists(sibling, ec) && !ec) {
+                result = sibling;
+            }
+        }
+        siblingMapByKey.emplace(cacheKey, result);
+        return result;
+    }
+
+    // Returns a generated map for the given source, preferring the on-disk cache and
+    // falling back to CPU generation (which is then written to the cache).
+    template <typename GeneratorFn>
+    [[nodiscard]] ri::render::software::RgbaImage generateOrLoadCached(const fs::path& albedoPath,
+                                                                       const std::string& cacheKey,
+                                                                       GeneratorFn&& generator) {
+        const std::int64_t sourceStamp = procedural_cache::SourceModificationStamp(albedoPath);
+        fs::path cacheFile{};
+        if (!proceduralCacheDir.empty()) {
+            cacheFile = procedural_cache::CacheFilePath(proceduralCacheDir, cacheKey);
+            ri::render::software::RgbaImage cached = procedural_cache::Read(cacheFile, sourceStamp);
+            if (cached.Valid()) {
+                return cached;
+            }
+        }
+        const ri::render::software::RgbaImage albedo = ri::render::software::LoadRgbaImageFile(albedoPath);
+        if (!albedo.Valid()) {
+            return {};
+        }
+        ri::render::software::RgbaImage generated = generator(albedo);
+        if (generated.Valid() && !cacheFile.empty()) {
+            procedural_cache::Write(cacheFile, sourceStamp, generated);
+        }
+        return generated;
     }
 
     [[nodiscard]] VkDescriptorSet allocateDescriptorSet() const {
@@ -3589,18 +4647,47 @@ struct NativeAlbedoTextureCache {
                                                : (!textureRoot.empty() ? (textureRoot / requestedPath).lexically_normal() : fs::path{});
         };
         const fs::path albedoPath = makeAbsolute(albedoRel);
-        const fs::path normalPath = makeAbsolute(material.normalTexture);
+        const fs::path authoredNormalPath = makeAbsolute(material.normalTexture);
         const fs::path ormPath = makeAbsolute(material.ormTexture);
         const fs::path emissivePath = makeAbsolute(material.emissiveTexture);
         const fs::path opacityPath = makeAbsolute(material.opacityTexture);
         const fs::path detailPath = makeAbsolute(material.detailTexture.empty() ? albedoRel : material.detailTexture);
+
+        const bool metalLookupMaterial = (draw.materialStyleFlags & kNativeMaterialStyleMetalLookup) != 0;
+        const bool specGlossWorkflow = material.materialWorkflow == ri::scene::MaterialWorkflow::SpecGloss;
+
+        // Cross-reference authored sibling maps from the texture pack ("<name>_n.png" next
+        // to "<name>.png") before considering procedural generation. This lets a material
+        // that only names an albedo automatically pick up the pack's real normal map.
+        const bool normalEligible = kNativeGenerateMissingMaterialMaps && draw.litShadingModel
+                                     && !metalLookupMaterial;
+        fs::path normalPath = authoredNormalPath;
+        if (normalPath.empty() && normalEligible && !albedoPath.empty()) {
+            normalPath = probeSiblingMap(albedoPath, "_n");
+        }
+
+        const bool wantsGeneratedNormal = normalEligible && normalPath.empty() && !albedoPath.empty();
+        // Generated ORM is MetalRough-packed; SpecGloss materials would misread it as
+        // a spec colour, so they keep the safe authored-scalar shader path instead.
+        const bool wantsGeneratedOrm = kNativeGenerateMissingMaterialMaps && draw.litShadingModel
+                                       && !metalLookupMaterial && !specGlossWorkflow
+                                       && material.ormTexture.empty() && !albedoPath.empty();
+        // When a normal map is available (authored or auto-discovered) we generate the ORM
+        // from it (curvature-based occlusion) for higher quality than luminance heuristics.
+        const bool ormFromNormal = wantsGeneratedOrm && !normalPath.empty();
+        const float genRoughness = std::clamp(material.roughness, 0.04f, 1.0f);
+        const float genMetallic = std::clamp(material.metallic, 0.0f, 1.0f);
+
         const std::string key =
             std::string("mat|a=") + albedoPath.generic_string()
             + "|n=" + normalPath.generic_string()
             + "|o=" + ormPath.generic_string()
             + "|e=" + emissivePath.generic_string()
             + "|p=" + opacityPath.generic_string()
-            + "|d=" + detailPath.generic_string();
+            + "|d=" + detailPath.generic_string()
+            + "|gn=" + (wantsGeneratedNormal ? "1" : "0")
+            + "|go=" + (wantsGeneratedOrm ? (std::to_string(genRoughness) + "," + std::to_string(genMetallic)) : "0")
+            + "|gox=" + (ormFromNormal ? "1" : "0");
         if (const auto it = descriptorByKey.find(key); it != descriptorByKey.end()) {
             return it->second;
         }
@@ -3609,12 +4696,24 @@ struct NativeAlbedoTextureCache {
         if (set == VK_NULL_HANDLE) {
             return whiteDescriptorSet;
         }
-        const GpuAlbedoImage* albedoLoaded = resolveImageForAbsolutePath(albedoPath);
-        const GpuAlbedoImage* normalLoaded = resolveImageForAbsolutePath(normalPath);
-        const GpuAlbedoImage* ormLoaded = resolveImageForAbsolutePath(ormPath);
-        const GpuAlbedoImage* emissiveLoaded = resolveImageForAbsolutePath(emissivePath);
-        const GpuAlbedoImage* opacityLoaded = resolveImageForAbsolutePath(opacityPath);
-        const GpuAlbedoImage* detailLoaded = resolveImageForAbsolutePath(detailPath);
+        const GpuAlbedoImage* albedoLoaded = resolveImageForAbsolutePath(albedoPath, kColorTextureFormat);
+        const GpuAlbedoImage* normalLoaded = resolveImageForAbsolutePath(normalPath, kDataTextureFormat);
+        const GpuAlbedoImage* ormLoaded = resolveImageForAbsolutePath(ormPath, kDataTextureFormat);
+        const GpuAlbedoImage* emissiveLoaded = resolveImageForAbsolutePath(emissivePath, kColorTextureFormat);
+        const GpuAlbedoImage* opacityLoaded = resolveImageForAbsolutePath(opacityPath, kDataTextureFormat);
+        const GpuAlbedoImage* detailLoaded = resolveImageForAbsolutePath(detailPath, kColorTextureFormat);
+        if (normalLoaded == nullptr && wantsGeneratedNormal) {
+            normalLoaded = resolveGeneratedNormal(albedoPath);
+        }
+        if (ormLoaded == nullptr && wantsGeneratedOrm) {
+            // Prefer cross-referencing the resolved normal map; fall back to albedo cavity.
+            if (!normalPath.empty()) {
+                ormLoaded = resolveGeneratedOrmFromNormal(normalPath, genRoughness, genMetallic);
+            }
+            if (ormLoaded == nullptr) {
+                ormLoaded = resolveGeneratedOrm(albedoPath, genRoughness, genMetallic);
+            }
+        }
         const GpuAlbedoImage& albedoImage = albedoLoaded != nullptr ? *albedoLoaded : ResolveFallbackWhite();
         const GpuAlbedoImage& normalImage = normalLoaded != nullptr ? *normalLoaded : ResolveFallbackFlatNormal();
         const GpuAlbedoImage& ormImage = ormLoaded != nullptr ? *ormLoaded : ResolveFallbackOrm();
@@ -3639,7 +4738,7 @@ struct NativeAlbedoTextureCache {
             return it->second;
         }
 
-        const GpuAlbedoImage* loaded = resolveImageForAbsolutePath(absolutePath);
+        const GpuAlbedoImage* loaded = resolveImageForAbsolutePath(absolutePath, kColorTextureFormat);
         if (loaded == nullptr) {
             descriptorByKey.emplace(key, whiteDescriptorSet);
             return whiteDescriptorSet;
@@ -3658,6 +4757,7 @@ struct NativeAlbedoTextureCache {
                     VkDevice dev,
                     VkCommandPool pool,
                     VkQueue queue,
+                    std::uint32_t queueFamily,
                     VkDescriptorSetLayout textureLayout,
                     VkDescriptorPool texturePool,
                     VkSampler sampler) {
@@ -3669,16 +4769,37 @@ struct NativeAlbedoTextureCache {
         textureDescriptorPool = texturePool;
         linearSampler = sampler;
 
+        if (kNativeGenerateMissingMaterialMaps) {
+            gpuGenerator.initialize(physDevice, dev, queue, queueFamily);
+            ri::core::LogInfo(gpuGenerator.isAvailable()
+                                  ? "Procedural material maps: GPU compute generator active (CPU fallback ready)."
+                                  : "Procedural material maps: using CPU generator (GPU compute unavailable).");
+        }
+
+        if (kNativeGenerateMissingMaterialMaps) {
+            std::error_code cacheEc{};
+            fs::path candidate = fs::current_path(cacheEc) / "Saved" / "Cache" / "ProceduralMaps";
+            if (!cacheEc) {
+                fs::create_directories(candidate, cacheEc);
+                if (!cacheEc) {
+                    proceduralCacheDir = std::move(candidate);
+                }
+            }
+        }
+
         constexpr std::uint8_t whitePixel[4] = {255, 255, 255, 255};
         constexpr std::uint8_t blackPixel[4] = {0, 0, 0, 255};
         constexpr std::uint8_t flatNormalPixel[4] = {128, 128, 255, 255};
         constexpr std::uint8_t ormDefaultPixel[4] = {255, 255, 0, 255};
-        whiteImage = CreateGpuAlbedoImageRgba8(physicalDevice, device, commandPool, graphicsQueue, 1, 1, whitePixel);
-        blackImage = CreateGpuAlbedoImageRgba8(physicalDevice, device, commandPool, graphicsQueue, 1, 1, blackPixel);
-        flatNormalImage = CreateGpuAlbedoImageRgba8(
-            physicalDevice, device, commandPool, graphicsQueue, 1, 1, flatNormalPixel);
-        ormDefaultImage = CreateGpuAlbedoImageRgba8(
-            physicalDevice, device, commandPool, graphicsQueue, 1, 1, ormDefaultPixel);
+        whiteImage = CreateGpuRgba8Image(
+            physicalDevice, device, commandPool, graphicsQueue, 1, 1, whitePixel, kColorTextureFormat);
+        blackImage = CreateGpuRgba8Image(
+            physicalDevice, device, commandPool, graphicsQueue, 1, 1, blackPixel, kColorTextureFormat);
+        // Data fallbacks MUST be UNORM so the "neutral" normal/ORM are read verbatim.
+        flatNormalImage = CreateGpuRgba8Image(
+            physicalDevice, device, commandPool, graphicsQueue, 1, 1, flatNormalPixel, kDataTextureFormat);
+        ormDefaultImage = CreateGpuRgba8Image(
+            physicalDevice, device, commandPool, graphicsQueue, 1, 1, ormDefaultPixel, kDataTextureFormat);
         if (whiteImage.view == VK_NULL_HANDLE) {
             throw std::runtime_error("Failed to create fallback white albedo texture.");
         }
@@ -3705,7 +4826,10 @@ void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
                                           VkDescriptorSet layerTextureDescriptorSet,
                                           VkDescriptorSet smaaAreaTextureDescriptorSet,
                                           VkDescriptorSet smaaSearchTextureDescriptorSet,
-                                          VkDescriptorSet lutTextureDescriptorSet);
+                                          VkDescriptorSet lutTextureDescriptorSet,
+                                          VkImage swapchainImage,
+                                          VkImage fakeMotionBlurHistoryImage,
+                                          float fakeMotionBlurRecall);
 
 void RecordHybridScreenSpaceBundle(VkCommandBuffer commandBuffer,
                                    VkRenderPass bundleRenderPass,
@@ -3752,17 +4876,22 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                               VkRenderPass hybridBundleRenderPass,
                               VkPipeline hybridBundlePipeline,
                               VkPipelineLayout hybridBundlePipelineLayout,
-                              VkDescriptorSet hybridBundleDescriptorSet) {
+                              VkDescriptorSet hybridBundleDescriptorSet,
+                              VkImage swapchainImage,
+                              VkImage fakeMotionBlurHistoryImage,
+                              float fakeMotionBlurRecall) {
     const VkCommandBufferBeginInfo beginInfo{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     ExpectVk(vkBeginCommandBuffer(commandBuffer, &beginInfo), "vkBeginCommandBuffer");
 
-    const std::array<VkClearValue, 2> clearValues = {{
+    const std::array<VkClearValue, 4> clearValues = {{
         VkClearValue{.color = {
             sceneData.clearColor[0],
             sceneData.clearColor[1],
             sceneData.clearColor[2],
             sceneData.clearColor[3],
         }},
+        VkClearValue{.color = {{0.5f, 0.5f, 1.0f, 1.0f}}},
+        VkClearValue{.color = {{0.0f, 1.0f, 0.0f, 0.0f}}},
         VkClearValue{.depthStencil = {1.0f, 0}},
     }};
     const VkRenderPassBeginInfo renderPassBeginInfo{
@@ -3807,9 +4936,9 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
         };
         const VkViewport shadowViewport{
             .x = 0.0f,
-            .y = 0.0f,
+            .y = static_cast<float>(shadowExtent.height),
             .width = static_cast<float>(shadowExtent.width),
-            .height = static_cast<float>(shadowExtent.height),
+            .height = -static_cast<float>(shadowExtent.height),
             .minDepth = 0.0f,
             .maxDepth = 1.0f,
         };
@@ -3821,7 +4950,7 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline);
         vkCmdSetViewport(commandBuffer, 0, 1, &shadowViewport);
         vkCmdSetScissor(commandBuffer, 0, 1, &shadowScissor);
-        vkCmdSetDepthBias(commandBuffer, 1.25f, 0.0f, 1.75f);
+        vkCmdSetDepthBias(commandBuffer, 0.25f, 0.0f, 0.75f);
         vkCmdBindDescriptorSets(commandBuffer,
                                 VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 shadowPipelineLayout,
@@ -3984,7 +5113,10 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                                          hybridCompositeLayerDescriptorSet,
                                          hybridCompositeSmaaAreaDescriptorSet,
                                          hybridCompositeSmaaSearchDescriptorSet,
-                                         hybridCompositeLutDescriptorSet);
+                                         hybridCompositeLutDescriptorSet,
+                                         swapchainImage,
+                                         fakeMotionBlurHistoryImage,
+                                         fakeMotionBlurRecall);
     ExpectVk(vkEndCommandBuffer(commandBuffer), "vkEndCommandBuffer");
 }
 
@@ -3999,7 +5131,10 @@ void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
                                           VkDescriptorSet layerTextureDescriptorSet,
                                           VkDescriptorSet smaaAreaTextureDescriptorSet,
                                           VkDescriptorSet smaaSearchTextureDescriptorSet,
-                                          VkDescriptorSet lutTextureDescriptorSet) {
+                                          VkDescriptorSet lutTextureDescriptorSet,
+                                          VkImage swapchainImage,
+                                          VkImage fakeMotionBlurHistoryImage,
+                                          float fakeMotionBlurRecall) {
     if (compositeFramebuffer == VK_NULL_HANDLE || compositeRenderPass == VK_NULL_HANDLE
         || compositePipeline == VK_NULL_HANDLE || compositePipelineLayout == VK_NULL_HANDLE
         || hdrTextureDescriptorSet == VK_NULL_HANDLE || layerTextureDescriptorSet == VK_NULL_HANDLE
@@ -4052,6 +5187,10 @@ void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
                             nullptr);
     vkCmdDraw(commandBuffer, 3, 1, 0, 0);
     vkCmdEndRenderPass(commandBuffer);
+
+    if (fakeMotionBlurRecall > 1e-6f && swapchainImage != VK_NULL_HANDLE && fakeMotionBlurHistoryImage != VK_NULL_HANDLE) {
+        RecordFakeMotionBlurHistoryCopy(commandBuffer, swapchainImage, fakeMotionBlurHistoryImage, extent);
+    }
 }
 
 void RecordHybridScreenSpaceBundle(VkCommandBuffer commandBuffer,
@@ -4286,7 +5425,10 @@ bool RunVulkanNativeSceneLoop(const int width,
             .imageColorSpace = surfaceFormat.colorSpace,
             .imageExtent = extent,
             .imageArrayLayers = 1,
-            .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+            .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+                | (((capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0U)
+                       ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+                       : 0U),
             .imageSharingMode = selection.graphicsQueueFamily == selection.presentQueueFamily
                 ? VK_SHARING_MODE_EXCLUSIVE
                 : VK_SHARING_MODE_CONCURRENT,
@@ -4328,6 +5470,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         }
 
         const VkFormat depthFormat = FindDepthFormat(selection.physicalDevice);
+        const VkFormat gbufferFormat = FindHdrSceneColorFormat(selection.physicalDevice);
         const ImageResource depthImage =
             CreateDepthImage(selection.physicalDevice,
                              device,
@@ -4335,6 +5478,10 @@ bool RunVulkanNativeSceneLoop(const int width,
                              extent.width,
                              extent.height,
                              VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+        ImageResource gbufferNormalRoughnessImage =
+            CreateHdrSceneColorImage(selection.physicalDevice, device, gbufferFormat, extent.width, extent.height);
+        ImageResource gbufferMaterialImage =
+            CreateHdrSceneColorImage(selection.physicalDevice, device, gbufferFormat, extent.width, extent.height);
         const VkFormat shadowDepthFormat = FindShadowDepthFormat(selection.physicalDevice);
         constexpr std::uint32_t kShadowMapResolution = 4096U;
         ImageResource shadowDepthImage = CreateDepthImage(
@@ -4365,18 +5512,38 @@ bool RunVulkanNativeSceneLoop(const int width,
             .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
             .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         };
-        const VkAttachmentReference colorReference{
-            .attachment = 0,
-            .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        const VkAttachmentDescription gbufferAttachment{
+            .format = gbufferFormat,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         };
+        const std::array<VkAttachmentReference, 3> colorReferences = {{
+            VkAttachmentReference{
+                .attachment = 0,
+                .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            },
+            VkAttachmentReference{
+                .attachment = 1,
+                .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            },
+            VkAttachmentReference{
+                .attachment = 2,
+                .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            },
+        }};
         const VkAttachmentReference depthReference{
-            .attachment = 1,
+            .attachment = 3,
             .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         };
         const VkSubpassDescription subpass{
             .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-            .colorAttachmentCount = 1,
-            .pColorAttachments = &colorReference,
+            .colorAttachmentCount = static_cast<std::uint32_t>(colorReferences.size()),
+            .pColorAttachments = colorReferences.data(),
             .pDepthStencilAttachment = &depthReference,
         };
         const VkSubpassDependency dependency{
@@ -4386,7 +5553,12 @@ bool RunVulkanNativeSceneLoop(const int width,
             .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
             .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
         };
-        const std::array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
+        const std::array<VkAttachmentDescription, 4> attachments = {
+            colorAttachment,
+            gbufferAttachment,
+            gbufferAttachment,
+            depthAttachment,
+        };
         const VkRenderPassCreateInfo renderPassInfo{
             .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
             .attachmentCount = static_cast<std::uint32_t>(attachments.size()),
@@ -4463,7 +5635,12 @@ bool RunVulkanNativeSceneLoop(const int width,
         std::vector<VkFramebuffer> framebuffers;
         framebuffers.reserve(swapchainImageViews.size());
         for (VkImageView imageView : swapchainImageViews) {
-            const std::array<VkImageView, 2> attachmentsForFramebuffer = {imageView, depthImage.view};
+            const std::array<VkImageView, 4> attachmentsForFramebuffer = {
+                imageView,
+                gbufferNormalRoughnessImage.view,
+                gbufferMaterialImage.view,
+                depthImage.view,
+            };
             const VkFramebufferCreateInfo framebufferInfo{
                 .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
                 .renderPass = renderPass,
@@ -4558,6 +5735,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         VkPipeline compositePipeline = VK_NULL_HANDLE;
         VkDescriptorPool compositeDescriptorPool = VK_NULL_HANDLE;
         VkDescriptorSet compositeHdrDescriptorSet = VK_NULL_HANDLE;
+        ImageResource fakeMotionBlurHistory{};
         VkSampler hybridDepthSamplerNearest = VK_NULL_HANDLE;
         ImageResource hybridBundleHdrImage{};
         VkRenderPass hybridBundleRenderPass = VK_NULL_HANDLE;
@@ -4595,8 +5773,12 @@ bool RunVulkanNativeSceneLoop(const int width,
                 .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
                 .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
             };
-            const std::array<VkAttachmentDescription, 2> hdrSceneAttachmentDescs = {hdrSceneColorAttachmentDesc,
-                                                                                     hdrSceneDepthAttachmentDesc};
+            const std::array<VkAttachmentDescription, 4> hdrSceneAttachmentDescs = {
+                hdrSceneColorAttachmentDesc,
+                gbufferAttachment,
+                gbufferAttachment,
+                hdrSceneDepthAttachmentDesc,
+            };
             const VkSubpassDependency hdrSceneToSampleDependency{
                 .srcSubpass = 0,
                 .dstSubpass = VK_SUBPASS_EXTERNAL,
@@ -4630,7 +5812,12 @@ bool RunVulkanNativeSceneLoop(const int width,
             ExpectVk(vkCreateRenderPass(device, &hdrSceneRenderPassInfo, nullptr, &hdrSceneRenderPass),
                      "vkCreateRenderPass(hdr-scene)");
 
-            const std::array<VkImageView, 2> hdrSceneFbAttachments = {hdrSceneColorImage.view, depthImage.view};
+            const std::array<VkImageView, 4> hdrSceneFbAttachments = {
+                hdrSceneColorImage.view,
+                gbufferNormalRoughnessImage.view,
+                gbufferMaterialImage.view,
+                depthImage.view,
+            };
             const VkFramebufferCreateInfo hdrSceneFramebufferInfo{
                 .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
                 .renderPass = hdrSceneRenderPass,
@@ -4696,7 +5883,7 @@ bool RunVulkanNativeSceneLoop(const int width,
                 compositeFramebuffers.push_back(compositeFb);
             }
 
-            const std::array<VkDescriptorSetLayoutBinding, 2> compositeHdrSamplerBindings = {{
+            const std::array<VkDescriptorSetLayoutBinding, 3> compositeHdrSamplerBindings = {{
                 VkDescriptorSetLayoutBinding{
                     .binding = 0,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -4705,6 +5892,12 @@ bool RunVulkanNativeSceneLoop(const int width,
                 },
                 VkDescriptorSetLayoutBinding{
                     .binding = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .descriptorCount = 1,
+                    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                },
+                VkDescriptorSetLayoutBinding{
+                    .binding = 2,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .descriptorCount = 1,
                     .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -4737,6 +5930,8 @@ bool RunVulkanNativeSceneLoop(const int width,
 
             hybridBundleHdrImage =
                 CreateHdrSceneColorImage(selection.physicalDevice, device, hdrSceneFormat, extent.width, extent.height);
+            fakeMotionBlurHistory = CreateRgba8HistoryImage(
+                selection.physicalDevice, device, surfaceFormat.format, extent.width, extent.height);
 
             const VkAttachmentDescription hybridBundleColorAttachmentDesc{
                 .format = hdrSceneFormat,
@@ -4790,7 +5985,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             ExpectVk(vkCreateFramebuffer(device, &hybridBundleFramebufferInfo, nullptr, &hybridBundleFramebuffer),
                      "vkCreateFramebuffer(hybrid-bundle)");
 
-            const std::array<VkDescriptorSetLayoutBinding, 2> hybridBundleTextureBindings = {{
+            const std::array<VkDescriptorSetLayoutBinding, 4> hybridBundleTextureBindings = {{
                 VkDescriptorSetLayoutBinding{
                     .binding = 0,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -4799,6 +5994,18 @@ bool RunVulkanNativeSceneLoop(const int width,
                 },
                 VkDescriptorSetLayoutBinding{
                     .binding = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .descriptorCount = 1,
+                    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                },
+                VkDescriptorSetLayoutBinding{
+                    .binding = 2,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .descriptorCount = 1,
+                    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                },
+                VkDescriptorSetLayoutBinding{
+                    .binding = 3,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .descriptorCount = 1,
                     .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -4965,10 +6172,20 @@ bool RunVulkanNativeSceneLoop(const int width,
             .colorWriteMask =
                 VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
         };
+        const VkPipelineColorBlendAttachmentState gbufferBlendAttachment{
+            .blendEnable = VK_FALSE,
+            .colorWriteMask =
+                VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+        };
+        const std::array<VkPipelineColorBlendAttachmentState, 3> sceneBlendAttachments = {
+            blendAttachment,
+            gbufferBlendAttachment,
+            gbufferBlendAttachment,
+        };
         const VkPipelineColorBlendStateCreateInfo colorBlendInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-            .attachmentCount = 1,
-            .pAttachments = &blendAttachment,
+            .attachmentCount = static_cast<std::uint32_t>(sceneBlendAttachments.size()),
+            .pAttachments = sceneBlendAttachments.data(),
         };
         const std::array<VkDynamicState, 2> dynamicStates = {
             VK_DYNAMIC_STATE_VIEWPORT,
@@ -5012,10 +6229,19 @@ bool RunVulkanNativeSceneLoop(const int width,
             .colorWriteMask =
                 VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
         };
+        const VkPipelineColorBlendAttachmentState gbufferNoWriteAttachment{
+            .blendEnable = VK_FALSE,
+            .colorWriteMask = 0,
+        };
+        const std::array<VkPipelineColorBlendAttachmentState, 3> sceneAdditiveBlendAttachments = {
+            blendAttachmentAdditive,
+            gbufferNoWriteAttachment,
+            gbufferNoWriteAttachment,
+        };
         const VkPipelineColorBlendStateCreateInfo colorBlendAdditiveInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-            .attachmentCount = 1,
-            .pAttachments = &blendAttachmentAdditive,
+            .attachmentCount = static_cast<std::uint32_t>(sceneAdditiveBlendAttachments.size()),
+            .pAttachments = sceneAdditiveBlendAttachments.data(),
         };
         VkGraphicsPipelineCreateInfo pipelineAdditiveInfo = pipelineInfo;
         pipelineAdditiveInfo.pDepthStencilState = &depthStencilAdditiveInfo;
@@ -5055,10 +6281,15 @@ bool RunVulkanNativeSceneLoop(const int width,
             .colorWriteMask =
                 VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
         };
+        const std::array<VkPipelineColorBlendAttachmentState, 3> skyBlendAttachments = {
+            skyBlendAttachment,
+            gbufferNoWriteAttachment,
+            gbufferNoWriteAttachment,
+        };
         const VkPipelineColorBlendStateCreateInfo skyColorBlendInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-            .attachmentCount = 1,
-            .pAttachments = &skyBlendAttachment,
+            .attachmentCount = static_cast<std::uint32_t>(skyBlendAttachments.size()),
+            .pAttachments = skyBlendAttachments.data(),
         };
         const VkGraphicsPipelineCreateInfo skyPipelineInfo{
             .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
@@ -5189,7 +6420,8 @@ bool RunVulkanNativeSceneLoop(const int width,
         const VkPipelineRasterizationStateCreateInfo shadowRasterizationInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
             .polygonMode = VK_POLYGON_MODE_FILL,
-            .cullMode = VK_CULL_MODE_BACK_BIT,
+            // Keep the depth-only shadow pass tolerant of winding mistakes and mirrored content.
+            .cullMode = VK_CULL_MODE_NONE,
             .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
             .depthBiasEnable = VK_TRUE,
             .lineWidth = 1.0f,
@@ -5368,9 +6600,42 @@ bool RunVulkanNativeSceneLoop(const int width,
             ExpectVk(vkCreateSampler(device, &depthNearestSamplerInfo, nullptr, &hybridDepthSamplerNearest),
                      "vkCreateSampler(hybrid-depth-nearest)");
 
+            SubmitOneTimeCommands(device, commandPool, graphicsQueue, [&](VkCommandBuffer uploadCommandBuffer) {
+                TransitionImageLayout(uploadCommandBuffer,
+                                      fakeMotionBlurHistory.image,
+                                      VK_IMAGE_LAYOUT_UNDEFINED,
+                                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                      0,
+                                      VK_ACCESS_TRANSFER_WRITE_BIT,
+                                      VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                      VK_PIPELINE_STAGE_TRANSFER_BIT);
+                const VkClearColorValue clearBlack{{0.0f, 0.0f, 0.0f, 0.0f}};
+                const VkImageSubresourceRange clearRange{
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                };
+                vkCmdClearColorImage(uploadCommandBuffer,
+                                     fakeMotionBlurHistory.image,
+                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                     &clearBlack,
+                                     1,
+                                     &clearRange);
+                TransitionImageLayout(uploadCommandBuffer,
+                                      fakeMotionBlurHistory.image,
+                                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                      VK_ACCESS_TRANSFER_WRITE_BIT,
+                                      VK_ACCESS_SHADER_READ_BIT,
+                                      VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            });
+
             const std::array<VkDescriptorPoolSize, 1> hybridBundlePoolSizes{VkDescriptorPoolSize{
                 .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = 2,
+                .descriptorCount = 4,
             }};
             const VkDescriptorPoolCreateInfo hybridBundlePoolInfo{
                 .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -5400,7 +6665,17 @@ bool RunVulkanNativeSceneLoop(const int width,
                 .imageView = depthImage.view,
                 .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
             };
-            const std::array<VkWriteDescriptorSet, 2> writeHybridBundle = {{
+            const VkDescriptorImageInfo sceneNormalRoughnessImageInfo{
+                .sampler = linearSampler,
+                .imageView = gbufferNormalRoughnessImage.view,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            };
+            const VkDescriptorImageInfo sceneMaterialImageInfo{
+                .sampler = linearSampler,
+                .imageView = gbufferMaterialImage.view,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            };
+            const std::array<VkWriteDescriptorSet, 4> writeHybridBundle = {{
                 VkWriteDescriptorSet{
                     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     .dstSet = hybridBundleDescriptorSet,
@@ -5417,6 +6692,22 @@ bool RunVulkanNativeSceneLoop(const int width,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .pImageInfo = &sceneDepthImageInfo,
                 },
+                VkWriteDescriptorSet{
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = hybridBundleDescriptorSet,
+                    .dstBinding = 2,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .pImageInfo = &sceneNormalRoughnessImageInfo,
+                },
+                VkWriteDescriptorSet{
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = hybridBundleDescriptorSet,
+                    .dstBinding = 3,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .pImageInfo = &sceneMaterialImageInfo,
+                },
             }};
             vkUpdateDescriptorSets(device,
                                    static_cast<std::uint32_t>(writeHybridBundle.size()),
@@ -5426,7 +6717,7 @@ bool RunVulkanNativeSceneLoop(const int width,
 
             const VkDescriptorPoolSize compositePoolSize{
                 .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = 1,
+                .descriptorCount = 3,
             };
             const VkDescriptorPoolCreateInfo compositePoolInfo{
                 .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -5454,7 +6745,12 @@ bool RunVulkanNativeSceneLoop(const int width,
                 .imageView = depthImage.view,
                 .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
             };
-            const std::array<VkWriteDescriptorSet, 2> writeCompositeHdr = {{
+            const VkDescriptorImageInfo fakeMotionBlurHistoryImageInfo{
+                .sampler = linearSampler,
+                .imageView = fakeMotionBlurHistory.view,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            };
+            const std::array<VkWriteDescriptorSet, 3> writeCompositeHdr = {{
                 VkWriteDescriptorSet{
                     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     .dstSet = compositeHdrDescriptorSet,
@@ -5470,6 +6766,14 @@ bool RunVulkanNativeSceneLoop(const int width,
                     .descriptorCount = 1,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .pImageInfo = &compositeDepthImageInfo,
+                },
+                VkWriteDescriptorSet{
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = compositeHdrDescriptorSet,
+                    .dstBinding = 2,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .pImageInfo = &fakeMotionBlurHistoryImageInfo,
                 },
             }};
             vkUpdateDescriptorSets(device,
@@ -5546,8 +6850,14 @@ bool RunVulkanNativeSceneLoop(const int width,
                  "vkCreateDescriptorPool(texture)");
 
         NativeAlbedoTextureCache textureCache{};
-        textureCache.initialize(
-            selection.physicalDevice, device, commandPool, graphicsQueue, textureSetLayout, textureDescriptorPool, linearSampler);
+        textureCache.initialize(selection.physicalDevice,
+                                device,
+                                commandPool,
+                                graphicsQueue,
+                                selection.graphicsQueueFamily,
+                                textureSetLayout,
+                                textureDescriptorPool,
+                                linearSampler);
         const fs::path sweetFxTextureRoot = ResolveVulkanReferenceShaderTextureDirectory();
         const fs::path sweetFxLayerTexturePath = sweetFxTextureRoot / "Layer.png";
         const fs::path sweetFxSmaaAreaTexturePath = sweetFxTextureRoot / "AreaTex.png";
@@ -5975,6 +7285,84 @@ bool RunVulkanNativeSceneLoop(const int width,
             std::memcpy(cameraUniform.pd80HbPack1, sceneData.pd80HbPack1.data(), sizeof(cameraUniform.pd80HbPack1));
             std::memcpy(cameraUniform.pd80HbPack2, sceneData.pd80HbPack2.data(), sizeof(cameraUniform.pd80HbPack2));
             std::memcpy(cameraUniform.pd80Sc2Pack0, sceneData.pd80Sc2Pack0.data(), sizeof(cameraUniform.pd80Sc2Pack0));
+            std::memcpy(cameraUniform.creatorColourfulnessPack,
+                        sceneData.creatorColourfulnessPack.data(),
+                        sizeof(cameraUniform.creatorColourfulnessPack));
+            std::memcpy(cameraUniform.creatorFilmicPassPack,
+                        sceneData.creatorFilmicPassPack.data(),
+                        sizeof(cameraUniform.creatorFilmicPassPack));
+            std::memcpy(cameraUniform.creatorFilmGrain2Pack,
+                        sceneData.creatorFilmGrain2Pack.data(),
+                        sizeof(cameraUniform.creatorFilmGrain2Pack));
+            std::memcpy(cameraUniform.creatorDenoisePack,
+                        sceneData.creatorDenoisePack.data(),
+                        sizeof(cameraUniform.creatorDenoisePack));
+            std::memcpy(cameraUniform.creatorDenoisePack2,
+                        sceneData.creatorDenoisePack2.data(),
+                        sizeof(cameraUniform.creatorDenoisePack2));
+            std::memcpy(cameraUniform.creatorAdaptiveSharpenPack0,
+                        sceneData.creatorAdaptiveSharpenPack0.data(),
+                        sizeof(cameraUniform.creatorAdaptiveSharpenPack0));
+            std::memcpy(cameraUniform.creatorAdaptiveSharpenPack1,
+                        sceneData.creatorAdaptiveSharpenPack1.data(),
+                        sizeof(cameraUniform.creatorAdaptiveSharpenPack1));
+            std::memcpy(cameraUniform.creatorAdaptiveSharpenPack2,
+                        sceneData.creatorAdaptiveSharpenPack2.data(),
+                        sizeof(cameraUniform.creatorAdaptiveSharpenPack2));
+            std::memcpy(cameraUniform.creatorGaussianBlurPack,
+                        sceneData.creatorGaussianBlurPack.data(),
+                        sizeof(cameraUniform.creatorGaussianBlurPack));
+            std::memcpy(cameraUniform.creatorFineSharpPack0,
+                        sceneData.creatorFineSharpPack0.data(),
+                        sizeof(cameraUniform.creatorFineSharpPack0));
+            std::memcpy(cameraUniform.creatorFineSharpPack1,
+                        sceneData.creatorFineSharpPack1.data(),
+                        sizeof(cameraUniform.creatorFineSharpPack1));
+            std::memcpy(cameraUniform.creatorMartyBloomPack0,
+                        sceneData.creatorMartyBloomPack0.data(),
+                        sizeof(cameraUniform.creatorMartyBloomPack0));
+            std::memcpy(cameraUniform.creatorMartyBloomPack1,
+                        sceneData.creatorMartyBloomPack1.data(),
+                        sizeof(cameraUniform.creatorMartyBloomPack1));
+            std::memcpy(cameraUniform.creatorDofPack0,
+                        sceneData.creatorDofPack0.data(),
+                        sizeof(cameraUniform.creatorDofPack0));
+            std::memcpy(cameraUniform.creatorDofPack1,
+                        sceneData.creatorDofPack1.data(),
+                        sizeof(cameraUniform.creatorDofPack1));
+            std::memcpy(cameraUniform.creatorDofPack2,
+                        sceneData.creatorDofPack2.data(),
+                        sizeof(cameraUniform.creatorDofPack2));
+            std::memcpy(cameraUniform.creatorDofPack3,
+                        sceneData.creatorDofPack3.data(),
+                        sizeof(cameraUniform.creatorDofPack3));
+            std::memcpy(cameraUniform.creatorDofPack4,
+                        sceneData.creatorDofPack4.data(),
+                        sizeof(cameraUniform.creatorDofPack4));
+            std::memcpy(cameraUniform.creatorAmbientLightPack0,
+                        sceneData.creatorAmbientLightPack0.data(),
+                        sizeof(cameraUniform.creatorAmbientLightPack0));
+            std::memcpy(cameraUniform.creatorAmbientLightPack1,
+                        sceneData.creatorAmbientLightPack1.data(),
+                        sizeof(cameraUniform.creatorAmbientLightPack1));
+            std::memcpy(cameraUniform.creatorAmbientLightPack2,
+                        sceneData.creatorAmbientLightPack2.data(),
+                        sizeof(cameraUniform.creatorAmbientLightPack2));
+            std::memcpy(cameraUniform.creatorFakeMotionBlurPack0,
+                        sceneData.creatorFakeMotionBlurPack0.data(),
+                        sizeof(cameraUniform.creatorFakeMotionBlurPack0));
+            std::memcpy(cameraUniform.creatorReflectiveBumpMappingPack0,
+                        sceneData.creatorReflectiveBumpMappingPack0.data(),
+                        sizeof(cameraUniform.creatorReflectiveBumpMappingPack0));
+            std::memcpy(cameraUniform.creatorReflectiveBumpMappingPack1,
+                        sceneData.creatorReflectiveBumpMappingPack1.data(),
+                        sizeof(cameraUniform.creatorReflectiveBumpMappingPack1));
+            std::memcpy(cameraUniform.creatorReflectiveBumpMappingPack2,
+                        sceneData.creatorReflectiveBumpMappingPack2.data(),
+                        sizeof(cameraUniform.creatorReflectiveBumpMappingPack2));
+            std::memcpy(cameraUniform.creatorReflectiveBumpMappingPack3,
+                        sceneData.creatorReflectiveBumpMappingPack3.data(),
+                        sizeof(cameraUniform.creatorReflectiveBumpMappingPack3));
             std::memcpy(mappedUniformMemory, &cameraUniform, sizeof(CameraUniformStd140));
             SkyUniformStd140 skyUniform{};
             skyUniform.hasSkyTexture = sceneData.skyUseTextureFile;
@@ -6070,7 +7458,10 @@ bool RunVulkanNativeSceneLoop(const int width,
                                      enableHybridHdr ? hybridBundleRenderPass : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundlePipeline : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundlePipelineLayout : VK_NULL_HANDLE,
-                                     enableHybridHdr ? hybridBundleDescriptorSet : VK_NULL_HANDLE);
+                                     enableHybridHdr ? hybridBundleDescriptorSet : VK_NULL_HANDLE,
+                                     enableHybridHdr ? swapchainImages[imageIndex] : VK_NULL_HANDLE,
+                                     enableHybridHdr ? fakeMotionBlurHistory.image : VK_NULL_HANDLE,
+                                     sceneData.creatorFakeMotionBlurPack0[0]);
 
             const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
             const VkSubmitInfo submitInfo{
@@ -6139,6 +7530,9 @@ bool RunVulkanNativeSceneLoop(const int width,
             vkDestroyImageView(device, hybridBundleHdrImage.view, nullptr);
             vkDestroyImage(device, hybridBundleHdrImage.image, nullptr);
             vkFreeMemory(device, hybridBundleHdrImage.memory, nullptr);
+            vkDestroyImageView(device, fakeMotionBlurHistory.view, nullptr);
+            vkDestroyImage(device, fakeMotionBlurHistory.image, nullptr);
+            vkFreeMemory(device, fakeMotionBlurHistory.memory, nullptr);
             vkDestroyPipelineLayout(device, hybridBundlePipelineLayout, nullptr);
             vkDestroyDescriptorSetLayout(device, hybridBundleTexturesSetLayout, nullptr);
             vkDestroyPipeline(device, compositePipeline, nullptr);
@@ -6179,6 +7573,12 @@ bool RunVulkanNativeSceneLoop(const int width,
             vkDestroyFramebuffer(device, framebuffer, nullptr);
         }
         vkDestroyRenderPass(device, renderPass, nullptr);
+        vkDestroyImageView(device, gbufferMaterialImage.view, nullptr);
+        vkDestroyImage(device, gbufferMaterialImage.image, nullptr);
+        vkFreeMemory(device, gbufferMaterialImage.memory, nullptr);
+        vkDestroyImageView(device, gbufferNormalRoughnessImage.view, nullptr);
+        vkDestroyImage(device, gbufferNormalRoughnessImage.image, nullptr);
+        vkFreeMemory(device, gbufferNormalRoughnessImage.memory, nullptr);
         vkDestroyImageView(device, depthImage.view, nullptr);
         vkDestroyImage(device, depthImage.image, nullptr);
         vkFreeMemory(device, depthImage.memory, nullptr);

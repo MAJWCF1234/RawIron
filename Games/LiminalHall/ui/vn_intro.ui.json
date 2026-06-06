@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "startScreen": "vn_opening",
+  "variables": [
+    { "id": "route", "value": "" }
+  ],
+  "screens": [
+    {
+      "id": "vn_opening",
+      "title": "Opening",
+      "background": { "tint": [0.03, 0.03, 0.07, 0.97] },
+      "blocks": [
+        { "type": "heading", "text": "Liminal Hall story flow", "align": "center" },
+        { "type": "spacer", "height": 18 },
+        { "type": "say", "speaker": "Lead", "text": "This VN sample belongs to the game folder, not workspace root." },
+        { "type": "spacer", "height": 16 },
+        {
+          "type": "choices",
+          "choices": [
+            { "label": "Take route A", "action": { "type": "navigate", "target": "route_a", "setVar": { "id": "route", "value": "a" } } },
+            { "label": "Take route B", "action": { "type": "navigate", "target": "route_b", "setVar": { "id": "route", "value": "b" } } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "route_a",
+      "title": "Route A",
+      "background": { "tint": [0.08, 0.04, 0.04, 0.96] },
+      "advance": { "onSpace": true, "onEnter": true, "action": { "type": "navigate", "target": "vn_opening" } },
+      "blocks": [
+        { "type": "say", "speaker": "Lead", "text": "Route A selected." },
+        { "type": "label", "text": "Space to return", "align": "center" }
+      ]
+    },
+    {
+      "id": "route_b",
+      "title": "Route B",
+      "background": { "tint": [0.04, 0.06, 0.08, 0.96] },
+      "advance": { "onSpace": true, "onEnter": true, "action": { "type": "navigate", "target": "vn_opening" } },
+      "blocks": [
+        { "type": "say", "speaker": "Lead", "text": "Route B selected." },
+        { "type": "label", "text": "Space to return", "align": "center" }
+      ]
+    }
+  ]
+}

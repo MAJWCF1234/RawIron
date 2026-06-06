@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_hopper_outside_png",
+  "type": "texture",
+  "displayName": "rt2_hopper_outside",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_hopper_outside.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_hopper_outside_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_hopper_outside.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

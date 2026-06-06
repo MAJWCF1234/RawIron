@@ -1,4 +1,5 @@
 #include "RawIron/Core/CommandLine.h"
+#include "RawIron/Content/GameManifest.h"
 #include "RawIron/Content/AssetDocument.h"
 #include "RawIron/Content/AssetPackageManifest.h"
 #include "RawIron/Core/Detail/JsonScan.h"
@@ -13,6 +14,8 @@
 #include "RawIron/Scene/SceneKit.h"
 #include "RawIron/Scene/SceneStateIO.h"
 #include "RawIron/Scene/SceneUtils.h"
+#include "EditorProjectScaffolding.h"
+#include "EditorWorkspace.h"
 
 #include <algorithm>
 #include <array>
@@ -65,6 +68,11 @@ struct SceneReferenceTarget {
 struct VulkanToolingDiagnostics {
     std::string sdkRoot;
     std::vector<std::string> availableTools;
+};
+
+struct ProjectCommandContext {
+    fs::path workspaceRoot;
+    ri::content::GameManifest manifest{};
 };
 
 constexpr std::array<SceneReferenceTarget, 11> kSceneReferenceTargets = {{
@@ -194,7 +202,7 @@ VulkanToolingDiagnostics CollectVulkanToolingDiagnostics() {
 bool LooksLikeWorkspaceRoot(const fs::path& path) {
     return fs::exists(path / "CMakeLists.txt") &&
            fs::exists(path / "Source") &&
-           fs::exists(path / "Documentation");
+           (fs::exists(path / "Documentation") || fs::exists(path / "Games"));
 }
 
 fs::path DetectWorkspaceRoot(const ri::core::CommandLine& commandLine) {
@@ -342,6 +350,55 @@ std::optional<int> ParseIntToken(std::string_view raw) {
     } catch (...) {
         return std::nullopt;
     }
+}
+
+std::string JoinStrings(const std::vector<std::string>& values, std::string_view separator) {
+    std::string joined;
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index > 0) {
+            joined += separator;
+        }
+        joined += values[index];
+    }
+    return joined;
+}
+
+bool TryParseWorkspaceResourceCategory(std::string_view rawValue,
+                                       ri::editor::WorkspaceResourceCategory& category) {
+    const std::string value = ToLowerAscii(std::string(rawValue));
+    if (value == "manifest" || value == "manifests") {
+        category = ri::editor::WorkspaceResourceCategory::Manifest;
+        return true;
+    }
+    if (value == "level" || value == "levels") {
+        category = ri::editor::WorkspaceResourceCategory::Level;
+        return true;
+    }
+    if (value == "script" || value == "scripts") {
+        category = ri::editor::WorkspaceResourceCategory::Script;
+        return true;
+    }
+    if (value == "test" || value == "tests") {
+        category = ri::editor::WorkspaceResourceCategory::Test;
+        return true;
+    }
+    if (value == "ui" || value == "screen" || value == "screens" || value == "ui-screen") {
+        category = ri::editor::WorkspaceResourceCategory::UiScreen;
+        return true;
+    }
+    if (value == "menu" || value == "menus") {
+        category = ri::editor::WorkspaceResourceCategory::Menu;
+        return true;
+    }
+    if (value == "asset" || value == "assets") {
+        category = ri::editor::WorkspaceResourceCategory::Asset;
+        return true;
+    }
+    if (value == "other") {
+        category = ri::editor::WorkspaceResourceCategory::Other;
+        return true;
+    }
+    return false;
 }
 
 struct Vec3Scalar {
@@ -1133,6 +1190,442 @@ void PrintWorkspace(const WorkspaceLayout& layout) {
     ri::core::LogInfo("  ThirdParty: " + layout.thirdParty.string());
 }
 
+std::string EscapeJsonString(std::string_view value) {
+    std::string escaped;
+    escaped.reserve(value.size() + 8);
+    for (char ch : value) {
+        switch (ch) {
+            case '\\': escaped += "\\\\"; break;
+            case '"': escaped += "\\\""; break;
+            case '\n': escaped += "\\n"; break;
+            case '\r': escaped += "\\r"; break;
+            case '\t': escaped += "\\t"; break;
+            default: escaped.push_back(ch); break;
+        }
+    }
+    return escaped;
+}
+
+std::string TitleCaseFromSlug(std::string_view slug) {
+    std::string title;
+    bool capitalizeNext = true;
+    for (char ch : slug) {
+        if (ch == '-' || ch == '_' || ch == ' ') {
+            title.push_back(' ');
+            capitalizeNext = true;
+            continue;
+        }
+        if (capitalizeNext) {
+            title.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(ch))));
+            capitalizeNext = false;
+        } else {
+            title.push_back(ch);
+        }
+    }
+    return title.empty() ? std::string("RawIron Project") : title;
+}
+
+std::string CompactPascalCase(std::string_view text) {
+    std::string result;
+    bool capitalizeNext = true;
+    for (char ch : text) {
+        const unsigned char uc = static_cast<unsigned char>(ch);
+        if (!std::isalnum(uc)) {
+            capitalizeNext = true;
+            continue;
+        }
+        if (capitalizeNext) {
+            result.push_back(static_cast<char>(std::toupper(uc)));
+            capitalizeNext = false;
+        } else {
+            result.push_back(ch);
+        }
+    }
+    return result.empty() ? std::string("Project") : result;
+}
+
+std::string BuildProjectManifestJson(std::string_view projectId,
+                                     std::string_view projectName,
+                                     std::string_view author,
+                                     std::string_view type,
+                                     std::string_view version,
+                                     std::string_view description) {
+    const std::string projectIdString(projectId);
+    const std::string projectNameString(projectName);
+    const std::string authorString(author);
+    const std::string typeString(type);
+    const std::string versionString(version);
+    const std::string descriptionString(description);
+    const std::string moduleStem = CompactPascalCase(projectNameString);
+    const std::string runtimeModule = "RawIron.Game." + moduleStem;
+    const std::string entry = "RawIron." + moduleStem + "Game";
+    const std::string editorProjectArg = "--game=" + projectIdString;
+
+    std::ostringstream stream;
+    stream << "{\n"
+           << "  \"id\": \"" << EscapeJsonString(projectIdString) << "\",\n"
+           << "  \"name\": \"" << EscapeJsonString(projectNameString) << "\",\n"
+           << "  \"format\": \"rawiron-game-v1.3.7\",\n"
+           << "  \"type\": \"" << EscapeJsonString(typeString) << "\",\n"
+           << "  \"entry\": \"" << EscapeJsonString(entry) << "\",\n"
+           << "  \"runtimeContract\": \"rawiron-runtime-v1\",\n"
+           << "  \"runtimeModule\": \"" << EscapeJsonString(runtimeModule) << "\",\n"
+           << "  \"runtimeHost\": \"RuntimeCore\",\n"
+           << "  \"runtimeServices\": [\n"
+           << "    \"lifecycle\",\n"
+           << "    \"events\",\n"
+           << "    \"services\",\n"
+           << "    \"paths\",\n"
+           << "    \"frame-clock\"\n"
+           << "  ],\n"
+           << "  \"version\": \"" << EscapeJsonString(versionString) << "\",\n"
+           << "  \"author\": \"" << EscapeJsonString(authorString) << "\",\n"
+           << "  \"editorProjectArg\": \"" << EscapeJsonString(editorProjectArg) << "\",\n"
+           << "  \"primaryLevel\": \"levels/assembly.primitives.csv\",\n"
+           << "  \"description\": \"" << EscapeJsonString(descriptionString) << "\",\n"
+           << "  \"editorPreviewScene\": \"" << EscapeJsonString(projectIdString) << "\",\n"
+           << "  \"controls\": {\n"
+           << "    \"move\": \"WASD\",\n"
+           << "    \"look\": \"Mouse\",\n"
+           << "    \"jump\": \"Space\",\n"
+           << "    \"sprint\": \"Shift\",\n"
+           << "    \"quit\": \"Esc\"\n"
+           << "  },\n"
+           << "  \"editorOpenArgs\": [\n"
+           << "    \"" << EscapeJsonString(editorProjectArg) << "\"\n"
+           << "  ]\n"
+           << "}\n";
+    return stream.str();
+}
+
+std::vector<std::pair<fs::path, std::string>> BuildProjectContractFallbackFiles(std::string_view projectId,
+                                                                                std::string_view projectName) {
+    return {
+        {fs::path("README.md"), "# " + std::string(projectName) + "\n\nCreated with RawIron tooling.\n"},
+        {fs::path("scripts/logic.riscript"), "# RawIron logic script\nlogic.enabled=1\n"},
+        {fs::path("scripts/state.riscript"), "# RawIron state script\nstate.bootstrap=\"default\"\n"},
+        {fs::path("config/input.map"), "# RawIron input map\nmove_forward=W\nmove_back=S\nmove_left=A\nmove_right=D\njump=Space\nsprint=Shift\n"},
+        {fs::path("levels/assembly.navmesh"), "# RawIron navmesh placeholder\n"},
+        {fs::path("levels/assembly.ai.nodes"), "name,px,py,pz\nspawn_anchor,0,1,0\n"},
+        {fs::path("levels/assembly.cinematics.csv"), "name,type,px,py,pz,payload\nintro_marker,marker,0,1,0,opening\n"},
+        {fs::path("levels/assembly.occlusion.csv"), "name,type,px,py,pz,sx,sy,sz\nocclusion_anchor,box,0,1,0,4,4,4\n"},
+        {fs::path("levels/assembly.audio.zones"), "name,type,px,py,pz,sx,sy,sz,preset\nambient_core,box,0,1,0,10,4,10,default\n"},
+        {fs::path("levels/assembly.lods.csv"), "name,group,near,mid,far\nstarter_block,default,8,16,32\n"},
+        {fs::path("assets/palette.ripalette"), "# RawIron palette\nentry 0 255 255 255 255\n"},
+        {fs::path("assets/layers.config"), "# RawIron layer config\ndefault=world\n"},
+        {fs::path("assets/manifest.assets"), "# RawIron asset manifest\n"},
+        {fs::path("assets/metadata.json"), "{\n  \"rawironMetadataVersion\": 1,\n  \"project\": \"" + EscapeJsonString(projectId) + "\"\n}\n"},
+        {fs::path("assets/dependencies.json"), "{\n  \"packages\": []\n}\n"},
+        {fs::path("data/schema.db"), "SQLite format 3"},
+        {fs::path("data/telemetry.db"), "SQLite format 3"},
+        {fs::path("ai/factions.cfg"), "# RawIron factions\nplayer=allies\ndefault=neutral\n"},
+        {fs::path("ai/perception.cfg"), "# RawIron perception\nvision_range=24\nhearing_range=12\n"},
+        {fs::path("ai/squad.tactics"), "# RawIron squad tactics\nformation=loose\nfallback=hold\n"},
+    };
+}
+
+std::size_t RepairMissingProjectContractFiles(const fs::path& projectRoot,
+                                              std::string_view projectId,
+                                              std::string_view projectName) {
+    const auto fallbacks = BuildProjectContractFallbackFiles(projectId, projectName);
+    std::size_t repairedCount = 0;
+    for (const auto& [relativePath, body] : fallbacks) {
+        const fs::path absolutePath = projectRoot / relativePath;
+        if (fs::exists(absolutePath)) {
+            continue;
+        }
+        fs::create_directories(absolutePath.parent_path());
+        if (!ri::core::detail::WriteTextFile(absolutePath, body)) {
+            throw std::runtime_error("Unable to write fallback project file: " + relativePath.generic_string());
+        }
+        ++repairedCount;
+    }
+    return repairedCount;
+}
+
+void PrintRawIronProjects(const fs::path& workspaceRoot) {
+    const std::vector<ri::editor::WorkspaceGameEntry> games = ri::editor::EnumerateWorkspaceGames(workspaceRoot);
+    ri::core::LogInfo("Workspace root: " + workspaceRoot.string());
+    if (games.empty()) {
+        ri::core::LogInfo("No game projects found under Games/.");
+        return;
+    }
+    for (const ri::editor::WorkspaceGameEntry& game : games) {
+        ri::core::LogInfo("project id=" + game.id + " name=\"" + game.displayName + "\" root=" + game.rootPath.string());
+    }
+    ri::core::LogInfo("Project count: " + std::to_string(games.size()));
+}
+
+std::optional<ProjectCommandContext> ResolveProjectCommandContext(const ri::core::CommandLine& commandLine,
+                                                                 const WorkspaceLayout& workspace,
+                                                                 std::string& error) {
+    std::optional<ri::content::GameManifest> manifest;
+    if (const auto gameRootArg = commandLine.GetValue("--game-root"); gameRootArg.has_value() && !gameRootArg->empty()) {
+        const fs::path gameRoot = fs::weakly_canonical(fs::path(*gameRootArg));
+        manifest = ri::content::LoadGameManifest(gameRoot / "manifest.json");
+        if (!manifest.has_value()) {
+            error = "Unable to load game manifest from --game-root.";
+            return std::nullopt;
+        }
+    }
+
+    if (!manifest.has_value()) {
+        const std::optional<std::string> gameArg = commandLine.GetValue("--game");
+        if (gameArg.has_value() && !gameArg->empty()) {
+            manifest = ri::content::ResolveGameManifest(workspace.root, *gameArg);
+            if (!manifest.has_value()) {
+                error = "Unable to resolve game manifest for '" + *gameArg + "'.";
+                return std::nullopt;
+            }
+        }
+    }
+
+    if (!manifest.has_value()) {
+        error = "Project command requires --game=<id> or --game-root=<path>.";
+        return std::nullopt;
+    }
+
+    return ProjectCommandContext{
+        .workspaceRoot = workspace.root,
+        .manifest = *manifest,
+    };
+}
+
+void DescribeRawIronProject(const ProjectCommandContext& context) {
+    const std::vector<ri::editor::WorkspaceResourceEntry> resources =
+        ri::editor::CollectWorkspaceGameResources(context.manifest.rootPath);
+    const std::vector<std::string> formatIssues = ri::content::ValidateGameProjectFormat(context.manifest);
+    std::array<int, 8> categoryCounts{};
+    for (const ri::editor::WorkspaceResourceEntry& entry : resources) {
+        categoryCounts[static_cast<std::size_t>(entry.category)] += 1;
+    }
+
+    std::vector<std::string> categoriesSummary;
+    static constexpr std::array<ri::editor::WorkspaceResourceCategory, 8> kCategories = {
+        ri::editor::WorkspaceResourceCategory::Manifest,
+        ri::editor::WorkspaceResourceCategory::Level,
+        ri::editor::WorkspaceResourceCategory::Script,
+        ri::editor::WorkspaceResourceCategory::Test,
+        ri::editor::WorkspaceResourceCategory::UiScreen,
+        ri::editor::WorkspaceResourceCategory::Menu,
+        ri::editor::WorkspaceResourceCategory::Asset,
+        ri::editor::WorkspaceResourceCategory::Other,
+    };
+    for (ri::editor::WorkspaceResourceCategory category : kCategories) {
+        categoriesSummary.push_back(
+            ri::editor::WorkspaceCategoryShortLabel(category) + "="
+            + std::to_string(categoryCounts[static_cast<std::size_t>(category)]));
+    }
+
+    ri::core::LogInfo("Workspace root: " + context.workspaceRoot.string());
+    ri::core::LogInfo("Project id: " + context.manifest.id);
+    ri::core::LogInfo("Project name: " + context.manifest.name);
+    ri::core::LogInfo("Project version: " + context.manifest.version);
+    ri::core::LogInfo("Project author: " + context.manifest.author);
+    ri::core::LogInfo("Project root: " + context.manifest.rootPath.string());
+    ri::core::LogInfo("Manifest path: " + context.manifest.manifestPath.string());
+    ri::core::LogInfo("Runtime module: " + context.manifest.runtimeModule);
+    ri::core::LogInfo("Primary level: " + context.manifest.primaryLevel);
+    ri::core::LogInfo("Editor preview scene: " + context.manifest.editorPreviewScene);
+    ri::core::LogInfo("Editor launch token: " + context.manifest.editorProjectArg);
+    ri::core::LogInfo("Resource counts: " + JoinStrings(categoriesSummary, " | "));
+    if (formatIssues.empty()) {
+        ri::core::LogInfo("Format validation: pass");
+    } else {
+        ri::core::LogInfo("Format validation: fail (" + std::to_string(formatIssues.size()) + " issues)");
+        for (const std::string& issue : formatIssues) {
+            ri::core::LogInfo("  - " + issue);
+        }
+    }
+}
+
+void ListRawIronProjectResources(const ProjectCommandContext& context, const ri::core::CommandLine& commandLine) {
+    std::optional<ri::editor::WorkspaceResourceCategory> filterCategory;
+    if (const auto filter = commandLine.GetValue("--resource-category"); filter.has_value() && !filter->empty()) {
+        ri::editor::WorkspaceResourceCategory parsed{};
+        if (!TryParseWorkspaceResourceCategory(*filter, parsed)) {
+            throw std::runtime_error("Unknown --resource-category value: " + *filter);
+        }
+        filterCategory = parsed;
+    }
+
+    const std::vector<ri::editor::WorkspaceResourceEntry> resources =
+        ri::editor::CollectWorkspaceGameResources(context.manifest.rootPath);
+    ri::core::LogInfo("Project id: " + context.manifest.id);
+    ri::core::LogInfo("Project root: " + context.manifest.rootPath.string());
+    if (filterCategory.has_value()) {
+        ri::core::LogInfo("Filter category: " + ri::editor::WorkspaceCategoryLabel(*filterCategory));
+    }
+
+    std::size_t count = 0;
+    for (const ri::editor::WorkspaceResourceEntry& entry : resources) {
+        if (filterCategory.has_value() && entry.category != *filterCategory) {
+            continue;
+        }
+        ri::core::LogInfo("[" + ri::editor::WorkspaceCategoryShortLabel(entry.category) + "] " + entry.relativePathUtf8);
+        ++count;
+    }
+    ri::core::LogInfo("Resource rows: " + std::to_string(count));
+}
+
+bool DoctorRawIronProject(const ProjectCommandContext& context) {
+    const std::vector<ri::editor::WorkspaceResourceEntry> resources =
+        ri::editor::CollectWorkspaceGameResources(context.manifest.rootPath);
+    const std::vector<std::string> formatIssues = ri::content::ValidateGameProjectFormat(context.manifest);
+
+    std::array<int, 8> categoryCounts{};
+    for (const ri::editor::WorkspaceResourceEntry& entry : resources) {
+        categoryCounts[static_cast<std::size_t>(entry.category)] += 1;
+    }
+
+    std::vector<std::string> categoriesSummary;
+    static constexpr std::array<ri::editor::WorkspaceResourceCategory, 8> kCategories = {
+        ri::editor::WorkspaceResourceCategory::Manifest,
+        ri::editor::WorkspaceResourceCategory::Level,
+        ri::editor::WorkspaceResourceCategory::Script,
+        ri::editor::WorkspaceResourceCategory::Test,
+        ri::editor::WorkspaceResourceCategory::UiScreen,
+        ri::editor::WorkspaceResourceCategory::Menu,
+        ri::editor::WorkspaceResourceCategory::Asset,
+        ri::editor::WorkspaceResourceCategory::Other,
+    };
+    for (ri::editor::WorkspaceResourceCategory category : kCategories) {
+        categoriesSummary.push_back(
+            ri::editor::WorkspaceCategoryShortLabel(category) + "="
+            + std::to_string(categoryCounts[static_cast<std::size_t>(category)]));
+    }
+
+    ri::core::LogInfo("Doctor project id: " + context.manifest.id);
+    ri::core::LogInfo("Project root: " + context.manifest.rootPath.string());
+    ri::core::LogInfo("Manifest path: " + context.manifest.manifestPath.string());
+    ri::core::LogInfo("Runtime module: " + context.manifest.runtimeModule);
+    ri::core::LogInfo("Primary level: " + context.manifest.primaryLevel);
+    ri::core::LogInfo("Resource counts: " + JoinStrings(categoriesSummary, " | "));
+    if (formatIssues.empty()) {
+        ri::core::LogInfo("Doctor result: healthy");
+        return true;
+    }
+
+    ri::core::LogInfo("Doctor result: unhealthy (" + std::to_string(formatIssues.size()) + " issues)");
+    for (const std::string& issue : formatIssues) {
+        ri::core::LogInfo("  - " + issue);
+    }
+    return false;
+}
+
+void ScaffoldRawIronProject(const ProjectCommandContext& context) {
+    std::size_t createdCount = 0;
+    std::vector<std::string> createdFiles;
+    std::string error;
+    if (!ri::editor::EnsureMountedGameScaffold(context.manifest, createdCount, createdFiles, &error)) {
+        throw std::runtime_error("Scaffold failed: " + error);
+    }
+    ri::editor::EnsureProjectDevConfig(context.manifest.rootPath);
+    ri::core::LogInfo("Project id: " + context.manifest.id);
+    ri::core::LogInfo("Created files: " + std::to_string(createdCount));
+    if (createdFiles.empty()) {
+        ri::core::LogInfo("Scaffold already present. No files created.");
+        return;
+    }
+    for (const std::string& file : createdFiles) {
+        ri::core::LogInfo("  + " + file);
+    }
+}
+
+void CreateRawIronProject(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto projectIdArg = commandLine.GetValue("--create-project");
+    if (!projectIdArg.has_value() || projectIdArg->empty()) {
+        throw std::runtime_error("--create-project requires a lowercase slug id.");
+    }
+
+    const std::string projectId = ToLowerAscii(TrimAscii(*projectIdArg));
+    const std::string projectName = commandLine.GetValue("--name").has_value() && !commandLine.GetValue("--name")->empty()
+        ? TrimAscii(*commandLine.GetValue("--name"))
+        : TitleCaseFromSlug(projectId);
+    const std::string author = commandLine.GetValue("--author").has_value() && !commandLine.GetValue("--author")->empty()
+        ? TrimAscii(*commandLine.GetValue("--author"))
+        : std::string("RawIron Team");
+    const std::string type = commandLine.GetValue("--type").has_value() && !commandLine.GetValue("--type")->empty()
+        ? TrimAscii(*commandLine.GetValue("--type"))
+        : std::string("game");
+    const std::string version = commandLine.GetValue("--version").has_value() && !commandLine.GetValue("--version")->empty()
+        ? TrimAscii(*commandLine.GetValue("--version"))
+        : std::string("1.0.0");
+    const std::string description = commandLine.GetValue("--description").has_value() && !commandLine.GetValue("--description")->empty()
+        ? TrimAscii(*commandLine.GetValue("--description"))
+        : std::string("Project created by ri_tool.");
+
+    const fs::path projectRoot = commandLine.GetValue("--game-root").has_value() && !commandLine.GetValue("--game-root")->empty()
+        ? fs::weakly_canonical(fs::path(*commandLine.GetValue("--game-root")).parent_path()) / fs::path(*commandLine.GetValue("--game-root")).filename()
+        : (workspace.root / "Games" / CompactPascalCase(projectName));
+    std::error_code ec{};
+
+    if (fs::exists(projectRoot / "manifest.json")) {
+        throw std::runtime_error("Target project already contains manifest.json: " + (projectRoot / "manifest.json").string());
+    }
+
+    if (fs::exists(projectRoot)) {
+        const auto directoryIterator = fs::directory_iterator(projectRoot, ec);
+        if (!ec && directoryIterator != fs::directory_iterator{}) {
+            throw std::runtime_error(
+                "Target project root must be empty or absent for --create-project: " + projectRoot.string());
+        }
+        ec.clear();
+    }
+
+    fs::create_directories(projectRoot, ec);
+    if (ec) {
+        throw std::runtime_error("Unable to create project root: " + projectRoot.string());
+    }
+
+    const fs::path manifestPath = projectRoot / "manifest.json";
+    const std::string manifestJson = BuildProjectManifestJson(projectId, projectName, author, type, version, description);
+    if (!ri::core::detail::WriteTextFile(manifestPath, manifestJson)) {
+        throw std::runtime_error("Unable to write manifest.json for new project.");
+    }
+
+    const std::optional<ri::content::GameManifest> manifest = ri::content::LoadGameManifest(manifestPath);
+    if (!manifest.has_value()) {
+        throw std::runtime_error("New project manifest could not be reloaded after write.");
+    }
+
+    std::size_t createdCount = 0;
+    std::vector<std::string> createdFiles;
+    std::string scaffoldError;
+    if (!ri::editor::EnsureMountedGameScaffold(*manifest, createdCount, createdFiles, &scaffoldError)) {
+        throw std::runtime_error("Scaffold failed: " + scaffoldError);
+    }
+    ri::editor::EnsureProjectDevConfig(projectRoot);
+
+    std::size_t repairedCount = 0;
+    std::optional<ri::content::GameManifest> reloaded = ri::content::LoadGameManifest(manifestPath);
+    if (!reloaded.has_value()) {
+        throw std::runtime_error("New project manifest could not be reloaded after scaffold.");
+    }
+    std::vector<std::string> formatIssues = ri::content::ValidateGameProjectFormat(*reloaded);
+    if (!formatIssues.empty()) {
+        repairedCount = RepairMissingProjectContractFiles(projectRoot, reloaded->id, reloaded->name);
+        reloaded = ri::content::LoadGameManifest(manifestPath);
+        if (!reloaded.has_value()) {
+            throw std::runtime_error("New project manifest could not be reloaded after contract repair.");
+        }
+        formatIssues = ri::content::ValidateGameProjectFormat(*reloaded);
+    }
+    if (!formatIssues.empty()) {
+        throw std::runtime_error("New project failed format validation: " + JoinStrings(formatIssues, " | "));
+    }
+
+    ri::core::LogInfo("Created RawIron project.");
+    ri::core::LogInfo("Project id: " + reloaded->id);
+    ri::core::LogInfo("Project name: " + reloaded->name);
+    ri::core::LogInfo("Project root: " + projectRoot.string());
+    ri::core::LogInfo("Manifest path: " + manifestPath.string());
+    ri::core::LogInfo("Runtime module: " + reloaded->runtimeModule);
+    ri::core::LogInfo("Editor launch token: " + reloaded->editorProjectArg);
+    ri::core::LogInfo("Scaffold files created: " + std::to_string(createdCount));
+    ri::core::LogInfo("Contract repairs applied: " + std::to_string(repairedCount));
+}
+
 void EnsureWorkspace(const WorkspaceLayout& layout) {
     for (const fs::path& path : RequiredWorkspacePaths(layout)) {
         fs::create_directories(path);
@@ -1380,10 +1873,63 @@ int main(int argc, char** argv) {
             return 0;
         }
 
+        if (commandLine.HasFlag("--list-projects")) {
+            PrintRawIronProjects(workspace.root);
+            return 0;
+        }
+
         if (commandLine.HasFlag("--ensure-workspace")) {
             EnsureWorkspace(workspace);
             ri::core::LogInfo("Workspace ensured.");
             PrintWorkspace(workspace);
+            return 0;
+        }
+
+        if (commandLine.GetValue("--create-project").has_value()) {
+            CreateRawIronProject(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--describe-project")) {
+            std::string error;
+            const std::optional<ProjectCommandContext> context =
+                ResolveProjectCommandContext(commandLine, workspace, error);
+            if (!context.has_value()) {
+                throw std::runtime_error(error);
+            }
+            DescribeRawIronProject(*context);
+            return 0;
+        }
+
+        if (commandLine.GetValue("--doctor-project").has_value()) {
+            std::string error;
+            const std::optional<ProjectCommandContext> context =
+                ResolveProjectCommandContext(commandLine, workspace, error);
+            if (!context.has_value()) {
+                throw std::runtime_error(error);
+            }
+            return DoctorRawIronProject(*context) ? 0 : 1;
+        }
+
+        if (commandLine.HasFlag("--list-project-resources")) {
+            std::string error;
+            const std::optional<ProjectCommandContext> context =
+                ResolveProjectCommandContext(commandLine, workspace, error);
+            if (!context.has_value()) {
+                throw std::runtime_error(error);
+            }
+            ListRawIronProjectResources(*context, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--scaffold-project")) {
+            std::string error;
+            const std::optional<ProjectCommandContext> context =
+                ResolveProjectCommandContext(commandLine, workspace, error);
+            if (!context.has_value()) {
+                throw std::runtime_error(error);
+            }
+            ScaffoldRawIronProject(*context);
             return 0;
         }
 
@@ -1490,6 +2036,12 @@ int main(int argc, char** argv) {
 
         ri::core::LogInfo("Planned commands:");
         ri::core::LogInfo("  ri_tool --workspace");
+        ri::core::LogInfo("  ri_tool --list-projects [--root <workspace-root>]");
+        ri::core::LogInfo("  ri_tool --create-project <slug-id> [--name <display>] [--author <label>] [--type <game|test-game|experience>] [--version <semver>] [--description <text>] [--game-root <path>]");
+        ri::core::LogInfo("  ri_tool --describe-project --game <id> | --game-root <path>");
+        ri::core::LogInfo("  ri_tool --doctor-project --game <id> | --game-root <path>");
+        ri::core::LogInfo("  ri_tool --list-project-resources --game <id> | --game-root <path> [--resource-category <name>]");
+        ri::core::LogInfo("  ri_tool --scaffold-project --game <id> | --game-root <path>");
         ri::core::LogInfo("  ri_tool --ensure-workspace");
         ri::core::LogInfo("  ri_tool --formats");
         ri::core::LogInfo("  ri_tool --scenekit-targets");

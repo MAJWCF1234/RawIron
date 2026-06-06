@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_stonecutter_saw_png",
+  "type": "texture",
+  "displayName": "rt2_stonecutter_saw",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_stonecutter_saw.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_stonecutter_saw_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_stonecutter_saw.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

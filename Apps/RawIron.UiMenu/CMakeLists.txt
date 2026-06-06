@@ -53,6 +53,7 @@ add_executable(RawIron.UiMenu
 target_link_libraries(RawIron.UiMenu
   PRIVATE
     RawIron::Core
+    RawIron::Content
     RawIron::UI
     RawIron::RenderSoftware
     rawiron_imgui_win32_dx11
@@ -74,7 +75,7 @@ if(WIN32 AND RAWIRON_BUILD_TESTS)
     "[UiMenu] manifest loaded"
     "screens="
   )
-  set(rawiron_uimenu_args "--workspace|${CMAKE_SOURCE_DIR}|--headless")
+  set(rawiron_uimenu_args "--workspace|${CMAKE_SOURCE_DIR}|--game|liminal-hall|--headless")
   add_test(
     NAME RawIron.UiMenu.HeadlessParse
     COMMAND ${CMAKE_COMMAND}

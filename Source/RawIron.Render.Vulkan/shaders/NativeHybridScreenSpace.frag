@@ -182,6 +182,15 @@ layout(std140, set = 0, binding = 0) uniform CameraData {
     vec4 pd80CltPack5;
     vec4 pd80LcPack0;
     vec4 pd80LfPack0;
+    vec4 pd80Cg4Pack0;
+    vec4 pd80Cg4Pack1;
+    vec4 pd80Cg4Pack2;
+    vec4 pd80Cg4Pack3;
+    vec4 pd80Cg4Pack4;
+    vec4 pd80Cg4Pack5;
+    vec4 pd80Cg4Pack6;
+    vec4 pd80Cg4Pack7;
+    vec4 pd80Cg4Pack8;
     vec4 pd80CcPack0;
     vec4 pd80RccPack0;
     vec4 pd80RccPack1;
@@ -197,6 +206,8 @@ layout(std140, set = 0, binding = 0) uniform CameraData {
 
 layout(set = 1, binding = 0) uniform sampler2D hdrSceneLinear;
 layout(set = 1, binding = 1) uniform sampler2D sceneDepth;
+layout(set = 1, binding = 2) uniform sampler2D sceneNormalRoughness;
+layout(set = 1, binding = 3) uniform sampler2D sceneMaterial;
 
 float SampleDepth(vec2 uv01) {
     return texture(sceneDepth, uv01).r;
@@ -209,6 +220,14 @@ float Hash21(vec2 p) {
 void main() {
     vec2 uv = vec2(vUv.x, 1.0 - vUv.y);
     vec3 linearHdr = texture(hdrSceneLinear, uv).rgb;
+    vec4 normalRoughness = texture(sceneNormalRoughness, uv);
+    vec3 centerNormal = normalize(normalRoughness.xyz * 2.0 - 1.0);
+    float roughness = clamp(normalRoughness.a, 0.04, 1.0);
+    vec4 material = texture(sceneMaterial, uv);
+    float metallic = clamp(material.r, 0.0, 1.0);
+    float materialAo = clamp(material.g, 0.2, 1.0);
+    float emissiveMask = clamp(material.b, 0.0, 1.0);
+    float materialFlags = material.a;
 
     float centerDepth = SampleDepth(uv);
     vec2 texel = vec2(cameraData.viewportMetrics.z, cameraData.viewportMetrics.w);
@@ -230,21 +249,24 @@ void main() {
         float radiusPx = ((i & 1) != 0) ? radiusOuterPx : radiusInnerPx;
         vec2 offset = vec2(cos(a), sin(a)) * (radiusPx * texel);
 
-        float neighborDepth = SampleDepth(uv + offset);
+        vec2 sampleUv = clamp(uv + offset, texel * 0.5, vec2(1.0) - texel * 0.5);
+        float neighborDepth = SampleDepth(sampleUv);
+        vec3 sampleNormal = normalize(texture(sceneNormalRoughness, sampleUv).xyz * 2.0 - 1.0);
         float depthDelta = abs(neighborDepth - centerDepth);
         float similarDepth = 1.0 - smoothstep(depthGuard, depthGuard * 10.0, depthDelta);
+        float similarNormal = smoothstep(0.08, 0.65, dot(centerNormal, sampleNormal));
 
         float delta = centerDepth - neighborDepth;
         float occ = 0.0;
         if (delta > 0.00003) {
-            occ = smoothstep(0.00006, 0.032, delta) * similarDepth;
+            occ = smoothstep(0.00006, 0.032, delta) * similarDepth * similarNormal;
         }
         aoAccum += occ;
-        weightSum += similarDepth;
+        weightSum += similarDepth * similarNormal;
     }
 
     float norm = max(weightSum, 0.35);
-    float ao = clamp(1.0 - (aoAccum / norm) * 0.18, 0.35, 1.0);
+    float ao = mix(1.0, clamp(1.0 - (aoAccum / norm), 0.45, 1.0), 0.38) * materialAo;
 
     vec3 center = linearHdr;
     vec3 blurCross =
@@ -253,9 +275,13 @@ void main() {
         texture(hdrSceneLinear, uv + vec2(0.0, texel.y * 2.0)).rgb +
         texture(hdrSceneLinear, uv - vec2(0.0, texel.y * 2.0)).rgb;
     blurCross *= 0.25;
-    float glossyCue = clamp(1.0 - centerDepth * 1.8, 0.0, 1.0);
+    float glossyCue = clamp((1.0 - roughness) * (0.25 + metallic * 0.75), 0.0, 1.0);
     float highlightMask = clamp(max(max(center.r, center.g), center.b) - 0.42, 0.0, 1.0);
-    vec3 pseudoBounce = mix(center, blurCross, 0.55) * highlightMask * glossyCue * 0.08;
+    float hybridGlow = materialFlags >= 2.0 ? 0.08 : 0.0;
+    float diffuseBounceStrength = (1.0 - metallic) * (1.0 - roughness * 0.35);
+    vec3 pseudoBounce = mix(center, blurCross, 0.55) * highlightMask * diffuseBounceStrength * (0.035 + hybridGlow);
+    vec3 pseudoReflection = blurCross * glossyCue * highlightMask * 0.045;
+    vec3 emissiveBleed = blurCross * emissiveMask * 0.06;
 
-    fragColor = vec4((linearHdr * ao) + pseudoBounce, 1.0);
+    fragColor = vec4((linearHdr * ao) + pseudoBounce + pseudoReflection + emissiveBleed, 1.0);
 }

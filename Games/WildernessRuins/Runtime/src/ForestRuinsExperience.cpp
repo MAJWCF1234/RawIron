@@ -52,6 +52,7 @@ namespace ri::games::forestruins {
 namespace {
 
 namespace fs = std::filesystem;
+using ri::content::DescribeOptionalAssetState;
 
 [[nodiscard]] ri::runtime::RuntimeCore CreateForestRuntimeCore(
     const ri::content::GameManifest& manifest,
@@ -114,34 +115,6 @@ std::optional<ri::math::Vec3> ResolveTeleportDestination(const ri::scene::Scene&
         }
     }
     return request.targetPosition + request.offset;
-}
-
-[[nodiscard]] std::string DescribeOptionalAssetState(const fs::path& path, const bool checkSqliteHeader = false) {
-    std::error_code ec{};
-    if (!fs::exists(path, ec)) {
-        return "missing";
-    }
-    if (fs::is_directory(path, ec)) {
-        return "invalid-dir";
-    }
-    const std::uintmax_t sizeBytes = fs::file_size(path, ec);
-    if (ec || sizeBytes == 0U) {
-        return "empty";
-    }
-    if (checkSqliteHeader) {
-        std::ifstream stream(path, std::ios::binary);
-        if (!stream.is_open()) {
-            return "unreadable";
-        }
-        char header[16]{};
-        stream.read(header, sizeof(header));
-        const std::streamsize readCount = stream.gcount();
-        static constexpr const char* kSqliteMagic = "SQLite format 3";
-        if (readCount < 15 || std::string_view(header, 15) != kSqliteMagic) {
-            return "invalid-header";
-        }
-    }
-    return "ok";
 }
 
 float WrapDegrees(const float degrees) {
@@ -1198,9 +1171,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         + " shadersManifest="
         + DescribeOptionalAssetState(ri::content::ResolveGameAssetPath(manifest.rootPath, "assets/shaders.manifest"))
         + " schemaDb="
-        + DescribeOptionalAssetState(
-            ri::content::ResolveGameAssetPath(manifest.rootPath, "data/schema.db"),
-            true)
+        + DescribeOptionalAssetState(ri::content::ResolveGameAssetPath(manifest.rootPath, "data/schema.db"))
         + " lookup="
         + DescribeOptionalAssetState(ri::content::ResolveGameAssetPath(manifest.rootPath, "data/lookup.index"))
         + " entityRegistry="

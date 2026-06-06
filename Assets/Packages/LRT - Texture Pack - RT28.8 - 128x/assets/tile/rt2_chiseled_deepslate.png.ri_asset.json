@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_chiseled_deepslate_png",
+  "type": "texture",
+  "displayName": "rt2_chiseled_deepslate",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_chiseled_deepslate.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_chiseled_deepslate_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_chiseled_deepslate.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

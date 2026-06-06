@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_bamboo_planks_png",
+  "type": "texture",
+  "displayName": "rt2_bamboo_planks",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_bamboo_planks.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_bamboo_planks_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_bamboo_planks.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

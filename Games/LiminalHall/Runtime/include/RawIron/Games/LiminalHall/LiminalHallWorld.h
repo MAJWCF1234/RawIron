@@ -71,6 +71,12 @@ enum class StandalonePresentMode {
     Fifo,
 };
 
+enum class RuntimeUiBootFlow {
+    Gameplay,
+    Menu,
+    VisualNovel,
+};
+
 struct StandaloneOptions {
     int width = 1280;
     int height = 720;
@@ -86,6 +92,8 @@ struct StandaloneOptions {
     StandalonePresentMode presentMode = StandalonePresentMode::Auto;
     int benchmarkFrames = 0;
     std::string windowTitle = "RawIron Liminal Void (WASD + Mouse, ESC to exit)";
+    std::optional<RuntimeUiBootFlow> runtimeUiBootFlowOverride;
+    std::optional<bool> runtimeUiHotkeysEnabledOverride;
     bool startFromCheckpoint = false;
     std::string checkpointSlot = "autosave";
     std::optional<std::string> resumeQuery;

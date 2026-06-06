@@ -48,6 +48,9 @@ The 3D scene boots into a wide structural primitive catalog. Each column is a sh
 
 - `SpawnStructuralPrimitiveGallery` for engine-owned primitive/material catalog generation
 - `SpawnStructuralPrimitiveBundle` for single-path structural primitive mesh, material, and node creation
+- `SpawnStructuralPrimitiveAssembly` for multi-node graphs (convex CSG subtract/union, hollow volumes, mesh-forward shapes)
+- `SpawnSandboxStructuralHall` — hollow shell with door/window/sky cuts, perforated partition, ramp, arch; mesh colliders from primitive subtree
+- Mesh-derived trace colliders on the catalog platform and brush hall (`AppendTraceCollidersForSubtree`)
 - native structural primitives including boxes, arches, roofs, stairs, torus/tube shapes, lattice volumes, terrain patches, wall panels, beam frames, catwalks, buttresses, and skylight oculi
 - structural brush fallback UV projection for textured custom meshes
 - material styles covering standard, retro, layered, mixed-media, crystal, emissive, rough, and metallic presentation
@@ -75,6 +78,7 @@ The 3D scene boots into a wide structural primitive catalog. Each column is a sh
 - `scripts/plugins.riscript`
 - `scripts/animation.riscript`
 - `scripts/vfx.riscript`
+- `shader.cfg` for the reusable native Vulkan post-process stack
 
 ### Config and policy
 
@@ -99,6 +103,16 @@ The 3D scene boots into a wide structural primitive catalog. Each column is a sh
 - `ai/*`
 - `ui/*`
 - `tests/*.riscript`
+
+### UI authoring contract
+
+- `ui/main.ui.json` is the primary game-local UI flow manifest.
+- `ui/vn_intro.ui.json` is the primary game-local VN/dialogue flow manifest.
+- `ui/layout.xml` and `ui/styling.css` are optional support assets for HUD/chrome, not the main flow source.
+- `scripts/ui.riscript` remains scalar-only runtime tuning for diagnostics, HUD behavior, and runtime UI boot policy.
+- `shader.cfg` is the project-local render appearance file for the native Vulkan post chain.
+- `runtime_ui_boot_flow` uses `0=gameplay`, `1=menu`, `2=vn`.
+- `runtime_ui_hotkeys_enabled` controls whether `F1` / `F2` can switch runtime flows interactively.
 
 ## Related apps
 

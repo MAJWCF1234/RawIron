@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "startScreen": "briefing",
+  "variables": [
+    { "id": "role", "value": "" }
+  ],
+  "screens": [
+    {
+      "id": "briefing",
+      "title": "Briefing",
+      "background": { "tint": [0.03, 0.04, 0.07, 0.97] },
+      "blocks": [
+        { "type": "heading", "text": "Sandbox dialogue flow", "align": "center" },
+        { "type": "spacer", "height": 14 },
+        { "type": "say", "speaker": "Coordinator", "text": "Choose the role framing for this session setup." },
+        { "type": "spacer", "height": 14 },
+        {
+          "type": "choices",
+          "choices": [
+            { "label": "Host view", "action": { "type": "navigate", "target": "host_route", "setVar": { "id": "role", "value": "host" } } },
+            { "label": "Client view", "action": { "type": "navigate", "target": "client_route", "setVar": { "id": "role", "value": "client" } } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "host_route",
+      "title": "Host route",
+      "background": { "tint": [0.05, 0.05, 0.08, 0.96] },
+      "advance": { "onSpace": true, "onEnter": true, "action": { "type": "navigate", "target": "briefing" } },
+      "blocks": [
+        { "type": "say", "speaker": "Coordinator", "text": "Host owns the authoritative timeline and opens the join surface." },
+        { "type": "label", "text": "Space to return", "align": "center" }
+      ]
+    },
+    {
+      "id": "client_route",
+      "title": "Client route",
+      "background": { "tint": [0.03, 0.06, 0.08, 0.96] },
+      "advance": { "onSpace": true, "onEnter": true, "action": { "type": "navigate", "target": "briefing" } },
+      "blocks": [
+        { "type": "say", "speaker": "Coordinator", "text": "Client joins against the issued code and validates remote state convergence." },
+        { "type": "label", "text": "Space to return", "align": "center" }
+      ]
+    }
+  ]
+}

@@ -180,6 +180,15 @@ layout(std140, set = 0, binding = 0) uniform CameraData {
     vec4 pd80CltPack5;
     vec4 pd80LcPack0;
     vec4 pd80LfPack0;
+    vec4 pd80Cg4Pack0;
+    vec4 pd80Cg4Pack1;
+    vec4 pd80Cg4Pack2;
+    vec4 pd80Cg4Pack3;
+    vec4 pd80Cg4Pack4;
+    vec4 pd80Cg4Pack5;
+    vec4 pd80Cg4Pack6;
+    vec4 pd80Cg4Pack7;
+    vec4 pd80Cg4Pack8;
     vec4 pd80CcPack0;
     vec4 pd80RccPack0;
     vec4 pd80RccPack1;

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "item_rt2_golden_sword_png",
+  "type": "texture",
+  "displayName": "rt2_golden_sword",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/rt2_golden_sword.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "item_rt2_golden_sword_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/rt2_golden_sword.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

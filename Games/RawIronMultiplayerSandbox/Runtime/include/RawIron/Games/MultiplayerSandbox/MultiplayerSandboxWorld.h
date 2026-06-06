@@ -16,6 +16,9 @@ struct World {
     int playerRig = ri::scene::kInvalidHandle;
     int playerCameraNode = ri::scene::kInvalidHandle;
     int catalogRoot = ri::scene::kInvalidHandle;
+    int brushHallRoot = ri::scene::kInvalidHandle;
+    int inspectionRig = ri::scene::kInvalidHandle;
+    int inspectionCube = ri::scene::kInvalidHandle;
     ri::math::Vec3 catalogExtents{};
     std::vector<ri::trace::TraceCollider> colliders;
 };

@@ -1,0 +1,8 @@
+{
+    "parent":"block/pale_leaves_bushy3",
+    "textures": {
+	"1": "block/pale_oak_leaves/pale_oak_leaves1",
+    "2": "block/pale_oak_leaves/pale_oak_leaves1",
+		"3": "block/pale_oak_leaves/pale_oak_moss"
+    }
+}

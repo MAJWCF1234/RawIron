@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "particle_rt2_drip_fall_png",
+  "type": "texture",
+  "displayName": "rt2_drip_fall",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/rt2_drip_fall.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "particle_rt2_drip_fall_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/particle/rt2_drip_fall.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

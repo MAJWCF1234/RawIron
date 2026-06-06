@@ -3,6 +3,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -23,6 +24,23 @@ struct GameplayPanelLayout {
     RECT addTriggerBtn{};
     RECT exportBtn{};
     RECT playtestBtn{};
+};
+
+struct UiWorkbenchLayout {
+    RECT prevScreenBtn{};
+    RECT nextScreenBtn{};
+    RECT useAutoBtn{};
+    RECT useMenuSampleBtn{};
+    RECT useVnSampleBtn{};
+    RECT newScreenBtn{};
+    RECT duplicateScreenBtn{};
+    RECT addChoiceBlockBtn{};
+    RECT setStartScreenBtn{};
+    RECT addDialogueBlockBtn{};
+    RECT addNarrationBlockBtn{};
+    RECT moveBlockUpBtn{};
+    RECT moveBlockDownBtn{};
+    RECT deleteBlockBtn{};
 };
 
 struct NodeInspectorPanelModel {
@@ -64,7 +82,53 @@ struct GameplayInspectorPanelModel {
     std::string controlsLine;
 };
 
+enum class UiWorkbenchBlockTone {
+    Heading,
+    Say,
+    Narration,
+    Choices,
+    Image,
+    Note,
+    Other,
+};
+
+struct UiWorkbenchScreenSummary {
+    std::string titleLine;
+    std::string metaLine;
+    bool selected = false;
+};
+
+struct UiWorkbenchPreviewBlock {
+    UiWorkbenchBlockTone tone = UiWorkbenchBlockTone::Other;
+    std::string titleLine;
+    std::string detailLine;
+    bool selected = false;
+};
+
+struct UiWorkbenchPanelModel {
+    UiWorkbenchLayout layout{};
+    bool manifestResolved = false;
+    bool manifestParsed = false;
+    bool usingAutoSource = true;
+    bool usingMenuSample = false;
+    bool usingVnSample = false;
+    std::string headingLine;
+    std::string sourceLine;
+    std::string statusLine;
+    std::string hintLine;
+    std::string errorLine;
+    std::string screenHeaderLine;
+    std::string actionsHeaderLine;
+    std::string blockActionsHeaderLine;
+    std::string previewTitleLine;
+    std::string previewMetaLine;
+    std::string previewFooterLine;
+    std::vector<UiWorkbenchScreenSummary> screens;
+    std::vector<UiWorkbenchPreviewBlock> previewBlocks;
+};
+
 [[nodiscard]] GameplayPanelLayout ComputeGameplayPanelLayout(const RECT& inspectorInner);
+[[nodiscard]] UiWorkbenchLayout ComputeUiWorkbenchLayout(const RECT& inspectorInner);
 void RenderNodeInspectorPanel(HDC dc,
                               const RECT& inspectorInner,
                               const NodeInspectorPanelModel& model,
@@ -86,6 +150,13 @@ void RenderGameplayInspectorPanel(HDC dc,
                                   HFONT bodyFont,
                                   HFONT smallFont,
                                   const std::function<void(HDC, const RECT&, const std::string&, bool)>& drawToolbarButton);
+void RenderUiWorkbenchPanel(HDC dc,
+                            const RECT& inspectorInner,
+                            const UiWorkbenchPanelModel& model,
+                            HFONT headerFont,
+                            HFONT bodyFont,
+                            HFONT smallFont,
+                            const std::function<void(HDC, const RECT&, const std::string&, bool)>& drawToolbarButton);
 #endif
 
 } // namespace ri::editor

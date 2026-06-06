@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_spruce_leaves_png",
+  "type": "texture",
+  "displayName": "rt2_spruce_leaves",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_spruce_leaves.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_spruce_leaves_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_spruce_leaves.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

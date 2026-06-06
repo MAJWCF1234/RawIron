@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_dead_tube_coral_png",
+  "type": "texture",
+  "displayName": "rt2_dead_tube_coral",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_dead_tube_coral.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_dead_tube_coral_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_dead_tube_coral.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

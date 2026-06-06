@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "item_rt2_arrow_png",
+  "type": "texture",
+  "displayName": "rt2_arrow",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/rt2_arrow.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "item_rt2_arrow_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/rt2_arrow.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,10 +1,10 @@
 # Native preview postprocess for material inspection
 postprocess_quality=2
 postprocess_tint_strength=0.0
-native_exposure=0.96
+native_exposure=0.97
 native_contrast=1.00
-native_saturation=0.98
-native_fog_density=0.0014
-fov_base=84.0
-fov_sprint_add=4.0
-fov_lerp_per_second=10.0
+native_saturation=0.96
+native_fog_density=0.0012
+fov_base=78.0
+fov_sprint_add=3.5
+fov_lerp_per_second=9.0

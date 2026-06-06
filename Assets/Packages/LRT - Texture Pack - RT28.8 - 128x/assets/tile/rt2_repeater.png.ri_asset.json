@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_repeater_png",
+  "type": "texture",
+  "displayName": "rt2_repeater",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_repeater.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_repeater_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_repeater.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -1,0 +1,228 @@
+#version 450
+
+// GPU procedural material-map generator. Produces tangent-space normal maps and
+// ORM (occlusion/roughness/metallic) maps that match the CPU reference path in
+// ProceduralMaterialMaps.cpp. Source and destination are tightly-packed RGBA8
+// buffers (one uint per pixel, byte order r,g,b,a -> little-endian r|g<<8|b<<16|a<<24)
+// so no image-layout transitions or format juggling are needed for readback.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(std430, binding = 0) readonly buffer SrcBuffer {
+    uint pixels[];
+} uSrc;
+
+layout(std430, binding = 1) writeonly buffer DstBuffer {
+    uint pixels[];
+} uDst;
+
+layout(push_constant) uniform Push {
+    int width;
+    int height;
+    int kind;                 // 0 normal-from-albedo, 1 orm-from-albedo, 2 orm-from-normal
+    int wrap;                 // 1 tiling, 0 clamp
+    int applyHeightTransform; // 1 to apply invert/bias/scale (normal path only)
+    int invertHeight;
+    float strength;
+    float heightBias;
+    float heightScale;
+    float baseRoughness;
+    float baseMetallic;
+    float aoStrength;
+    float roughnessDetail;
+} uPush;
+
+int wrapIndex(int value, int size) {
+    if (size <= 1) {
+        return 0;
+    }
+    if (uPush.wrap != 0) {
+        int wrapped = value % size;
+        if (wrapped < 0) {
+            wrapped += size;
+        }
+        return wrapped;
+    }
+    return clamp(value, 0, size - 1);
+}
+
+uint loadTexel(int x, int y) {
+    int sx = wrapIndex(x, uPush.width);
+    int sy = wrapIndex(y, uPush.height);
+    return uSrc.pixels[sy * uPush.width + sx];
+}
+
+float channel01(uint texel, int index) {
+    return float((texel >> (index * 8)) & 0xFFu) / 255.0;
+}
+
+float srgbToLinear(float c) {
+    if (c <= 0.04045) {
+        return c / 12.92;
+    }
+    return pow((c + 0.055) / 1.055, 2.4);
+}
+
+float sampleAlpha(int x, int y) {
+    return channel01(loadTexel(x, y), 3);
+}
+
+// Alpha-weighted linear luminance, matching SampleLinearLuminance on the CPU.
+float sampleLinearLuminance(int x, int y) {
+    uint t = loadTexel(x, y);
+    float r = srgbToLinear(channel01(t, 0));
+    float g = srgbToLinear(channel01(t, 1));
+    float b = srgbToLinear(channel01(t, 2));
+    float a = channel01(t, 3);
+    return ((0.2126 * r) + (0.7152 * g) + (0.0722 * b)) * a;
+}
+
+// Height field sample with the optional invert/bias/scale transform (normal path).
+float heightAt(int x, int y) {
+    float lum = sampleLinearLuminance(x, y);
+    if (uPush.applyHeightTransform != 0) {
+        float oriented = (uPush.invertHeight != 0) ? (1.0 - lum) : lum;
+        float t = ((oriented - 0.5) * uPush.heightScale) + 0.5 + uPush.heightBias;
+        lum = clamp(t, 0.0, 1.0);
+    }
+    return lum;
+}
+
+uint toByte(float value01) {
+    float scaled = clamp(value01, 0.0, 1.0) * 255.0;
+    return uint(scaled + 0.5);
+}
+
+uint packRgba(uint r, uint g, uint b, uint a) {
+    return (r & 0xFFu) | ((g & 0xFFu) << 8) | ((b & 0xFFu) << 16) | ((a & 0xFFu) << 24);
+}
+
+vec3 decodeNormal(int x, int y) {
+    uint t = loadTexel(x, y);
+    vec3 n = vec3(channel01(t, 0), channel01(t, 1), channel01(t, 2)) * 2.0 - 1.0;
+    float lenSq = dot(n, n);
+    if (lenSq > 1e-6) {
+        return n * inversesqrt(lenSq);
+    }
+    return vec3(0.0, 0.0, 1.0);
+}
+
+void writeNormalFromAlbedo(int x, int y, uint outIndex) {
+    if (sampleAlpha(x, y) <= 0.01) {
+        uDst.pixels[outIndex] = packRgba(128u, 128u, 255u, 0u);
+        return;
+    }
+    float strength = max(uPush.strength, 0.0);
+    float tl = heightAt(x - 1, y - 1);
+    float tc = heightAt(x,     y - 1);
+    float tr = heightAt(x + 1, y - 1);
+    float ml = heightAt(x - 1, y);
+    float mr = heightAt(x + 1, y);
+    float bl = heightAt(x - 1, y + 1);
+    float bc = heightAt(x,     y + 1);
+    float br = heightAt(x + 1, y + 1);
+
+    float dx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);
+    float dy = (bl + 2.0 * bc + br) - (tl + 2.0 * tc + tr);
+
+    vec3 n = vec3(-dx * strength, -dy * strength, 1.0);
+    float length = sqrt(dot(n, n));
+    if (length > 1e-6) {
+        n /= length;
+    } else {
+        n = vec3(0.0, 0.0, 1.0);
+    }
+    uDst.pixels[outIndex] = packRgba(toByte(n.x * 0.5 + 0.5), toByte(n.y * 0.5 + 0.5), toByte(n.z * 0.5 + 0.5), 255u);
+}
+
+void writeOrmFromAlbedo(int x, int y, uint outIndex) {
+    float baseRoughness = clamp(uPush.baseRoughness, 0.0, 1.0);
+    float baseMetallic = clamp(uPush.baseMetallic, 0.0, 1.0);
+    float aoStrength = clamp(uPush.aoStrength, 0.0, 1.0);
+    float roughnessDetail = clamp(uPush.roughnessDetail, 0.0, 1.0);
+
+    if (sampleAlpha(x, y) <= 0.01) {
+        uDst.pixels[outIndex] = packRgba(255u, toByte(baseRoughness), toByte(baseMetallic), 0u);
+        return;
+    }
+
+    float local = sampleLinearLuminance(x, y);
+    float neighbourSum = 0.0;
+    int neighbourCount = 0;
+    for (int dy = -2; dy <= 2; ++dy) {
+        for (int dx = -2; dx <= 2; ++dx) {
+            if (dx == 0 && dy == 0) {
+                continue;
+            }
+            neighbourSum += sampleLinearLuminance(x + dx, y + dy);
+            ++neighbourCount;
+        }
+    }
+    float neighbourAvg = neighbourCount > 0 ? (neighbourSum / float(neighbourCount)) : local;
+    float varianceSum = 0.0;
+    for (int dy = -2; dy <= 2; ++dy) {
+        for (int dx = -2; dx <= 2; ++dx) {
+            float delta = sampleLinearLuminance(x + dx, y + dy) - neighbourAvg;
+            varianceSum += delta * delta;
+        }
+    }
+    float localDetail = clamp(sqrt(varianceSum / 25.0) * 4.0, 0.0, 1.0);
+    float cavity = clamp(neighbourAvg - local, 0.0, 1.0);
+    float ao = clamp(1.0 - cavity * aoStrength * 1.6, 0.0, 1.0);
+    float roughness = clamp(baseRoughness + (localDetail - 0.5) * roughnessDetail, 0.04, 1.0);
+    uDst.pixels[outIndex] = packRgba(toByte(ao), toByte(roughness), toByte(baseMetallic), 255u);
+}
+
+void writeOrmFromNormal(int x, int y, uint outIndex) {
+    float baseRoughness = clamp(uPush.baseRoughness, 0.0, 1.0);
+    float baseMetallic = clamp(uPush.baseMetallic, 0.0, 1.0);
+    float aoStrength = clamp(uPush.aoStrength, 0.0, 1.0);
+    float roughnessDetail = clamp(uPush.roughnessDetail, 0.0, 1.0);
+
+    // Transparent normal texels (cutout coverage) must not hydrate invisible areas.
+    uint alphaByte = (loadTexel(x, y) >> 24) & 0xFFu;
+    if (alphaByte <= 2u) {
+        uDst.pixels[outIndex] = packRgba(255u, toByte(baseRoughness), toByte(baseMetallic), 0u);
+        return;
+    }
+
+    vec3 center = decodeNormal(x, y);
+    vec3 sum = vec3(0.0);
+    int neighbourCount = 0;
+    for (int dy = -2; dy <= 2; ++dy) {
+        for (int dx = -2; dx <= 2; ++dx) {
+            if (dx == 0 && dy == 0) {
+                continue;
+            }
+            // Treat transparent neighbours as the centre normal (see CPU reference).
+            uint neighbourAlpha = (loadTexel(x + dx, y + dy) >> 24) & 0xFFu;
+            sum += (neighbourAlpha <= 2u) ? center : decodeNormal(x + dx, y + dy);
+            ++neighbourCount;
+        }
+    }
+    float invCount = neighbourCount > 0 ? (1.0 / float(neighbourCount)) : 0.0;
+    vec3 avg = sum * invCount;
+    float curvature = length(center - avg);
+    float cavity = clamp(curvature * 2.2, 0.0, 1.0);
+    float ao = clamp(1.0 - cavity * aoStrength * 1.4, 0.0, 1.0);
+    float slope = clamp(1.0 - center.z, 0.0, 1.0);
+    float detail = clamp((slope * 0.65) + (curvature * 1.6), 0.0, 1.0);
+    float roughness = clamp(baseRoughness + (detail - 0.5) * roughnessDetail, 0.04, 1.0);
+    uDst.pixels[outIndex] = packRgba(toByte(ao), toByte(roughness), toByte(baseMetallic), 255u);
+}
+
+void main() {
+    int x = int(gl_GlobalInvocationID.x);
+    int y = int(gl_GlobalInvocationID.y);
+    if (x >= uPush.width || y >= uPush.height) {
+        return;
+    }
+    uint outIndex = uint(y * uPush.width + x);
+    if (uPush.kind == 0) {
+        writeNormalFromAlbedo(x, y, outIndex);
+    } else if (uPush.kind == 1) {
+        writeOrmFromAlbedo(x, y, outIndex);
+    } else {
+        writeOrmFromNormal(x, y, outIndex);
+    }
+}

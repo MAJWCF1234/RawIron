@@ -1,3 +1,5 @@
 // Wilderness Ruins UI navigation checks (rawiron-game-v1.3.7)
+assert.flow=ui/main.ui.json
+assert.vn=ui/vn_intro.ui.json
 test compass_widget_visible { assert true }
 test interaction_prompt_priority { assert true }

@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_stone_png",
+  "type": "texture",
+  "displayName": "rt2_stone",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_stone.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_stone_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_stone.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

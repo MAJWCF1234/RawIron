@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "item_rt2_wooden_spear_in_hand_png",
+  "type": "texture",
+  "displayName": "rt2_wooden_spear_in_hand",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/rt2_wooden_spear_in_hand.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "item_rt2_wooden_spear_in_hand_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/item/rt2_wooden_spear_in_hand.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

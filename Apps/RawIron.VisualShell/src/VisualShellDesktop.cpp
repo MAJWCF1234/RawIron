@@ -1009,11 +1009,7 @@ private:
                 }
                 case WorkshopHitKind::TaskConsoleAction: {
                     showStartMenu_ = false;
-                    const auto idx = FindActionIndex(shell_.Actions(), "Workspace Check");
-                    if (idx) {
-                        shell_.SetSelectedIndex(*idx);
-                        shell_.LaunchSelected(hwnd_);
-                    }
+                    shell_.OpenConsole(hwnd_);
                     return;
                 }
                 case WorkshopHitKind::TaskRecentOpen: {

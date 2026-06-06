@@ -39,6 +39,17 @@ if(WIN32 AND DEFINED RUNTIME_DLLS_RAW AND NOT RUNTIME_DLLS_RAW STREQUAL "")
   endif()
 endif()
 
+if(DEFINED CLEAN_PATHS_RAW)
+  string(REPLACE "|" ";" CLEAN_PATHS "${CLEAN_PATHS_RAW}")
+endif()
+
+foreach(clean_path IN LISTS CLEAN_PATHS)
+  if(clean_path STREQUAL "")
+    continue()
+  endif()
+  file(REMOVE_RECURSE "${clean_path}")
+endforeach()
+
 if(rawiron_command_prefix)
   execute_process(
     COMMAND ${rawiron_command_prefix} "${EXECUTABLE}" ${COMMAND_ARGS}
@@ -56,6 +67,10 @@ else()
 endif()
 
 set(command_output "${command_stdout}${command_stderr}")
+set(command_output_normalized "${command_output}")
+if(WIN32)
+  string(REPLACE "\\" "/" command_output_normalized "${command_output_normalized}")
+endif()
 
 if(NOT command_result EQUAL 0)
   message(FATAL_ERROR
@@ -65,8 +80,13 @@ if(NOT command_result EQUAL 0)
 endif()
 
 foreach(expected IN LISTS EXPECTED_STRINGS)
+  set(expected_probe "${expected}")
+  if(WIN32)
+    string(REPLACE "\\" "/" expected_probe "${expected_probe}")
+  endif()
   string(FIND "${command_output}" "${expected}" expected_index)
-  if(expected_index EQUAL -1)
+  string(FIND "${command_output_normalized}" "${expected_probe}" expected_index_normalized)
+  if(expected_index EQUAL -1 AND expected_index_normalized EQUAL -1)
     message(FATAL_ERROR
       "Missing expected output: ${expected}\n"
       "Command: ${EXECUTABLE} ${COMMAND_ARGS}\n"
@@ -75,8 +95,13 @@ foreach(expected IN LISTS EXPECTED_STRINGS)
 endforeach()
 
 foreach(forbidden IN LISTS FORBIDDEN_STRINGS)
+  set(forbidden_probe "${forbidden}")
+  if(WIN32)
+    string(REPLACE "\\" "/" forbidden_probe "${forbidden_probe}")
+  endif()
   string(FIND "${command_output}" "${forbidden}" forbidden_index)
-  if(NOT forbidden_index EQUAL -1)
+  string(FIND "${command_output_normalized}" "${forbidden_probe}" forbidden_index_normalized)
+  if(NOT forbidden_index EQUAL -1 OR NOT forbidden_index_normalized EQUAL -1)
     message(FATAL_ERROR
       "Found forbidden output: ${forbidden}\n"
       "Command: ${EXECUTABLE} ${COMMAND_ARGS}\n"

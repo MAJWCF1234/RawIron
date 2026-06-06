@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_sand_png",
+  "type": "texture",
+  "displayName": "rt2_sand",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_sand.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_sand_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_sand.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

@@ -139,6 +139,12 @@ bool ExecuteVulkanFrameSubmissionWithPipelineCache(
                     flushStats();
                     return false;
                 }
+                // Validation/warming gate only: every draw must have a resolvable pipeline
+                // record before replay, but binding itself happens inside the recorder's
+                // DrawMesh (which owns the concrete VkPipeline for this material/pass). The
+                // recorder interface intentionally exposes no apply-state hook, so the
+                // resolved record is not bound here.
+                (void)resolved;
             }
 
             if (!ReplayIntent(intent, recorder)) {

@@ -85,6 +85,15 @@ Wilderness Ruins is the grounded outdoor counterpart to Liminal Hall. It uses th
 - `ui/*`
 - `tests/*.riscript`
 
+### UI authoring contract
+
+- `ui/main.ui.json` is the primary game-local UI flow manifest.
+- `ui/vn_intro.ui.json` is the primary game-local VN/dialogue flow manifest.
+- `ui/layout.xml` and `ui/styling.css` are optional support assets for HUD/chrome, not the main flow source.
+- `scripts/ui.riscript` remains scalar-only runtime tuning for diagnostics, HUD behavior, and runtime UI boot policy.
+- `runtime_ui_boot_flow` uses `0=gameplay`, `1=menu`, `2=vn`.
+- `runtime_ui_hotkeys_enabled` controls whether `F1` / `F2` can switch runtime flows interactively.
+
 ## Runtime focus
 
 Wilderness Ruins exercises the same shared runtime contract as the rest of the workspace while keeping its own authored gameplay and presentation profile inside project data.

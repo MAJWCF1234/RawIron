@@ -1,5 +1,15 @@
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#endif
+
 #include "RawIron/Core/CommandLine.h"
 #include "RawIron/Core/Log.h"
+#include "RawIron/Content/GameManifest.h"
 #include "RawIron/Ui/UiFlowSession.h"
 #include "RawIron/Ui/UiJsonIO.h"
 #include "RawIron/Ui/UiPaths.h"
@@ -42,6 +52,14 @@ fs::path DetectWorkspaceRoot(const fs::path& start) {
         current = parent;
     }
     return fs::weakly_canonical(start);
+}
+
+[[nodiscard]] std::optional<ri::content::GameManifest> ResolveMountedGame(const fs::path& workspaceRoot,
+                                                                          const ri::core::CommandLine& commandLine) {
+    if (const auto gameId = commandLine.GetValue("--game"); gameId.has_value() && !gameId->empty()) {
+        return ri::content::ResolveGameManifest(workspaceRoot, *gameId);
+    }
+    return std::nullopt;
 }
 
 static ID3D11Device* gDevice = nullptr;
@@ -271,6 +289,38 @@ void DrawAlignedParagraph(std::string_view text, std::string_view align, float w
     ImGui::Spacing();
 }
 
+void ConfigureUiStyle() {
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 10.0f;
+    style.ChildRounding = 10.0f;
+    style.FrameRounding = 8.0f;
+    style.PopupRounding = 8.0f;
+    style.ScrollbarRounding = 8.0f;
+    style.GrabRounding = 8.0f;
+    style.WindowBorderSize = 1.0f;
+    style.ChildBorderSize = 1.0f;
+    style.FrameBorderSize = 1.0f;
+    style.WindowPadding = ImVec2(14.0f, 14.0f);
+    style.ItemSpacing = ImVec2(10.0f, 10.0f);
+    style.ItemInnerSpacing = ImVec2(8.0f, 6.0f);
+
+    ImVec4* colors = style.Colors;
+    colors[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.06f, 0.09f, 0.98f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.10f, 0.11f, 0.16f, 0.92f);
+    colors[ImGuiCol_Border] = ImVec4(0.33f, 0.36f, 0.44f, 0.90f);
+    colors[ImGuiCol_Text] = ImVec4(0.92f, 0.93f, 0.96f, 1.0f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.56f, 0.60f, 0.68f, 1.0f);
+    colors[ImGuiCol_Button] = ImVec4(0.22f, 0.26f, 0.34f, 0.96f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.35f, 0.28f, 0.16f, 0.98f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.48f, 0.34f, 0.14f, 1.0f);
+    colors[ImGuiCol_Header] = ImVec4(0.18f, 0.22f, 0.30f, 0.94f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.28f, 0.24f, 0.18f, 0.98f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.39f, 0.29f, 0.13f, 1.0f);
+    colors[ImGuiCol_Separator] = ImVec4(0.36f, 0.39f, 0.46f, 0.85f);
+    colors[ImGuiCol_TitleBg] = ImVec4(0.08f, 0.09f, 0.13f, 1.0f);
+    colors[ImGuiCol_TitleBgActive] = ImVec4(0.10f, 0.11f, 0.15f, 1.0f);
+}
+
 void DrawUiSession(ri::ui::UiFlowSession& session,
                    const fs::path& workspaceRoot,
                    bool* quitRequested,
@@ -313,10 +363,51 @@ void DrawUiSession(ri::ui::UiFlowSession& session,
             static_cast<int>(std::clamp(bg[2] * 255.0f, 0.0f, 255.0f)),
             static_cast<int>(std::clamp(bg[3] * 255.0f, 0.0f, 255.0f)));
         dl->AddRectFilled(p0, p1, overlay);
+        dl->AddRectFilledMultiColor(p0,
+                                    p1,
+                                    IM_COL32(8, 10, 16, 118),
+                                    IM_COL32(8, 10, 16, 70),
+                                    IM_COL32(8, 10, 16, 160),
+                                    IM_COL32(8, 10, 16, 190));
     }
 
-    const float wrap = ImGui::GetContentRegionAvail().x - 24.0f;
-    ImGui::Dummy(ImVec2(0.0f, 16.0f));
+    ImDrawList* rootDl = ImGui::GetWindowDrawList();
+    const ImVec2 rootPos = ImGui::GetWindowPos();
+    const ImVec2 rootSize = ImGui::GetWindowSize();
+    rootDl->AddRectFilled(ImVec2(rootPos.x, rootPos.y),
+                          ImVec2(rootPos.x + rootSize.x, rootPos.y + 6.0f),
+                          IM_COL32(214, 150, 56, 255));
+
+    const float stageW = std::min(900.0f, std::max(520.0f, rootSize.x - 96.0f));
+    const float stageH = std::min(rootSize.y - 72.0f, std::max(320.0f, rootSize.y * 0.78f));
+    ImGui::SetCursorPos(ImVec2(std::max(24.0f, (rootSize.x - stageW) * 0.5f),
+                               std::max(18.0f, (rootSize.y - stageH) * 0.18f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.07f, 0.08f, 0.12f, 0.88f));
+    ImGui::BeginChild("story_stage",
+                      ImVec2(stageW, stageH),
+                      ImGuiChildFlags_Borders,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImDrawList* stageDl = ImGui::GetWindowDrawList();
+    const ImVec2 stagePos = ImGui::GetWindowPos();
+    const ImVec2 stageSize = ImGui::GetWindowSize();
+    stageDl->AddRectFilled(ImVec2(stagePos.x + 1.0f, stagePos.y + 1.0f),
+                           ImVec2(stagePos.x + stageSize.x - 1.0f, stagePos.y + 5.0f),
+                           IM_COL32(204, 145, 60, 255),
+                           12.0f,
+                           ImDrawFlags_RoundCornersTop);
+    if (!screen->title.empty()) {
+        ImGui::SetCursorPos(ImVec2(24.0f, 18.0f));
+        ImGui::TextColored(ImVec4(0.95f, 0.82f, 0.58f, 1.0f), "%s", screen->title.c_str());
+    }
+    ImGui::SetCursorPos(ImVec2(24.0f, 42.0f));
+    ImGui::BeginChild("story_content",
+                      ImVec2(stageW - 48.0f, stageH - 74.0f),
+                      ImGuiChildFlags_None,
+                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+    const float wrap = std::max(180.0f, ImGui::GetContentRegionAvail().x - 24.0f);
+    ImGui::Dummy(ImVec2(0.0f, 10.0f));
 
     auto historyFingerprintBase = [&screen](std::size_t blockIndex) {
         std::string s = screen->id;
@@ -532,18 +623,26 @@ void DrawUiSession(ri::ui::UiFlowSession& session,
             }
             case ri::ui::UiBlockKind::Choices: {
                 ImGui::Spacing();
+                int visibleChoiceIndex = 0;
                 for (const ri::ui::UiChoiceItem& choice : block.choices) {
                     if (choice.label.empty() || !session.IsChoiceVisible(choice)) {
                         continue;
                     }
                     const std::string choiceLabel = SubstituteStoreVars(session, choice.label);
-                    if (ImGui::Button(choiceLabel.c_str(), ImVec2(-FLT_MIN, 0.0f))) {
+                    ++visibleChoiceIndex;
+                    const std::string indexedLabel =
+                        std::to_string(visibleChoiceIndex) + ".  " + choiceLabel;
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.21f, 0.28f, 0.98f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.33f, 0.25f, 0.14f, 0.98f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.46f, 0.31f, 0.12f, 1.0f));
+                    if (ImGui::Button(indexedLabel.c_str(), ImVec2(-FLT_MIN, 42.0f))) {
                         session.ApplyAction(
                             choice.action,
                             [quitRequested, playRequested](std::string_view id) {
                                 ApplyEmit(id, quitRequested, playRequested);
                             });
                     }
+                    ImGui::PopStyleColor(3);
                 }
                 ImGui::Spacing();
                 break;
@@ -717,6 +816,10 @@ void DrawUiSession(ri::ui::UiFlowSession& session,
         }
     }
 
+    ImGui::EndChild();
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
     ImGui::End();
     ImGui::PopStyleColor();
 
@@ -802,13 +905,14 @@ int main(int argc, char** argv) {
     ri::core::CommandLine commandLine(argc, argv);
     if (commandLine.HasFlag("--help") || commandLine.HasFlag("-h")) {
         std::fprintf(stderr,
-                     "RawIron.UiMenu — JSON-driven title / main menu / credits (Dear ImGui + Direct3D 11).\n"
-                     "  --workspace=<path>     Repository root (default: auto-detect)\n"
-                     "  --manifest=<path>      UI JSON file (default: <workspace>/Assets/UI/default_menu.ui.json)\n"
-                     "  --demo-vn              Load branching dialogue sample (Assets/UI/visual_novel_demo.ui.json)\n"
-                     "  --headless             Load manifest and exit (CI)\n"
-                     "Text: use ${varName} in JSON strings; values come from manifest \"variables\" + setVar actions.\n"
-                     "In the window: B backlog, H hide music/bg dev strip, 1-9 activate visible choices in order.\n"
+                      "RawIron.UiMenu — JSON-driven title / main menu / credits (Dear ImGui + Direct3D 11).\n"
+                      "  --workspace=<path>     Repository root (default: auto-detect)\n"
+                      "  --game=<id>            Mounted game id (prefers Games/<Game>/ui/*.ui.json)\n"
+                      "  --manifest=<path>      UI JSON file (overrides --game defaults)\n"
+                      "  --demo-vn              Use the VN flow for the selected game, else fall back to sample\n"
+                      "  --headless             Load manifest and exit (CI)\n"
+                      "Text: use ${varName} in JSON strings; values come from manifest \"variables\" + setVar actions.\n"
+                      "In the window: B backlog, H hide music/bg dev strip, 1-9 activate visible choices in order.\n"
                      "advance.onMouseWheel; hold Ctrl to shorten delaySeconds; ${...} in portrait/image/bg paths.\n"
                      "say.voice: voice-line cue (shown in UI + backlog; playback is engine TBD).\n");
         return 0;
@@ -818,9 +922,14 @@ int main(int argc, char** argv) {
         commandLine.GetValue("--workspace").has_value()
             ? fs::weakly_canonical(fs::path(*commandLine.GetValue("--workspace")))
             : DetectWorkspaceRoot(fs::current_path());
+    const std::optional<ri::content::GameManifest> mountedGame = ResolveMountedGame(workspace, commandLine);
 
     fs::path manifestPath = ri::ui::DefaultUiManifestPath(workspace);
-    if (commandLine.HasFlag("--demo-vn")) {
+    if (mountedGame.has_value()) {
+        manifestPath = commandLine.HasFlag("--demo-vn")
+            ? ri::ui::PrimaryVisualNovelManifestPath(mountedGame->rootPath)
+            : ri::ui::PrimaryUiManifestPath(mountedGame->rootPath);
+    } else if (commandLine.HasFlag("--demo-vn")) {
         manifestPath = ri::ui::VisualNovelDemoManifestPath(workspace);
     }
     if (const auto m = commandLine.GetValue("--manifest"); m.has_value() && !m->empty()) {
@@ -835,8 +944,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    ri::core::LogInfo("[UiMenu] manifest loaded: " + manifestPath.string() + " screens=" +
-                      std::to_string(manifest.screens.size()));
+    std::string manifestLog = "[UiMenu] manifest loaded: " + manifestPath.string() + " screens=" +
+        std::to_string(manifest.screens.size());
+    if (mountedGame.has_value()) {
+        manifestLog += " game=" + mountedGame->id;
+    }
+    ri::core::LogInfo(manifestLog);
 
     if (commandLine.HasFlag("--headless")) {
         return 0;
@@ -890,6 +1003,7 @@ int main(int argc, char** argv) {
     io.IniFilename = nullptr;
 
     ImGui::StyleColorsDark();
+    ConfigureUiStyle();
 
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(gDevice, gContext);

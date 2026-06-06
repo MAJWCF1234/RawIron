@@ -30,6 +30,12 @@ Liminal Hall is the surreal in-repo exploration and runtime showcase project. It
 - `Shift` sprint
 - `E` interact
 - `Esc` quit
+- `F1` toggle game-local main menu flow
+- `F2` toggle game-local VN flow
+- `Tab` cycle runtime UI options
+- `1-9` choose a runtime UI option directly
+- `Enter` / `Space` activate or advance runtime UI
+- `Backspace` go back or leave the active runtime UI flow
 
 ## Main project surfaces
 
@@ -85,6 +91,15 @@ Liminal Hall is the surreal in-repo exploration and runtime showcase project. It
 - `ai/*`
 - `ui/*`
 - `tests/*.riscript`
+
+### UI authoring contract
+
+- `ui/main.ui.json` is the primary game-local UI flow manifest.
+- `ui/vn_intro.ui.json` is the primary game-local VN/dialogue flow manifest.
+- `ui/layout.xml` and `ui/styling.css` are optional support assets for HUD/chrome, not the main flow source.
+- `scripts/ui.riscript` remains scalar-only runtime tuning for diagnostics, HUD behavior, and runtime UI boot policy.
+- `runtime_ui_boot_flow` uses `0=gameplay`, `1=menu`, `2=vn`.
+- `runtime_ui_hotkeys_enabled` controls whether `F1` / `F2` can switch runtime flows interactively.
 
 ## Runtime focus
 

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "startScreen": "title",
+  "screens": [
+    {
+      "id": "title",
+      "title": "Wilderness Ruins",
+      "background": {
+        "tint": [0.04, 0.08, 0.07, 0.98]
+      },
+      "blocks": [
+        { "type": "heading", "text": "Wilderness Ruins", "align": "center" },
+        { "type": "spacer", "height": 18 },
+        { "type": "paragraph", "text": "Shared RawIron UI flow rooted inside the game folder.", "align": "center" },
+        { "type": "spacer", "height": 24 },
+        { "type": "button", "label": "Enter Ruins", "action": { "type": "emit", "id": "game.start" } },
+        { "type": "button", "label": "Story Intro", "action": { "type": "navigate", "target": "story_intro" } },
+        { "type": "button", "label": "Quit", "action": { "type": "emit", "id": "app.quit" } }
+      ]
+    },
+    {
+      "id": "story_intro",
+      "title": "Story intro",
+      "background": {
+        "tint": [0.05, 0.07, 0.05, 0.96]
+      },
+      "advance": {
+        "onSpace": true,
+        "onClick": true,
+        "onEnter": true,
+        "action": { "type": "navigate", "target": "title" }
+      },
+      "blocks": [
+        { "type": "historyNote", "text": "Approach", "backlogOnly": true },
+        { "type": "say", "speaker": "Scout", "text": "The ruin line is visible through the tree break ahead." },
+        { "type": "spacer", "height": 16 },
+        { "type": "narration", "text": "This game-local flow sits beside the runtime, not in a shared demo root.", "align": "left" },
+        { "type": "spacer", "height": 20 },
+        { "type": "label", "text": "Space or click to return", "align": "center" }
+      ]
+    }
+  ]
+}

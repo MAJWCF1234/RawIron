@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_warped_trapdoor_normal_png",
+  "type": "texture",
+  "displayName": "rt2_warped_trapdoor_normal",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_warped_trapdoor_normal.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_warped_trapdoor_normal_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_warped_trapdoor_normal.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

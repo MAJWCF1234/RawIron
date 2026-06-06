@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_grass_block_up_rt2_grass_block3_n_png",
+  "type": "texture",
+  "displayName": "rt2_grass_block3_n",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/grass_block_up/rt2_grass_block3_n.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_grass_block_up_rt2_grass_block3_n_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/grass_block_up/rt2_grass_block3_n.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

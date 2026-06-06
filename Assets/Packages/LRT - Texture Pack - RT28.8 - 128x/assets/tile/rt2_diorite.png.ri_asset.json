@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_diorite_png",
+  "type": "texture",
+  "displayName": "rt2_diorite",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_diorite.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_diorite_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_diorite.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

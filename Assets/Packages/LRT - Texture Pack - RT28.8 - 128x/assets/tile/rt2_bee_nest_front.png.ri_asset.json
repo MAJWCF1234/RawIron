@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_bee_nest_front_png",
+  "type": "texture",
+  "displayName": "rt2_bee_nest_front",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_bee_nest_front.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_bee_nest_front_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_bee_nest_front.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}

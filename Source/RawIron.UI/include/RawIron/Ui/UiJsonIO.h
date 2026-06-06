@@ -13,4 +13,6 @@ namespace ri::ui {
                                                  UiManifest& outManifest,
                                                  std::string* errorMessage);
 
+[[nodiscard]] std::string SerializeUiManifestToJson(const UiManifest& manifest);
+
 } // namespace ri::ui

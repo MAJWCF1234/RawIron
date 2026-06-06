@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "id": "tile_rt2_carved_pumpkin_png",
+  "type": "texture",
+  "displayName": "rt2_carved_pumpkin",
+  "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_carved_pumpkin.png",
+  "references": [
+    {
+      "kind": "source",
+      "id": "tile_rt2_carved_pumpkin_png_source",
+      "path": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_carved_pumpkin.png"
+    }
+  ],
+  "payload": {"sourceFormat":"native"}
+}
