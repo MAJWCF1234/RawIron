@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "02 Engine/Architecture Direction.md",
+                "file": "03 Projects/RawIron Multiplayer Sandbox.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Architecture Direction"
+              "title": "RawIron Multiplayer Sandbox"
             }
           }
         ]
@@ -185,6 +185,12 @@
   },
   "active": "f2ac3f8fa2ff5cf5",
   "lastOpenFiles": [
+    "03 Projects/Liminal Hall.md",
+    "02 Engine/10 Mod and Plugin Authoring.md",
+    "02 Engine/08 World and Interaction.md",
+    "02 Engine/05 Apps and Tools.md",
+    "02 Engine/02 Rendering.md",
+    "01 Product/RawIron.md",
     "05 Migration/Pass 12 Authored Volume Content Bridge.md",
     "05 Migration/Pass 11 World Volume Descriptor Foundation.md",
     "02 Engine/06 Content Assembly.md",
