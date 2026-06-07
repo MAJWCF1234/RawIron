@@ -1,0 +1,2 @@
+# rendering smoke test
+assert.renderer=native

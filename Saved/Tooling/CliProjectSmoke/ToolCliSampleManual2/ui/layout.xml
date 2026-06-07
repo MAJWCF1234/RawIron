@@ -1,0 +1,6 @@
+<layout>
+  <screen id="root">
+    <hud id="main_hud" anchor="top-left" />
+    <panel id="status_bar" anchor="bottom-left" />
+  </screen>
+</layout>

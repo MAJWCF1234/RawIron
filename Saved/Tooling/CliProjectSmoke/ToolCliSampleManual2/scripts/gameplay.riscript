@@ -1,0 +1,4 @@
+# RawIron gameplay script
+player.spawn="spawn_zone"
+player.move_speed=6.0
+player.jump_speed=7.5

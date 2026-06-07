@@ -1,0 +1,3 @@
+# RawIron persistence script
+save.slot="autosave"
+checkpoint.enabled=1

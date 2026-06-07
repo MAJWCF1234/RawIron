@@ -1,0 +1,2 @@
+# network smoke test
+assert.net_mode=listen

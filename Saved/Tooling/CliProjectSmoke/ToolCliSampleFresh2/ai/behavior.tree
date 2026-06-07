@@ -1,0 +1,4 @@
+root
+  sequence
+    condition player_visible
+    action move_to_player

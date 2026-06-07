@@ -1,0 +1,6 @@
+menu "main" {
+  title "Tool CLI Sample Fresh"
+  item "Play" action="play"
+  item "Options" action="options"
+  item "Quit" action="quit"
+}

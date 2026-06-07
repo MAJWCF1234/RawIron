@@ -1,0 +1,33 @@
+{
+  "id": "tool-cli-sample-manual-2",
+  "name": "Tool CLI Sample Manual 2",
+  "format": "rawiron-game-v1.3.7",
+  "type": "game",
+  "entry": "RawIron.ToolCLISampleManual2Game",
+  "runtimeContract": "rawiron-runtime-v1",
+  "runtimeModule": "RawIron.Game.ToolCLISampleManual2",
+  "runtimeHost": "RuntimeCore",
+  "runtimeServices": [
+    "lifecycle",
+    "events",
+    "services",
+    "paths",
+    "frame-clock"
+  ],
+  "version": "1.0.0",
+  "author": "RawIron Tooling",
+  "editorProjectArg": "--game=tool-cli-sample-manual-2",
+  "primaryLevel": "levels/assembly.primitives.csv",
+  "description": "Manual CLI sample 2.",
+  "editorPreviewScene": "tool-cli-sample-manual-2",
+  "controls": {
+    "move": "WASD",
+    "look": "Mouse",
+    "jump": "Space",
+    "sprint": "Shift",
+    "quit": "Esc"
+  },
+  "editorOpenArgs": [
+    "--game=tool-cli-sample-manual-2"
+  ]
+}

@@ -1,0 +1,3 @@
+name,primitive,parent,px,py,pz,rx,ry,rz,sx,sy,sz,material,texture,tx,ty,r,g,b,a
+floor,plane,,0,0,0,0,0,0,12,1,12,starter_floor,smooth_stone.png,4,4,0.72,0.74,0.78,1
+spawn_block,cube,,0,1,0,0,0,0,1,1,1,starter_block,iron_block.png,1,1,0.55,0.58,0.62,1

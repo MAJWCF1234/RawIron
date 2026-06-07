@@ -1,0 +1,2 @@
+name,type,px,py,pz,sx,sy,sz,preset
+ambient_core,box,0,1,0,10,4,10,default

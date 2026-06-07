@@ -1,0 +1,33 @@
+{
+  "id": "tool-cli-sample-fresh",
+  "name": "Tool CLI Sample Fresh",
+  "format": "rawiron-game-v1.3.7",
+  "type": "game",
+  "entry": "RawIron.ToolCLISampleFreshGame",
+  "runtimeContract": "rawiron-runtime-v1",
+  "runtimeModule": "RawIron.Game.ToolCLISampleFresh",
+  "runtimeHost": "RuntimeCore",
+  "runtimeServices": [
+    "lifecycle",
+    "events",
+    "services",
+    "paths",
+    "frame-clock"
+  ],
+  "version": "1.0.0",
+  "author": "RawIron Tooling",
+  "editorProjectArg": "--game=tool-cli-sample-fresh",
+  "primaryLevel": "levels/assembly.primitives.csv",
+  "description": "Fresh CLI sample.",
+  "editorPreviewScene": "tool-cli-sample-fresh",
+  "controls": {
+    "move": "WASD",
+    "look": "Mouse",
+    "jump": "Space",
+    "sprint": "Shift",
+    "quit": "Esc"
+  },
+  "editorOpenArgs": [
+    "--game=tool-cli-sample-fresh"
+  ]
+}

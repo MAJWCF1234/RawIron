@@ -1,0 +1,5 @@
+# RawIron rendering defaults
+native_exposure=1.0
+native_contrast=1.0
+native_saturation=1.0
+native_fog_density=0.003

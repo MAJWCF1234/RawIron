@@ -1,0 +1,2 @@
+name,type,px,py,pz,sx,sy,sz,payload
+spawn_zone,box,0,1,0,2,2,2,player_spawn

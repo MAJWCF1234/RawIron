@@ -1,0 +1,7 @@
+# RawIron input map
+move_forward=W
+move_back=S
+move_left=A
+move_right=D
+jump=Space
+sprint=Shift
