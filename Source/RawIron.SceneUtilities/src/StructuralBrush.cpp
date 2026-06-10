@@ -217,6 +217,34 @@ Mesh MeshFromStructuralCompiledMesh(const ri::structural::CompiledMesh& compiled
     return mesh;
 }
 
+ri::math::Vec3 EstimateStructuralBrushHalfExtents(const StructuralBrushSpawnOptions& options) {
+    const ri::structural::CompiledMesh compiled = BuildStructuralPrimitiveCompiledMesh(options);
+    const ri::math::Vec3 scale{
+        std::max(std::fabs(options.transform.scale.x), 1.0e-4f),
+        std::max(std::fabs(options.transform.scale.y), 1.0e-4f),
+        std::max(std::fabs(options.transform.scale.z), 1.0e-4f),
+    };
+    if (compiled.positions.empty()) {
+        return ri::math::Vec3{0.5f * scale.x, 0.5f * scale.y, 0.5f * scale.z};
+    }
+
+    ri::math::Vec3 minPoint = compiled.positions.front();
+    ri::math::Vec3 maxPoint = compiled.positions.front();
+    for (const ri::math::Vec3& point : compiled.positions) {
+        minPoint.x = std::min(minPoint.x, point.x);
+        minPoint.y = std::min(minPoint.y, point.y);
+        minPoint.z = std::min(minPoint.z, point.z);
+        maxPoint.x = std::max(maxPoint.x, point.x);
+        maxPoint.y = std::max(maxPoint.y, point.y);
+        maxPoint.z = std::max(maxPoint.z, point.z);
+    }
+    return ri::math::Vec3{
+        (maxPoint.x - minPoint.x) * 0.5f * scale.x,
+        (maxPoint.y - minPoint.y) * 0.5f * scale.y,
+        (maxPoint.z - minPoint.z) * 0.5f * scale.z,
+    };
+}
+
 int AddStructuralBrushNode(Scene& scene, const StructuralBrushSpawnOptions& options) {
     const ri::structural::CompiledMesh compiled = BuildStructuralPrimitiveCompiledMesh(options);
     if (compiled.positions.empty()) {
@@ -516,6 +544,14 @@ StructuralPrimitiveAssemblyResult AddStructuralPrimitiveAssembly(Scene& scene,
 
     result.root = root;
     return result;
+}
+
+const char* DefaultStructuralBrushAlbedoTexture() {
+    return "../Packages/LRT - Texture Pack - RT28.8 - 128x/tile/RT_tuff_bricks.png";
+}
+
+ri::math::Vec3 DefaultStructuralBrushBaseColor() {
+    return ri::math::Vec3{0.66f, 0.65f, 0.63f};
 }
 
 } // namespace ri::scene

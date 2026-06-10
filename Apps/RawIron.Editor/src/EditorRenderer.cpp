@@ -1,6 +1,8 @@
 #include "EditorRenderer.h"
 
 #include <algorithm>
+#include <cstring>
+#include <vector>
 
 namespace ri::editor {
 
@@ -76,7 +78,7 @@ void EditorRenderer::DrawPanelFrame(HDC dc, const RECT& rect, COLORREF fill, COL
         std::max(rect.top + 1, rect.bottom - 1),
     };
     if (inner.right > inner.left && inner.bottom > inner.top) {
-        HPEN innerPen = CreatePen(PS_SOLID, 1, RGB(28, 33, 40));
+        HPEN innerPen = CreatePen(PS_SOLID, 1, EditorUiTheme::kWellShadow);
         oldPen = static_cast<HPEN>(SelectObject(dc, innerPen));
         MoveToEx(dc, inner.left, inner.bottom - 1, nullptr);
         LineTo(dc, inner.right - 1, inner.bottom - 1);
@@ -116,38 +118,53 @@ void EditorRenderer::DrawTextLine(HDC dc, const RECT& rect, const std::string& t
     SelectObject(dc, oldFont);
 }
 
-void EditorRenderer::DrawToolbarButton(HDC dc, const RECT& rect, const std::string& label, bool active, HFONT smallFont) {
-    const COLORREF fill = active ? RGB(128, 96, 42) : RGB(58, 65, 76);
-    const COLORREF highlight = active ? RGB(255, 227, 162) : RGB(150, 160, 174);
-    const COLORREF shadow = active ? RGB(60, 42, 18) : RGB(24, 28, 34);
-    DrawPanelFrame(dc, rect, fill, highlight, shadow);
-
-    const RECT accent{
-        rect.left + 1,
-        rect.top + 1,
-        rect.right - 1,
-        std::min(rect.bottom - 1, rect.top + 4),
-    };
-    if (accent.bottom > accent.top) {
-        FillRectColor(dc, accent, active ? RGB(255, 196, 96) : RGB(86, 98, 114));
+void EditorRenderer::DrawToolbarButton(HDC dc,
+                                       const RECT& rect,
+                                       const std::string& label,
+                                       const bool active,
+                                       HFONT smallFont,
+                                       const EditorToolbarStyle style) {
+    COLORREF fill = EditorUiTheme::kBtnDarkFill;
+    COLORREF highlight = EditorUiTheme::kBtnDarkHi;
+    COLORREF shadow = EditorUiTheme::kBtnDarkShadow;
+    COLORREF text = EditorUiTheme::kBtnDarkText;
+    if (active) {
+        fill = EditorUiTheme::kBtnDarkActiveFill;
+        highlight = EditorUiTheme::kBtnDarkActiveShadow;
+        shadow = EditorUiTheme::kBtnDarkActiveHi;
+        text = EditorUiTheme::kBtnDarkActiveText;
+    }
+    switch (style) {
+        case EditorToolbarStyle::Light:
+            fill = active ? EditorUiTheme::kBtnLightActiveFill : EditorUiTheme::kBtnLightFill;
+            highlight = active ? EditorUiTheme::kBtnLightActiveShadow : EditorUiTheme::kBtnLightHi;
+            shadow = active ? EditorUiTheme::kBtnLightActiveHi : EditorUiTheme::kBtnLightShadow;
+            text = EditorUiTheme::kBtnLightText;
+            break;
+        case EditorToolbarStyle::Creator:
+            fill = active ? EditorUiTheme::kBtnCreatorActiveFill : EditorUiTheme::kBtnCreatorFill;
+            highlight = active ? EditorUiTheme::kBtnCreatorActiveShadow : EditorUiTheme::kBtnCreatorHi;
+            shadow = active ? EditorUiTheme::kBtnCreatorActiveHi : EditorUiTheme::kBtnCreatorShadow;
+            text = active ? EditorUiTheme::kBtnCreatorActiveText : EditorUiTheme::kBtnCreatorText;
+            break;
+        case EditorToolbarStyle::Dark:
+            break;
     }
 
-    const RECT baseGlow{
-        rect.left + 2,
-        std::max(rect.top + 2, rect.bottom - 5),
-        rect.right - 2,
-        rect.bottom - 2,
-    };
-    if (baseGlow.bottom > baseGlow.top) {
-        FillRectColor(dc, baseGlow, active ? RGB(96, 70, 28) : RGB(48, 54, 64));
+    if (active) {
+        DrawInsetFrame(dc, rect, fill, shadow, highlight);
+    } else {
+        DrawPanelFrame(dc, rect, fill, highlight, shadow);
     }
 
-    DrawTextLine(dc,
-                 rect,
-                 label,
-                 active ? RGB(255, 247, 214) : RGB(235, 239, 244),
-                 smallFont,
-                 DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+    if (style == EditorToolbarStyle::Creator && !active) {
+        const RECT accent{rect.left + 1, rect.top + 1, rect.right - 1, std::min(rect.bottom - 1, rect.top + 3)};
+        if (accent.bottom > accent.top) {
+            FillRectColor(dc, accent, EditorUiTheme::kCreatorCardAccent);
+        }
+    }
+
+    DrawTextLine(dc, rect, label, text, smallFont, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
 }
 
 void EditorRenderer::DrawPanelHeader(HDC dc,
@@ -155,27 +172,94 @@ void EditorRenderer::DrawPanelHeader(HDC dc,
                                      const std::string& title,
                                      HFONT headerFont,
                                      HFONT smallFont,
-                                     const std::string& meta) {
+                                     const std::string& meta,
+                                     const bool showCollapseToggle,
+                                     const bool collapsed,
+                                     RECT* collapseToggleRectOut) {
     RECT header{panelRect.left + 2, panelRect.top + 2, panelRect.right - 2, panelRect.top + 30};
-    FillRectColor(dc, header, RGB(46, 53, 63));
-    const RECT accent{header.left, header.top, header.right, std::min(header.bottom, header.top + 4)};
-    FillRectColor(dc, accent, RGB(204, 145, 60));
-    const RECT lowerAccent{header.left, header.bottom - 2, header.right, header.bottom};
-    FillRectColor(dc, lowerAccent, RGB(34, 38, 46));
+    DrawPanelFrame(dc, header, EditorUiTheme::kHeaderFill, EditorUiTheme::kHeaderAccent, EditorUiTheme::kHeaderLower);
+    const RECT accent{header.left + 1, header.top + 1, header.right - 1, std::min(header.bottom, header.top + 3)};
+    FillRectColor(dc, accent, EditorUiTheme::kHeaderAccent);
+
+    const int toggleReserve = showCollapseToggle ? 34 : 0;
+    if (showCollapseToggle && collapseToggleRectOut != nullptr) {
+        *collapseToggleRectOut = RECT{header.right - 30, header.top + 4, header.right - 6, header.bottom - 4};
+        DrawToolbarButton(dc, *collapseToggleRectOut, collapsed ? "»" : "«", false, smallFont, EditorToolbarStyle::Dark);
+    }
+
     DrawTextLine(dc,
-                 RECT{header.left + 10, header.top + 4, header.right - 120, header.bottom - 4},
+                 RECT{header.left + 10, header.top + 4, header.right - 120 - toggleReserve, header.bottom - 4},
                  title,
-                 RGB(246, 247, 243),
+                 EditorUiTheme::kHeaderText,
                  headerFont,
                  DT_LEFT | DT_SINGLELINE | DT_VCENTER);
     if (!meta.empty()) {
         DrawTextLine(dc,
-                     RECT{header.left + 120, header.top + 4, header.right - 10, header.bottom - 4},
+                     RECT{header.left + 120, header.top + 4, header.right - 10 - toggleReserve, header.bottom - 4},
                      meta,
-                     RGB(214, 220, 228),
+                     EditorUiTheme::kHeaderMeta,
                      smallFont,
-                     DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
+                     DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
     }
+}
+
+RECT EditorRenderer::InsetRect(const RECT& rect, const int amount) {
+    return RECT{
+        rect.left + amount,
+        rect.top + amount,
+        std::max(rect.left + amount, rect.right - amount),
+        std::max(rect.top + amount, rect.bottom - amount),
+    };
+}
+
+void EditorRenderer::BlitSoftwareImage(HDC dc,
+                                       const RECT& target,
+                                       const ri::render::software::SoftwareImage& image) {
+    const int targetWidth = std::max(0, static_cast<int>(target.right - target.left));
+    const int targetHeight = std::max(0, static_cast<int>(target.bottom - target.top));
+    if (targetWidth <= 0 || targetHeight <= 0) {
+        return;
+    }
+    if (image.pixels.empty() || image.width <= 0 || image.height <= 0) {
+        FillRectColor(dc, target, EditorUiTheme::kViewportWellFill);
+        return;
+    }
+
+    const int rowBytes = image.width * 3;
+    const int dibStride = ((rowBytes + 3) / 4) * 4;
+    const std::uint8_t* bits = image.pixels.data();
+    std::vector<std::uint8_t> paddedRows;
+    if (dibStride != rowBytes) {
+        paddedRows.resize(static_cast<std::size_t>(dibStride * image.height));
+        for (int y = 0; y < image.height; ++y) {
+            std::memcpy(paddedRows.data() + static_cast<std::size_t>(y * dibStride),
+                        image.pixels.data() + static_cast<std::size_t>(y * rowBytes),
+                        static_cast<std::size_t>(rowBytes));
+        }
+        bits = paddedRows.data();
+    }
+
+    BITMAPINFO bitmapInfo{};
+    bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bitmapInfo.bmiHeader.biWidth = image.width;
+    bitmapInfo.bmiHeader.biHeight = -image.height;
+    bitmapInfo.bmiHeader.biPlanes = 1;
+    bitmapInfo.bmiHeader.biBitCount = 24;
+    bitmapInfo.bmiHeader.biCompression = BI_RGB;
+
+    StretchDIBits(dc,
+                  target.left,
+                  target.top,
+                  targetWidth,
+                  targetHeight,
+                  0,
+                  0,
+                  image.width,
+                  image.height,
+                  bits,
+                  &bitmapInfo,
+                  DIB_RGB_COLORS,
+                  SRCCOPY);
 }
 #endif
 

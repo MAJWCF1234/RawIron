@@ -1,0 +1,30 @@
+{
+  "id": "rawiron.telemetry-lite",
+  "name": "Telemetry Lite",
+  "version": "1.0.0",
+  "author": "RawIron",
+  "category": "telemetry",
+  "tagLine": "Lightweight frame sampling for diagnostics overlays.",
+  "badge": "Telemetry",
+  "description": "Adds runtime frame_sample hooks for lightweight telemetry without full analytics stack.",
+  "loadOrder": 20,
+  "hookGroup": "runtime.telemetry",
+  "tags": ["telemetry", "diagnostics"],
+  "manifestLine": "rawiron.telemetry-lite,1.0.0,telemetry,plugins/hooks.riplugin",
+  "hooks": [
+    "startup,rawiron.telemetry-lite,bootstrap,8",
+    "runtime,rawiron.telemetry-lite,frame_sample,35"
+  ],
+  "extension": {
+    "id": "rawiron.telemetry-lite",
+    "displayName": "Telemetry Lite",
+    "version": "1.0.0",
+    "kind": "plugin",
+    "scope": "shared",
+    "host": "runtime",
+    "entry": "plugins/hooks.riplugin",
+    "description": "Runtime telemetry hooks for lightweight diagnostics sampling.",
+    "capabilities": ["telemetry.runtime", "diagnostics.overlay"],
+    "tags": ["telemetry", "diagnostics"]
+  }
+}

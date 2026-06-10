@@ -1,1 +1,2 @@
-on_startup=ruins.telemetry
+# hook,plugin,event,priority
+startup,ruins.telemetry,bootstrap,10

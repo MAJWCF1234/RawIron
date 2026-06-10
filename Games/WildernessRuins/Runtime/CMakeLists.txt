@@ -1,4 +1,5 @@
 add_library(RawIron.Game.ForestRuins
+  src/ForestRuinsEditorPreview.cpp
   src/ForestRuinsExperience.cpp
   src/ForestRuinsWorld.cpp
 )
@@ -15,6 +16,7 @@ target_link_libraries(RawIron.Game.ForestRuins
     RawIron::Audio
     RawIron::Content
     RawIron::Core
+    RawIron::EditorPreview
     RawIron::Game.RuntimeDiagnosticsDraw
     RawIron::RenderSoftware
     RawIron::RenderVulkan
@@ -32,3 +34,12 @@ if (WIN32)
 endif()
 
 target_compile_features(RawIron.Game.ForestRuins PUBLIC cxx_std_20)
+
+if (RAWIRON_BUILD_TESTS)
+  add_test(
+    NAME RawIron.ForestRuins.RenderingScriptPreview
+    COMMAND ${CMAKE_COMMAND}
+      -DRAWIRON_WORKSPACE=${CMAKE_SOURCE_DIR}
+      -P ${CMAKE_SOURCE_DIR}/Tests/VerifyForestRuinsRenderingScript.cmake
+  )
+endif()

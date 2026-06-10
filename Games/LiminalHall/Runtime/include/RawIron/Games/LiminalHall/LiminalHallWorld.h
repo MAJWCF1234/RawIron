@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RawIron/Logic/LogicAuthoringEditorIO.h"
 #include "RawIron/Scene/Scene.h"
 #include "RawIron/Scene/WorkspaceSandbox.h"
 #include "RawIron/Spatial/Aabb.h"
@@ -11,7 +12,14 @@
 #include <string_view>
 #include <vector>
 
+namespace ri::render::software {
+struct ScenePreviewOptions;
+}
+
 namespace ri::games::liminal {
+
+/// Shared software-preview tuning for Liminal Hall (editor viewport + runtime fallback raster).
+void ApplyLiminalHallScenePreviewProfile(ri::render::software::ScenePreviewOptions& options);
 
 /// Full Liminal Hall play space (meshes, player rig, trace colliders). Game-only; not part of core scene utilities.
 struct World {
@@ -29,7 +37,9 @@ struct World {
         std::vector<int> logicDoorVisualNodes{};
         std::vector<int> logicPortalVisualNodes{};
         std::vector<int> logicWireVisualNodes{};
+        std::vector<std::string> logicWireProbeSources{};
         std::vector<int> logicLayerNodes{};
+        std::vector<std::string> logicLayerNodeProbeIds{};
         std::vector<ri::math::Vec3> logicLayerVisibleScales{};
         ri::spatial::Aabb pressurePlateBounds{};
         ri::spatial::Aabb portalBounds{};
@@ -46,6 +56,10 @@ struct World {
 };
 
 [[nodiscard]] World BuildWorld(std::string_view sceneName, const std::filesystem::path& gameRoot);
+
+void SpawnEditorAuthoredLogicVisuals(World& world,
+                                    const ri::logic::LogicAuthoringEditorFile& file,
+                                    const std::filesystem::path& workspaceRoot);
 
 void AnimateWorld(World& world, double elapsedSeconds);
 
@@ -101,6 +115,8 @@ struct StandaloneOptions {
     /// When set, passed to \ref ri::games::StartupGameRuntimeCore for runtime startup.
     int launchArgc = 0;
     char** launchArgv = nullptr;
+    /// Optional editor-authored logic graph (`logic_authoring.ri_logic`).
+    std::filesystem::path logicAuthoringPath;
 };
 
 bool RunStandalone(const StandaloneOptions& options = {}, std::string* error = nullptr);

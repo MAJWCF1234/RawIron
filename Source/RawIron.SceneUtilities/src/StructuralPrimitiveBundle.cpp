@@ -48,8 +48,13 @@ ri::math::Vec3 DisplayScaleForPreset(const std::string_view label, const ri::mat
         return ri::math::Vec3{baseScale.x * 1.25f, baseScale.y * 0.35f, baseScale.z * 1.25f};
     }
     if (clean.find("wall") != std::string::npos || clean.find("frame") != std::string::npos ||
-        clean.find("buttress") != std::string::npos) {
+        clean.find("buttress") != std::string::npos || clean.find("parapet") != std::string::npos ||
+        clean.find("pilaster") != std::string::npos || clean.find("lintel") != std::string::npos) {
         return ri::math::Vec3{baseScale.x * 1.10f, baseScale.y * 1.35f, baseScale.z * 0.85f};
+    }
+    if (clean.find("corridor") != std::string::npos || clean.find("vault") != std::string::npos ||
+        clean.find("colonnade") != std::string::npos) {
+        return ri::math::Vec3{baseScale.x * 1.40f, baseScale.y * 0.90f, baseScale.z * 1.40f};
     }
     if (clean.find("stairs") != std::string::npos || clean.find("ramp") != std::string::npos ||
         clean.find("catwalk") != std::string::npos) {

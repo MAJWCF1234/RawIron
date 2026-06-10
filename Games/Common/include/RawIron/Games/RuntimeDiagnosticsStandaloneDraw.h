@@ -29,4 +29,9 @@ void HideStandaloneRuntimeDiagnosticsScene(ri::scene::Scene& scene,
                                            const std::vector<int>& volumeNodes,
                                            const std::vector<int>& gizmoNodes);
 
+#if defined(_WIN32)
+/// Draws translucent status text in the top-left of a standalone game HWND (GDI over Vulkan client area).
+void DrawStandaloneDiagnosticsTextOverlay(void* hwnd, const std::vector<std::string>& lines);
+#endif
+
 } // namespace ri::games

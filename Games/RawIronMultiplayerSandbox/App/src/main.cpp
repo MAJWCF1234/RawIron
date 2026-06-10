@@ -16,7 +16,8 @@ int main(int argc, char** argv) {
         ri::core::LogInfo("  --frames=<n>                    Runtime frames to simulate (default: 1800)");
         ri::core::LogInfo("  --width=<px> --height=<px>      3D play mode window size");
         ri::core::LogInfo("  --benchmark-frames=<n>          3D play mode benchmark auto-exit");
-        ri::core::LogInfo("  --hybrid-hdr                    Enable native hybrid HDR/G-buffer presentation");
+        ri::core::LogInfo("  --hybrid-hdr                    Enable native hybrid HDR/G-buffer presentation (default: on)");
+        ri::core::LogInfo("  --no-hybrid-hdr                 Disable hybrid HDR (forward-only presentation)");
         ri::core::LogInfo("  --save-preview                  Render a sandbox still and exit");
         ri::core::LogInfo("  --output=<path>                 Output path for --save-preview");
         ri::core::LogInfo("  --tick-hz=<n>                   Core tick rate (default: 60)");
@@ -45,7 +46,9 @@ int main(int argc, char** argv) {
     options.width = std::clamp(commandLine.GetIntOr("--width", options.width), 64, 3840);
     options.height = std::clamp(commandLine.GetIntOr("--height", options.height), 64, 2160);
     options.benchmarkFrames = std::max(0, commandLine.GetIntOr("--benchmark-frames", options.benchmarkFrames));
-    options.hybridHdr = commandLine.HasFlag("--hybrid-hdr");
+    if (commandLine.HasFlag("--no-hybrid-hdr")) {
+        options.hybridHdr = false;
+    }
     if (const auto runtimeMode = commandLine.GetValue("--runtime-mode"); runtimeMode.has_value() && !runtimeMode->empty()) {
         options.use3DStandalone = (*runtimeMode != "net");
     }

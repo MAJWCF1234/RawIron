@@ -1,3 +1,0 @@
-# RawIron AI script
-ai.enabled=1
-ai.behavior_tree="ai/behavior.tree"

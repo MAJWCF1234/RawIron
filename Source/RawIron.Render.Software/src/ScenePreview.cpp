@@ -1,4 +1,5 @@
 #include "RawIron/Render/ScenePreview.h"
+#include "RawIron/Render/ScenePreviewRenderingScript.h"
 
 #include "RawIron/Content/EngineAssets.h"
 #include "RawIron/Render/PreviewTexture.h"
@@ -127,6 +128,80 @@ ri::math::Vec3 ClampColor(const ri::math::Vec3& color) {
     };
 }
 
+void ApplyScenePreviewPostProcess(SoftwareImage& image, const ScenePreviewOptions& options) {
+    if (std::fabs(options.previewExposure - 1.0f) < 1e-4f
+        && std::fabs(options.previewContrast - 1.0f) < 1e-4f
+        && std::fabs(options.previewSaturation - 1.0f) < 1e-4f
+        && options.previewVignetteStrength <= 1.0e-4f
+        && options.previewBloomStrength <= 1.0e-4f
+        && options.previewSharpenAmount <= 1.0e-4f
+        && options.previewTintStrength <= 1.0e-4f) {
+        return;
+    }
+
+    constexpr ri::math::Vec3 kRec709Luma{0.2126f, 0.7152f, 0.0722f};
+    const float width = static_cast<float>(std::max(image.width, 1));
+    const float height = static_cast<float>(std::max(image.height, 1));
+    const std::vector<std::uint8_t> preSharpenPixels =
+        options.previewSharpenAmount > 1.0e-4f ? image.pixels : std::vector<std::uint8_t>{};
+    for (int y = 0; y < image.height; ++y) {
+        const float ndcY = ((static_cast<float>(y) + 0.5f) / height) * 2.0f - 1.0f;
+        for (int x = 0; x < image.width; ++x) {
+            const std::size_t offset = static_cast<std::size_t>((y * image.width + x) * 3);
+            ri::math::Vec3 color{
+                static_cast<float>(image.pixels[offset + 0U]) / 255.0f,
+                static_cast<float>(image.pixels[offset + 1U]) / 255.0f,
+                static_cast<float>(image.pixels[offset + 2U]) / 255.0f,
+            };
+            color = ClampColor(color * options.previewExposure);
+            if (options.previewTintStrength > 1.0e-4f) {
+                const ri::math::Vec3 tinted{
+                    color.x * options.previewTintColor.x,
+                    color.y * options.previewTintColor.y,
+                    color.z * options.previewTintColor.z,
+                };
+                color = ClampColor(ri::math::Lerp(color, ClampColor(tinted), options.previewTintStrength));
+            }
+            color = ClampColor((color - ri::math::Vec3{0.5f, 0.5f, 0.5f}) * options.previewContrast
+                               + ri::math::Vec3{0.5f, 0.5f, 0.5f});
+            const float luma = ri::math::Dot(color, kRec709Luma);
+            color = ClampColor(ri::math::Lerp(ri::math::Vec3{luma, luma, luma}, color, options.previewSaturation));
+            if (options.previewBloomStrength > 1.0e-4f) {
+                const float bloomMask = Clamp01((luma - 0.58f) / 0.30f);
+                color = ClampColor(color + (color * bloomMask * options.previewBloomStrength * 0.22f));
+            }
+            if (options.previewVignetteStrength > 1.0e-4f) {
+                const float ndcX = ((static_cast<float>(x) + 0.5f) / width) * 2.0f - 1.0f;
+                const float radial = std::sqrt(ndcX * ndcX + ndcY * ndcY);
+                const float vignette = 1.0f - (options.previewVignetteStrength * Clamp01((radial - 0.55f) / 0.65f));
+                color = ClampColor(color * vignette);
+            }
+            if (options.previewSharpenAmount > 1.0e-4f) {
+                const auto sampleRgb = [&preSharpenPixels, image](const int sx, const int sy) -> ri::math::Vec3 {
+                    const int clampedX = std::clamp(sx, 0, image.width - 1);
+                    const int clampedY = std::clamp(sy, 0, image.height - 1);
+                    const std::size_t sampleOffset =
+                        static_cast<std::size_t>((clampedY * image.width + clampedX) * 3);
+                    return ri::math::Vec3{
+                        static_cast<float>(preSharpenPixels[sampleOffset + 0U]) / 255.0f,
+                        static_cast<float>(preSharpenPixels[sampleOffset + 1U]) / 255.0f,
+                        static_cast<float>(preSharpenPixels[sampleOffset + 2U]) / 255.0f,
+                    };
+                };
+                const ri::math::Vec3 left = sampleRgb(x - 1, y);
+                const ri::math::Vec3 right = sampleRgb(x + 1, y);
+                const ri::math::Vec3 up = sampleRgb(x, y - 1);
+                const ri::math::Vec3 down = sampleRgb(x, y + 1);
+                const ri::math::Vec3 blur = (left + right + up + down) * 0.25f;
+                color = ClampColor(color + (color - blur) * (options.previewSharpenAmount * 0.85f));
+            }
+            image.pixels[offset + 0U] = static_cast<std::uint8_t>(std::lround(color.x * 255.0f));
+            image.pixels[offset + 1U] = static_cast<std::uint8_t>(std::lround(color.y * 255.0f));
+            image.pixels[offset + 2U] = static_cast<std::uint8_t>(std::lround(color.z * 255.0f));
+        }
+    }
+}
+
 ri::math::Vec3 MultiplyColor(const ri::math::Vec3& lhs, const ri::math::Vec3& rhs) {
     return ClampColor(ri::math::Vec3{
         lhs.x * rhs.x,
@@ -177,8 +252,8 @@ ScreenVertex ProjectPoint(const ri::math::Vec3& position,
     const float ndcY = (position.y / position.z) * focalLength;
 
     return ScreenVertex{
-        .x = (ndcX * 0.5f + 0.5f) * static_cast<float>(width - 1),
-        .y = (1.0f - (ndcY * 0.5f + 0.5f)) * static_cast<float>(height - 1),
+        .x = (ndcX * 0.5f + 0.5f) * static_cast<float>(width) - 0.5f,
+        .y = (1.0f - (ndcY * 0.5f + 0.5f)) * static_cast<float>(height) - 0.5f,
         .depth = position.z,
         .uv = uv,
     };
@@ -229,7 +304,6 @@ void ApplyLowSpecMode(ScenePreviewOptions& options) {
     options.pointSampleTextures = true;
     options.adaptiveTextureSampling = true;
     options.adaptivePointSampleStartDepth = std::min(options.adaptivePointSampleStartDepth, 18.0f);
-    options.affineTextureMapping = true;
     options.orderedDither = false;
     options.enableFarHorizon = true;
     options.farHorizonStartDistance = std::min(options.farHorizonStartDistance, 36.0f);
@@ -655,9 +729,10 @@ void RasterizeTriangleProjected(SoftwareImage& image,
                 sample = SampleTextureRepeat(*texture, material, options, u, v, samplePoint);
             }
             const ri::math::Vec3 shaded = MultiplyColor(modulate, sample.color);
-            const float fogFactor = Clamp01((depth - 3.0f) / 14.0f);
+            const float fogFactor = ComputeScenePreviewFogFactor(options, depth);
+            const ri::math::Vec3 fogTint = ResolveScenePreviewFogTint(options, fogFactor);
             ri::math::Vec3 out = ClampColor(shaded + material.emissiveColor);
-            out = ClampColor(ri::math::Lerp(out, options.fogColor, fogFactor * fogFactor * 0.72f));
+            out = ClampColor(ri::math::Lerp(out, fogTint, fogFactor * fogFactor * options.fogStrength));
             const bool texturedSample = texture != nullptr && texture->Valid();
             if (options.orderedDither && !texturedSample) {
                 const float nudge = DitherNudge(x, y);
@@ -1089,6 +1164,12 @@ void RenderScenePreviewInto(const ri::scene::Scene& scene,
         return;
     }
 
+    if (options.renderer == ScenePreviewRenderer::RayTrace) {
+        RenderScenePreviewRayTraceInto(scene, cameraNodeHandle, options, outImage, cache);
+        ApplyScenePreviewPostProcess(outImage, options);
+        return;
+    }
+
     const CameraBasis camera = BuildCameraBasis(scene, cameraNodeHandle, options);
     const std::vector<ResolvedLight> lights = ResolveLights(scene);
     std::vector<float> localDepthBuffer{};
@@ -1210,6 +1291,8 @@ void RenderScenePreviewInto(const ri::scene::Scene& scene,
                               world);
         }
     }
+
+    ApplyScenePreviewPostProcess(outImage, options);
 }
 
 SoftwareImage RenderScenePreview(const ri::scene::Scene& scene,

@@ -26,9 +26,20 @@ inline constexpr int kLeftPanelTabHeight = 24;
 inline constexpr int kLeftPanelGameStripHeight = 28;
 inline constexpr int kResourceFilterStripHeight = 26;
 inline constexpr int kResourceListRowHeight = 22;
+inline constexpr int kResourceCategoryChipCount = 8;
+
+struct ResourceCategoryChipLayout {
+    int chipsPerRow = 4;
+    int chipWidth = 56;
+    int rowCount = 2;
+    int stripHeight = 26;
+};
+
+[[nodiscard]] ResourceCategoryChipLayout ComputeResourceCategoryChipLayout(const RECT& hierarchyInner);
 
 enum class EditorLeftPanelMode {
     Scene,
+    Create,
     Resources,
 };
 
@@ -68,7 +79,9 @@ struct EditorLeftPanelPaintModel {
 [[nodiscard]] RECT ResourceSearchClearRect(const RECT& hierarchyInner);
 [[nodiscard]] RECT FocusedGamePrevRect(const RECT& hierarchyInner);
 [[nodiscard]] RECT FocusedGameNextRect(const RECT& hierarchyInner);
-[[nodiscard]] RECT ResourceCategoryChipRect(const RECT& hierarchyInner, int chipIndex);
+[[nodiscard]] RECT ResourceCategoryChipRect(const RECT& hierarchyInner,
+                                              int chipIndex,
+                                              const ResourceCategoryChipLayout& layout);
 [[nodiscard]] int CountVisibleSceneRows(const RECT& hierarchyInner);
 [[nodiscard]] int CountVisibleResourceRows(const RECT& hierarchyInner);
 [[nodiscard]] int HitTestSceneRow(const RECT& hierarchyInner, int y, int scrollTopRow);

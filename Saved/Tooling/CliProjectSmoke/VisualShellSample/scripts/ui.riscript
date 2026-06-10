@@ -1,4 +1,0 @@
-# RawIron UI script
-hud.layout="ui/layout.xml"
-hud.style="ui/styling.css"
-menu.main="menus/main.menu"

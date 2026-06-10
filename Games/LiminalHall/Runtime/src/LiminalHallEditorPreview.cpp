@@ -1,13 +1,27 @@
 #include "RawIron/Games/LiminalHall/LiminalHallEditorPreview.h"
 
 #include "RawIron/Editor/PreviewSceneRegistry.h"
-#include "RawIron/Math/Vec3.h"
 #include "RawIron/Games/LiminalHall/LiminalHallWorld.h"
-
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Scene/WorkspaceSandbox.h"
 
 namespace ri::games::liminal {
+
+void ApplyLiminalHallScenePreviewProfile(ri::render::software::ScenePreviewOptions& options) {
+    options.pointSampleTextures = false;
+    options.adaptiveTextureSampling = true;
+    options.adaptivePointSampleStartDepth = 34.0f;
+    options.enableFarHorizon = true;
+    options.farHorizonStartDistance = 64.0f;
+    options.farHorizonEndDistance = 190.0f;
+    options.farHorizonMaxDistance = 340.0f;
+    options.farHorizonMaxNodeStride = 3U;
+    options.farHorizonMaxInstanceStride = 4U;
+    options.orderedDither = true;
+    options.fogStartDepth = 2.0f;
+    options.fogEndDepth = 48.0f;
+    options.fogStrength = 0.90f;
+}
 
 namespace {
 
@@ -20,10 +34,7 @@ void AnimateHook(ri::scene::StarterScene& starterScene, const double elapsedSeco
 }
 
 void ConfigureHook(ri::render::software::ScenePreviewOptions& options) {
-    options.clearTop = ri::math::Vec3{0.08f, 0.09f, 0.11f};
-    options.clearBottom = ri::math::Vec3{0.14f, 0.15f, 0.17f};
-    options.fogColor = ri::math::Vec3{0.22f, 0.23f, 0.26f};
-    options.ambientLight = ri::math::Vec3{0.14f, 0.15f, 0.16f};
+    ApplyLiminalHallScenePreviewProfile(options);
 }
 
 } // namespace

@@ -1,11 +1,15 @@
 #include "RawIron/Games/LiminalHall/LiminalHallWorld.h"
 #include "RawIron/Games/GameRuntimeCore.h"
 #include "RawIron/Games/GameConfigContracts.h"
+#include "RawIron/Games/GamePluginRuntimeBridge.h"
+#include "RawIron/Games/GameTextOverlayHost.h"
 #include "RawIron/Games/RuntimeDiagnosticsStandaloneDraw.h"
 
 #include "RawIron/Content/EngineAssets.h"
 #include "RawIron/Content/GameManifest.h"
 #include "RawIron/Content/GameRuntimeSupport.h"
+#include "RawIron/Content/PluginProjectData.h"
+#include "RawIron/Content/PluginRuntime.h"
 #include "RawIron/Content/ScriptScalars.h"
 #include "RawIron/Audio/AudioBackendMiniaudio.h"
 #include "RawIron/Audio/AudioManager.h"
@@ -13,20 +17,26 @@
 #include "RawIron/Core/Log.h"
 #include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Render/ScenePreview.h"
+#include "RawIron/Render/ScenePreviewRenderingScript.h"
 #include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
+#include "RawIron/Render/VulkanScenePreviewBridge.h"
 #include "RawIron/Scene/Scene.h"
 #include "RawIron/Scene/SceneStructuralTraceFeed.h"
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Spatial/Aabb.h"
 #include "RawIron/Trace/MovementController.h"
+#include "RawIron/Trace/TraceScene.h"
 #include "RawIron/Ui/UiFlowSession.h"
 #include "RawIron/Ui/UiJsonIO.h"
 #include "RawIron/Ui/UiPaths.h"
 #include "RawIron/World/CheckpointPersistence.h"
 #include "RawIron/World/TextOverlayEvents.h"
 
+#include "RawIron/Logic/LogicAuthoringEditorIO.h"
+#include "RawIron/Logic/LogicAuthoringSenseRuntime.h"
 #include "RawIron/Logic/LogicGraph.h"
+#include "RawIron/World/WorldLogicBridge.h"
 
 #include <algorithm>
 #include <chrono>
@@ -444,7 +454,7 @@ NativeRenderTuning BaseNativeRenderTuning(const RenderQuality quality) {
         return NativeRenderTuning{2, 1.03f, 1.04f, 1.03f, 0.0105f};
     case RenderQuality::Balanced:
     default:
-        return NativeRenderTuning{1, 1.00f, 1.00f, 1.00f, 0.0092f};
+        return NativeRenderTuning{2, 1.01f, 1.02f, 1.01f, 0.0095f};
     }
 }
 
@@ -487,6 +497,7 @@ enum class RuntimeUiFlowKind : std::uint8_t {
     None = 0,
     MainMenu = 1,
     VisualNovel = 2,
+    PauseMenu = 3,
 };
 
 struct RuntimeState {
@@ -551,6 +562,9 @@ struct RuntimeState {
     std::size_t previousActiveSpawnerCount = 0U;
     bool logicDemoPlateWasInside = false;
     std::unique_ptr<ri::logic::LogicGraph> logicDemoGraph{};
+    std::filesystem::path editorLogicAuthoringPath{};
+    std::optional<ri::logic::LogicAuthoringEditorFile> editorLogicFile{};
+    ri::logic::LogicAuthoringSenseRuntimeState editorSenseRuntimeState{};
     bool showcaseEnabled = true;
     bool showcaseActive = false;
     bool showcaseDiagnosticsWasVisible = false;
@@ -566,6 +580,7 @@ struct RuntimeState {
     float lastSimulationDeltaSeconds = 1.0f / 60.0f;
     bool runtimeUiMenuRequested = false;
     bool runtimeUiVnRequested = false;
+    bool runtimeUiPauseRequested = false;
     bool runtimeUiHeadless = false;
     bool runtimeUiFlowActive = false;
     bool runtimeUiHotkeysEnabled = true;
@@ -579,9 +594,52 @@ struct RuntimeState {
     RuntimeUiFlowKind runtimeUiBootFlow = RuntimeUiFlowKind::MainMenu;
     ri::ui::UiManifest runtimeUiManifest{};
     ri::ui::UiManifest runtimeVnManifest{};
+    ri::ui::UiManifest runtimePauseManifest{};
     ri::ui::UiFlowSession runtimeUiSession{};
     ri::ui::UiFlowSession runtimeVnSession{};
+    ri::ui::UiFlowSession runtimePauseSession{};
+    HWND menuOverlayHwnd = nullptr;
+    std::vector<RECT> menuOptionHitRects{};
+    ri::games::GamePluginRuntimeHost pluginHost{};
+    bool pluginRenderBoostActive = false;
+    ri::games::GameTextOverlayHost textOverlay{};
 };
+
+void SyncMenuOverlay(RuntimeState& state);
+void HideMenuOverlay(RuntimeState& state);
+void DestroyMenuOverlay(RuntimeState& state);
+
+void ApplyPluginRuntimeScalarsToExperience(RuntimeState& state) {
+    state.pluginHost.renderBoostActive = state.pluginRenderBoostActive;
+    ri::games::ApplyGamePluginRenderTuning(
+        state.pluginHost,
+        {
+            .qualityTier = &state.nativeRenderTuning.qualityTier,
+            .exposure = &state.nativeRenderTuning.exposure,
+            .ambientLight = &state.previewOptions.ambientLight,
+        });
+}
+
+void InitializePluginRuntime(RuntimeState& state,
+                             const ri::content::GameManifest& manifest,
+                             const ri::content::ScriptScalarMap& plugins,
+                             const ri::content::ScriptScalarMap& pluginsPolicy) {
+    ri::games::BootstrapGamePluginRuntime(state.pluginHost, manifest.rootPath);
+    state.pluginRenderBoostActive = ri::games::ResolvePluginRenderBoost(
+        plugins,
+        pluginsPolicy,
+        state.pluginHost.session.projectData.manifestEntries.size());
+    ApplyPluginRuntimeScalarsToExperience(state);
+}
+
+void TickPluginRuntimeHooks(RuntimeState& state, const float dt) {
+    (void)ri::games::TickGamePluginRuntime(state.pluginHost, static_cast<double>(state.elapsedSeconds));
+    ApplyPluginRuntimeScalarsToExperience(state);
+    ri::games::TickGameTextOverlay(state.textOverlay, dt);
+    ri::games::MaybeLogPluginDiagnostics(state.pluginHost, state.diagnosticsVisible, dt);
+    ri::games::DrawPluginDiagnosticsOverlay(state.hwnd, state.pluginHost, state.diagnosticsVisible);
+    ri::games::DrawGameTextOverlay(state.hwnd, state.textOverlay);
+}
 
 struct RuntimeUiOption {
     std::string label{};
@@ -602,6 +660,8 @@ struct RuntimeUiVisibleScreen {
         return "menu";
     case RuntimeUiFlowKind::VisualNovel:
         return "vn";
+    case RuntimeUiFlowKind::PauseMenu:
+        return "pause";
     case RuntimeUiFlowKind::None:
     default:
         return "none";
@@ -646,6 +706,9 @@ struct RuntimeUiVisibleScreen {
     if (state.runtimeUiVnRequested) {
         return RuntimeUiFlowKind::VisualNovel;
     }
+    if (state.runtimeUiPauseRequested) {
+        return RuntimeUiFlowKind::PauseMenu;
+    }
     if (state.runtimeUiMenuRequested) {
         return RuntimeUiFlowKind::MainMenu;
     }
@@ -664,6 +727,10 @@ struct RuntimeUiVisibleScreen {
     case RuntimeUiFlowKind::VisualNovel:
         visible.manifest = &state.runtimeVnManifest;
         visible.session = &state.runtimeVnSession;
+        break;
+    case RuntimeUiFlowKind::PauseMenu:
+        visible.manifest = &state.runtimePauseManifest;
+        visible.session = &state.runtimePauseSession;
         break;
     case RuntimeUiFlowKind::None:
     default:
@@ -711,6 +778,9 @@ void SetRuntimeUiSelection(RuntimeState& state, const RuntimeUiVisibleScreen& vi
     }
     state.runtimeUiLastSelectionLabel = label;
     ri::core::LogInfo("Runtime UI: selected option " + std::to_string(clampedIndex + 1U) + " = " + label);
+    if (state.menuOverlayHwnd != nullptr) {
+        InvalidateRect(state.menuOverlayHwnd, nullptr, FALSE);
+    }
     if (state.runtimeEvents != nullptr) {
         ri::world::text_overlay_events::EmitMessage(
             *state.runtimeEvents,
@@ -865,6 +935,9 @@ void ResetRuntimeUiSession(RuntimeState& state, const RuntimeUiFlowKind kind) {
     case RuntimeUiFlowKind::VisualNovel:
         state.runtimeVnSession.Reset(state.runtimeVnManifest);
         break;
+    case RuntimeUiFlowKind::PauseMenu:
+        state.runtimePauseSession.Reset(state.runtimePauseManifest);
+        break;
     case RuntimeUiFlowKind::None:
     default:
         break;
@@ -876,6 +949,7 @@ void DeactivateRuntimeUiFlow(RuntimeState& state, const char* reason) {
     state.runtimeUiFlowActive = false;
     state.runtimeUiMenuRequested = false;
     state.runtimeUiVnRequested = false;
+    state.runtimeUiPauseRequested = false;
     state.runtimeUiSelectedOption = 0U;
     state.runtimeUiLastPublishedScreenKey.clear();
     state.runtimeUiLastSelectionLabel.clear();
@@ -888,6 +962,7 @@ void DeactivateRuntimeUiFlow(RuntimeState& state, const char* reason) {
         ri::core::LogInfo(std::string("Runtime UI: leaving ") + RuntimeUiFlowLabel(previous)
                           + (reason != nullptr && *reason != '\0' ? std::string(" (") + reason + ")" : std::string{}));
     }
+    HideMenuOverlay(state);
 }
 
 bool ActivateRuntimeUiFlow(RuntimeState& state, const RuntimeUiFlowKind kind, const char* reason) {
@@ -899,6 +974,7 @@ bool ActivateRuntimeUiFlow(RuntimeState& state, const RuntimeUiFlowKind kind, co
         ResetRuntimeUiSession(state, kind);
         state.runtimeUiMenuRequested = true;
         state.runtimeUiVnRequested = false;
+        state.runtimeUiPauseRequested = false;
         break;
     case RuntimeUiFlowKind::VisualNovel:
         if (!RuntimeUiHasLoadedManifest(state.runtimeVnManifest)) {
@@ -907,6 +983,16 @@ bool ActivateRuntimeUiFlow(RuntimeState& state, const RuntimeUiFlowKind kind, co
         ResetRuntimeUiSession(state, kind);
         state.runtimeUiMenuRequested = false;
         state.runtimeUiVnRequested = true;
+        state.runtimeUiPauseRequested = false;
+        break;
+    case RuntimeUiFlowKind::PauseMenu:
+        if (!RuntimeUiHasLoadedManifest(state.runtimePauseManifest)) {
+            return false;
+        }
+        ResetRuntimeUiSession(state, kind);
+        state.runtimeUiMenuRequested = false;
+        state.runtimeUiVnRequested = false;
+        state.runtimeUiPauseRequested = true;
         break;
     case RuntimeUiFlowKind::None:
     default:
@@ -924,15 +1010,20 @@ bool ActivateRuntimeUiFlow(RuntimeState& state, const RuntimeUiFlowKind kind, co
     ri::core::LogInfo(std::string("Runtime UI: entering ") + RuntimeUiFlowLabel(kind)
                       + (reason != nullptr && *reason != '\0' ? std::string(" (") + reason + ")" : std::string{}));
     PublishRuntimeUiScreen(state, ResolveRuntimeUiVisibleScreen(state), true);
+    SyncMenuOverlay(state);
     return true;
 }
 
 bool HandleRuntimeUiEmit(RuntimeState& state, std::string_view actionId) {
-    if (actionId == "game.start") {
-        DeactivateRuntimeUiFlow(state, "start game");
+    if (actionId == "game.start" || actionId == "game.resume") {
+        DeactivateRuntimeUiFlow(state, actionId == "game.start" ? "start game" : "resume");
         if (state.runtimeEvents != nullptr) {
             ri::world::text_overlay_events::EmitMessage(*state.runtimeEvents, "Gameplay resumed.", 1800.0);
         }
+        return true;
+    }
+    if (actionId == "game.main_menu") {
+        ActivateRuntimeUiFlow(state, RuntimeUiFlowKind::MainMenu, "main menu");
         return true;
     }
     if (actionId == "app.quit") {
@@ -1004,7 +1095,7 @@ void TickRuntimeUiFlow(RuntimeState& state, const float dt) {
     }
 
     if (!visible.options.empty()) {
-        if (spacePressed || enterPressed) {
+        if (spacePressed || enterPressed || clickPressed) {
             (void)ApplyRuntimeUiAction(state, visible.options[state.runtimeUiSelectedOption].action);
         }
         return;
@@ -1023,6 +1114,7 @@ void TickRuntimeUiFlow(RuntimeState& state, const float dt) {
             (void)ApplyRuntimeUiAction(state, visible.screen->advanceAction);
         }
     }
+    SyncMenuOverlay(state);
 }
 
 void FinalizeRuntimeUiBoot(RuntimeState& state) {
@@ -1113,9 +1205,14 @@ void ApplyEnvironmentAuthoringVolumes(RuntimeState& state, const float dt) {
         state.environmentService.ResolveSymmetryMirrorAt(feet, {0.0f, 0.0f, 1.0f});
     const ri::world::AuthoringPlacementState authoringPlacement =
         state.environmentService.ResolveAuthoringPlacementAt(feet, {0.0f, 0.0f, 1.0f});
-    const ri::world::TriggerUpdateResult triggerUpdate =
-        state.environmentService.UpdateTriggerVolumesAt(
-            feet, static_cast<double>(state.elapsedSeconds) + dt, state.runtimeEvents, true);
+    const ri::logic::LogicContext triggerLogicContext = ri::world::MakePlayerTriggerContext("liminal_player");
+    const ri::world::TriggerUpdateResult triggerUpdate = state.environmentService.UpdateTriggerVolumesAt(
+        feet,
+        static_cast<double>(state.elapsedSeconds) + dt,
+        state.runtimeEvents,
+        true,
+        state.logicDemoGraph.get(),
+        &triggerLogicContext);
     for (const ri::world::LaunchRequest& launch : triggerUpdate.launchRequests) {
         state.movement.body.velocity = state.movement.body.velocity + launch.impulse;
     }
@@ -1363,6 +1460,250 @@ void CollectSkiesImageFiles(const fs::path& directory, const int maxDepth, const
     return canonicalError ? pick.lexically_normal() : canonicalPick;
 }
 
+constexpr wchar_t kMenuOverlayWindowClassName[] = L"RawIronLiminalMenuOverlay";
+
+bool gMenuOverlayClassRegistered = false;
+
+LRESULT CALLBACK MenuOverlayWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+
+void EnsureMenuOverlayWindowClassRegistered() {
+    if (gMenuOverlayClassRegistered) {
+        return;
+    }
+    WNDCLASSEXW windowClass{};
+    windowClass.cbSize = sizeof(windowClass);
+    windowClass.style = CS_HREDRAW | CS_VREDRAW;
+    windowClass.lpfnWndProc = MenuOverlayWndProc;
+    windowClass.hInstance = GetModuleHandleW(nullptr);
+    windowClass.hCursor = LoadCursorW(nullptr, reinterpret_cast<LPCWSTR>(IDC_ARROW));
+    windowClass.hbrBackground = reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+    windowClass.lpszClassName = kMenuOverlayWindowClassName;
+    RegisterClassExW(&windowClass);
+    gMenuOverlayClassRegistered = true;
+}
+
+void PaintMenuOverlay(HWND overlayHwnd, RuntimeState& state) {
+    PAINTSTRUCT paintStruct{};
+    HDC deviceContext = BeginPaint(overlayHwnd, &paintStruct);
+    if (deviceContext == nullptr) {
+        return;
+    }
+
+    RECT clientRect{};
+    GetClientRect(overlayHwnd, &clientRect);
+    const int clientWidth = clientRect.right - clientRect.left;
+    const int clientHeight = clientRect.bottom - clientRect.top;
+
+    HBRUSH backdropBrush = CreateSolidBrush(RGB(6, 8, 16));
+    FillRect(deviceContext, &clientRect, backdropBrush);
+    DeleteObject(backdropBrush);
+
+    RuntimeUiVisibleScreen visible = ResolveRuntimeUiVisibleScreen(state);
+    state.menuOptionHitRects.clear();
+
+    const int panelWidth = std::clamp(clientWidth - 160, 420, 720);
+    const int optionRowHeight = 44;
+    const int optionCount = static_cast<int>(visible.options.size());
+    const int panelHeight = std::clamp(220 + (optionCount * optionRowHeight), 320, clientHeight - 120);
+    const int panelLeft = (clientWidth - panelWidth) / 2;
+    const int panelTop = (clientHeight - panelHeight) / 2;
+    RECT panelRect{panelLeft, panelTop, panelLeft + panelWidth, panelTop + panelHeight};
+
+    HBRUSH panelBrush = CreateSolidBrush(RGB(18, 22, 34));
+    FillRect(deviceContext, &panelRect, panelBrush);
+    DeleteObject(panelBrush);
+
+    FrameRect(deviceContext, &panelRect, static_cast<HBRUSH>(GetStockObject(GRAY_BRUSH)));
+
+    SetBkMode(deviceContext, TRANSPARENT);
+    SetTextColor(deviceContext, RGB(230, 235, 245));
+
+    HFONT titleFont = CreateFontW(
+        42, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+    HFONT bodyFont = CreateFontW(
+        20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+    HFONT optionFont = CreateFontW(
+        24, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+
+    const std::wstring titleText = visible.screen != nullptr && !visible.screen->title.empty()
+        ? std::wstring(visible.screen->title.begin(), visible.screen->title.end())
+        : std::wstring(L"Liminal Hall");
+
+    SelectObject(deviceContext, titleFont);
+    RECT titleRect{panelLeft + 24, panelTop + 24, panelLeft + panelWidth - 24, panelTop + 90};
+    DrawTextW(deviceContext, titleText.c_str(), static_cast<int>(titleText.size()), &titleRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    SelectObject(deviceContext, bodyFont);
+    int textY = panelTop + 96;
+    if (visible.screen != nullptr && visible.session != nullptr) {
+        for (const ri::ui::UiBlock& block : visible.screen->blocks) {
+            if (!visible.session->IsBlockVisible(block)) {
+                continue;
+            }
+            if (block.kind != ri::ui::UiBlockKind::Paragraph && block.kind != ri::ui::UiBlockKind::Label
+                && block.kind != ri::ui::UiBlockKind::Heading) {
+                continue;
+            }
+            if (block.text.empty()) {
+                continue;
+            }
+            const std::wstring bodyText(block.text.begin(), block.text.end());
+            RECT bodyRect{panelLeft + 32, textY, panelLeft + panelWidth - 32, textY + 48};
+            DrawTextW(deviceContext, bodyText.c_str(), static_cast<int>(bodyText.size()), &bodyRect, DT_CENTER | DT_WORDBREAK);
+            textY += 52;
+        }
+    }
+
+    SelectObject(deviceContext, optionFont);
+    int optionY = panelTop + panelHeight - 24 - (optionCount * optionRowHeight);
+    optionY = std::max(optionY, textY + 12);
+    for (std::size_t optionIndex = 0; optionIndex < visible.options.size(); ++optionIndex) {
+        RECT optionRect{panelLeft + 40, optionY, panelLeft + panelWidth - 40, optionY + optionRowHeight - 6};
+        state.menuOptionHitRects.push_back(optionRect);
+        const bool selected = optionIndex == state.runtimeUiSelectedOption;
+        if (selected) {
+            HBRUSH selectedBrush = CreateSolidBrush(RGB(36, 58, 96));
+            FillRect(deviceContext, &optionRect, selectedBrush);
+            DeleteObject(selectedBrush);
+            FrameRect(deviceContext, &optionRect, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+        }
+        const std::wstring optionLabel(visible.options[optionIndex].label.begin(), visible.options[optionIndex].label.end());
+        const std::wstring numberedLabel = std::to_wstring(optionIndex + 1U) + L". " + optionLabel;
+        DrawTextW(
+            deviceContext,
+            numberedLabel.c_str(),
+            static_cast<int>(numberedLabel.size()),
+            &optionRect,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        optionY += optionRowHeight;
+    }
+
+    SelectObject(deviceContext, bodyFont);
+    SetTextColor(deviceContext, RGB(160, 168, 184));
+    RECT hintRect{panelLeft + 24, panelTop + panelHeight - 28, panelLeft + panelWidth - 24, panelTop + panelHeight - 8};
+    const wchar_t* hintText = L"Click, Enter, or 1-9  |  Tab: next  |  Esc: back";
+    DrawTextW(deviceContext, hintText, -1, &hintRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    DeleteObject(titleFont);
+    DeleteObject(bodyFont);
+    DeleteObject(optionFont);
+    EndPaint(overlayHwnd, &paintStruct);
+}
+
+LRESULT CALLBACK MenuOverlayWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    auto* state = reinterpret_cast<RuntimeState*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    switch (message) {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT:
+        if (state != nullptr) {
+            PaintMenuOverlay(hwnd, *state);
+        }
+        return 0;
+    case WM_LBUTTONDOWN: {
+        if (state == nullptr) {
+            break;
+        }
+        const int clickX = static_cast<int>(static_cast<short>(LOWORD(lParam)));
+        const int clickY = static_cast<int>(static_cast<short>(HIWORD(lParam)));
+        RuntimeUiVisibleScreen visible = ResolveRuntimeUiVisibleScreen(*state);
+        for (std::size_t optionIndex = 0; optionIndex < state->menuOptionHitRects.size(); ++optionIndex) {
+            const RECT& hitRect = state->menuOptionHitRects[optionIndex];
+            if (clickX < hitRect.left || clickX >= hitRect.right || clickY < hitRect.top || clickY >= hitRect.bottom) {
+                continue;
+            }
+            if (optionIndex >= visible.options.size()) {
+                break;
+            }
+            SetRuntimeUiSelection(*state, visible, optionIndex);
+            (void)ApplyRuntimeUiAction(*state, visible.options[optionIndex].action);
+            InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
+        }
+        return 0;
+    }
+    case WM_MOUSEWHEEL:
+        if (state != nullptr) {
+            state->runtimeUiWheelAdvancePending = true;
+        }
+        return 0;
+    default:
+        break;
+    }
+    return DefWindowProcW(hwnd, message, wParam, lParam);
+}
+
+void EnsureMenuOverlayWindow(RuntimeState& state) {
+    EnsureMenuOverlayWindowClassRegistered();
+    if (state.menuOverlayHwnd != nullptr) {
+        return;
+    }
+    state.menuOverlayHwnd = CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        kMenuOverlayWindowClassName,
+        L"RawIron Menu Overlay",
+        WS_POPUP,
+        0,
+        0,
+        100,
+        100,
+        nullptr,
+        nullptr,
+        GetModuleHandleW(nullptr),
+        nullptr);
+    if (state.menuOverlayHwnd == nullptr) {
+        return;
+    }
+    SetWindowLongPtrW(state.menuOverlayHwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&state));
+}
+
+void HideMenuOverlay(RuntimeState& state) {
+    if (state.menuOverlayHwnd != nullptr) {
+        ShowWindow(state.menuOverlayHwnd, SW_HIDE);
+    }
+    state.menuOptionHitRects.clear();
+}
+
+void DestroyMenuOverlay(RuntimeState& state) {
+    if (state.menuOverlayHwnd != nullptr) {
+        DestroyWindow(state.menuOverlayHwnd);
+        state.menuOverlayHwnd = nullptr;
+    }
+    state.menuOptionHitRects.clear();
+}
+
+void SyncMenuOverlay(RuntimeState& state) {
+    if (!state.runtimeUiFlowActive || state.hwnd == nullptr || state.runtimeUiHeadless) {
+        HideMenuOverlay(state);
+        return;
+    }
+    EnsureMenuOverlayWindow(state);
+    if (state.menuOverlayHwnd == nullptr) {
+        return;
+    }
+
+    RECT clientRect{};
+    if (!GetClientRect(state.hwnd, &clientRect)) {
+        return;
+    }
+    POINT topLeft{clientRect.left, clientRect.top};
+    ClientToScreen(state.hwnd, &topLeft);
+    const int width = clientRect.right - clientRect.left;
+    const int height = clientRect.bottom - clientRect.top;
+    SetWindowPos(
+        state.menuOverlayHwnd,
+        HWND_TOPMOST,
+        topLeft.x,
+        topLeft.y,
+        width,
+        height,
+        SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    InvalidateRect(state.menuOverlayHwnd, nullptr, FALSE);
+}
+
 void RegisterRawMouseForWindow(HWND hwnd) {
     RAWINPUTDEVICE device{};
     device.usUsagePage = 0x01;
@@ -1442,6 +1783,9 @@ void LiminalStandaloneWin32Hook(void* user,
                 ClipCursor(&clip);
             }
         }
+        break;
+    case WM_DESTROY:
+        DestroyMenuOverlay(*state);
         break;
     default:
         break;
@@ -1787,6 +2131,56 @@ void SetLogicLayerVisible(RuntimeState& state, const bool visible) {
 }
 
 void InitializeLiminalHallLogicGraph(RuntimeState& state) {
+    if (!state.editorLogicAuthoringPath.empty()) {
+        std::error_code ec{};
+        if (fs::exists(state.editorLogicAuthoringPath, ec)) {
+            if (const std::optional<ri::logic::LogicAuthoringEditorFile> editorFile =
+                    ri::logic::LoadLogicAuthoringEditorFile(state.editorLogicAuthoringPath)) {
+                const ri::logic::LogicAuthoringGraph authoring =
+                    ri::logic::BuildLogicAuthoringGraphFromEditorFile(*editorFile);
+                const ri::logic::LogicAuthoringCompileOptions compileOptions =
+                    ri::logic::BuildCompileOptionsFromEditorFile(*editorFile);
+                const ri::logic::LogicAuthoringCompileResult compile =
+                    ri::logic::CompileLogicAuthoringGraphWithReport(authoring, compileOptions);
+                if (ri::logic::LogicAuthoringCompileSucceeded(compile) && !compile.spec.nodes.empty()) {
+                    state.editorLogicFile = *editorFile;
+                    state.editorSenseRuntimeState = {};
+                    state.logicDemoGraph = std::make_unique<ri::logic::LogicGraph>(compile.spec);
+                    ri::world::BindWorldActorsToLogicGraph(*state.logicDemoGraph, state.environmentService);
+                    state.logicDemoGraph->SetOutputHandler([&state](const ri::logic::LogicOutputEvent& ev) {
+                        if (ev.sourceId == "logic_demo_trigger" && ev.outputName == "onpass") {
+                            state.logicPressurePlateTriggered = true;
+                        } else if (ev.sourceId == "logic_demo_door" && ev.outputName == "ontrigger") {
+                            state.logicDoorOpen = true;
+                        } else if (ev.sourceId == "logic_demo_portal" && ev.outputName == "onrise") {
+                            state.logicPortalSpawned = true;
+                            ri::core::LogInfo("Logic demo: pressure plate triggered -> door opened -> portal spawned.");
+                        }
+                        ri::core::LogInfo("Logic output: " + ev.sourceId + "." + ev.outputName);
+                    });
+                    std::unordered_map<std::string, std::string> kitIdByLogicNodeId{};
+                    kitIdByLogicNodeId.reserve(editorFile->nodes.size());
+                    for (const ri::logic::LogicAuthoringEditorNodeRecord& nodeRecord : editorFile->nodes) {
+                        kitIdByLogicNodeId[nodeRecord.logicNodeId] = nodeRecord.kitId;
+                    }
+                    ri::logic::BindLogicSenseInputDispatchHandler(
+                        *state.logicDemoGraph, state.editorSenseRuntimeState, kitIdByLogicNodeId);
+                    const fs::path workspaceRoot = ri::content::DetectWorkspaceRoot(state.gameRoot);
+                    SpawnEditorAuthoredLogicVisuals(state.world, *editorFile, workspaceRoot);
+                    SetLogicLayerVisible(state, state.diagnosticsVisible);
+                    ri::core::LogInfo(
+                        "Loaded editor logic graph from " + state.editorLogicAuthoringPath.string() + " ("
+                        + std::to_string(compile.spec.nodes.size()) + " nodes, "
+                        + std::to_string(compile.spec.routes.size()) + " routes).");
+                    return;
+                }
+                ri::core::LogInfo(
+                    "Editor logic graph compile failed; using built-in Liminal Hall demo graph ("
+                    + std::to_string(compile.summary.errorCount) + " errors).");
+            }
+        }
+    }
+
     ri::logic::LogicGraphSpec spec;
     spec.nodes.push_back(ri::logic::TriggerDetectorNode{
         .id = "logic_demo_trigger",
@@ -1826,6 +2220,28 @@ void InitializeLiminalHallLogicGraph(RuntimeState& state) {
     });
 }
 
+void TickEditorAuthoredSenseNodes(RuntimeState& state) {
+    if (state.logicDemoGraph == nullptr || !state.editorLogicFile.has_value()) {
+        return;
+    }
+    const ri::math::Vec3 feet = FeetFromBounds(state.movement.body.bounds);
+    const std::array<float, 3> probePosition{feet.x, feet.y, feet.z};
+    ri::logic::LogicAuthoringSenseRuntimeOptions senseOptions{};
+    senseOptions.probeInstigatorTag = "player";
+    senseOptions.raycast = [&state](const ri::logic::LogicSenseRaycastRequest& request)
+        -> std::optional<ri::logic::LogicSenseRaycastHit> {
+        const ri::math::Vec3 origin{request.origin[0], request.origin[1], request.origin[2]};
+        const ri::math::Vec3 direction{request.direction[0], request.direction[1], request.direction[2]};
+        if (const std::optional<ri::trace::TraceHit> hit =
+                state.traceScene.TraceRay(origin, direction, request.maxDistance)) {
+            return ri::logic::LogicSenseRaycastHit{hit->time * request.maxDistance};
+        }
+        return std::nullopt;
+    };
+    ri::logic::TickLogicAuthoringSenseNodes(
+        *state.logicDemoGraph, *state.editorLogicFile, probePosition, state.editorSenseRuntimeState, &senseOptions);
+}
+
 void TickLogicDemo(RuntimeState& state, const float dt) {
     const ri::math::Vec3 feet = FeetFromBounds(state.movement.body.bounds);
     const ri::spatial::Aabb feetProbe{
@@ -1838,6 +2254,7 @@ void TickLogicDemo(RuntimeState& state, const float dt) {
         const std::uint64_t deltaMs = std::max<std::uint64_t>(
             1u, static_cast<std::uint64_t>(std::lround(static_cast<double>(dt) * 1000.0)));
         state.logicDemoGraph->AdvanceTime(deltaMs);
+        TickEditorAuthoredSenseNodes(state);
         if (plateInside && !state.logicDemoPlateWasInside) {
             ri::logic::LogicContext ctx;
             ctx.instigatorId = "liminal_player";
@@ -1907,15 +2324,57 @@ void TickLogicDemo(RuntimeState& state, const float dt) {
                      state.logicPortalSpawned ? activeNode : inactive,
                      state.logicPortalSpawned ? activeEmit : inactiveEmit);
     }
-    for (const int handle : state.world.logicDemo.logicWireVisualNodes) {
-        const bool active = state.logicPortalSpawned || state.logicDoorOpen || state.logicPressurePlateTriggered;
+    const std::vector<ri::logic::LogicCircuitNodeProbe> circuitProbes =
+        state.logicDemoGraph != nullptr ? state.logicDemoGraph->ProbeCircuitNodes()
+                                        : std::vector<ri::logic::LogicCircuitNodeProbe>{};
+    for (std::size_t wireIndex = 0; wireIndex < state.world.logicDemo.logicWireVisualNodes.size(); ++wireIndex) {
+        const int handle = state.world.logicDemo.logicWireVisualNodes[wireIndex];
+        bool active = state.logicPortalSpawned || state.logicDoorOpen || state.logicPressurePlateTriggered;
+        if (wireIndex < state.world.logicDemo.logicWireProbeSources.size() && !circuitProbes.empty()) {
+            const std::string& sourceId = state.world.logicDemo.logicWireProbeSources[wireIndex];
+            const auto probeIt = std::find_if(
+                circuitProbes.begin(),
+                circuitProbes.end(),
+                [&](const ri::logic::LogicCircuitNodeProbe& probe) { return probe.id == sourceId; });
+            active = probeIt != circuitProbes.end() && probeIt->powered;
+        }
         setNodeColor(handle, active ? activeWire : inactive, active ? activeEmit : inactiveEmit);
+    }
+    if (state.editorLogicFile.has_value() && !circuitProbes.empty()) {
+        for (std::size_t nodeIndex = 0; nodeIndex < state.world.logicDemo.logicLayerNodes.size(); ++nodeIndex) {
+            if (nodeIndex >= state.world.logicDemo.logicLayerNodeProbeIds.size()) {
+                continue;
+            }
+            const int handle = state.world.logicDemo.logicLayerNodes[nodeIndex];
+            const std::string& logicNodeId = state.world.logicDemo.logicLayerNodeProbeIds[nodeIndex];
+            const auto probeIt = std::find_if(
+                circuitProbes.begin(),
+                circuitProbes.end(),
+                [&](const ri::logic::LogicCircuitNodeProbe& probe) { return probe.id == logicNodeId; });
+            const bool powered = probeIt != circuitProbes.end() && probeIt->powered;
+            setNodeColor(handle,
+                         powered ? activeNode : inactive,
+                         powered ? activeEmit : inactiveEmit);
+        }
     }
 }
 
 void TickStandaloneFrame(RuntimeState& state) {
-    if ((GetAsyncKeyState(VK_ESCAPE) & 0x0001) != 0 && state.hwnd != nullptr) {
-        PostMessageW(state.hwnd, WM_CLOSE, 0, 0);
+    if ((GetAsyncKeyState(VK_ESCAPE) & 0x0001) != 0) {
+        if (state.runtimeUiFlowActive) {
+            const RuntimeUiFlowKind activeFlow = ActiveRuntimeUiFlowKind(state);
+            if (activeFlow == RuntimeUiFlowKind::PauseMenu) {
+                DeactivateRuntimeUiFlow(state, "resume");
+            } else if (activeFlow == RuntimeUiFlowKind::MainMenu) {
+                if (state.hwnd != nullptr) {
+                    PostMessageW(state.hwnd, WM_CLOSE, 0, 0);
+                }
+            } else {
+                DeactivateRuntimeUiFlow(state, "escape");
+            }
+        } else {
+            (void)ActivateRuntimeUiFlow(state, RuntimeUiFlowKind::PauseMenu, "pause");
+        }
         return;
     }
     const bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
@@ -2012,6 +2471,7 @@ void TickStandaloneFrame(RuntimeState& state) {
     ProcessPendingDoorTransitions(state);
     SimulateAndApplyView(state, input, dt, static_cast<double>(GetTickCount64()) / 1000.0);
     TickLogicDemo(state, dt);
+    TickPluginRuntimeHooks(state, dt);
 }
 
 bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
@@ -2033,6 +2493,8 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
         .messageUserData = &state,
         .onWin32Message = &LiminalStandaloneWin32Hook,
         .outClientHwnd = &state.hwnd,
+        .enableHybridHdrPresentation = true,
+        .initialRenderQualityTier = state.nativeRenderTuning.qualityTier,
     };
 
     const ri::render::vulkan::VulkanNativeSceneFrameCallback buildFrame =
@@ -2061,16 +2523,12 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
             frame.renderContrast = state.nativeRenderTuning.contrast;
             frame.renderSaturation = state.nativeRenderTuning.saturation;
             frame.renderFogDensity = state.nativeRenderTuning.fogDensity;
-            frame.nativeFogColorNear = state.previewOptions.fogColor;
-            frame.nativeFogColorFar = state.previewOptions.fogColor;
-            frame.nativeAmbientLight = state.previewOptions.ambientLight;
-            frame.useEnvironmentClear = true;
-            frame.environmentClearTop = state.previewOptions.clearTop;
-            frame.environmentClearBottom = state.previewOptions.clearBottom;
+            ri::render::vulkan::ApplyScenePreviewAtmosphereToVulkanFrame(state.previewOptions, frame);
             frame.postProcess = ri::world::BuildPostProcessParameters(
                 state.activePostProcessState,
                 static_cast<double>(state.elapsedSeconds),
                 0.0f);
+            ri::render::vulkan::OverlayScenePreviewPostProcessOnParameters(state.previewOptions, frame.postProcess);
             if (options.benchmarkFrames > 0) {
                 ++benchmarkedFrames;
                 if (benchmarkedFrames >= options.benchmarkFrames && state.hwnd != nullptr) {
@@ -2097,6 +2555,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
                             const ri::content::GameManifest& manifest,
                             RuntimeState& state) {
     state.gameRoot = manifest.rootPath;
+    state.editorLogicAuthoringPath = options.logicAuthoringPath;
     state.runtimeUiHeadless = false;
     state.gameplayMouseCapture = options.captureMouse;
     std::string audioBackendError;
@@ -2178,6 +2637,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         ri::ui::PrimaryVisualNovelManifestPath(manifest.rootPath),
         "visual novel",
         state.runtimeVnManifest);
+    (void)LoadRuntimeUiManifest(manifest.rootPath / "ui/pause.ui.json", "pause menu", state.runtimePauseManifest);
     const int scriptedRuntimeUiBootFlow = ri::content::ScriptScalarOrIntClamped(ui, "runtime_ui_boot_flow", 1, 0, 2);
     state.runtimeUiBootFlow = RuntimeUiFlowKindFromBootFlow(
         static_cast<ri::games::liminal::RuntimeUiBootFlow>(scriptedRuntimeUiBootFlow));
@@ -2489,10 +2949,10 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     state.bobAmplitude = std::clamp(state.bobAmplitude * animationBobScale, 0.0f, 0.25f);
     const float vfxFogScale = ri::content::ScriptScalarOrClamped(vfx, "vfx_fog_scale", 1.0f, 0.5f, 1.8f);
     state.nativeRenderTuning.fogDensity = std::clamp(state.nativeRenderTuning.fogDensity * vfxFogScale, 0.0f, 0.05f);
-    const bool pluginOrderBoost = ri::content::ScriptScalarOrBool(plugins, "plugin_render_priority_boost", false)
-        && ri::content::ScriptScalarOrBool(pluginsPolicy, "allow_runtime_plugin_overrides", true)
-        && demoExtensions.pluginCount > 0;
-    (void)pluginOrderBoost;
+    const bool pluginRenderBoostPreview = ri::games::ResolvePluginRenderBoost(
+        plugins,
+        pluginsPolicy,
+        demoExtensions.pluginCount);
     if (demoExtensions.cinematicsRowCount > 0) {
         state.fovLerpPerSecond = std::clamp(state.fovLerpPerSecond + 1.5f, 0.5f, 40.0f);
     }
@@ -2540,35 +3000,11 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
 
     state.previewOptions.width = previewRes.width;
     state.previewOptions.height = previewRes.height;
-    state.previewOptions.pointSampleTextures = false;
-    state.previewOptions.adaptiveTextureSampling = true;
-    state.previewOptions.adaptivePointSampleStartDepth = 34.0f;
-    state.previewOptions.enableFarHorizon = true;
-    state.previewOptions.farHorizonStartDistance = 64.0f;
-    state.previewOptions.farHorizonEndDistance = 190.0f;
-    state.previewOptions.farHorizonMaxDistance = 340.0f;
-    state.previewOptions.farHorizonMaxNodeStride = 3U;
-    state.previewOptions.farHorizonMaxInstanceStride = 4U;
-    state.previewOptions.clearTop = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "clear_top_r", 0.22f),
-        ri::content::ScriptScalarOr(rendering, "clear_top_g", 0.22f),
-        ri::content::ScriptScalarOr(rendering, "clear_top_b", 0.19f),
-    };
-    state.previewOptions.clearBottom = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_r", 0.35f),
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_g", 0.34f),
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_b", 0.30f),
-    };
-    state.previewOptions.fogColor = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "fog_r", 0.62f),
-        ri::content::ScriptScalarOr(rendering, "fog_g", 0.61f),
-        ri::content::ScriptScalarOr(rendering, "fog_b", 0.55f),
-    };
-    state.previewOptions.ambientLight = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "ambient_r", 0.18f),
-        ri::content::ScriptScalarOr(rendering, "ambient_g", 0.18f),
-        ri::content::ScriptScalarOr(rendering, "ambient_b", 0.16f),
-    };
+    ApplyLiminalHallScenePreviewProfile(state.previewOptions);
+    if (!rendering.empty()) {
+        ri::render::software::ApplyRenderingScriptScalarsToScenePreview(rendering, state.previewOptions);
+    }
+    ri::render::software::ApplyPostprocessScriptScalarsToScenePreview(postprocess, rendering, state.previewOptions);
     state.nativeRenderTuning = BaseNativeRenderTuning(options.renderQuality);
     state.nativeRenderTuning.exposure = ri::content::ScriptScalarOrClamped(
         postprocess,
@@ -2662,7 +3098,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         "Showcase influences aiSprintScale=" + std::to_string(aiSprintScale) +
         " animationBobScale=" + std::to_string(animationBobScale) +
         " vfxFogScale=" + std::to_string(vfxFogScale) +
-        " pluginRenderBoost=" + std::string(pluginOrderBoost ? "on" : "off"));
+        " pluginRenderBoost=" + std::string(pluginRenderBoostPreview ? "on" : "off"));
     ri::core::LogInfo(
         std::string("Native Vulkan quality: ") + RenderQualityName(options.renderQuality) +
         " tier=" + std::to_string(state.nativeRenderTuning.qualityTier) +
@@ -2714,6 +3150,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     } else {
         ri::core::LogInfo("Texture library not found; preview will render without texture files.");
     }
+    InitializePluginRuntime(state, manifest, plugins, pluginsPolicy);
     return true;
 }
 
@@ -2767,6 +3204,9 @@ bool RunStandalone(const StandaloneOptions& options, std::string* error) {
             return false;
         }
         ri::games::BindRuntimeEventBus(runtime, state.runtimeEvents);
+        state.pluginHost.runtimeEvents = state.runtimeEvents;
+        ri::games::WireGamePluginEventBus(state.pluginHost);
+        ri::games::WireGameTextOverlay(state.runtimeEvents, state.textOverlay, state.audioManager.get());
         FinalizeRuntimeUiBoot(state);
 
         ri::core::LogSection("RawIron Standalone");
@@ -2859,6 +3299,7 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
                 }
                 SimulateAndApplyView(state, input, headlessDt, static_cast<double>(state.elapsedSeconds));
                 TickLogicDemo(state, headlessDt);
+                TickPluginRuntimeHooks(state, headlessDt);
             })) {
             ri::core::LogInfo("Runtime core: failed to attach headless simulation tick module.");
         }
@@ -2872,6 +3313,9 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
             return false;
         }
         ri::games::BindRuntimeEventBus(runtime, state.runtimeEvents);
+        state.pluginHost.runtimeEvents = state.runtimeEvents;
+        ri::games::WireGamePluginEventBus(state.pluginHost);
+        ri::games::WireGameTextOverlay(state.runtimeEvents, state.textOverlay, state.audioManager.get());
         FinalizeRuntimeUiBoot(state);
         state.previewOptions.lowSpecMode = options.softwareLowSpec;
         ri::core::LogInfo("Mouse capture forced off for headless mode.");

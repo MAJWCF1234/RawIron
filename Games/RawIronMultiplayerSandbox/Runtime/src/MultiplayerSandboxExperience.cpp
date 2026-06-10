@@ -7,11 +7,15 @@
 #include "RawIron/Content/ScriptScalars.h"
 #include "RawIron/Core/Log.h"
 #include "RawIron/Games/GameConfigContracts.h"
+#include "RawIron/Games/GamePluginRuntimeBridge.h"
 #include "RawIron/Games/GameRuntimeCore.h"
 #include "RawIron/Render/ShaderConfig.h"
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
+#include "RawIron/Render/VulkanScenePreviewBridge.h"
+#include "RawIron/Render/ScenePreviewRenderingScript.h"
+#include "RawIron/World/RuntimeState.h"
 #include "RawIron/Runtime/BotClients.h"
 #include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Runtime/RuntimeNetcode.h"
@@ -85,6 +89,9 @@ struct RuntimeState {
     float currentFovDegrees = 78.0f;
     fs::path nativeSkyEquirectRelative{};
     ri::render::ShaderPresentationConfig shaderPresentation{};
+    ri::games::GamePluginRuntimeHost pluginHost{};
+    bool pluginRenderBoostActive = false;
+    bool diagnosticsVisible = false;
 };
 
 ri::runtime::RendezvousProviderKind ParseRendezvous(const std::string& v) {
@@ -432,6 +439,13 @@ void TickStandaloneFrame(RuntimeState& state) {
         PostMessageW(state.hwnd, WM_CLOSE, 0, 0);
         return;
     }
+    const bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    const bool shiftHeld = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+    if (((GetAsyncKeyState('U') & 0x0001) != 0) && ctrlHeld && shiftHeld) {
+        state.diagnosticsVisible = !state.diagnosticsVisible;
+        ri::core::LogInfo(std::string("Plugin diagnostics overlay: ")
+                          + (state.diagnosticsVisible ? "visible (Ctrl+Shift+U)" : "hidden (Ctrl+Shift+U)"));
+    }
 
     const auto now = std::chrono::steady_clock::now();
     const std::chrono::duration<double> elapsed = now - state.lastTick;
@@ -441,6 +455,17 @@ void TickStandaloneFrame(RuntimeState& state) {
 
     UpdateMouseLook(state);
     SimulateAndApplyView(state, ReadMovementInput(state), dt);
+    state.pluginHost.renderBoostActive = state.pluginRenderBoostActive;
+    (void)ri::games::TickGamePluginRuntime(state.pluginHost, static_cast<double>(state.elapsedSeconds));
+    ri::games::ApplyGamePluginRenderTuning(
+        state.pluginHost,
+        {
+            .qualityTier = &state.nativeRenderTuning.qualityTier,
+            .exposure = &state.nativeRenderTuning.exposure,
+            .ambientLight = &state.previewOptions.ambientLight,
+        });
+    ri::games::MaybeLogPluginDiagnostics(state.pluginHost, state.diagnosticsVisible, dt);
+    ri::games::DrawPluginDiagnosticsOverlay(state.hwnd, state.pluginHost, state.diagnosticsVisible);
 }
 
 bool InitializeRuntimeState(const StandaloneOptions& options,
@@ -456,6 +481,10 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/postprocess.riscript"));
     const ri::content::ScriptScalarMap ui =
         ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/ui.riscript"));
+    const ri::content::ScriptScalarMap plugins =
+        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/plugins.riscript"));
+    const ri::content::ScriptScalarMap pluginsPolicy =
+        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/plugins.policy"));
 
     std::string contractError;
     if (!ri::games::EnforceGameConfigContracts(
@@ -581,26 +610,10 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     state.previewOptions.height = options.height;
     state.previewOptions.pointSampleTextures = false;
     state.previewOptions.adaptiveTextureSampling = true;
-    state.previewOptions.clearTop = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "clear_top_r", 0.34f),
-        ri::content::ScriptScalarOr(rendering, "clear_top_g", 0.42f),
-        ri::content::ScriptScalarOr(rendering, "clear_top_b", 0.55f),
-    };
-    state.previewOptions.clearBottom = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_r", 0.05f),
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_g", 0.08f),
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_b", 0.12f),
-    };
-    state.previewOptions.fogColor = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "fog_r", 0.40f),
-        ri::content::ScriptScalarOr(rendering, "fog_g", 0.47f),
-        ri::content::ScriptScalarOr(rendering, "fog_b", 0.55f),
-    };
-    state.previewOptions.ambientLight = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "ambient_r", 0.06f),
-        ri::content::ScriptScalarOr(rendering, "ambient_g", 0.07f),
-        ri::content::ScriptScalarOr(rendering, "ambient_b", 0.09f),
-    };
+    if (!rendering.empty()) {
+        ri::render::software::ApplyRenderingScriptScalarsToScenePreview(rendering, state.previewOptions);
+    }
+    ri::render::software::ApplyPostprocessScriptScalarsToScenePreview(postprocess, rendering, state.previewOptions);
     state.nativeRenderTuning.exposure = ri::content::ScriptScalarOrClamped(
         postprocess,
         "native_exposure",
@@ -679,6 +692,20 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         "Native Vulkan quality tier=" + std::to_string(state.nativeRenderTuning.qualityTier)
         + " exposure=" + std::to_string(state.nativeRenderTuning.exposure)
         + " fogDensity=" + std::to_string(state.nativeRenderTuning.fogDensity));
+
+    ri::games::BootstrapGamePluginRuntime(state.pluginHost, manifest.rootPath);
+    state.pluginRenderBoostActive = ri::games::ResolvePluginRenderBoost(
+        plugins,
+        pluginsPolicy,
+        state.pluginHost.session.projectData.manifestEntries.size());
+    state.pluginHost.renderBoostActive = state.pluginRenderBoostActive;
+    ri::games::ApplyGamePluginRenderTuning(
+        state.pluginHost,
+        {
+            .qualityTier = &state.nativeRenderTuning.qualityTier,
+            .exposure = &state.nativeRenderTuning.exposure,
+            .ambientLight = &state.previewOptions.ambientLight,
+        });
     return true;
 }
 
@@ -703,6 +730,7 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
         .onWin32Message = &SandboxStandaloneWin32Hook,
         .outClientHwnd = &state.hwnd,
         .enableHybridHdrPresentation = options.hybridHdr,
+        .initialRenderQualityTier = state.nativeRenderTuning.qualityTier,
         .shaderPresentation = state.shaderPresentation,
     };
 
@@ -733,14 +761,12 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
             frame.renderContrast = state.nativeRenderTuning.contrast;
             frame.renderSaturation = state.nativeRenderTuning.saturation;
             frame.renderFogDensity = state.nativeRenderTuning.fogDensity;
-            frame.useEnvironmentClear = true;
-            frame.environmentClearTop = state.previewOptions.clearTop;
-            frame.environmentClearBottom = state.previewOptions.clearBottom;
-            frame.nativeFogColorNear = state.previewOptions.fogColor;
-            frame.nativeFogColorFar = state.previewOptions.fogColor * 1.06f;
-            frame.nativeAmbientLight = state.previewOptions.ambientLight;
-            frame.postProcess.timeSeconds =
-                std::isfinite(state.elapsedSeconds) ? static_cast<float>(state.elapsedSeconds) : 0.0f;
+            ri::render::vulkan::ApplyScenePreviewAtmosphereToVulkanFrame(state.previewOptions, frame);
+            frame.postProcess = ri::world::BuildPostProcessParameters(
+                ri::world::PostProcessState{.enabled = true},
+                static_cast<double>(state.elapsedSeconds),
+                0.0f);
+            ri::render::vulkan::OverlayScenePreviewPostProcessOnParameters(state.previewOptions, frame.postProcess);
 
             if (options.benchmarkFrames > 0) {
                 ++benchmarkedFrames;

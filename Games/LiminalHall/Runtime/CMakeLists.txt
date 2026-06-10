@@ -41,3 +41,18 @@ target_compile_features(RawIron.Game.LiminalHall PUBLIC cxx_std_20)
 if (WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   target_compile_options(RawIron.Game.LiminalHall PRIVATE "-Wa,-mbig-obj")
 endif()
+
+if (RAWIRON_BUILD_TESTS)
+  add_test(
+    NAME RawIron.LiminalHall.MaterialAudit
+    COMMAND ${CMAKE_COMMAND}
+      -DRAWIRON_WORKSPACE=${CMAKE_SOURCE_DIR}
+      -P ${CMAKE_SOURCE_DIR}/Tests/VerifyLiminalHallMaterials.cmake
+  )
+  add_test(
+    NAME RawIron.LiminalHall.RenderingScriptPreview
+    COMMAND ${CMAKE_COMMAND}
+      -DRAWIRON_WORKSPACE=${CMAKE_SOURCE_DIR}
+      -P ${CMAKE_SOURCE_DIR}/Tests/VerifyRenderingScriptPreview.cmake
+  )
+endif()

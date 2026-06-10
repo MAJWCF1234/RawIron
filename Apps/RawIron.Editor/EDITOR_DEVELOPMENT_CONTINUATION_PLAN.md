@@ -11,7 +11,7 @@ It is meant to answer four questions clearly:
 3. What still needs to be built or refactored
 4. What order the next work should happen in so the editor becomes a true end-to-end game authoring tool
 
-This plan assumes the editor should evolve into a Hammer/Slade-style native authoring app for RawIron projects rather than remain a scene preview shell with partial editing tools.
+This plan assumes the editor should evolve into a full native authoring app for RawIron projects rather than remain a scene preview shell with partial editing tools.
 
 ## Current Reality
 

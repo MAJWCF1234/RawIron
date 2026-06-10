@@ -62,7 +62,9 @@ struct VulkanPreviewWindowOptions {
     void* outClientHwnd = nullptr;
     /// When true, native preview renders scene-linear HDR into an offscreen target and runs a fullscreen
     /// composite (tonemap + existing post chain) to the swapchain — foundation for SSAO/SSR/bloom masks.
-    bool enableHybridHdrPresentation = false;
+    bool enableHybridHdrPresentation = true;
+    /// Seeds shadow-map resolution and stabilization at Vulkan init (0=1024, 1=2048, 2=4096).
+    int initialRenderQualityTier = 1;
     /// Optional `shader.cfg` layer applied after each `VulkanNativeSceneFrameCallback` (see `ShaderConfig.h`).
     ShaderPresentationConfig shaderPresentation{};
 };
@@ -84,6 +86,10 @@ struct VulkanNativeSceneFrame {
     float renderContrast = 1.0f;
     float renderSaturation = 1.0f;
     float renderFogDensity = 0.0095f;
+    /// Linear distance fog (matches software `ScenePreviewOptions` / `rendering.riscript`).
+    float renderFogStart = 2.0f;
+    float renderFogEnd = 48.0f;
+    float renderFogStrength = 0.90f;
     /// When true, `environmentClearTop` / `environmentClearBottom` replace the default dark clear.
     bool useEnvironmentClear = false;
     ri::math::Vec3 environmentClearTop{0.20f, 0.29f, 0.34f};

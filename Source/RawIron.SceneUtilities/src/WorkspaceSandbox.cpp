@@ -2,6 +2,7 @@
 
 #include "RawIron/Scene/Animation.h"
 #include "RawIron/Scene/Helpers.h"
+#include "RawIron/Scene/StructuralBrush.h"
 
 #include <cmath>
 
@@ -87,7 +88,8 @@ StarterScene BuildStarterScene(const std::string_view sceneName) {
     crate.primitive = PrimitiveType::Cube;
     crate.materialName = "crate";
     crate.baseColor = ri::math::Vec3{0.72f, 0.68f, 0.62f};
-    crate.baseColorTexture = "ri_psx_wall_vent.png";
+    crate.baseColorTexture = DefaultStructuralBrushAlbedoTexture();
+    crate.baseColor = DefaultStructuralBrushBaseColor();
     crate.textureTiling = ri::math::Vec2{1.0f, 1.0f};
     crate.transform.position = ri::math::Vec3{0.0f, 0.5f, 0.0f};
     starterScene.handles.crate = AddPrimitiveNode(scene, crate);

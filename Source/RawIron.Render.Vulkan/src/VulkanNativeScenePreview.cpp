@@ -37,6 +37,7 @@
 #include <fstream>
 #include <functional>
 #include <limits>
+#include <numeric>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -104,6 +105,17 @@ constexpr std::int32_t kNativeMaterialWorldTileUv = 1 << 13;
 // materials are skipped because their "albedo" is a lookup gradient, not a surface.
 constexpr bool kNativeGenerateMissingMaterialMaps = true;
 
+[[nodiscard]] constexpr std::uint32_t NativeShadowMapResolutionForTier(const int tier) noexcept {
+    switch (std::clamp(tier, 0, 2)) {
+    case 0:
+        return 1536U;
+    case 1:
+        return 2048U;
+    default:
+        return 4096U;
+    }
+}
+
 struct NativeScenePreviewData {
     const ri::scene::Scene* scene = nullptr;
     fs::path textureRoot{};
@@ -133,7 +145,7 @@ struct NativeScenePreviewData {
         0.0f, 0.0f, 0.0f, 1.0f,
     };
     /// xyz=world-space light direction, w=sun intensity
-    std::array<float, 4> lightDirectionIntensity{{0.34f, 0.86f, 0.31f, 1.0f}};
+    std::array<float, 4> lightDirectionIntensity{{0.34f, 0.86f, 0.31f, 1.65f}};
     /// xyz=world-space local light position, w=range
     std::array<float, 4> localLightPositionRange{{0.0f, 1.8f, 0.0f, 20.0f}};
     /// rgb=local light color, w=intensity multiplier
@@ -449,19 +461,30 @@ struct NativeScenePreviewData {
     /// Column-major `mat4`; upper 3x3 maps eye-space directions to world for equirect sampling.
     std::array<float, 16> skyEyeToWorld{};
     std::int32_t skyUseTextureFile = 0;
+    std::int32_t skyUseAuthoredGradient = 0;
+    std::array<float, 4> skyHorizonColor{{0.82f, 0.82f, 0.80f, 1.0f}};
+    std::array<float, 4> skyZenithColor{{0.54f, 0.56f, 0.57f, 1.0f}};
     fs::path skyEquirectAbsolute{};
 };
 
 struct alignas(16) SkyUniformStd140 {
     std::int32_t hasSkyTexture = 0;
+    std::int32_t useAuthoredGradient = 0;
     std::int32_t pad0 = 0;
     std::int32_t pad1 = 0;
-    std::int32_t pad2 = 0;
     float clipFromLocal[16]{};
     float eyeToWorldRotation[16]{};
+    /// xyz = world-space direction toward the sun; w = visible sun strength.
+    float sunDirection[4]{};
+    /// rgb = sun disc tint (normalized); w unused.
+    float sunColor[4]{1.0f, 0.94f, 0.82f, 1.0f};
+    /// rgb = horizon / `clear_bottom`; w unused.
+    float horizonColor[4]{0.82f, 0.82f, 0.80f, 1.0f};
+    /// rgb = zenith / `clear_top`; w unused.
+    float zenithColor[4]{0.54f, 0.56f, 0.57f, 1.0f};
 };
 
-static_assert(sizeof(SkyUniformStd140) == 144, "Must match NativeSkybox.{vert,frag} std140 layout.");
+static_assert(sizeof(SkyUniformStd140) == 208, "Must match NativeSkybox.{vert,frag} std140 layout.");
 
 struct alignas(16) CameraUniformStd140 {
     float viewProjection[16]{};
@@ -1389,8 +1412,10 @@ ri::math::Vec3 ClampColor(const ri::math::Vec3& color) {
 
 void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
                                        const ri::math::Vec3& cameraWorldPos,
-                                       NativeScenePreviewData& data) {
-    constexpr float kDirectionalRgbScale = 1.0f;
+                                       NativeScenePreviewData& data,
+                                       const std::uint32_t shadowMapResolution) {
+    constexpr float kDirectionalRgbScale = 1.35f;
+    constexpr float kEngineDefaultSunIntensity = 1.65f;
     constexpr float kFillRgbScale = 0.32f;
     constexpr float kFillSwitchMargin = 1.14f;
 
@@ -1402,6 +1427,7 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
 
     ri::math::Vec3 sunToSurface = ri::math::Normalize(ri::math::Vec3{0.34f, 0.86f, 0.31f});
     ri::math::Vec3 sunRgb = ClampColor(ri::math::Vec3{1.0f, 0.98f, 0.94f}) * kDirectionalRgbScale;
+    float sunIntensityMultiplier = kEngineDefaultSunIntensity;
     bool foundSun = false;
 
     ri::math::Vec3 bestFillPos = ri::math::Vec3{cameraWorldPos.x, cameraWorldPos.y + 0.15f, cameraWorldPos.z};
@@ -1409,6 +1435,11 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
     float bestFillRange = 24.0f;
     float bestFillStrength = -1.0f;
     int bestFillNode = ri::scene::kInvalidHandle;
+
+    ri::math::Vec3 accumulatedRgb{0.0f, 0.0f, 0.0f};
+    ri::math::Vec3 weightedFillPos{0.0f, 0.0f, 0.0f};
+    float accumulatedWeight = 0.0f;
+    float accumulatedRange = 8.0f;
 
     static int lockedFillNode = ri::scene::kInvalidHandle;
     ri::math::Vec3 lockedFillPos = bestFillPos;
@@ -1431,6 +1462,8 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
             if (!foundSun) {
                 sunToSurface = ri::math::Normalize(forward * -1.0f);
                 const float directionalIntensity = std::max(light.intensity, 0.05f);
+                sunIntensityMultiplier =
+                    std::clamp(0.45f + directionalIntensity * 0.72f, 0.85f, 2.75f);
                 sunRgb = ClampColor(ri::math::Vec3{
                     light.color.x * directionalIntensity * kDirectionalRgbScale,
                     light.color.y * directionalIntensity * kDirectionalRgbScale,
@@ -1472,35 +1505,44 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
         }
 
         const float strength = attenuation * std::max(light.intensity, 0.001f);
+        const ri::math::Vec3 lightRgb = ClampColor(ri::math::Vec3{
+            light.color.x * light.intensity * kFillRgbScale,
+            light.color.y * light.intensity * kFillRgbScale,
+            light.color.z * light.intensity * kFillRgbScale,
+        });
         if (nodeHandle == lockedFillNode) {
             lockedFillStrength = strength;
             lockedFillPos = position;
-            lockedFillRgb = ri::math::Vec3{
-                light.color.x * light.intensity * kFillRgbScale,
-                light.color.y * light.intensity * kFillRgbScale,
-                light.color.z * light.intensity * kFillRgbScale,
-            };
+            lockedFillRgb = lightRgb;
             lockedFillRange = std::max(light.range, 6.0f);
+        }
+        if (strength > 0.06f) {
+            accumulatedRgb = accumulatedRgb + (lightRgb * strength);
+            weightedFillPos = weightedFillPos + (position * strength);
+            accumulatedWeight += strength;
+            accumulatedRange = std::max(accumulatedRange, std::max(light.range, 6.0f));
         }
         if (strength > bestFillStrength) {
             bestFillStrength = strength;
             bestFillNode = nodeHandle;
             bestFillPos = position;
-            bestFillRgb = ri::math::Vec3{
-                light.color.x * light.intensity * kFillRgbScale,
-                light.color.y * light.intensity * kFillRgbScale,
-                light.color.z * light.intensity * kFillRgbScale,
-            };
+            bestFillRgb = lightRgb;
             bestFillRange = std::max(light.range, 6.0f);
         }
     }
 
+    if (accumulatedWeight > 0.08f) {
+        bestFillPos = weightedFillPos / accumulatedWeight;
+        bestFillRgb = accumulatedRgb / accumulatedWeight;
+        bestFillStrength = std::min(accumulatedWeight, 3.8f);
+        bestFillRange = accumulatedRange;
+    }
+
     if (lockedFillNode != ri::scene::kInvalidHandle && lockedFillStrength > 0.0f &&
-        lockedFillStrength * kFillSwitchMargin >= bestFillStrength) {
-        bestFillPos = lockedFillPos;
-        bestFillRgb = lockedFillRgb;
-        bestFillRange = lockedFillRange;
-        bestFillStrength = lockedFillStrength;
+        lockedFillStrength * kFillSwitchMargin >= bestFillStrength * 0.85f) {
+        bestFillPos = ri::math::Lerp(bestFillPos, lockedFillPos, 0.35f);
+        bestFillRgb = ri::math::Lerp(bestFillRgb, lockedFillRgb, 0.25f);
+        bestFillRange = std::max(bestFillRange, lockedFillRange);
         bestFillNode = lockedFillNode;
     } else if (bestFillNode != ri::scene::kInvalidHandle) {
         lockedFillNode = bestFillNode;
@@ -1508,13 +1550,15 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
 
     if (!foundSun) {
         sunRgb = ClampColor(ri::math::Vec3{1.0f, 0.98f, 0.94f}) * kDirectionalRgbScale;
+        sunIntensityMultiplier = kEngineDefaultSunIntensity;
     }
 
     const ri::math::Vec3 shadowCenter = cameraWorldPos + ri::math::Vec3{0.0f, 3.0f, 0.0f};
-    const ri::math::Vec3 lightEye = shadowCenter - sunToSurface * 120.0f;
+    // sunToSurface points toward the sun; place the virtual light above the follow center.
+    const ri::math::Vec3 lightEye = shadowCenter + sunToSurface * 120.0f;
     const ri::math::Mat4 lightView =
         BuildLookAtMatrix(lightEye, shadowCenter, ri::math::Vec3{0.0f, 1.0f, 0.0f});
-    constexpr float orthoRadius = 60.0f;
+    constexpr float orthoRadius = 90.0f;
     ri::math::Mat4 lightProjection =
         BuildOrthographicMatrix(-orthoRadius, orthoRadius, -orthoRadius, orthoRadius, 6.0f, 180.0f);
 
@@ -1522,8 +1566,8 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
     // shadow-map texel grid at the follow center (not world origin). Without this,
     // the ortho slides continuously with the camera and shadow texels crawl across
     // surfaces, which reads as geometry shifting when the view moves.
-    constexpr float kShadowMapResolutionF = 4096.0f;
-    const float halfResolution = kShadowMapResolutionF * 0.5f;
+    const float shadowMapResolutionF = static_cast<float>(std::max(shadowMapResolution, 1U));
+    const float halfResolution = shadowMapResolutionF * 0.5f;
     {
         const ri::math::Mat4 unsnapped = ri::math::Multiply(lightProjection, lightView);
         const ri::math::Vec3 shadowNdc = ri::math::TransformPoint(unsnapped, shadowCenter);
@@ -1536,7 +1580,12 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
     const ri::math::Mat4 lightViewProjection = ri::math::Multiply(lightProjection, lightView);
     StoreMat4ColumnMajorGlsl(lightViewProjection, data.lightViewProjection.data());
 
-    data.lightDirectionIntensity = {sunToSurface.x, sunToSurface.y, sunToSurface.z, 1.0f};
+    data.lightDirectionIntensity = {
+        sunToSurface.x,
+        sunToSurface.y,
+        sunToSurface.z,
+        sunIntensityMultiplier,
+    };
     data.directionalLightColorIntensity = {
         sunRgb.x,
         sunRgb.y,
@@ -1806,7 +1855,8 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                                  double animationTimeSeconds,
                                  const std::optional<ri::math::Vec3>& environmentClearColor,
                                  NativeScenePreviewData* outData,
-                                 std::string* error) {
+                                 std::string* error,
+                                 const std::uint32_t shadowMapResolution) {
     try {
         if (outData == nullptr) {
             throw std::runtime_error("Native scene preview output was null.");
@@ -1868,6 +1918,9 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
         data.skyClipFromLocal.fill(0.0f);
         data.skyEyeToWorld.fill(0.0f);
         data.skyUseTextureFile = 0;
+        data.skyUseAuthoredGradient = 0;
+        data.skyHorizonColor = {0.82f, 0.82f, 0.80f, 1.0f};
+        data.skyZenithColor = {0.54f, 0.56f, 0.57f, 1.0f};
         data.skyEquirectAbsolute.clear();
         data.draws.clear();
         const int submissionCamera = submission.stats.cameraNodeHandle;
@@ -2036,7 +2089,7 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                 data.cameraWorldPosition[1],
                 data.cameraWorldPosition[2],
             };
-            PopulateNativeGpuLightingFromScene(scene, cameraPos, data);
+            PopulateNativeGpuLightingFromScene(scene, cameraPos, data, shadowMapResolution);
         }
 
         return true;
@@ -2052,7 +2105,8 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
                                  int width,
                                  int height,
                                  NativeScenePreviewData* outData,
-                                 std::string* error) {
+                                 std::string* error,
+                                 const std::uint32_t shadowMapResolution) {
     if (frame.scene == nullptr) {
         if (error != nullptr) {
             *error = "Native Vulkan scene callback did not provide a scene.";
@@ -2082,15 +2136,31 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
                                                 frame.animationTimeSeconds,
                                                 environmentClearColor,
                                                 outData,
-                                                error);
+                                                error,
+                                                shadowMapResolution);
     if (!ok) {
         return false;
     }
+    if (frame.useEnvironmentClear) {
+        const ri::math::Vec3 horizon = ClampColor(frame.environmentClearBottom);
+        const ri::math::Vec3 zenith = ClampColor(frame.environmentClearTop);
+        outData->skyUseAuthoredGradient = 1;
+        outData->skyHorizonColor = {horizon.x, horizon.y, horizon.z, 1.0f};
+        outData->skyZenithColor = {zenith.x, zenith.y, zenith.z, 1.0f};
+    } else {
+        outData->skyUseAuthoredGradient = 0;
+        outData->skyHorizonColor = {0.82f, 0.82f, 0.80f, 1.0f};
+        outData->skyZenithColor = {0.54f, 0.56f, 0.57f, 1.0f};
+    }
+    const float fogStart = std::max(0.0f, frame.renderFogStart);
+    const float fogEnd = std::max(fogStart + 0.001f, frame.renderFogEnd);
+    const bool linearFog = frame.renderFogEnd > frame.renderFogStart + 0.001f;
     outData->renderTuning = {
         std::clamp(frame.renderExposure, 0.5f, 2.5f),
         std::clamp(frame.renderContrast, 0.7f, 1.6f),
         std::clamp(frame.renderSaturation, 0.0f, 1.8f),
-        std::clamp(frame.renderFogDensity, 0.0f, 0.05f),
+        linearFog ? std::clamp(frame.renderFogStrength, 0.0f, 1.0f)
+                  : std::clamp(frame.renderFogDensity, 0.0f, 0.05f),
     };
     const ri::math::Vec3 fogNear = ClampColor(frame.nativeFogColorNear);
     const ri::math::Vec3 fogFar = ClampColor(frame.nativeFogColorFar);
@@ -2303,15 +2373,15 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
     };
     outData->sweetFxTonemapStrengthPad = {
         sanitizedPost.sweetFxTonemapStrength,
-        0.0f,
-        0.0f,
-        0.0f,
+        static_cast<float>(std::clamp(frame.renderQualityTier, 0, 2)),
+        fogFar.x,
+        fogFar.y,
     };
     outData->sweetFxSplitscreenModeStrength = {
         static_cast<float>(sanitizedPost.sweetFxSplitscreenMode),
         sanitizedPost.sweetFxSplitscreenStrength,
-        0.0f,
-        0.0f,
+        linearFog ? fogStart : 0.0f,
+        linearFog ? fogEnd : 0.0f,
     };
     outData->sweetFxNostalgiaPack = {
         static_cast<float>(sanitizedPost.sweetFxNostalgiaPalette),
@@ -2323,7 +2393,7 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
         static_cast<float>(sanitizedPost.sweetFxCompareMode),
         sanitizedPost.sweetFxCompareDifferenceScale,
         sanitizedPost.sweetFxCompareStrength,
-        0.0f,
+        fogFar.z,
     };
     outData->sweetFxLayerPosScaleBlend = {
         sanitizedPost.sweetFxLayerPosition.x,
@@ -3331,6 +3401,10 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
         sanitizedPost.reflectiveBumpMappingDepthFarPlane,
     };
     outData->renderQualityTier = std::clamp(frame.renderQualityTier, 0, 2);
+    if (outData->renderQualityTier >= 2) {
+        outData->localLightColorIntensity[3] =
+            std::min(outData->localLightColorIntensity[3] * 1.14f, 4.2f);
+    }
     const float vw = static_cast<float>(std::max(width, 1));
     const float vh = static_cast<float>(std::max(height, 1));
     outData->viewportMetrics = {vw, vh, 1.0f / vw, 1.0f / vh};
@@ -4037,6 +4111,34 @@ void Write(const fs::path& cacheFile,
 inline constexpr VkFormat kColorTextureFormat = VK_FORMAT_R8G8B8A8_SRGB;
 inline constexpr VkFormat kDataTextureFormat = VK_FORMAT_R8G8B8A8_UNORM;
 
+[[nodiscard]] ProceduralNormalMapOptions BuildProceduralNormalOptions(const ri::scene::Material& material,
+                                                                    const std::int32_t materialStyleFlags) {
+    ProceduralNormalMapOptions options{};
+    const bool layered = (materialStyleFlags & kNativeMaterialStyleLayered) != 0;
+    const bool mixedMedia = (materialStyleFlags & kNativeMaterialStyleMixedMedia) != 0;
+    if (layered) {
+        options.strength = 1.75f;
+        options.heightScale = 1.16f;
+    } else if (mixedMedia) {
+        options.strength = 1.38f;
+        options.heightScale = 1.06f;
+    }
+    const float roughness = std::clamp(material.roughness, 0.04f, 1.0f);
+    options.strength *= std::lerp(1.0f, 0.82f, roughness);
+    return options;
+}
+
+[[nodiscard]] ProceduralOrmMapOptions BuildProceduralOrmOptions(const ri::scene::Material& material,
+                                                                const std::int32_t materialStyleFlags) {
+    ProceduralOrmMapOptions options{};
+    options.baseRoughness = std::clamp(material.roughness, 0.04f, 1.0f);
+    options.baseMetallic = std::clamp(material.metallic, 0.0f, 1.0f);
+    const bool layered = (materialStyleFlags & kNativeMaterialStyleLayered) != 0;
+    options.aoStrength = layered ? 0.72f : 0.64f;
+    options.roughnessDetail = layered ? 0.34f : 0.28f;
+    return options;
+}
+
 enum class ProceduralMapKind : std::int32_t {
     NormalFromAlbedo = 0,
     OrmFromAlbedo = 1,
@@ -4461,45 +4563,46 @@ struct NativeAlbedoTextureCache {
 
     // Derives and caches a normal map from the albedo at the given path. Returns the flat-normal
     // fallback view's owner only via nullptr when generation is unavailable.
-    [[nodiscard]] const GpuAlbedoImage* resolveGeneratedNormal(const fs::path& albedoPath) {
+    [[nodiscard]] const GpuAlbedoImage* resolveGeneratedNormal(const fs::path& albedoPath,
+                                                               const ProceduralNormalMapOptions& normalOptions) {
         if (albedoPath.empty()) {
             return nullptr;
         }
-        const std::string key = std::string("__gen_normal__|") + albedoPath.generic_string();
+        const std::string key = std::string("__gen_normal__|") + albedoPath.generic_string() + "|s="
+                                + std::to_string(normalOptions.strength) + "|hs="
+                                + std::to_string(normalOptions.heightScale);
         if (const auto it = imagesByKey.find(key); it != imagesByKey.end()) {
             return &it->second;
         }
         const ri::render::software::RgbaImage normal = generateOrLoadCached(
             albedoPath,
             key,
-            [this](const ri::render::software::RgbaImage& albedo) {
-                return generateMap(ProceduralMapKind::NormalFromAlbedo, albedo,
-                                   ri::render::vulkan::ProceduralNormalMapOptions{},
+            [this, normalOptions](const ri::render::software::RgbaImage& albedo) {
+                return generateMap(ProceduralMapKind::NormalFromAlbedo, albedo, normalOptions,
                                    ri::render::vulkan::ProceduralOrmMapOptions{});
             });
         return uploadGeneratedImage(key, normal, kDataTextureFormat);
     }
 
     [[nodiscard]] const GpuAlbedoImage* resolveGeneratedOrm(const fs::path& albedoPath,
-                                                            const float baseRoughness,
-                                                            const float baseMetallic) {
+                                                            const ProceduralOrmMapOptions& ormOptions) {
         if (albedoPath.empty()) {
             return nullptr;
         }
-        const std::string key = std::string("__gen_orm__|") + albedoPath.generic_string()
-                                + "|r=" + std::to_string(baseRoughness) + "|m=" + std::to_string(baseMetallic);
+        const std::string key = std::string("__gen_orm__|") + albedoPath.generic_string() + "|r="
+                                + std::to_string(ormOptions.baseRoughness) + "|m="
+                                + std::to_string(ormOptions.baseMetallic) + "|ao="
+                                + std::to_string(ormOptions.aoStrength) + "|rd="
+                                + std::to_string(ormOptions.roughnessDetail);
         if (const auto it = imagesByKey.find(key); it != imagesByKey.end()) {
             return &it->second;
         }
         const ri::render::software::RgbaImage orm = generateOrLoadCached(
             albedoPath,
             key,
-            [this, baseRoughness, baseMetallic](const ri::render::software::RgbaImage& albedo) {
-                ri::render::vulkan::ProceduralOrmMapOptions options{};
-                options.baseRoughness = baseRoughness;
-                options.baseMetallic = baseMetallic;
+            [this, ormOptions](const ri::render::software::RgbaImage& albedo) {
                 return generateMap(ProceduralMapKind::OrmFromAlbedo, albedo,
-                                   ri::render::vulkan::ProceduralNormalMapOptions{}, options);
+                                   ri::render::vulkan::ProceduralNormalMapOptions{}, ormOptions);
             });
         return uploadGeneratedImage(key, orm, kDataTextureFormat);
     }
@@ -4507,25 +4610,24 @@ struct NativeAlbedoTextureCache {
     // Higher-quality ORM derived by cross-referencing an authored/discovered normal map
     // (occlusion from curvature, roughness from slope) instead of luminance heuristics.
     [[nodiscard]] const GpuAlbedoImage* resolveGeneratedOrmFromNormal(const fs::path& normalPath,
-                                                                      const float baseRoughness,
-                                                                      const float baseMetallic) {
+                                                                      const ProceduralOrmMapOptions& ormOptions) {
         if (normalPath.empty()) {
             return nullptr;
         }
-        const std::string key = std::string("__gen_orm_xnormal__|") + normalPath.generic_string()
-                                + "|r=" + std::to_string(baseRoughness) + "|m=" + std::to_string(baseMetallic);
+        const std::string key = std::string("__gen_orm_xnormal__|") + normalPath.generic_string() + "|r="
+                                + std::to_string(ormOptions.baseRoughness) + "|m="
+                                + std::to_string(ormOptions.baseMetallic) + "|ao="
+                                + std::to_string(ormOptions.aoStrength) + "|rd="
+                                + std::to_string(ormOptions.roughnessDetail);
         if (const auto it = imagesByKey.find(key); it != imagesByKey.end()) {
             return &it->second;
         }
         const ri::render::software::RgbaImage orm = generateOrLoadCached(
             normalPath,
             key,
-            [this, baseRoughness, baseMetallic](const ri::render::software::RgbaImage& normal) {
-                ri::render::vulkan::ProceduralOrmMapOptions options{};
-                options.baseRoughness = baseRoughness;
-                options.baseMetallic = baseMetallic;
+            [this, ormOptions](const ri::render::software::RgbaImage& normal) {
                 return generateMap(ProceduralMapKind::OrmFromNormal, normal,
-                                   ri::render::vulkan::ProceduralNormalMapOptions{}, options);
+                                   ri::render::vulkan::ProceduralNormalMapOptions{}, ormOptions);
             });
         return uploadGeneratedImage(key, orm, kDataTextureFormat);
     }
@@ -4675,8 +4777,10 @@ struct NativeAlbedoTextureCache {
         // When a normal map is available (authored or auto-discovered) we generate the ORM
         // from it (curvature-based occlusion) for higher quality than luminance heuristics.
         const bool ormFromNormal = wantsGeneratedOrm && !normalPath.empty();
-        const float genRoughness = std::clamp(material.roughness, 0.04f, 1.0f);
-        const float genMetallic = std::clamp(material.metallic, 0.0f, 1.0f);
+        const ProceduralNormalMapOptions proceduralNormalOptions =
+            BuildProceduralNormalOptions(material, draw.materialStyleFlags);
+        const ProceduralOrmMapOptions proceduralOrmOptions =
+            BuildProceduralOrmOptions(material, draw.materialStyleFlags);
 
         const std::string key =
             std::string("mat|a=") + albedoPath.generic_string()
@@ -4685,8 +4789,12 @@ struct NativeAlbedoTextureCache {
             + "|e=" + emissivePath.generic_string()
             + "|p=" + opacityPath.generic_string()
             + "|d=" + detailPath.generic_string()
-            + "|gn=" + (wantsGeneratedNormal ? "1" : "0")
-            + "|go=" + (wantsGeneratedOrm ? (std::to_string(genRoughness) + "," + std::to_string(genMetallic)) : "0")
+            + "|gn=" + (wantsGeneratedNormal ? std::to_string(proceduralNormalOptions.strength) : "0")
+            + "|go=" + (wantsGeneratedOrm
+                            ? (std::to_string(proceduralOrmOptions.baseRoughness) + ","
+                               + std::to_string(proceduralOrmOptions.baseMetallic) + ","
+                               + std::to_string(proceduralOrmOptions.aoStrength))
+                            : "0")
             + "|gox=" + (ormFromNormal ? "1" : "0");
         if (const auto it = descriptorByKey.find(key); it != descriptorByKey.end()) {
             return it->second;
@@ -4703,15 +4811,15 @@ struct NativeAlbedoTextureCache {
         const GpuAlbedoImage* opacityLoaded = resolveImageForAbsolutePath(opacityPath, kDataTextureFormat);
         const GpuAlbedoImage* detailLoaded = resolveImageForAbsolutePath(detailPath, kColorTextureFormat);
         if (normalLoaded == nullptr && wantsGeneratedNormal) {
-            normalLoaded = resolveGeneratedNormal(albedoPath);
+            normalLoaded = resolveGeneratedNormal(albedoPath, proceduralNormalOptions);
         }
         if (ormLoaded == nullptr && wantsGeneratedOrm) {
             // Prefer cross-referencing the resolved normal map; fall back to albedo cavity.
             if (!normalPath.empty()) {
-                ormLoaded = resolveGeneratedOrmFromNormal(normalPath, genRoughness, genMetallic);
+                ormLoaded = resolveGeneratedOrmFromNormal(normalPath, proceduralOrmOptions);
             }
             if (ormLoaded == nullptr) {
-                ormLoaded = resolveGeneratedOrm(albedoPath, genRoughness, genMetallic);
+                ormLoaded = resolveGeneratedOrm(albedoPath, proceduralOrmOptions);
             }
         }
         const GpuAlbedoImage& albedoImage = albedoLoaded != nullptr ? *albedoLoaded : ResolveFallbackWhite();
@@ -4723,6 +4831,16 @@ struct NativeAlbedoTextureCache {
         writeMaterialDescriptorSet(set, albedoImage, normalImage, ormImage, emissiveImage, opacityImage, detailImage);
         descriptorByKey.emplace(key, set);
         return set;
+    }
+
+    void warmForScene(const ri::scene::Scene& scene,
+                      const std::vector<NativeSceneDraw>& draws,
+                      const fs::path& textureRoot) {
+        for (const NativeSceneDraw& draw : draws) {
+            if (draw.useTexture && draw.litShadingModel) {
+                (void)descriptorFor(scene, draw, textureRoot);
+            }
+        }
     }
 
     [[nodiscard]] VkDescriptorSet descriptorForAbsolutePath(const fs::path& absolutePath) {
@@ -4918,6 +5036,26 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
         .extent = extent,
     };
 
+    static thread_local std::vector<std::size_t> sortedDrawIndices;
+    sortedDrawIndices.resize(sceneData.draws.size());
+    std::iota(sortedDrawIndices.begin(), sortedDrawIndices.end(), 0U);
+    std::stable_sort(sortedDrawIndices.begin(),
+                     sortedDrawIndices.end(),
+                     [&sceneData](const std::size_t leftIndex, const std::size_t rightIndex) {
+                         const NativeSceneDraw& left = sceneData.draws[leftIndex];
+                         const NativeSceneDraw& right = sceneData.draws[rightIndex];
+                         if (left.additiveBlend != right.additiveBlend) {
+                             return left.additiveBlend < right.additiveBlend;
+                         }
+                         if (left.meshHandle != right.meshHandle) {
+                             return left.meshHandle < right.meshHandle;
+                         }
+                         if (left.materialHandle != right.materialHandle) {
+                             return left.materialHandle < right.materialHandle;
+                         }
+                         return left.resolvedAlbedoRelPath < right.resolvedAlbedoRelPath;
+                     });
+
     if (shadowRenderPass != VK_NULL_HANDLE && shadowFramebuffer != VK_NULL_HANDLE
         && shadowPipeline != VK_NULL_HANDLE && shadowPipelineLayout != VK_NULL_HANDLE) {
         const VkClearValue shadowClearValue{
@@ -4950,7 +5088,7 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline);
         vkCmdSetViewport(commandBuffer, 0, 1, &shadowViewport);
         vkCmdSetScissor(commandBuffer, 0, 1, &shadowScissor);
-        vkCmdSetDepthBias(commandBuffer, 0.25f, 0.0f, 0.75f);
+        vkCmdSetDepthBias(commandBuffer, 0.12f, 0.0f, 0.45f);
         vkCmdBindDescriptorSets(commandBuffer,
                                 VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 shadowPipelineLayout,
@@ -4959,7 +5097,8 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                                 &cameraDescriptorSet,
                                 0,
                                 nullptr);
-        for (const NativeSceneDraw& draw : sceneData.draws) {
+        for (const std::size_t drawIndex : sortedDrawIndices) {
+            const NativeSceneDraw& draw = sceneData.draws[drawIndex];
             // Alpha-cutout foliage is expensive in depth-only pass without alpha sampling;
             // skip it here to keep realtime shadows stable and performant.
             if (draw.alphaCutout) {
@@ -5020,8 +5159,26 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline);
     vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+    vkCmdBindDescriptorSets(commandBuffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipelineLayout,
+                            0,
+                            1,
+                            &cameraDescriptorSet,
+                            0,
+                            nullptr);
+    vkCmdBindDescriptorSets(commandBuffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipelineLayout,
+                            2,
+                            1,
+                            &shadowDescriptorSet,
+                            0,
+                            nullptr);
     bool sceneAdditivePipelineBound = false;
-    for (const NativeSceneDraw& draw : sceneData.draws) {
+    VkDescriptorSet lastBoundTextureSet = VK_NULL_HANDLE;
+    for (const std::size_t drawIndex : sortedDrawIndices) {
+        const NativeSceneDraw& draw = sceneData.draws[drawIndex];
         const auto meshIt = meshCache.find(draw.meshHandle);
         if (meshIt == meshCache.end()) {
             continue;
@@ -5048,15 +5205,17 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
         if (textureSet == VK_NULL_HANDLE) {
             textureSet = textureCache.whiteDescriptorSet;
         }
-        const std::array<VkDescriptorSet, 3> bindSets = {cameraDescriptorSet, textureSet, shadowDescriptorSet};
-        vkCmdBindDescriptorSets(commandBuffer,
-                                VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                pipelineLayout,
-                                0,
-                                static_cast<std::uint32_t>(bindSets.size()),
-                                bindSets.data(),
-                                0,
-                                nullptr);
+        if (textureSet != lastBoundTextureSet) {
+            vkCmdBindDescriptorSets(commandBuffer,
+                                    VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipelineLayout,
+                                    1,
+                                    1,
+                                    &textureSet,
+                                    0,
+                                    nullptr);
+            lastBoundTextureSet = textureSet;
+        }
 
         NativeDrawPushConstants pushConstants{};
         std::copy(draw.model.begin(), draw.model.end(), std::begin(pushConstants.model));
@@ -5366,6 +5525,10 @@ bool RunVulkanNativeSceneLoop(const int width,
         VkDevice device = VK_NULL_HANDLE;
         ExpectVk(vkCreateDevice(selection.physicalDevice, &deviceInfo, nullptr, &device), "vkCreateDevice");
 
+        const VkPipelineCacheCreateInfo pipelineCacheInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+        VkPipelineCache pipelineCache = VK_NULL_HANDLE;
+        ExpectVk(vkCreatePipelineCache(device, &pipelineCacheInfo, nullptr, &pipelineCache), "vkCreatePipelineCache");
+
         VkPhysicalDeviceProperties physicalDeviceProperties{};
         vkGetPhysicalDeviceProperties(selection.physicalDevice, &physicalDeviceProperties);
         const float maxSamplerAnisotropy =
@@ -5483,7 +5646,8 @@ bool RunVulkanNativeSceneLoop(const int width,
         ImageResource gbufferMaterialImage =
             CreateHdrSceneColorImage(selection.physicalDevice, device, gbufferFormat, extent.width, extent.height);
         const VkFormat shadowDepthFormat = FindShadowDepthFormat(selection.physicalDevice);
-        constexpr std::uint32_t kShadowMapResolution = 4096U;
+        const std::uint32_t kShadowMapResolution =
+            NativeShadowMapResolutionForTier(options.initialRenderQualityTier);
         ImageResource shadowDepthImage = CreateDepthImage(
             selection.physicalDevice,
             device,
@@ -5579,7 +5743,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
             .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
             .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
         };
         const VkAttachmentReference shadowDepthReference{
             .attachment = 0,
@@ -6083,8 +6247,8 @@ bool RunVulkanNativeSceneLoop(const int width,
         const VkShaderModule skyFragShader = CreateShaderModule(device, shaderDir / "NativeSkybox.frag.spv");
         const VkShaderModule shadowVertShader = CreateShaderModule(device, shaderDir / "NativeShadowDepth.vert.spv");
         if (enableHybridHdr) {
-            compositeVertShader = CreateShaderModule(device, shaderDir / "NativeComposite.vert.spv");
-            compositeFragShader = CreateShaderModule(device, shaderDir / "NativeComposite.frag.spv");
+            compositeVertShader = CreateShaderModule(device, shaderDir / "NativeHybridComposite.vert.spv");
+            compositeFragShader = CreateShaderModule(device, shaderDir / "NativeHybridComposite.frag.spv");
             hybridBundleVertShader = CreateShaderModule(device, shaderDir / "NativeHybridScreenSpace.vert.spv");
             hybridBundleFragShader = CreateShaderModule(device, shaderDir / "NativeHybridScreenSpace.frag.spv");
         }
@@ -6213,7 +6377,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             .subpass = 0,
         };
         VkPipeline pipeline = VK_NULL_HANDLE;
-        ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline),
+        ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineInfo, nullptr, &pipeline),
                  "vkCreateGraphicsPipelines");
 
         VkPipelineDepthStencilStateCreateInfo depthStencilAdditiveInfo = depthStencilInfo;
@@ -6247,7 +6411,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         pipelineAdditiveInfo.pDepthStencilState = &depthStencilAdditiveInfo;
         pipelineAdditiveInfo.pColorBlendState = &colorBlendAdditiveInfo;
         VkPipeline pipelineAdditive = VK_NULL_HANDLE;
-        ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineAdditiveInfo, nullptr, &pipelineAdditive),
+        ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineAdditiveInfo, nullptr, &pipelineAdditive),
                  "vkCreateGraphicsPipelines(scene-additive)");
 
         const VkPipelineShaderStageCreateInfo skyVertStage{
@@ -6308,23 +6472,23 @@ bool RunVulkanNativeSceneLoop(const int width,
             .subpass = 0,
         };
         VkPipeline skyPipeline = VK_NULL_HANDLE;
-        ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &skyPipelineInfo, nullptr, &skyPipeline),
+        ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &skyPipelineInfo, nullptr, &skyPipeline),
                  "vkCreateGraphicsPipelines(sky)");
 
         if (enableHybridHdr) {
             VkGraphicsPipelineCreateInfo hdrPipelineInfo = pipelineInfo;
             hdrPipelineInfo.renderPass = hdrSceneRenderPass;
-            ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &hdrPipelineInfo, nullptr, &pipelineHdrScene),
+            ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &hdrPipelineInfo, nullptr, &pipelineHdrScene),
                      "vkCreateGraphicsPipelines(hdr-scene)");
 
             VkGraphicsPipelineCreateInfo hdrAdditiveInfo = pipelineAdditiveInfo;
             hdrAdditiveInfo.renderPass = hdrSceneRenderPass;
-            ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &hdrAdditiveInfo, nullptr, &pipelineHdrSceneAdditive),
+            ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &hdrAdditiveInfo, nullptr, &pipelineHdrSceneAdditive),
                      "vkCreateGraphicsPipelines(hdr-scene-additive)");
 
             VkGraphicsPipelineCreateInfo skyHdrPipelineInfo = skyPipelineInfo;
             skyHdrPipelineInfo.renderPass = hdrSceneRenderPass;
-            ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &skyHdrPipelineInfo, nullptr, &skyPipelineHdr),
+            ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &skyHdrPipelineInfo, nullptr, &skyPipelineHdr),
                      "vkCreateGraphicsPipelines(sky-hdr)");
 
             const VkPipelineShaderStageCreateInfo compositeVertStage{
@@ -6385,8 +6549,8 @@ bool RunVulkanNativeSceneLoop(const int width,
                 .renderPass = compositeRenderPass,
                 .subpass = 0,
             };
-            ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &compositePipelineInfo, nullptr, &compositePipeline),
-                     "vkCreateGraphicsPipelines(composite)");
+            ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &compositePipelineInfo, nullptr, &compositePipeline),
+                     "vkCreateGraphicsPipelines(hybrid-composite)");
 
             const VkPipelineShaderStageCreateInfo hybridBundleVertStage{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -6407,7 +6571,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             hybridBundlePipelineInfo.pStages = hybridBundleStages.data();
             hybridBundlePipelineInfo.layout = hybridBundlePipelineLayout;
             hybridBundlePipelineInfo.renderPass = hybridBundleRenderPass;
-            ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &hybridBundlePipelineInfo, nullptr, &hybridBundlePipeline),
+            ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &hybridBundlePipelineInfo, nullptr, &hybridBundlePipeline),
                      "vkCreateGraphicsPipelines(hybrid-bundle)");
         }
 
@@ -6464,7 +6628,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             .subpass = 0,
         };
         VkPipeline shadowPipeline = VK_NULL_HANDLE;
-        ExpectVk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &shadowPipelineInfo, nullptr, &shadowPipeline),
+        ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &shadowPipelineInfo, nullptr, &shadowPipeline),
                  "vkCreateGraphicsPipelines(shadow)");
 
         BufferResource uniformBuffer{};
@@ -6785,8 +6949,8 @@ bool RunVulkanNativeSceneLoop(const int width,
 
         VkSamplerCreateInfo shadowSamplerInfo{};
         shadowSamplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        shadowSamplerInfo.magFilter = VK_FILTER_LINEAR;
-        shadowSamplerInfo.minFilter = VK_FILTER_LINEAR;
+        shadowSamplerInfo.magFilter = VK_FILTER_NEAREST;
+        shadowSamplerInfo.minFilter = VK_FILTER_NEAREST;
         shadowSamplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         shadowSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
         shadowSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
@@ -6822,7 +6986,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         const VkDescriptorImageInfo shadowDescriptorImageInfo{
             .sampler = shadowSampler,
             .imageView = shadowDepthImage.view,
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
         };
         const VkWriteDescriptorSet writeShadow{
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -6920,11 +7084,16 @@ bool RunVulkanNativeSceneLoop(const int width,
             }
 
             NativeScenePreviewData sceneData{};
-            if (!BuildNativeScenePreviewData(frame, width, height, &sceneData, &frameError)) {
+            if (!BuildNativeScenePreviewData(frame, width, height, &sceneData, &frameError, kShadowMapResolution)) {
                 throw std::runtime_error(frameError.empty() ? "Failed to build native Vulkan scene data." : frameError);
             }
             if (options.enableHybridHdrPresentation) {
                 sceneData.postProcessSecondary[3] = 1.0f;
+                sceneData.presentationTuning[3] =
+                    std::min(sceneData.presentationTuning[3] > 1e-4f ? sceneData.presentationTuning[3] : 0.58f, 0.58f);
+                if (sceneData.renderQualityTier >= 2) {
+                    sceneData.presentationTuning[0] = std::max(sceneData.presentationTuning[0], 0.05f);
+                }
             }
             if (sceneData.scene == nullptr) {
                 throw std::runtime_error("Native Vulkan scene data did not include a scene pointer.");
@@ -6932,6 +7101,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             if (cachedScene != sceneData.scene) {
                 ClearGpuMeshCache(device, meshCache);
                 cachedScene = sceneData.scene;
+                textureCache.warmForScene(*sceneData.scene, sceneData.draws, sceneData.textureRoot);
             }
             for (const NativeSceneDraw& draw : sceneData.draws) {
                 if (draw.meshHandle >= 0) {
@@ -7366,8 +7536,27 @@ bool RunVulkanNativeSceneLoop(const int width,
             std::memcpy(mappedUniformMemory, &cameraUniform, sizeof(CameraUniformStd140));
             SkyUniformStd140 skyUniform{};
             skyUniform.hasSkyTexture = sceneData.skyUseTextureFile;
+            skyUniform.useAuthoredGradient = sceneData.skyUseAuthoredGradient;
             std::memcpy(skyUniform.clipFromLocal, sceneData.skyClipFromLocal.data(), sizeof(skyUniform.clipFromLocal));
             std::memcpy(skyUniform.eyeToWorldRotation, sceneData.skyEyeToWorld.data(), sizeof(skyUniform.eyeToWorldRotation));
+            std::memcpy(skyUniform.horizonColor, sceneData.skyHorizonColor.data(), sizeof(skyUniform.horizonColor));
+            std::memcpy(skyUniform.zenithColor, sceneData.skyZenithColor.data(), sizeof(skyUniform.zenithColor));
+            skyUniform.sunDirection[0] = sceneData.lightDirectionIntensity[0];
+            skyUniform.sunDirection[1] = sceneData.lightDirectionIntensity[1];
+            skyUniform.sunDirection[2] = sceneData.lightDirectionIntensity[2];
+            skyUniform.sunDirection[3] = std::max(sceneData.lightDirectionIntensity[3], 0.0f);
+            {
+                const float sunTintMax = std::max({
+                    sceneData.directionalLightColorIntensity[0],
+                    sceneData.directionalLightColorIntensity[1],
+                    sceneData.directionalLightColorIntensity[2],
+                    1.0e-4f,
+                });
+                skyUniform.sunColor[0] = sceneData.directionalLightColorIntensity[0] / sunTintMax;
+                skyUniform.sunColor[1] = sceneData.directionalLightColorIntensity[1] / sunTintMax;
+                skyUniform.sunColor[2] = sceneData.directionalLightColorIntensity[2] / sunTintMax;
+                skyUniform.sunColor[3] = 1.0f;
+            }
             std::memcpy(mappedSkyUniformMemory, &skyUniform, sizeof(SkyUniformStd140));
 
             VkDescriptorSet skyTextureSet = textureCache.whiteDescriptorSet;
@@ -7589,6 +7778,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             vkDestroyImageView(device, imageView, nullptr);
         }
         vkDestroySwapchainKHR(device, swapchain, nullptr);
+        vkDestroyPipelineCache(device, pipelineCache, nullptr);
         vkDestroyDevice(device, nullptr);
         vkDestroySurfaceKHR(instance, surface, nullptr);
         vkDestroyInstance(instance, nullptr);

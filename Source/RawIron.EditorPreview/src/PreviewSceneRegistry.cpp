@@ -1,5 +1,7 @@
 #include "RawIron/Editor/PreviewSceneRegistry.h"
 
+#include "RawIron/Render/ScenePreviewRenderingScript.h"
+
 #include "RawIron/Scene/WorkspaceSandbox.h"
 
 #include <string>
@@ -43,9 +45,17 @@ void AnimateEditorWorkspaceScene(const std::string_view editorPreviewScene,
 }
 
 void ConfigureEditorViewportForPreview(const std::string_view editorPreviewScene,
-                                       ri::render::software::ScenePreviewOptions& options) {
+                                       ri::render::software::ScenePreviewOptions& options,
+                                       const std::filesystem::path* gameRoot) {
     if (const EditorPreviewHooks* h = Lookup(editorPreviewScene); h != nullptr && h->configureViewport != nullptr) {
         h->configureViewport(options);
+    }
+    if (gameRoot != nullptr && !gameRoot->empty()) {
+        const std::filesystem::path renderingScript = *gameRoot / "scripts" / "rendering.riscript";
+        const std::filesystem::path postprocessScript = *gameRoot / "scripts" / "postprocess.riscript";
+        (void)ri::render::software::TryApplyRenderingScriptFileToScenePreview(renderingScript, options);
+        (void)ri::render::software::TryApplyPostprocessScriptFileToScenePreview(
+            postprocessScript, renderingScript, options);
     }
 }
 

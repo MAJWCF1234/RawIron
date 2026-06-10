@@ -1,5 +1,6 @@
 #include "EditorResourceTextEditor.h"
 
+#include "EditorInspectorPanels.h"
 #include "EditorRenderer.h"
 #include "EditorResourceDocument.h"
 #include "EditorWorkspace.h"
@@ -79,7 +80,8 @@ void LayoutResourceTextEditorControl(HWND hwnd,
                                      const bool filesPanelActive,
                                      const std::filesystem::path& loadedResourceAbsolutePath,
                                      const std::string& resourceEditorAuxMessage,
-                                     const RECT& inspectorInner) {
+                                     const RECT& inspectorInner,
+                                     const FilesInspectorPanelModel& filesPanelModel) {
     if (resourceTextEditHwnd == nullptr || hwnd == nullptr) {
         return;
     }
@@ -89,9 +91,9 @@ void LayoutResourceTextEditorControl(HWND hwnd,
         ShowWindow(resourceTextEditHwnd, SW_HIDE);
         return;
     }
-    constexpr int kInspectorMetaHeight = 236;
-    const int top = inspectorInner.top + kInspectorMetaHeight;
-    const int bottom = static_cast<int>(inspectorInner.bottom) - 10;
+    const FilesInspectorLayout layout = ComputeFilesInspectorLayout(inspectorInner);
+    const int top = ComputeFilesInspectorTextEditorTop(inspectorInner, filesPanelModel);
+    const int bottom = layout.saveBtn.top - 8;
     ShowWindow(resourceTextEditHwnd, SW_SHOW);
     MoveWindow(resourceTextEditHwnd,
                inspectorInner.left + 10,

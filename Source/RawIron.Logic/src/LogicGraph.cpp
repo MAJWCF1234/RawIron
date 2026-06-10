@@ -2092,6 +2092,28 @@ void LogicGraph::HandleLatch(const std::string& selfId, NodeSlot& n, std::string
         return;
     }
 
+    if (n.latchDef.mode == LatchMode::DFlipFlop) {
+        if (in == "data") {
+            n.latch.pendingData = PulseInputHigh(ctx);
+            return;
+        }
+        if (in == "clock") {
+            if (!PulseInputHigh(ctx)) {
+                return;
+            }
+            const bool was = n.latch.value;
+            n.latch.value = n.latch.pendingData;
+            if (was != n.latch.value) {
+                LogicContext out = ctx;
+                out.fields["latchedValue"] = n.latch.value ? "true" : "false";
+                EmitOutput(selfId, "OnChanged", out);
+                EmitOutput(selfId, n.latch.value ? "OnTrue" : "OnFalse", out);
+            }
+            return;
+        }
+        return;
+    }
+
     if (n.latchDef.mode == LatchMode::PrioritySet) {
         if (in == "toggle") {
             const bool was = n.latch.value;

@@ -1,7 +1,10 @@
 add_library(RawIron.Game.RuntimeDiagnosticsDraw STATIC
   src/GameConfigContracts.cpp
+  src/GamePluginRuntimeBridge.cpp
   src/GameRuntimeCore.cpp
+  src/GameTextOverlayHost.cpp
   src/RuntimeDiagnosticsStandaloneDraw.cpp
+  src/TextOverlayStandaloneDraw.cpp
 )
 
 add_library(RawIron::Game.RuntimeDiagnosticsDraw ALIAS RawIron.Game.RuntimeDiagnosticsDraw)

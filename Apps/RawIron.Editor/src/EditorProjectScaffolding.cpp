@@ -41,7 +41,9 @@ struct ScaffoldTemplateFile {
         {"levels/assembly.lighting.csv",
          "name,type,px,py,pz,dx,dy,dz,r,g,b,intensity,range\nsun,directional,0,0,0,-0.4,-1.0,0.2,0.92,0.94,1.0,1.35,0\n"},
         {"levels/assembly.cinematics.csv", "name,type,px,py,pz,payload\nintro_marker,marker,0,1,0,opening\n"},
-        {"levels/assembly.triggers.csv", "name,type,px,py,pz,sx,sy,sz,payload\nspawn_zone,box,0,1,0,2,2,2,player_spawn\n"},
+        {"levels/assembly.triggers.csv",
+         "trigger_id,event_type,min_x,min_y,min_z,max_x,max_y,max_z,param\n"
+         "Trigger_spawn_zone,generic_trigger_volume,-1,0,-1,1,2,1,player_spawn\n"},
         {"levels/assembly.occlusion.csv", "name,type,px,py,pz,sx,sy,sz\nocclusion_anchor,box,0,1,0,4,4,4\n"},
         {"levels/assembly.audio.zones", "name,type,px,py,pz,sx,sy,sz,preset\nambient_core,box,0,1,0,10,4,10,default\n"},
         {"levels/assembly.lods.csv", "name,group,near,mid,far\nstarter_block,default,8,16,32\n"},

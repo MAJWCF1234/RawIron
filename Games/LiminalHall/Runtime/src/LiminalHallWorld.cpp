@@ -1,7 +1,10 @@
 #include "RawIron/Games/LiminalHall/LiminalHallWorld.h"
 #include "RawIron/Content/GameManifest.h"
+#include "RawIron/Core/Log.h"
 #include "RawIron/Logic/LogicKitManifest.h"
 #include "RawIron/Logic/LogicVisualPrimitives.h"
+#include "RawIron/Logic/LogicAuthoringEditorIO.h"
+#include "RawIron/Logic/LogicAuthoringWireLayout.h"
 
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Scene/ModelLoader.h"
@@ -117,61 +120,6 @@ ri::math::Vec3 PaletteOr(const std::map<std::string, ri::math::Vec3, std::less<>
                          const ri::math::Vec3& fallback) {
     const auto it = palette.find(std::string(key));
     return it == palette.end() ? fallback : it->second;
-}
-
-std::vector<std::string> BuildImportedWaterAnimationFrames() {
-    std::vector<std::string> frames;
-    frames.reserve(147U);
-    char buffer[64]{};
-    for (int index = 0; index < 147; ++index) {
-        std::snprintf(buffer, sizeof(buffer), "ri_psx_water_anim_%03d.png", index);
-        frames.emplace_back(buffer);
-    }
-    return frames;
-}
-
-[[nodiscard]] std::vector<std::string> ResolvePsxWaterAnimationFrames(const fs::path& gameRoot) {
-    const fs::path workspaceRoot = ri::content::DetectWorkspaceRoot(gameRoot);
-    const fs::path waterDir = workspaceRoot / "Assets" / "Packages" / "PSX_Water";
-    const fs::path texturesRoot = workspaceRoot / "Assets" / "Textures";
-    if (!fs::is_directory(waterDir) || !fs::is_directory(texturesRoot)) {
-        return BuildImportedWaterAnimationFrames();
-    }
-
-    std::vector<fs::path> files;
-    for (const fs::directory_entry& entry : fs::directory_iterator(waterDir)) {
-        if (!entry.is_regular_file()) {
-            continue;
-        }
-        const fs::path extension = entry.path().extension();
-        if (extension.empty()) {
-            continue;
-        }
-        std::string ext = extension.string();
-        for (char& character : ext) {
-            character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
-        }
-        if (ext != ".png") {
-            continue;
-        }
-        files.push_back(entry.path());
-    }
-    if (files.empty()) {
-        return BuildImportedWaterAnimationFrames();
-    }
-    std::sort(files.begin(), files.end());
-
-    std::vector<std::string> relativeFrames;
-    relativeFrames.reserve(files.size());
-    std::error_code relativeError{};
-    for (const fs::path& filePath : files) {
-        fs::path relative = fs::relative(filePath, texturesRoot, relativeError);
-        if (relativeError) {
-            relative = fs::path("..") / "Packages" / "PSX_Water" / filePath.filename();
-        }
-        relativeFrames.push_back(relative.generic_string());
-    }
-    return relativeFrames;
 }
 
 struct SceneMoodHandles {
@@ -468,14 +416,6 @@ void ApplyLiminalRendererShowcaseMaterials(ri::scene::Scene& scene, const fs::pa
     const auto packageExists = [&lrtPackageRoot](std::string_view tail) {
         return fs::exists((lrtPackageRoot / fs::path(tail)).lexically_normal());
     };
-    auto preferPackageTexture = [&](std::string& slot, std::string_view packageTail) {
-        if (!slot.empty()) {
-            return;
-        }
-        if (packageExists(packageTail)) {
-            slot = packagePath(packageTail);
-        }
-    };
     auto forcePackageTriplet = [&](ri::scene::Material& material,
                                    std::string_view albedoTail,
                                    std::string_view normalTail,
@@ -495,21 +435,14 @@ void ApplyLiminalRendererShowcaseMaterials(ri::scene::Scene& scene, const fs::pa
             material.ormTexture = packagePath(specTail);
         }
     };
-    auto forcePackagePair = [&](ri::scene::Material& material,
-                                std::string_view albedoTail,
-                                std::string_view normalTail) {
-        material.baseColorTexture.clear();
+    auto clearAnimatedTextureState = [&](ri::scene::Material& material) {
         material.baseColorTextureFrames.clear();
         material.baseColorTextureFramesPerSecond = 0.0f;
-        material.normalTexture.clear();
-        material.ormTexture.clear();
-        if (packageExists(albedoTail)) {
-            material.baseColorTexture = packagePath(albedoTail);
-        }
-        if (packageExists(normalTail)) {
-            material.normalTexture = packagePath(normalTail);
-        }
     };
+    constexpr ri::math::Vec3 kConcreteTint{0.74f, 0.73f, 0.71f};
+    constexpr ri::math::Vec3 kStoneTint{0.71f, 0.70f, 0.68f};
+    constexpr ri::math::Vec3 kMonolithTint{0.69f, 0.68f, 0.66f};
+    constexpr ri::math::Vec3 kWarmFluorescent{1.0f, 0.92f, 0.78f};
     auto setBrutalistConcrete = [&](ri::scene::Material& material, const ri::math::Vec3& tint, const float roughness) {
         material.shadingModel = ri::scene::ShadingModel::Lit;
         material.materialStyle = ri::scene::MaterialStyle::Layered;
@@ -520,10 +453,31 @@ void ApplyLiminalRendererShowcaseMaterials(ri::scene::Scene& scene, const fs::pa
         material.roughness = roughness;
         material.transparent = false;
         material.additiveBlend = false;
-        forcePackagePair(material, "ctm/RT_all_concrete_1.png", "ctm/RT_all_concrete_1_n.png");
-        if (packageExists("tile/RT_andesite.png")) {
-            material.detailTexture = packagePath("tile/RT_andesite.png");
+        forcePackageTriplet(material, "ctm/RT_all_concrete_1.png", "ctm/RT_all_concrete_1_n.png", "ctm/RT_all_concrete_1_s.png");
+        material.detailTexture = packageExists("tile/RT_andesite.png") ? packagePath("tile/RT_andesite.png") : std::string{};
+    };
+    auto setCarvedStone = [&](ri::scene::Material& material,
+                              const ri::math::Vec3& tint,
+                              const float roughness,
+                              const bool brickVariant) {
+        material.shadingModel = ri::scene::ShadingModel::Lit;
+        material.materialStyle = ri::scene::MaterialStyle::Layered;
+        material.materialWorkflow = ri::scene::MaterialWorkflow::MetalRough;
+        material.baseColor = tint;
+        material.emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f};
+        material.metallic = 0.0f;
+        material.roughness = roughness;
+        material.transparent = false;
+        material.additiveBlend = false;
+        if (brickVariant) {
+            forcePackageTriplet(material,
+                                "tile/RT_tuff_bricks.png",
+                                "tile/RT_tuff_bricks_n.png",
+                                "tile/RT_tuff_bricks_s.png");
+        } else {
+            forcePackageTriplet(material, "tile/RT_tuff.png", "tile/RT_tuff_n.png", "tile/RT_tuff_s.png");
         }
+        material.detailTexture = packageExists("tile/RT_tuff.png") ? packagePath("tile/RT_tuff.png") : std::string{};
     };
     auto setDarkAperture = [&](ri::scene::Material& material) {
         material.shadingModel = ri::scene::ShadingModel::Unlit;
@@ -536,25 +490,90 @@ void ApplyLiminalRendererShowcaseMaterials(ri::scene::Scene& scene, const fs::pa
         material.transparent = false;
         material.additiveBlend = false;
         material.baseColorTexture.clear();
-        material.baseColorTextureFrames.clear();
-        material.baseColorTextureFramesPerSecond = 0.0f;
+        clearAnimatedTextureState(material);
         material.normalTexture.clear();
         material.ormTexture.clear();
         material.detailTexture.clear();
     };
-    auto setDarkCatwalk = [&](ri::scene::Material& material) {
+    auto setIndustrialGrate = [&](ri::scene::Material& material) {
         material.shadingModel = ri::scene::ShadingModel::Lit;
         material.materialStyle = ri::scene::MaterialStyle::MixedMedia;
         material.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
-        material.baseColor = ri::math::Vec3{0.30f, 0.31f, 0.33f};
+        material.baseColor = ri::math::Vec3{0.34f, 0.35f, 0.37f};
         material.emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f};
-        material.metallic = 0.18f;
-        material.roughness = 0.82f;
+        material.metallic = 0.30f;
+        material.roughness = 0.72f;
         forcePackageTriplet(material,
-                            "ctm/RT_all_copper_grate_1.png",
-                            "ctm/RT_all_copper_grate_1_n.png",
-                            "ctm/RT_all_copper_grate_1_s.png");
-        preferPackageTexture(material.detailTexture, "tile/RT_stainless_steel.png");
+                            "tile/RT_iron_bars.png",
+                            "tile/RT_iron_bars_n.png",
+                            "tile/RT_iron_bars_s.png");
+        material.detailTexture = packageExists("tile/RT_stainless_steel.png") ? packagePath("tile/RT_stainless_steel.png")
+                                                                               : std::string{};
+    };
+    auto setIndustrialBlock = [&](ri::scene::Material& material, const ri::math::Vec3& tint, const float roughness) {
+        material.shadingModel = ri::scene::ShadingModel::Lit;
+        material.materialStyle = ri::scene::MaterialStyle::MixedMedia;
+        material.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
+        material.baseColor = tint;
+        material.emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f};
+        material.metallic = 0.38f;
+        material.roughness = roughness;
+        material.transparent = false;
+        material.additiveBlend = false;
+        forcePackageTriplet(material, "tile/RT_iron_block.png", "tile/RT_iron_block_n.png", "tile/RT_iron_block_s.png");
+        material.detailTexture = packageExists("tile/RT_stainless_steel.png") ? packagePath("tile/RT_stainless_steel.png")
+                                                                               : std::string{};
+    };
+    auto setSignalMetal = [&](ri::scene::Material& material, const ri::math::Vec3& tint, const float emissiveBoost) {
+        setIndustrialBlock(material, tint, 0.64f);
+        material.emissiveColor = tint * emissiveBoost;
+    };
+    auto setGameplayPlate = [&](ri::scene::Material& material) {
+        material.shadingModel = ri::scene::ShadingModel::Lit;
+        material.materialStyle = ri::scene::MaterialStyle::MixedMedia;
+        material.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
+        material.baseColor = ri::math::Vec3{0.26f, 0.31f, 0.25f};
+        material.emissiveColor = ri::math::Vec3{0.05f, 0.20f, 0.08f};
+        material.metallic = 0.24f;
+        material.roughness = 0.58f;
+        material.transparent = false;
+        material.additiveBlend = false;
+        forcePackageTriplet(material,
+                            "tile/RT_iron_trapdoor.png",
+                            "tile/RT_iron_trapdoor_n.png",
+                            "tile/RT_iron_trapdoor_s.png");
+        material.detailTexture = packageExists("tile/RT_stainless_steel.png") ? packagePath("tile/RT_stainless_steel.png")
+                                                                               : std::string{};
+    };
+    auto setGameplayDoor = [&](ri::scene::Material& material) {
+        material.shadingModel = ri::scene::ShadingModel::Lit;
+        material.materialStyle = ri::scene::MaterialStyle::MixedMedia;
+        material.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
+        material.baseColor = ri::math::Vec3{0.22f, 0.29f, 0.35f};
+        material.emissiveColor = ri::math::Vec3{0.02f, 0.06f, 0.10f};
+        material.metallic = 0.40f;
+        material.roughness = 0.48f;
+        material.transparent = false;
+        material.additiveBlend = false;
+        forcePackageTriplet(material, "tile/RT_iron_block.png", "tile/RT_iron_block_n.png", "tile/RT_iron_block_s.png");
+        material.detailTexture = packageExists("tile/RT_stainless_steel.png") ? packagePath("tile/RT_stainless_steel.png")
+                                                                               : std::string{};
+    };
+    auto setGameplayPortal = [&](ri::scene::Material& material) {
+        material.shadingModel = ri::scene::ShadingModel::Unlit;
+        material.materialStyle = ri::scene::MaterialStyle::Crystal;
+        material.materialWorkflow = ri::scene::MaterialWorkflow::MetalRough;
+        material.baseColor = ri::math::Vec3{0.72f, 0.30f, 0.88f};
+        material.emissiveColor = ri::math::Vec3{0.22f, 0.08f, 0.30f};
+        material.metallic = 0.0f;
+        material.roughness = 0.16f;
+        material.transparent = false;
+        material.additiveBlend = false;
+        forcePackageTriplet(material,
+                            "tile/RT_white_stained_glass.png",
+                            "tile/RT_white_stained_glass_n.png",
+                            "tile/RT_white_stained_glass_s.png");
+        material.detailTexture.clear();
     };
     auto setLightAperture = [&](ri::scene::Material& material, const ri::math::Vec3& glow, const bool warm) {
         const std::string materialNameLower = Lowercase(material.name);
@@ -562,7 +581,7 @@ void ApplyLiminalRendererShowcaseMaterials(ri::scene::Scene& scene, const fs::pa
         material.materialStyle = ri::scene::MaterialStyle::Standard;
         material.materialWorkflow = ri::scene::MaterialWorkflow::MetalRough;
         material.baseColor = glow;
-        material.emissiveColor = warm ? ri::math::Vec3{0.35f, 0.31f, 0.24f} : ri::math::Vec3{0.22f, 0.24f, 0.28f};
+        material.emissiveColor = warm ? ri::math::Vec3{0.48f, 0.40f, 0.28f} : ri::math::Vec3{0.18f, 0.19f, 0.22f};
         material.metallic = 0.0f;
         material.roughness = 0.40f;
         material.transparent = false;
@@ -580,37 +599,45 @@ void ApplyLiminalRendererShowcaseMaterials(ri::scene::Scene& scene, const fs::pa
         ri::scene::Material& material = scene.GetMaterial(static_cast<int>(materialIndex));
         const std::string key = Lowercase(material.name + "|" + material.baseColorTexture + "|" + material.emissiveTexture);
 
-        if (ContainsAny(key, {"logicdemo", "logic-", "dolphin", "wire"})) {
-            material.materialStyle = ri::scene::MaterialStyle::Retro;
-            material.roughness = 0.90f;
-            material.metallic = 0.0f;
+        if (ContainsAny(key, {"logicdemopressureplate", "pressureplate", "logic-demo-pressure-plate", "plate_io"})) {
+            setGameplayPlate(material);
+            continue;
+        }
+        if (ContainsAny(key, {"logicdemodoor", "logic-demo-door", "door_io"})) {
+            setGameplayDoor(material);
+            continue;
+        }
+        if (ContainsAny(key, {"logicdemoportal", "logic-demo-portal", "portal_io"})) {
+            setGameplayPortal(material);
+            continue;
+        }
+        if (ContainsAny(key, {"logicport", "logiclayer", "wire", "logicio", "logic_trigger", "logic_relay"})) {
+            setSignalMetal(material, ri::math::Vec3{0.62f, 0.64f, 0.68f}, 0.03f);
             continue;
         }
         if (ContainsAny(key, {"glow", "oculus", "aperture", "fluorescent", "door"})) {
             setLightAperture(material,
-                             ContainsAny(key, {"fluorescent"})
-                                 ? ri::math::Vec3{1.0f, 0.95f, 0.88f}
-                                 : ri::math::Vec3{0.98f, 0.98f, 0.96f},
+                             ContainsAny(key, {"fluorescent"}) ? kWarmFluorescent : ri::math::Vec3{0.94f, 0.94f, 0.92f},
                              ContainsAny(key, {"fluorescent"}));
             continue;
         }
-        if (ContainsAny(key, {"catwalk", "bridge", "grille", "metal", "deck"})) {
-            setDarkCatwalk(material);
+        if (ContainsAny(key, {"catwalk", "grille", "grate", "deck", "landing"})) {
+            setIndustrialGrate(material);
             continue;
         }
-        if (ContainsAny(key, {"tuff", "apse", "drum"})) {
-            material.materialWorkflow = ri::scene::MaterialWorkflow::MetalRough;
-            material.shadingModel = ri::scene::ShadingModel::Lit;
-            material.materialStyle = ri::scene::MaterialStyle::Layered;
-            material.baseColor = ri::math::Vec3{0.71f, 0.70f, 0.67f};
-            material.emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f};
-            material.metallic = 0.0f;
-            material.roughness = 0.97f;
-            forcePackagePair(material, "tile/RT_tuff_bricks.png", "tile/RT_tuff_bricks_n.png");
-            preferPackageTexture(material.detailTexture, "tile/RT_tuff.png");
+        if (ContainsAny(key, {"bridge", "brace", "leg", "beam", "spine", "slab", "metal"})) {
+            setIndustrialBlock(material, ri::math::Vec3{0.31f, 0.33f, 0.36f}, 0.66f);
             continue;
         }
-        setBrutalistConcrete(material, ri::math::Vec3{0.77f, 0.76f, 0.73f}, 0.97f);
+        if (ContainsAny(key, {"wall", "entry", "apse", "arch", "doorframe", "stair", "retaining", "slope"})) {
+            setCarvedStone(material, kStoneTint, 0.98f, true);
+            continue;
+        }
+        if (ContainsAny(key, {"tuff", "drum", "tower", "monolith", "pillar", "shaft", "pod", "ring", "cylinder"})) {
+            setCarvedStone(material, kMonolithTint, 0.99f, false);
+            continue;
+        }
+        setBrutalistConcrete(material, kConcreteTint, 0.99f);
     }
 
     for (std::size_t nodeIndex = 0; nodeIndex < scene.NodeCount(); ++nodeIndex) {
@@ -622,25 +649,49 @@ void ApplyLiminalRendererShowcaseMaterials(ri::scene::Scene& scene, const fs::pa
         const std::string nodeName = Lowercase(node.name);
         if (ContainsAny(nodeName, {"oculus", "glow", "aperture", "fluorescent"})) {
             setLightAperture(material,
-                             ContainsAny(nodeName, {"fluorescent"})
-                                 ? ri::math::Vec3{1.0f, 0.95f, 0.88f}
-                                 : ri::math::Vec3{0.98f, 0.98f, 0.96f},
+                             ContainsAny(nodeName, {"fluorescent"}) ? kWarmFluorescent : ri::math::Vec3{0.94f, 0.94f, 0.92f},
                              ContainsAny(nodeName, {"fluorescent"}));
             continue;
         }
-        if (ContainsAny(nodeName, {"windowcard", "window"})) {
+        if (ContainsAny(nodeName, {"windowcard", "midtowerwindow", "window"})
+            && !ContainsAny(nodeName, {"glow", "fluorescent"})) {
             setDarkAperture(material);
             continue;
         }
-        if (ContainsAny(nodeName, {"catwalk", "bridge", "stair", "deck", "brace", "leg"})) {
-            setDarkCatwalk(material);
+        if (ContainsAny(nodeName, {"pressureplate"})) {
+            setGameplayPlate(material);
             continue;
         }
-        if (ContainsAny(nodeName, {"entry", "apse", "pillar", "wall", "floor", "tower", "monolith", "shaft", "pod", "ring", "drum", "arch", "causeway", "plaza"})) {
-            const bool darker = ContainsAny(nodeName, {"wall", "drum", "tower", "monolith"});
-            setBrutalistConcrete(material,
-                                 darker ? ri::math::Vec3{0.69f, 0.68f, 0.66f} : ri::math::Vec3{0.78f, 0.77f, 0.74f},
-                                 darker ? 0.985f : 0.97f);
+        if (ContainsAny(nodeName, {"logicdemodoor"})) {
+            setGameplayDoor(material);
+            continue;
+        }
+        if (ContainsAny(nodeName, {"logicdemoportal"})) {
+            setGameplayPortal(material);
+            continue;
+        }
+        if (ContainsAny(nodeName, {"logicport", "logiclayer", "wire", "logicio"})) {
+            setSignalMetal(material, ri::math::Vec3{0.62f, 0.64f, 0.68f}, 0.03f);
+            continue;
+        }
+        if (ContainsAny(nodeName, {"catwalk", "deck", "landing"})) {
+            setIndustrialGrate(material);
+            continue;
+        }
+        if (ContainsAny(nodeName, {"bridge", "brace", "leg", "beam", "spine", "slab"})) {
+            setIndustrialBlock(material, ri::math::Vec3{0.31f, 0.33f, 0.36f}, 0.66f);
+            continue;
+        }
+        if (ContainsAny(nodeName, {"floor", "plaza", "causeway", "basin"})) {
+            setBrutalistConcrete(material, kConcreteTint, 0.99f);
+            continue;
+        }
+        if (ContainsAny(nodeName, {"entry", "apse", "wall", "arch", "doorframe", "stair", "retaining", "slope"})) {
+            setCarvedStone(material, kStoneTint, 0.98f, true);
+            continue;
+        }
+        if (ContainsAny(nodeName, {"pillar", "tower", "monolith", "shaft", "pod", "ring", "drum", "cylinder"})) {
+            setCarvedStone(material, kMonolithTint, 0.99f, false);
         }
     }
 }
@@ -668,18 +719,22 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
     const auto palette = LoadLiminalPalette(gameRoot);
     const fs::path workspaceRoot = ri::content::DetectWorkspaceRoot(gameRoot);
     const fs::path logicKitManifestPath = workspaceRoot / std::string(ri::logic::kLogicKitNodesJsonRelative);
+    const fs::path lrtPackageRoot = workspaceRoot / "Assets" / "Packages" / "LRT - Texture Pack - RT28.8 - 128x";
+    const auto liminalPackageTexture = [&lrtPackageRoot](std::string_view relativePath) {
+        return (lrtPackageRoot / fs::path(relativePath)).lexically_normal().generic_string();
+    };
 
     world.handles.root = scene.CreateNode("DreamEmulatorLayer");
 
     LightNodeOptions sun{};
     sun.nodeName = "VoidLight";
     sun.parent = world.handles.root;
-    sun.transform.rotationDegrees = ri::math::Vec3{-60.0f, 45.0f, 0.0f};
+    sun.transform.rotationDegrees = ri::math::Vec3{-52.0f, 38.0f, 0.0f};
     sun.light = Light{
         .name = "VoidLight",
         .type = LightType::Directional,
-        .color = PaletteOr(palette, "void_ambient", ri::math::Vec3{0.18f, 0.05f, 0.25f}),
-        .intensity = 1.8f,
+        .color = PaletteOr(palette, "void_ambient", ri::math::Vec3{0.52f, 0.51f, 0.49f}),
+        .intensity = 1.15f,
     };
     world.handles.sun = AddLightNode(scene, sun);
 
@@ -702,8 +757,6 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
 
     world.handles.grid = ri::scene::kInvalidHandle;
     world.handles.axes = {};
-
-    const std::vector<std::string> importedAnimFrames = ResolvePsxWaterAnimationFrames(gameRoot);
 
     auto addPrimitive = [&](const std::string& nodeName,
                             PrimitiveType primitive,
@@ -730,33 +783,6 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
         return AddPrimitiveNode(scene, primitiveOptions);
     };
 
-    auto addAnimatedPrimitive = [&](const std::string& nodeName,
-                                    PrimitiveType primitive,
-                                    const ri::math::Vec3& position,
-                                    const ri::math::Vec3& scale,
-                                    const ri::math::Vec3& color,
-                                    const std::vector<std::string>& frames,
-                                    float framesPerSecond,
-                                    const ri::math::Vec2& tiling,
-                                    std::string materialName,
-                                    ShadingModel shading = ShadingModel::Lit,
-                                    const ri::math::Vec3& rotation = ri::math::Vec3{}) {
-        PrimitiveNodeOptions primitiveOptions{};
-        primitiveOptions.nodeName = nodeName;
-        primitiveOptions.parent = world.handles.root;
-        primitiveOptions.primitive = primitive;
-        primitiveOptions.materialName = std::move(materialName);
-        primitiveOptions.shadingModel = shading;
-        primitiveOptions.baseColor = color;
-        primitiveOptions.baseColorTextureFrames = frames;
-        primitiveOptions.baseColorTextureFramesPerSecond = framesPerSecond;
-        primitiveOptions.textureTiling = tiling;
-        primitiveOptions.transform.position = position;
-        primitiveOptions.transform.scale = scale;
-        primitiveOptions.transform.rotationDegrees = rotation;
-        return AddPrimitiveNode(scene, primitiveOptions);
-    };
-
     world.handles.orbitCamera.orbit.target = ri::math::Vec3{0.0f, 4.0f, 2.0f};
     SetOrbitCameraState(scene, world.handles.orbitCamera, world.handles.orbitCamera.orbit);
 
@@ -773,7 +799,7 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
                      pressurePlatePos,
                      pressurePlateScale,
                      ri::math::Vec3{0.2f, 0.95f, 0.35f},
-                     "ri_prototype_green.png",
+                     liminalPackageTexture("tile/RT_iron_trapdoor.png"),
                      ri::math::Vec2{1.0f, 1.0f},
                      "logic-demo-pressure-plate",
                      ShadingModel::Unlit);
@@ -790,7 +816,7 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
                      world.logicDemo.doorClosedPosition,
                      ri::math::Vec3{2.3f, 3.8f, 0.35f},
                      ri::math::Vec3{0.1f, 0.7f, 1.0f},
-                     "ri_prototype_cyan.png",
+                     liminalPackageTexture("tile/RT_iron_block.png"),
                      ri::math::Vec2{1.0f, 2.0f},
                      "logic-demo-door",
                      ShadingModel::Lit);
@@ -802,7 +828,7 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
                      portalPos,
                      ri::math::Vec3{0.01f, 0.01f, 0.01f},
                      ri::math::Vec3{0.85f, 0.2f, 1.0f},
-                     "ri_prototype_magenta.png",
+                     liminalPackageTexture("tile/RT_white_stained_glass.png"),
                      ri::math::Vec2{1.0f, 1.0f},
                      "logic-demo-portal",
                      ShadingModel::Unlit);
@@ -840,7 +866,7 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
                          position,
                          scale,
                          color,
-                         "ri_prototype_white.png",
+                         liminalPackageTexture("tile/RT_iron_block.png"),
                          ri::math::Vec2{1.0f, 1.0f},
                          "logic-visual-" + instance.id,
                          ShadingModel::Unlit,
@@ -928,7 +954,7 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
                                     stubPos,
                                     stubScale,
                                     stubColor,
-                                    "ri_prototype_white.png",
+                                    liminalPackageTexture("tile/RT_iron_block.png"),
                                     ri::math::Vec2{1.0f, 1.0f},
                                     std::string("logic-port-") + nodeId + "-" + instance.id,
                                     ShadingModel::Unlit,
@@ -1088,9 +1114,9 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
     corridorLight.light = Light{
         .name = "SouthCorridorLight",
         .type = LightType::Point,
-        .color = ri::math::Vec3{1.0f, 0.94f, 0.86f},
-        .intensity = 10.0f,
-        .range = 18.0f,
+        .color = ri::math::Vec3{1.0f, 0.92f, 0.78f},
+        .intensity = 18.0f,
+        .range = 26.0f,
     };
     (void)AddLightNode(scene, corridorLight);
 
@@ -1101,9 +1127,9 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
     skylightFill.light = Light{
         .name = "MainSkylightFill",
         .type = LightType::Point,
-        .color = ri::math::Vec3{0.92f, 0.95f, 1.0f},
-        .intensity = 18.0f,
-        .range = 78.0f,
+        .color = ri::math::Vec3{0.78f, 0.79f, 0.80f},
+        .intensity = 12.0f,
+        .range = 96.0f,
     };
     (void)AddLightNode(scene, skylightFill);
 
@@ -1114,9 +1140,9 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
     northApseLight.light = Light{
         .name = "NorthApseLight",
         .type = LightType::Point,
-        .color = ri::math::Vec3{1.0f, 0.99f, 0.96f},
-        .intensity = 14.0f,
-        .range = 24.0f,
+        .color = ri::math::Vec3{0.96f, 0.93f, 0.86f},
+        .intensity = 10.0f,
+        .range = 30.0f,
     };
     (void)AddLightNode(scene, northApseLight);
 
@@ -1168,9 +1194,9 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
     westFill.light = Light{
         .name = "WestVoidFill",
         .type = LightType::Point,
-        .color = ri::math::Vec3{0.84f, 0.88f, 0.94f},
-        .intensity = 9.0f,
-        .range = 42.0f,
+        .color = ri::math::Vec3{0.72f, 0.74f, 0.76f},
+        .intensity = 6.0f,
+        .range = 52.0f,
     };
     (void)AddLightNode(scene, westFill);
 
@@ -1223,6 +1249,124 @@ void AnimateEditorStarterScene(StarterScene& starterScene, double elapsedSeconds
     starterScene.scene.GetNode(starterScene.handles.sun).localTransform.rotationDegrees =
         ri::math::Vec3{-58.0f, 42.0f, 0.0f};
     AnimateSceneMood(starterScene.scene, elapsedSeconds);
+}
+
+void SpawnEditorAuthoredLogicVisuals(World& world,
+                                     const ri::logic::LogicAuthoringEditorFile& file,
+                                     const fs::path& workspaceRoot) {
+    if (world.handles.root == ri::scene::kInvalidHandle
+        || (file.nodes.empty() && file.wires.empty() && file.triggers.empty())) {
+        return;
+    }
+
+    const fs::path manifestPath = workspaceRoot / std::string(ri::logic::kLogicKitNodesJsonRelative);
+    if (std::optional<ri::logic::LogicKitManifest> loaded = ri::logic::LoadLogicKitManifest(manifestPath)) {
+        static std::unique_ptr<ri::logic::LogicKitManifest> s_editorKitManifest;
+        s_editorKitManifest = std::make_unique<ri::logic::LogicKitManifest>(std::move(*loaded));
+        ri::logic::SetActiveLogicKitManifest(s_editorKitManifest.get());
+    }
+
+    ri::scene::Scene& scene = world.scene;
+    const int logicFolder = scene.CreateNode("EditorAuthoredLogic", world.handles.root);
+    const ri::logic::LogicVisualLibrary library = ri::logic::BuildDefaultLogicVisualLibrary();
+
+    auto registerHiddenLogicHandle = [&](const int handle,
+                                         const ri::math::Vec3& visibleScale,
+                                         const std::string& logicProbeId) {
+        if (handle == ri::scene::kInvalidHandle) {
+            return;
+        }
+        world.logicDemo.logicLayerNodes.push_back(handle);
+        world.logicDemo.logicLayerNodeProbeIds.push_back(logicProbeId);
+        world.logicDemo.logicLayerVisibleScales.push_back(visibleScale);
+        scene.GetNode(handle).localTransform.scale = ri::math::Vec3{0.01f, 0.01f, 0.01f};
+    };
+
+    for (const ri::logic::LogicAuthoringEditorNodeRecord& record : file.nodes) {
+        const ri::math::Vec3 position{record.position[0], record.position[1], record.position[2]};
+        const std::array<float, 3> worldPos{position.x, position.y, position.z};
+        bool importedKitMesh = false;
+
+        if (const ri::logic::LogicKitManifest* kit = ri::logic::ActiveLogicKitManifest()) {
+            if (const ri::logic::LogicKitNodeManifestEntry* entry =
+                    ri::logic::FindLogicKitNodeManifestEntry(*kit, record.kitId)) {
+                const fs::path glbPath = ri::logic::ResolveLogicKitGlbPath(manifestPath, entry->glbRelative);
+                std::error_code ec{};
+                if (fs::is_regular_file(glbPath, ec)) {
+                    ri::scene::GltfModelOptions glb{};
+                    glb.sourcePath = glbPath;
+                    glb.wrapperNodeName = record.logicNodeId + "_Kit";
+                    glb.parent = logicFolder;
+                    glb.transform.position = position;
+                    const int glbRoot = ri::scene::AddGltfModelNode(scene, glb);
+                    registerHiddenLogicHandle(glbRoot, ri::math::Vec3{1.0f, 1.0f, 1.0f}, record.logicNodeId);
+                    importedKitMesh = glbRoot != ri::scene::kInvalidHandle;
+                }
+            }
+        }
+
+        const std::vector<ri::logic::LogicVisualPrimitiveInstance> layoutInstances =
+            ri::logic::BuildLogicVisualNodeInstances(library, record.kitId, record.logicNodeId, worldPos, false);
+        for (const ri::logic::LogicVisualPrimitiveInstance& instance : layoutInstances) {
+            if (importedKitMesh && instance.kind == ri::logic::LogicVisualPrimitiveKind::NodeBody) {
+                continue;
+            }
+            const ri::math::Vec3 instancePos{instance.worldPosition[0], instance.worldPosition[1], instance.worldPosition[2]};
+            const ri::math::Vec3 instanceScale{instance.worldScale[0], instance.worldScale[1], instance.worldScale[2]};
+            const ri::math::Vec3 instanceColor{instance.color[0], instance.color[1], instance.color[2]};
+            const ri::math::Vec3 instanceEmissive{instance.emissive[0], instance.emissive[1], instance.emissive[2]};
+            ri::scene::PrimitiveNodeOptions options{};
+            options.parent = logicFolder;
+            options.primitive = ri::scene::PrimitiveType::Cube;
+            options.shadingModel = ri::scene::ShadingModel::Unlit;
+            options.nodeName = instance.id;
+            options.materialName = std::string("logic_") + record.kitId;
+            options.baseColor = instanceColor * 0.35f;
+            options.emissiveColor = instanceEmissive * 0.85f;
+            options.transform.position = instancePos;
+            options.transform.scale = instanceScale;
+            registerHiddenLogicHandle(
+                ri::scene::AddPrimitiveNode(scene, options), instanceScale, record.logicNodeId);
+        }
+    }
+
+    const ri::logic::LogicEditorPortLayout portLayout = ri::logic::BuildLogicEditorPortLayout(file);
+    const int wireFolder = scene.CreateNode("EditorAuthoredLogicWires", logicFolder);
+    int wireSerial = 0;
+    constexpr float beadRadius = 0.10f;
+    for (const ri::logic::LogicAuthoringEditorWireRecord& wire : file.wires) {
+        const std::optional<std::array<float, 3>> from =
+            ri::logic::ResolveLogicEditorWireEndpoint(portLayout, file, wire.sourceLogicId, wire.outputName, false);
+        const std::optional<std::array<float, 3>> to =
+            ri::logic::ResolveLogicEditorWireEndpoint(portLayout, file, wire.targetLogicId, wire.inputName, true);
+        if (!from.has_value() || !to.has_value()) {
+            continue;
+        }
+        const std::vector<std::array<float, 3>> beadPositions =
+            ri::logic::BuildLogicWireBezierBeadPositions(*from, *to);
+        for (const std::array<float, 3>& beadPos : beadPositions) {
+            ri::scene::PrimitiveNodeOptions options{};
+            options.parent = wireFolder;
+            options.primitive = ri::scene::PrimitiveType::Sphere;
+            options.shadingModel = ri::scene::ShadingModel::Unlit;
+            options.nodeName = wire.wireId + "_bead_" + std::to_string(wireSerial++);
+            options.materialName = "logic_wire_bead";
+            options.baseColor = ri::math::Vec3{0.55f, 0.42f, 0.08f};
+            options.emissiveColor = ri::math::Vec3{0.95f, 0.78f, 0.18f};
+            options.transform.position =
+                ri::math::Vec3{beadPos[0], beadPos[1], beadPos[2]};
+            options.transform.scale = ri::math::Vec3{beadRadius, beadRadius, beadRadius};
+            const int handle = ri::scene::AddPrimitiveNode(scene, options);
+            const ri::math::Vec3 visibleScale{beadRadius, beadRadius, beadRadius};
+            registerHiddenLogicHandle(handle, visibleScale, wire.sourceLogicId);
+            world.logicDemo.logicWireVisualNodes.push_back(handle);
+            world.logicDemo.logicWireProbeSources.push_back(wire.sourceLogicId);
+        }
+    }
+
+    ri::core::LogInfo(
+        "Spawned editor-authored logic visuals: " + std::to_string(file.nodes.size()) + " nodes, "
+        + std::to_string(file.wires.size()) + " wires (layer hidden until debug).");
 }
 
 } // namespace ri::games::liminal

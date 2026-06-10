@@ -6,11 +6,15 @@ layout(location = 0) out vec3 vWorldRay;
 
 layout(std140, set = 0, binding = 0) uniform SkyUniforms {
     int hasSkyTexture;
+    int useAuthoredGradient;
     int _pad0;
     int _pad1;
-    int _pad2;
     mat4 clipFromLocal;
     mat4 eyeToWorldRotation;
+    vec4 sunDirection;
+    vec4 sunColor;
+    vec4 horizonColor;
+    vec4 zenithColor;
 } sky;
 
 void main() {

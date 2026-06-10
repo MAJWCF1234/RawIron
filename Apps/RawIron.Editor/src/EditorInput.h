@@ -22,6 +22,9 @@ namespace ri::editor {
 
 enum class EditorToolbarHit {
     None,
+    Select,
+    Create,
+    Camera,
     Translate,
     Rotate,
     Scale,
@@ -34,6 +37,7 @@ enum class EditorToolbarHit {
     AddCube,
     AddPlane,
     AddTrigger,
+    AddLight,
     Duplicate,
     ExportCsv,
     Play,
@@ -42,6 +46,7 @@ enum class EditorToolbarHit {
 enum class EditorLeftPanelHitType {
     None,
     SceneTab,
+    CreateTab,
     ResourcesTab,
     FocusedGamePrev,
     FocusedGameNext,
@@ -56,6 +61,7 @@ enum class EditorLeftPanelHitType {
 
 enum class EditorTopChromeHit {
     None,
+    NewGame,
     Save,
     Scaffold,
     ExportScene,
@@ -69,6 +75,7 @@ enum class EditorInspectorTabHit {
     Brush,
     Gameplay,
     Files,
+    Store,
     UiWorkbench,
 };
 
@@ -99,7 +106,12 @@ enum class EditorInspectorPanelHitType {
     UiWorkbenchUseMenuSample,
     UiWorkbenchUseVnSample,
     UiWorkbenchNewScreen,
+    UiWorkbenchNewMenuScreen,
     UiWorkbenchDuplicateScreen,
+    UiWorkbenchAddButtonBlock,
+    UiWorkbenchAddHeadingBlock,
+    UiWorkbenchAddParagraphBlock,
+    UiWorkbenchAddSpacerBlock,
     UiWorkbenchAddChoiceBlock,
     UiWorkbenchSetStartScreen,
     UiWorkbenchAddDialogueBlock,
@@ -107,6 +119,12 @@ enum class EditorInspectorPanelHitType {
     UiWorkbenchMoveBlockUp,
     UiWorkbenchMoveBlockDown,
     UiWorkbenchDeleteBlock,
+    PluginStoreRefresh,
+    PluginStoreOpenFolder,
+    PluginStoreScrollPrev,
+    PluginStoreScrollNext,
+    PluginStoreAction,
+    PluginStoreUninstall,
 };
 
 struct EditorLeftPanelHit {
@@ -116,9 +134,11 @@ struct EditorLeftPanelHit {
 
 struct EditorInspectorPanelHit {
     EditorInspectorPanelHitType type = EditorInspectorPanelHitType::None;
+    int index = -1;
 };
 
 struct EditorTopChromeDispatchCallbacks {
+    std::function<void()> onNewGame;
     std::function<void()> onSave;
     std::function<void()> onScaffold;
     std::function<void()> onExportScene;
@@ -127,6 +147,9 @@ struct EditorTopChromeDispatchCallbacks {
 };
 
 struct EditorToolbarDispatchCallbacks {
+    std::function<void()> onSelectMode;
+    std::function<void()> onCreateMode;
+    std::function<void()> onCameraMode;
     std::function<void()> onTranslate;
     std::function<void()> onRotate;
     std::function<void()> onScale;
@@ -139,6 +162,7 @@ struct EditorToolbarDispatchCallbacks {
     std::function<void()> onAddCube;
     std::function<void()> onAddPlane;
     std::function<void()> onAddTrigger;
+    std::function<void()> onAddLight;
     std::function<void()> onDuplicate;
     std::function<void()> onExportCsv;
     std::function<void()> onPlay;
@@ -159,6 +183,7 @@ struct EditorLeftPanelDispatchContext {
     std::function<bool(const char*)> tryResolveDirtyResourceBeforeContextSwitch;
     std::function<void(int)> onFocusedWorkspaceGameIndexChanged;
     std::function<void()> onSceneTab;
+    std::function<void()> onCreateTab;
     std::function<void()> onResourcesTab;
     std::function<void()> onSearchActivate;
     std::function<void()> onSceneSearchClear;
@@ -178,6 +203,7 @@ struct EditorInspectorTabDispatchCallbacks {
     std::function<void()> onBrush;
     std::function<void()> onGameplay;
     std::function<void()> onFiles;
+    std::function<void()> onStore;
     std::function<void()> onUiWorkbench;
 };
 
@@ -185,11 +211,13 @@ struct EditorInspectorPanelDispatchContext {
     RECT inspectorInner{};
     GameplayPanelLayout gameplayLayout{};
     UiWorkbenchLayout uiWorkbenchLayout{};
+    PluginStoreLayout pluginStoreLayout{};
     ProjectShortcutLayout projectShortcuts{};
     std::string primaryLevelShortcutPath;
     bool brushPanelActive = false;
     bool filesPanelActive = false;
     bool gameplayPanelActive = false;
+    bool pluginStoreActive = false;
     bool uiWorkbenchActive = false;
     std::function<bool(const POINT&)> tryHandleNudge;
     std::function<void(int)> onCycleBrushPreset;
@@ -201,12 +229,23 @@ struct EditorInspectorPanelDispatchContext {
     std::function<void()> onAddTrigger;
     std::function<void()> onExportGameplay;
     std::function<void()> onGameplayPlaytest;
+    std::function<void()> onRefreshPluginStore;
+    std::function<void()> onOpenPluginStoreFolder;
+    std::function<void()> onPluginStoreScrollPrev;
+    std::function<void()> onPluginStoreScrollNext;
+    std::function<void(int)> onPluginStoreAction;
+    std::function<void(int)> onPluginStoreUninstall;
     std::function<void(int)> onCycleUiWorkbenchScreen;
     std::function<void()> onUseAutoUiWorkbenchSource;
     std::function<void()> onUseMenuSampleUiWorkbenchSource;
     std::function<void()> onUseVnSampleUiWorkbenchSource;
     std::function<void()> onUiWorkbenchNewScreen;
+    std::function<void()> onUiWorkbenchNewMenuScreen;
     std::function<void()> onUiWorkbenchDuplicateScreen;
+    std::function<void()> onUiWorkbenchAddButtonBlock;
+    std::function<void()> onUiWorkbenchAddHeadingBlock;
+    std::function<void()> onUiWorkbenchAddParagraphBlock;
+    std::function<void()> onUiWorkbenchAddSpacerBlock;
     std::function<void()> onUiWorkbenchAddChoiceBlock;
     std::function<void()> onUiWorkbenchSetStartScreen;
     std::function<void()> onUiWorkbenchAddDialogueBlock;
@@ -234,6 +273,7 @@ struct EditorCommandHotkeyContext {
     std::function<void()> onAddCube;
     std::function<void()> onAddPlane;
     std::function<void()> onAddTrigger;
+    std::function<void()> onAddLight;
     std::function<void()> onSpawnStructuralBrush;
     std::function<void(int)> onSelectStructuralPresetDigit;
     std::function<void()> onDuplicateSelectedNode;
@@ -260,6 +300,7 @@ struct EditorCommandHotkeyContext {
     std::function<void()> onSelectInspectorBrush;
     std::function<void()> onSelectInspectorGameplay;
     std::function<void()> onSelectInspectorFiles;
+    std::function<void()> onSelectInspectorStore;
     std::function<void()> onSelectInspectorUiWorkbench;
     std::function<void(int)> onSelectAdjacentAuthoredNode;
     std::function<void()> onCycleGameplayInventoryMode;
@@ -281,6 +322,7 @@ struct EditorCommandHotkeyContext {
                                                                  const ProjectShortcutLayout& shortcuts);
 [[nodiscard]] EditorInspectorPanelHit HitTestGameplayInspectorPanel(const GameplayPanelLayout& layout,
                                                                     const POINT& point);
+[[nodiscard]] EditorInspectorPanelHit HitTestPluginStorePanel(const PluginStoreLayout& layout, const POINT& point);
 [[nodiscard]] EditorInspectorPanelHit HitTestUiWorkbenchInspectorPanel(const UiWorkbenchLayout& layout,
                                                                        const POINT& point);
 [[nodiscard]] bool DispatchEditorTopChromeClick(const RECT& clientRect,

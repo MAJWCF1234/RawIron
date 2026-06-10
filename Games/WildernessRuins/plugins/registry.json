@@ -1,1 +1,11 @@
-{ "plugins": ["ruins.telemetry"] }
+{
+  "plugins": [
+    {
+      "id": "ruins.telemetry",
+      "enabled": true,
+      "hookGroup": "runtime.telemetry",
+      "description": "Forest Ruins runtime diagnostics telemetry.",
+      "author": "RawIron"
+    }
+  ]
+}

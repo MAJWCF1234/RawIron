@@ -31,7 +31,7 @@ struct StandaloneOptions {
     int width = 1280;
     int height = 720;
     int benchmarkFrames = 0;
-    bool hybridHdr = false;
+    bool hybridHdr = true;
 };
 
 bool RunStandalone(const StandaloneOptions& options,

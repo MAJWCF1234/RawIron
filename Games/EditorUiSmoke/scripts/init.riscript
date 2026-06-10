@@ -1,0 +1,3 @@
+# RawIron init script
+game.id="editor-ui-smoke"
+game.primary_level="levels/assembly.primitives.csv"

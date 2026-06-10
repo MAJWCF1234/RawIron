@@ -307,7 +307,8 @@ bool TryDeleteSelectedNode(ri::scene::Scene& scene,
         message = "Delete failed — could not re-parent node.";
         return false;
     }
-    selectedNode = static_cast<std::size_t>(context.handles == nullptr ? 0 : context.handles->root);
+    const int rootHandle = context.handles == nullptr ? ri::scene::kInvalidHandle : context.handles->root;
+    selectedNode = rootHandle == ri::scene::kInvalidHandle ? 0U : static_cast<std::size_t>(rootHandle);
     message = "Removed geometry from the working scene (hidden EditorTrash folder).";
     return true;
 }

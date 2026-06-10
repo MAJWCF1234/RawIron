@@ -349,7 +349,9 @@ struct ForestSceneLayout {
     layout.botdMeshesRoot = PreferExistingPath(
         sortedPackRoot / "UnityOnly" / "Assets" / "Conifers [BOTD]" / "Sources" / "Meshes",
         layout.botdRoot / "Sources" / "Meshes");
-    layout.botdSharedTexturesRoot = layout.botdRoot / "Sources" / "Shared Textures";
+    layout.botdSharedTexturesRoot = PreferExistingPath(
+        sortedPackRoot / "UnityOnly" / "Assets" / "Conifers [BOTD]" / "Sources" / "Shared Textures",
+        layout.botdRoot / "Sources" / "Shared Textures");
     layout.botdTrunkDiffuse = layout.botdSharedTexturesRoot / "BODT Conifer Trunk [Albedo] [Smoothness].tif";
     layout.exportedMeshesRoot = gameRoot / "Assets" / "Generated" / "ForestScene" / "Meshes";
 
@@ -374,6 +376,7 @@ struct ForestSceneLayout {
 struct BotdBillboardVariant {
     std::string label{};
     fs::path albedoPath{};
+    fs::path normalPath{};
     float width = 3.2f;
     float height = 8.8f;
 };
@@ -400,6 +403,19 @@ struct BotdBillboardVariant {
             .label = folderName,
             .albedoPath = entry.path(),
         };
+        for (const fs::directory_entry& sibling : fs::directory_iterator(folderPath, ec)) {
+            if (ec || !sibling.is_regular_file()) {
+                continue;
+            }
+            const std::string siblingLower = ToLowerAscii(sibling.path().filename().string());
+            if (!siblingLower.ends_with(".png")) {
+                continue;
+            }
+            if (siblingLower.find("normal") != std::string::npos && siblingLower.find("albedo") == std::string::npos) {
+                variant.normalPath = sibling.path();
+                break;
+            }
+        }
         const std::string folderLower = ToLowerAscii(folderName);
         if (folderLower.find("bare") != std::string::npos) {
             variant.width = 2.9f;
@@ -513,6 +529,173 @@ struct BotdBillboardVariant {
 [[nodiscard]] bool SourceForestPackReady(const ForestSceneLayout& forest) {
     return fs::exists(forest.groundDiffuse) && fs::exists(forest.rocksRoot / "Rock1A.fbx")
         && !DiscoverBotdBillboardVariants(forest.botdBillboardsRoot).empty();
+}
+
+[[nodiscard]] bool ContainsAny(std::string_view text, std::initializer_list<std::string_view> needles) {
+    for (const std::string_view needle : needles) {
+        if (!needle.empty() && text.find(needle) != std::string_view::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void AbsolutizeMaterialTexturePaths(ri::scene::Scene& scene) {
+    const auto absolutize = [](std::string& texturePath) {
+        if (texturePath.empty()) {
+            return;
+        }
+        std::error_code ec{};
+        fs::path resolved(texturePath);
+        if (!resolved.is_absolute()) {
+            resolved = fs::absolute(resolved, ec);
+        }
+        resolved = resolved.lexically_normal();
+        if (fs::exists(resolved, ec) && !ec) {
+            texturePath = resolved.generic_string();
+        }
+    };
+
+    for (std::size_t materialIndex = 0; materialIndex < scene.MaterialCount(); ++materialIndex) {
+        ri::scene::Material& material = scene.GetMaterial(static_cast<int>(materialIndex));
+        absolutize(material.baseColorTexture);
+        absolutize(material.normalTexture);
+        absolutize(material.ormTexture);
+        absolutize(material.roughnessTexture);
+        absolutize(material.metallicTexture);
+        absolutize(material.emissiveTexture);
+        absolutize(material.opacityTexture);
+        absolutize(material.occlusionTexture);
+        absolutize(material.detailTexture);
+        for (std::string& framePath : material.baseColorTextureFrames) {
+            absolutize(framePath);
+        }
+    }
+}
+
+void ApplyForestRuinsShowcaseMaterials(ri::scene::Scene& scene, const fs::path& engineTexturesRoot) {
+    const fs::path lrtPackageRoot =
+        fs::weakly_canonical(engineTexturesRoot / ".." / "Packages" / "LRT - Texture Pack - RT28.8 - 128x");
+    const auto packagePath = [&lrtPackageRoot](std::string_view tail) {
+        return (lrtPackageRoot / fs::path(tail)).lexically_normal().generic_string();
+    };
+    const auto packageExists = [&lrtPackageRoot](std::string_view tail) {
+        return fs::exists((lrtPackageRoot / fs::path(tail)).lexically_normal());
+    };
+    auto forcePackageTriplet = [&](ri::scene::Material& material,
+                                   std::string_view albedoTail,
+                                   std::string_view normalTail,
+                                   std::string_view specTail) {
+        material.baseColorTexture.clear();
+        material.baseColorTextureFrames.clear();
+        material.baseColorTextureFramesPerSecond = 0.0f;
+        material.normalTexture.clear();
+        material.ormTexture.clear();
+        if (packageExists(albedoTail)) {
+            material.baseColorTexture = packagePath(albedoTail);
+        }
+        if (packageExists(normalTail)) {
+            material.normalTexture = packagePath(normalTail);
+        }
+        if (packageExists(specTail)) {
+            material.ormTexture = packagePath(specTail);
+        }
+    };
+    auto setLayeredStone = [&](ri::scene::Material& material,
+                               const ri::math::Vec3& tint,
+                               const float roughness,
+                               std::string_view albedoTail,
+                               std::string_view normalTail,
+                               std::string_view specTail,
+                               const ri::math::Vec2 tiling) {
+        material.shadingModel = ri::scene::ShadingModel::Lit;
+        material.materialStyle = ri::scene::MaterialStyle::Layered;
+        material.materialWorkflow = ri::scene::MaterialWorkflow::MetalRough;
+        material.baseColor = tint;
+        material.emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f};
+        material.metallic = 0.0f;
+        material.roughness = roughness;
+        material.transparent = false;
+        material.additiveBlend = false;
+        material.textureTiling = tiling;
+        forcePackageTriplet(material, albedoTail, normalTail, specTail);
+        material.detailTexture = material.baseColorTexture;
+    };
+
+    for (std::size_t materialIndex = 0; materialIndex < scene.MaterialCount(); ++materialIndex) {
+        ri::scene::Material& material = scene.GetMaterial(static_cast<int>(materialIndex));
+        const std::string key = ToLowerAscii(material.name);
+
+        if (ContainsAny(key, {"old-road-moss-dirt", "leaf-litter-shadow"})) {
+            setLayeredStone(material,
+                            material.baseColor,
+                            0.97f,
+                            "tile/RT_coarse_dirt.png",
+                            "tile/RT_coarse_dirt_n.png",
+                            "tile/RT_coarse_dirt_s.png",
+                            ri::math::Vec2{3.2f, 3.2f});
+            continue;
+        }
+        if (ContainsAny(key, {"road-crack-moss"})) {
+            setLayeredStone(material,
+                            material.baseColor,
+                            0.94f,
+                            "tile/RT_mossy_cobblestone.png",
+                            "tile/RT_mossy_cobblestone_n.png",
+                            "tile/RT_mossy_cobblestone_s.png",
+                            ri::math::Vec2{2.4f, 2.4f});
+            continue;
+        }
+        if (ContainsAny(key, {"ruin-road-stone"})) {
+            setLayeredStone(material,
+                            material.baseColor,
+                            0.92f,
+                            "tile/RT_cobblestone.png",
+                            "tile/RT_cobblestone_n.png",
+                            "tile/RT_cobblestone_s.png",
+                            ri::math::Vec2{2.0f, 2.0f});
+            continue;
+        }
+        if (ContainsAny(key, {"hero-ruin-stone"})) {
+            setLayeredStone(material,
+                            material.baseColor,
+                            0.96f,
+                            "tile/RT_mossy_stone_bricks.png",
+                            "tile/RT_mossy_stone_bricks_n.png",
+                            "tile/RT_mossy_stone_bricks_s.png",
+                            ri::math::Vec2{1.8f, 1.8f});
+            continue;
+        }
+        if (ContainsAny(key, {"hero-ruin-dark-stone"})) {
+            setLayeredStone(material,
+                            material.baseColor,
+                            0.98f,
+                            "tile/RT_cobbled_deepslate.png",
+                            "tile/RT_cobbled_deepslate_n.png",
+                            "tile/RT_cobbled_deepslate_s.png",
+                            ri::math::Vec2{1.6f, 1.6f});
+            continue;
+        }
+        if (ContainsAny(key, {"hero-ruin-rubble"})) {
+            setLayeredStone(material,
+                            material.baseColor,
+                            0.95f,
+                            "tile/RT_mossy_cobblestone.png",
+                            "tile/RT_mossy_cobblestone_n.png",
+                            "tile/RT_mossy_cobblestone_s.png",
+                            ri::math::Vec2{2.2f, 2.2f});
+            continue;
+        }
+        if (ContainsAny(key, {"moss-cushion"})) {
+            setLayeredStone(material,
+                            material.baseColor,
+                            0.90f,
+                            "tile/RT_moss_block.png",
+                            "tile/RT_moss_block_n.png",
+                            "tile/RT_moss_block_s.png",
+                            ri::math::Vec2{1.4f, 1.4f});
+        }
+    }
 }
 
 } // namespace
@@ -1025,13 +1208,18 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
             billboard.shadingModel = ShadingModel::Lit;
             billboard.baseColor = ri::math::Vec3{1.0f, 1.0f, 1.0f};
             billboard.baseColorTexture = ToAbsoluteAssetPath(variant.albedoPath);
+            if (!variant.normalPath.empty() && fs::exists(variant.normalPath)) {
+                billboard.normalTexture = ToAbsoluteAssetPath(variant.normalPath);
+            }
             billboard.textureTiling = ri::math::Vec2{1.0f, 1.0f};
             billboard.alphaCutoff = alphaCutoff;
             billboard.doubleSided = true;
             billboard.roughness = 0.96f;
             billboard.metallic = 0.0f;
             billboard.emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f};
-            billboard.transform.position = ri::math::Vec3{root.x, root.y + (treeHeight * 0.5f), root.z};
+            // Plane primitive is centered on XZ; after a 90deg X rotation the local -Z corner sits one half-height above the node origin.
+            billboard.transform.position =
+                ri::math::Vec3{root.x, root.y - (treeHeight * 0.5f), root.z};
             billboard.transform.rotationDegrees =
                 ri::math::Vec3{90.0f, yawBase + (static_cast<float>(planeIndex) * (180.0f / planeCount)), 0.0f};
             billboard.transform.scale = ri::math::Vec3{treeWidth, 1.0f, treeHeight};
@@ -1419,6 +1607,11 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     scene.GetNode(world.playerCameraNode).localTransform.rotationDegrees = ri::math::Vec3{0.0f, 0.0f, 0.0f};
     world.handles.crate = world.playerRig;
     world.handles.beacon = world.playerCameraNode;
+
+    const fs::path engineTexturesRoot = workspaceRoot / "Assets" / "Textures";
+    AbsolutizeMaterialTexturePaths(scene);
+    ApplyForestRuinsShowcaseMaterials(scene, engineTexturesRoot);
+
     return world;
 }
 

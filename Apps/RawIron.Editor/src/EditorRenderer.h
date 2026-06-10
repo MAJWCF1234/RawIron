@@ -1,5 +1,8 @@
 #pragma once
 
+#include "EditorUiTheme.h"
+#include "RawIron/Render/SoftwarePreview.h"
+
 #include <string>
 #include <string_view>
 
@@ -26,13 +29,23 @@ public:
     static void DrawPanelFrame(HDC dc, const RECT& rect, COLORREF fill, COLORREF highlight, COLORREF shadow);
     static void DrawInsetFrame(HDC dc, const RECT& rect, COLORREF fill, COLORREF highlight, COLORREF shadow);
     static void DrawTextLine(HDC dc, const RECT& rect, const std::string& text, COLORREF color, HFONT font, UINT format);
-    static void DrawToolbarButton(HDC dc, const RECT& rect, const std::string& label, bool active, HFONT smallFont);
+    static void DrawToolbarButton(HDC dc,
+                                  const RECT& rect,
+                                  const std::string& label,
+                                  bool active,
+                                  HFONT smallFont,
+                                  EditorToolbarStyle style = EditorToolbarStyle::Dark);
     static void DrawPanelHeader(HDC dc,
                                 const RECT& panelRect,
                                 const std::string& title,
                                 HFONT headerFont,
                                 HFONT smallFont,
-                                const std::string& meta = {});
+                                const std::string& meta = {},
+                                bool showCollapseToggle = false,
+                                bool collapsed = false,
+                                RECT* collapseToggleRectOut = nullptr);
+    [[nodiscard]] static RECT InsetRect(const RECT& rect, int amount);
+    static void BlitSoftwareImage(HDC dc, const RECT& target, const ri::render::software::SoftwareImage& image);
 };
 #endif
 

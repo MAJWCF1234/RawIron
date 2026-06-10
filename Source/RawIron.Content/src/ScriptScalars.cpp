@@ -5,6 +5,7 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <set>
 #include <sstream>
 
@@ -23,7 +24,135 @@ std::string Trim(const std::string& text) {
     return text.substr(begin, end - begin);
 }
 
+[[nodiscard]] std::optional<std::pair<std::string, float>> TryParseScalarLine(const std::string& line) {
+    const std::string trimmed = Trim(line);
+    if (trimmed.empty() || trimmed[0] == '#') {
+        return std::nullopt;
+    }
+    const std::size_t equals = trimmed.find('=');
+    if (equals == std::string::npos) {
+        return std::nullopt;
+    }
+    const std::string key = Trim(trimmed.substr(0, equals));
+    const std::string valueText = Trim(trimmed.substr(equals + 1U));
+    if (key.empty() || valueText.empty()) {
+        return std::nullopt;
+    }
+    try {
+        std::size_t consumed = 0;
+        const float value = std::stof(valueText, &consumed);
+        if (consumed == valueText.size() && std::isfinite(value)) {
+            return std::pair<std::string, float>{key, value};
+        }
+    } catch (...) {
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::string FormatScalarValue(const float value) {
+    std::ostringstream stream{};
+    stream.setf(std::ios::fmtflags(0), std::ios::floatfield);
+    stream.precision(6);
+    stream << value;
+    std::string text = stream.str();
+    const std::size_t dot = text.find('.');
+    if (dot != std::string::npos) {
+        while (!text.empty() && text.back() == '0') {
+            text.pop_back();
+        }
+        if (!text.empty() && text.back() == '.') {
+            text.pop_back();
+        }
+    }
+    return text.empty() ? "0" : text;
+}
+
 } // namespace
+
+ScriptScalarMap LoadScriptScalarsFromText(const std::string_view text) {
+    ScriptScalarMap values;
+    std::istringstream stream{std::string(text)};
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (const std::optional<std::pair<std::string, float>> parsed = TryParseScalarLine(line); parsed.has_value()) {
+            values[parsed->first] = parsed->second;
+        }
+    }
+    return values;
+}
+
+void MergeScriptScalarMaps(ScriptScalarMap& destination, const ScriptScalarMap& overrides) {
+    for (const auto& [key, value] : overrides) {
+        destination[key] = value;
+    }
+}
+
+bool PatchScriptScalarsFile(const std::filesystem::path& path,
+                            const ScriptScalarMap& patches,
+                            std::string* errorOut) {
+    if (patches.empty()) {
+        return true;
+    }
+
+    std::vector<std::string> lines;
+    {
+        std::ifstream input(path);
+        if (input.is_open()) {
+            std::string line;
+            while (std::getline(input, line)) {
+                lines.push_back(line);
+            }
+        }
+    }
+
+    std::set<std::string, std::less<>> remainingKeys{};
+    for (const auto& [key, _] : patches) {
+        remainingKeys.insert(key);
+    }
+
+    for (std::string& line : lines) {
+        if (const std::optional<std::pair<std::string, float>> parsed = TryParseScalarLine(line); parsed.has_value()) {
+            const auto patchIt = patches.find(parsed->first);
+            if (patchIt != patches.end()) {
+                line = parsed->first + "=" + FormatScalarValue(patchIt->second);
+                remainingKeys.erase(parsed->first);
+            }
+        }
+    }
+
+    if (!remainingKeys.empty()) {
+        if (!lines.empty() && !lines.back().empty()) {
+            lines.emplace_back();
+        }
+        lines.emplace_back("# Patched by RawIron");
+        for (const std::string& key : remainingKeys) {
+            const auto patchIt = patches.find(key);
+            if (patchIt != patches.end()) {
+                lines.push_back(key + "=" + FormatScalarValue(patchIt->second));
+            }
+        }
+    }
+
+    std::ostringstream output;
+    for (std::size_t index = 0; index < lines.size(); ++index) {
+        output << lines[index];
+        if (index + 1U < lines.size()) {
+            output << '\n';
+        }
+    }
+    const std::string body = output.str();
+    const std::string finalBody = body.empty() ? std::string{} : body + "\n";
+
+    std::ofstream writer(path, std::ios::binary | std::ios::trunc);
+    if (!writer.is_open()) {
+        if (errorOut != nullptr) {
+            *errorOut = "Failed to open " + path.string() + " for writing.";
+        }
+        return false;
+    }
+    writer << finalBody;
+    return writer.good();
+}
 
 ScriptScalarMap LoadScriptScalars(const std::filesystem::path& path) {
     ScriptScalarMap values;
@@ -34,29 +163,8 @@ ScriptScalarMap LoadScriptScalars(const std::filesystem::path& path) {
 
     std::string line;
     while (std::getline(stream, line)) {
-        line = Trim(line);
-        if (line.empty() || line[0] == '#') {
-            continue;
-        }
-
-        const std::size_t equals = line.find('=');
-        if (equals == std::string::npos) {
-            continue;
-        }
-
-        const std::string key = Trim(line.substr(0, equals));
-        const std::string valueText = Trim(line.substr(equals + 1U));
-        if (key.empty() || valueText.empty()) {
-            continue;
-        }
-
-        try {
-            std::size_t consumed = 0;
-            const float value = std::stof(valueText, &consumed);
-            if (consumed == valueText.size() && std::isfinite(value)) {
-                values[key] = value;
-            }
-        } catch (...) {
+        if (const std::optional<std::pair<std::string, float>> parsed = TryParseScalarLine(line); parsed.has_value()) {
+            values[parsed->first] = parsed->second;
         }
     }
 

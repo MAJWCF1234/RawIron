@@ -1,4 +1,5 @@
 #include "RawIron/Logic/LogicAuthoring.h"
+#include "RawIron/Logic/LogicKitPortBridge.h"
 #include "RawIron/Logic/LogicPortSchema.h"
 #include "LogicAuthoringDetail.h"
 
@@ -266,6 +267,17 @@ LogicAuthoringCompileResult CompileLogicAuthoringGraphWithReport(const LogicAuth
     seenNodeIds.reserve(authoring.nodes.size());
     std::unordered_map<std::string, std::string> nodeKindsById{};
     nodeKindsById.reserve(authoring.nodes.size());
+    std::unordered_map<std::string, std::string> sourceKitIdsByNodeId{};
+    sourceKitIdsByNodeId.reserve(authoring.nodes.size());
+
+    const auto portSchemaForNode = [&](const std::string& nodeId) -> LogicNodePortSchema {
+        const auto kitIt = sourceKitIdsByNodeId.find(nodeId);
+        if (kitIt != sourceKitIdsByNodeId.end() && !kitIt->second.empty()) {
+            return GetLogicNodePortSchema(kitIt->second);
+        }
+        const auto kindIt = nodeKindsById.find(nodeId);
+        return GetLogicNodePortSchema(kindIt == nodeKindsById.end() ? std::string_view{} : std::string_view(kindIt->second));
+    };
 
     for (const LogicNodeInstance& instance : authoring.nodes) {
         const std::string nodeId = detail::NodeDefinitionId(instance.definition);
@@ -279,6 +291,9 @@ LogicAuthoringCompileResult CompileLogicAuthoringGraphWithReport(const LogicAuth
         if (seenNodeIds.insert(nodeId).second) {
             const LogicNodeDefinition normalized = detail::NormalizeNodeDefinition(instance.definition, result.issues);
             nodeKindsById[nodeId] = std::string(GetLogicNodeKindName(normalized));
+            if (!instance.sourceKitId.empty()) {
+                sourceKitIdsByNodeId[nodeId] = instance.sourceKitId;
+            }
             spec.nodes.push_back(normalized);
         } else {
             detail::AddIssue(result.issues,
@@ -340,9 +355,7 @@ LogicAuthoringCompileResult CompileLogicAuthoringGraphWithReport(const LogicAuth
             continue;
         }
         if (sourceIsNode) {
-            const auto kindIt = nodeKindsById.find(wire.sourceId);
-            const LogicNodePortSchema schema =
-                GetLogicNodePortSchema(kindIt == nodeKindsById.end() ? std::string_view{} : std::string_view(kindIt->second));
+            const LogicNodePortSchema schema = portSchemaForNode(wire.sourceId);
             const detail::PortResolution port = detail::ResolvePortName(schema, wire.outputName, false);
             if (!port.recognized) {
                 detail::AddIssue(result.issues,
@@ -390,12 +403,17 @@ LogicAuthoringCompileResult CompileLogicAuthoringGraphWithReport(const LogicAuth
         route.sourceId = wire.sourceId;
         route.outputName = wire.outputName;
         if (sourceIsNode) {
-            const auto kindIt = nodeKindsById.find(wire.sourceId);
-            const LogicNodePortSchema schema =
-                GetLogicNodePortSchema(kindIt == nodeKindsById.end() ? std::string_view{} : std::string_view(kindIt->second));
+            const LogicNodePortSchema schema = portSchemaForNode(wire.sourceId);
             const detail::PortResolution port = detail::ResolvePortName(schema, wire.outputName, false);
             if (port.recognized) {
                 route.outputName = port.canonical;
+            }
+            const auto kitIt = sourceKitIdsByNodeId.find(wire.sourceId);
+            if (kitIt != sourceKitIdsByNodeId.end()) {
+                if (const std::optional<std::string> runtimePort =
+                        MapKitLogicOutputToRuntime(kitIt->second, route.outputName)) {
+                    route.outputName = *runtimePort;
+                }
             }
         } else if (sourceIsKnownWorldActor) {
             const auto kindIt = options.knownWorldActorKinds.find(wire.sourceId);
@@ -438,9 +456,7 @@ LogicAuthoringCompileResult CompileLogicAuthoringGraphWithReport(const LogicAuth
                          target.targetId);
             }
             if (targetIsNode) {
-                const auto kindIt = nodeKindsById.find(target.targetId);
-                const LogicNodePortSchema schema = GetLogicNodePortSchema(
-                    kindIt == nodeKindsById.end() ? std::string_view{} : std::string_view(kindIt->second));
+                const LogicNodePortSchema schema = portSchemaForNode(target.targetId);
                 const detail::PortResolution port = detail::ResolvePortName(schema, target.inputName, true);
                 if (!port.recognized) {
                     detail::AddIssue(result.issues,
@@ -485,12 +501,17 @@ LogicAuthoringCompileResult CompileLogicAuthoringGraphWithReport(const LogicAuth
                          target.targetId);
             }
             if (targetIsNode) {
-                const auto kindIt = nodeKindsById.find(target.targetId);
-                const LogicNodePortSchema schema = GetLogicNodePortSchema(
-                    kindIt == nodeKindsById.end() ? std::string_view{} : std::string_view(kindIt->second));
+                const LogicNodePortSchema schema = portSchemaForNode(target.targetId);
                 const detail::PortResolution port = detail::ResolvePortName(schema, target.inputName, true);
                 if (port.recognized) {
                     normalizedTarget.inputName = port.canonical;
+                }
+                const auto kitIt = sourceKitIdsByNodeId.find(target.targetId);
+                if (kitIt != sourceKitIdsByNodeId.end()) {
+                    if (const std::optional<std::string> runtimePort =
+                            MapKitLogicInputToRuntime(kitIt->second, normalizedTarget.inputName)) {
+                        normalizedTarget.inputName = *runtimePort;
+                    }
                 }
             } else if (targetIsKnownWorldActor) {
                 const auto kindIt = options.knownWorldActorKinds.find(target.targetId);

@@ -863,6 +863,57 @@ std::vector<ri::math::Vec3> BuildGothicArchInnerLoop(float thickness) {
     };
 }
 
+std::vector<ri::math::Vec3> BuildFlatTopArchOuterLoop(int segments, float spanDegrees) {
+    const int safeSegments = ClampInteger(segments, 14, 6, 48);
+    const float safeSpan = std::clamp(spanDegrees, 80.0f, 180.0f);
+    const float spanRadians = safeSpan * (kPi / 180.0f);
+    const float flatY = 0.28f;
+    const float springY = -0.08f;
+    const float startAngle = (kPi * 0.5f) + (spanRadians * 0.5f);
+    const float endAngle = (kPi * 0.5f) - (spanRadians * 0.5f);
+
+    std::vector<ri::math::Vec3> loop;
+    loop.reserve(static_cast<std::size_t>(safeSegments) + 6U);
+    loop.push_back({-0.5f, -0.5f, 0.0f});
+    loop.push_back({-0.5f, springY, 0.0f});
+    for (int index = 0; index <= safeSegments; ++index) {
+        const float t = static_cast<float>(index) / static_cast<float>(safeSegments);
+        const float angle = startAngle + ((endAngle - startAngle) * t);
+        const float x = std::cos(angle) * 0.5f;
+        const float y = std::min(std::sin(angle) * 0.5f, flatY);
+        loop.push_back({x, y, 0.0f});
+    }
+    loop.push_back({0.5f, springY, 0.0f});
+    loop.push_back({0.5f, -0.5f, 0.0f});
+    return loop;
+}
+
+std::vector<ri::math::Vec3> BuildFlatTopArchInnerLoop(int segments, float spanDegrees, float thickness) {
+    const int safeSegments = ClampInteger(segments, 14, 6, 48);
+    const float safeSpan = std::clamp(spanDegrees, 80.0f, 180.0f);
+    const float spanRadians = safeSpan * (kPi / 180.0f);
+    const float flatY = 0.28f - thickness;
+    const float springY = -0.08f;
+    const float innerRadius = std::clamp(0.5f - thickness, 0.03f, 0.48f);
+    const float startAngle = (kPi * 0.5f) + (spanRadians * 0.5f);
+    const float endAngle = (kPi * 0.5f) - (spanRadians * 0.5f);
+
+    std::vector<ri::math::Vec3> loop;
+    loop.reserve(static_cast<std::size_t>(safeSegments) + 6U);
+    loop.push_back({-0.5f + thickness, -0.5f, 0.0f});
+    loop.push_back({-0.5f + thickness, springY, 0.0f});
+    for (int index = 0; index <= safeSegments; ++index) {
+        const float t = static_cast<float>(index) / static_cast<float>(safeSegments);
+        const float angle = startAngle + ((endAngle - startAngle) * t);
+        const float x = std::cos(angle) * innerRadius;
+        const float y = std::min(std::sin(angle) * innerRadius, flatY);
+        loop.push_back({x, y, 0.0f});
+    }
+    loop.push_back({0.5f - thickness, springY, 0.0f});
+    loop.push_back({0.5f - thickness, -0.5f, 0.0f});
+    return loop;
+}
+
 CompiledMesh CreateExtrudedBandMesh(const std::vector<ri::math::Vec3>& outerLoop,
                                     const std::vector<ri::math::Vec3>& innerLoop) {
     if (outerLoop.size() < 3U || innerLoop.size() < 3U || outerLoop.size() != innerLoop.size()) {
@@ -899,12 +950,15 @@ CompiledMesh CreateExtrudedBandMesh(const std::vector<ri::math::Vec3>& outerLoop
 CompiledMesh CreateArchMesh(const StructuralPrimitiveOptions& options) {
     const float thickness = std::clamp(std::fabs(options.thickness), 0.04f, 0.45f);
     const bool gothic = options.archStyle == "gothic";
+    const bool flatTop = options.archStyle == "flat_top" || options.archStyle == "flat";
     const std::vector<ri::math::Vec3> outerLoop = gothic
         ? BuildGothicArchOuterLoop()
-        : BuildRoundArchOuterLoop(options.radialSegments, options.spanDegrees);
+        : (flatTop ? BuildFlatTopArchOuterLoop(options.radialSegments, options.spanDegrees)
+                   : BuildRoundArchOuterLoop(options.radialSegments, options.spanDegrees));
     const std::vector<ri::math::Vec3> innerLoop = gothic
         ? BuildGothicArchInnerLoop(thickness)
-        : BuildRoundArchInnerLoop(options.radialSegments, options.spanDegrees, thickness);
+        : (flatTop ? BuildFlatTopArchInnerLoop(options.radialSegments, options.spanDegrees, thickness)
+                   : BuildRoundArchInnerLoop(options.radialSegments, options.spanDegrees, thickness));
     return CreateExtrudedBandMesh(outerLoop, innerLoop);
 }
 
@@ -1901,6 +1955,206 @@ CompiledMesh CreateSkylightOculusMesh(const StructuralPrimitiveOptions& options)
     return BuildMeshFromTriangles(triangles);
 }
 
+CompiledMesh CreateUvSphereMesh(const StructuralPrimitiveOptions& options) {
+    StructuralPrimitiveOptions sphere = options;
+    sphere.exponentX = 1.0f;
+    sphere.exponentY = 1.0f;
+    sphere.exponentZ = 1.0f;
+    if (sphere.radialSegments <= 0) {
+        sphere.radialSegments = 20;
+    }
+    if (sphere.sides <= 0) {
+        sphere.sides = 28;
+    }
+    return CreateSuperellipsoidMesh(sphere);
+}
+
+CompiledMesh CreateBarrelVaultMesh(const StructuralPrimitiveOptions& options) {
+    const int radial = ClampRange(options.radialSegments, 10, 96);
+    const int rings = ClampRange(options.cellsZ > 0 ? options.cellsZ : 10, 2, 32);
+    const float wall = std::clamp(std::fabs(options.thickness), 0.04f, 0.24f);
+    std::vector<ri::math::Vec3> triangles;
+    triangles.reserve(static_cast<std::size_t>(radial * rings * 12U));
+    const auto pointOnArc = [](const float angle, const float radius, const float z) {
+        return ri::math::Vec3{std::cos(angle) * radius, std::sin(angle) * radius, z};
+    };
+    for (int ring = 0; ring < rings; ++ring) {
+        const float z0 = -0.5f + (static_cast<float>(ring) / static_cast<float>(rings));
+        const float z1 = -0.5f + (static_cast<float>(ring + 1) / static_cast<float>(rings));
+        for (int segment = 0; segment < radial; ++segment) {
+            const float a0 = (static_cast<float>(segment) / static_cast<float>(radial)) * kPi;
+            const float a1 = (static_cast<float>(segment + 1) / static_cast<float>(radial)) * kPi;
+            const ri::math::Vec3 o0 = pointOnArc(a0, 0.5f, z0);
+            const ri::math::Vec3 o1 = pointOnArc(a1, 0.5f, z0);
+            const ri::math::Vec3 o2 = pointOnArc(a1, 0.5f, z1);
+            const ri::math::Vec3 o3 = pointOnArc(a0, 0.5f, z1);
+            const ri::math::Vec3 i0 = pointOnArc(a0, 0.5f - wall, z0);
+            const ri::math::Vec3 i1 = pointOnArc(a1, 0.5f - wall, z0);
+            const ri::math::Vec3 i2 = pointOnArc(a1, 0.5f - wall, z1);
+            const ri::math::Vec3 i3 = pointOnArc(a0, 0.5f - wall, z1);
+            AppendQuadFacing(triangles, o0, o1, o2, o3, ri::math::Normalize((o0 + o1 + o2 + o3) * 0.25f));
+            AppendQuadFacing(triangles, i0, i3, i2, i1, ri::math::Normalize((i0 + i1 + i2 + i3) * -0.25f));
+            AppendQuadFacing(triangles, o0, i0, i1, o1, {0.0f, 0.0f, -1.0f});
+            AppendQuadFacing(triangles, o3, o2, i2, i3, {0.0f, 0.0f, 1.0f});
+        }
+    }
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, -0.5f}, {0.5f, -0.5f + wall, 0.5f});
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateCorridorShellMesh(const StructuralPrimitiveOptions& options) {
+    const float wall = std::clamp(std::fabs(options.thickness), 0.05f, 0.24f);
+    const float floor = std::clamp(wall * 0.75f, 0.04f, 0.18f);
+    const bool ceiling = options.centerColumn;
+    std::vector<ri::math::Vec3> triangles;
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, -0.5f}, {0.5f, -0.5f + floor, 0.5f});
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f + floor, -0.5f}, {-0.5f + wall, 0.5f, 0.5f});
+    AppendAxisAlignedBox(triangles, {0.5f - wall, -0.5f + floor, -0.5f}, {0.5f, 0.5f, 0.5f});
+    if (ceiling) {
+        AppendAxisAlignedBox(triangles, {-0.5f, 0.5f - floor, -0.5f}, {0.5f, 0.5f, 0.5f});
+    }
+    const int ribs = ClampRange(options.cellsX > 0 ? options.cellsX : 0, 0, 8);
+    if (ribs > 0) {
+        for (int index = 1; index < ribs; ++index) {
+            const float z = -0.5f + (static_cast<float>(index) / static_cast<float>(ribs));
+            AppendAxisAlignedBox(triangles, {-0.5f + wall, -0.5f + floor, z - wall * 0.25f}, {0.5f - wall, 0.5f - floor, z + wall * 0.25f});
+        }
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateLintelBeamMesh(const StructuralPrimitiveOptions& options) {
+    const float beam = std::clamp(std::fabs(options.thickness), 0.08f, 0.28f);
+    const float reveal = std::clamp(std::fabs(options.depth), 0.06f, 0.24f);
+    std::vector<ri::math::Vec3> triangles;
+    AppendAxisAlignedBox(triangles, {-0.5f, 0.5f - beam, -0.5f}, {0.5f, 0.5f, 0.5f});
+    AppendAxisAlignedBox(triangles, {-0.5f, 0.5f - beam - reveal, -0.5f}, {0.5f, 0.5f - beam, -0.5f + reveal});
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreatePilasterMesh(const StructuralPrimitiveOptions& options) {
+    const float projection = std::clamp(std::fabs(options.depth), 0.08f, 0.34f);
+    const float shaft = std::clamp(std::fabs(options.thickness), 0.10f, 0.28f);
+    const float capital = std::clamp(shaft * 1.25f, shaft, 0.38f);
+    std::vector<ri::math::Vec3> triangles;
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, 0.5f - projection}, {-0.5f + shaft, 0.5f, 0.5f});
+    AppendAxisAlignedBox(triangles, {-capital * 0.5f, 0.34f, 0.5f - projection}, {capital * 0.5f, 0.5f, 0.5f});
+    AppendAxisAlignedBox(triangles, {-capital * 0.5f, -0.5f, 0.5f - projection}, {capital * 0.5f, -0.44f, 0.5f});
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateParapetWallMesh(const StructuralPrimitiveOptions& options) {
+    const float base = std::clamp(std::fabs(options.thickness), 0.12f, 0.34f);
+    const float coping = std::clamp(std::fabs(options.depth), 0.04f, 0.14f);
+    std::vector<ri::math::Vec3> triangles;
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, -0.5f}, {0.5f, -0.5f + base, 0.5f});
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f + base, -0.5f}, {0.5f, 0.5f, 0.5f - coping});
+    const ri::math::Vec3 a{-0.5f, 0.5f - coping, 0.5f - coping};
+    const ri::math::Vec3 b{0.5f, 0.5f - coping, 0.5f - coping};
+    const ri::math::Vec3 c{0.5f, 0.5f, 0.5f};
+    const ri::math::Vec3 d{-0.5f, 0.5f, 0.5f};
+    AppendQuadFacing(triangles, a, b, c, d, {0.0f, 0.0f, 1.0f});
+    AppendTriangle(triangles, a, d, c);
+    AppendTriangle(triangles, a, c, b);
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateStairLandingMesh(const StructuralPrimitiveOptions& options) {
+    const float slab = std::clamp(std::fabs(options.thickness), 0.06f, 0.18f);
+    const float lip = std::clamp(std::fabs(options.depth), 0.04f, 0.16f);
+    std::vector<ri::math::Vec3> triangles;
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, -0.5f}, {0.5f, -0.5f + slab, 0.5f});
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f + slab, -0.5f}, {0.5f, -0.5f + slab + lip, -0.5f + lip});
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateShaftVoidMesh(const StructuralPrimitiveOptions& options) {
+    const float safeThickness = std::clamp(std::fabs(options.thickness), 0.04f, 0.42f);
+    const float inner = kHalfExtent - safeThickness;
+    const std::vector<ConvexSolid> wallSolids = {
+        CreateAxisAlignedBoxSolid({-kHalfExtent, -kHalfExtent, -kHalfExtent}, {-inner, kHalfExtent, kHalfExtent}),
+        CreateAxisAlignedBoxSolid({inner, -kHalfExtent, -kHalfExtent}, {kHalfExtent, kHalfExtent, kHalfExtent}),
+        CreateAxisAlignedBoxSolid({-inner, -kHalfExtent, -kHalfExtent}, {inner, -inner, kHalfExtent}),
+        CreateAxisAlignedBoxSolid({-inner, inner, -kHalfExtent}, {inner, kHalfExtent, kHalfExtent}),
+        CreateAxisAlignedBoxSolid({-inner, -inner, -kHalfExtent}, {inner, inner, -inner}),
+    };
+    CompiledMesh mesh{};
+    for (const ConvexSolid& wall : wallSolids) {
+        AppendMesh(mesh, BuildCompiledMeshFromConvexSolid(wall));
+    }
+    return mesh;
+}
+
+CompiledMesh CreateBriseSoleilMesh(const StructuralPrimitiveOptions& options) {
+    const int fins = ClampRange(options.cellsY > 0 ? options.cellsY : options.radialSegments, 3, 14);
+    const float fin = std::clamp(std::fabs(options.thickness), 0.02f, 0.10f);
+    const float depth = std::clamp(std::fabs(options.depth), 0.10f, 0.42f);
+    std::vector<ri::math::Vec3> triangles;
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, 0.5f - depth}, {0.5f, 0.5f, 0.5f});
+    for (int index = 0; index < fins; ++index) {
+        const float t = static_cast<float>(index + 1) / static_cast<float>(fins + 1);
+        const float y = -0.5f + (t * 1.0f);
+        AppendAxisAlignedBox(triangles, {-0.5f, y - fin * 0.5f, 0.5f - depth}, {0.5f, y + fin * 0.5f, 0.5f});
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateCantileverSlabMesh(const StructuralPrimitiveOptions& options) {
+    const float slab = std::clamp(std::fabs(options.thickness), 0.06f, 0.20f);
+    const float taper = std::clamp(std::fabs(options.depth), 0.18f, 0.48f);
+    std::vector<ri::math::Vec3> triangles;
+    AppendAxisAlignedBox(triangles, {-0.5f, 0.5f - slab, -0.5f}, {0.5f, 0.5f, 0.5f});
+    const ri::math::Vec3 a{-0.5f, 0.5f - slab, -0.5f};
+    const ri::math::Vec3 b{0.5f, 0.5f - slab, -0.5f};
+    const ri::math::Vec3 c{0.5f, 0.5f - slab - taper, -0.5f + taper};
+    const ri::math::Vec3 d{-0.5f, 0.5f - slab - taper, -0.5f + taper};
+    AppendQuadFacing(triangles, a, b, c, d, {0.0f, -1.0f, 0.0f});
+    AppendTriangle(triangles, a, d, c);
+    AppendTriangle(triangles, a, c, b);
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateRetainingBatterMesh(const StructuralPrimitiveOptions& options) {
+    const float foot = std::clamp(std::fabs(options.depth), 0.18f, 0.48f);
+    const float batter = std::clamp(std::fabs(options.thickness), 0.08f, 0.28f);
+    std::vector<ri::math::Vec3> triangles;
+    AppendAxisAlignedBox(triangles, {-0.5f, -0.5f, -0.5f}, {0.5f, -0.5f + foot, 0.5f});
+    const ri::math::Vec3 a{-0.5f, -0.5f + foot, -0.5f};
+    const ri::math::Vec3 b{0.5f, -0.5f + foot, -0.5f};
+    const ri::math::Vec3 c{0.5f - batter, 0.5f, 0.5f};
+    const ri::math::Vec3 d{-0.5f + batter, 0.5f, 0.5f};
+    AppendQuadFacing(triangles, a, b, c, d, {0.0f, 0.0f, -1.0f});
+    AppendQuadFacing(triangles, a, d, c, b, {0.0f, 1.0f, 0.0f});
+    AppendTriangle(triangles, a, d, c);
+    AppendTriangle(triangles, a, c, b);
+    return BuildMeshFromTriangles(triangles);
+}
+
+CompiledMesh CreateColonnadeSpanMesh(const StructuralPrimitiveOptions& options) {
+    CompiledMesh mesh = CreateColumnClusterMesh(options);
+    const float beam = std::clamp(std::fabs(options.thickness), 0.06f, 0.18f);
+    std::vector<ri::math::Vec3> lintels;
+    AppendAxisAlignedBox(lintels, {-0.5f, 0.42f, -0.5f}, {0.5f, 0.5f, 0.5f});
+    AppendAxisAlignedBox(lintels, {-0.5f, 0.42f - beam, -0.5f}, {0.5f, 0.42f, -0.5f + beam});
+    AppendMesh(mesh, BuildMeshFromTriangles(lintels));
+    return mesh;
+}
+
+CompiledMesh CreateHandrailSegmentMesh(const StructuralPrimitiveOptions& options) {
+    const float rail = std::clamp(std::fabs(options.thickness), 0.02f, 0.08f);
+    const int posts = ClampRange(options.cellsX > 0 ? options.cellsX : 4, 2, 10);
+    std::vector<ri::math::Vec3> triangles;
+    AppendAxisAlignedBox(triangles, {-0.5f, 0.18f, -0.5f}, {0.5f, 0.18f + rail, 0.5f});
+    AppendAxisAlignedBox(triangles, {-0.5f, 0.34f, -0.5f}, {0.5f, 0.34f + rail, 0.5f});
+    for (int index = 0; index < posts; ++index) {
+        const float t = static_cast<float>(index) / static_cast<float>(posts - 1);
+        const float x = -0.48f + (t * 0.96f);
+        AppendAxisAlignedBox(triangles, {x - rail, -0.5f, -0.5f}, {x + rail, 0.36f, -0.5f + rail});
+        AppendAxisAlignedBox(triangles, {x - rail, -0.5f, 0.5f - rail}, {x + rail, 0.36f, 0.5f});
+    }
+    return BuildMeshFromTriangles(triangles);
+}
+
 } // namespace
 
 bool IsNativeStructuralPrimitive(std::string_view type) {
@@ -1962,7 +2216,21 @@ bool IsNativeStructuralPrimitive(std::string_view type) {
         || type == "metaball"
         || type == "metaball_cluster"
         || type == "lsystem_branch"
-        || type == "lsystem";
+        || type == "lsystem"
+        || type == "uv_sphere"
+        || type == "sphere"
+        || type == "barrel_vault"
+        || type == "corridor_shell"
+        || type == "lintel_beam"
+        || type == "pilaster"
+        || type == "parapet_wall"
+        || type == "stair_landing"
+        || type == "shaft_void"
+        || type == "brise_soleil"
+        || type == "cantilever_slab"
+        || type == "retaining_batter"
+        || type == "colonnade_span"
+        || type == "handrail_segment";
 }
 
 std::optional<ConvexSolid> CreateConvexPrimitiveSolid(std::string_view type,
@@ -2021,6 +2289,9 @@ std::optional<ConvexSolid> CreateConvexPrimitiveSolid(std::string_view type,
     }
     if (type == "hipped_roof") {
         return CreateHippedRoofSolid(options.ridgeRatio);
+    }
+    if (type == "uv_sphere" || type == "sphere") {
+        return CreateIcosahedronSolid();
     }
     return std::nullopt;
 }
@@ -2157,6 +2428,45 @@ CompiledMesh BuildPrimitiveMesh(std::string_view type, const StructuralPrimitive
     }
     if (type == "heightmap_patch") {
         return CreateHeightfieldMesh(options, false);
+    }
+    if (type == "uv_sphere" || type == "sphere") {
+        return CreateUvSphereMesh(options);
+    }
+    if (type == "barrel_vault") {
+        return CreateBarrelVaultMesh(options);
+    }
+    if (type == "corridor_shell") {
+        return CreateCorridorShellMesh(options);
+    }
+    if (type == "lintel_beam") {
+        return CreateLintelBeamMesh(options);
+    }
+    if (type == "pilaster") {
+        return CreatePilasterMesh(options);
+    }
+    if (type == "parapet_wall") {
+        return CreateParapetWallMesh(options);
+    }
+    if (type == "stair_landing") {
+        return CreateStairLandingMesh(options);
+    }
+    if (type == "shaft_void") {
+        return CreateShaftVoidMesh(options);
+    }
+    if (type == "brise_soleil") {
+        return CreateBriseSoleilMesh(options);
+    }
+    if (type == "cantilever_slab") {
+        return CreateCantileverSlabMesh(options);
+    }
+    if (type == "retaining_batter") {
+        return CreateRetainingBatterMesh(options);
+    }
+    if (type == "colonnade_span") {
+        return CreateColonnadeSpanMesh(options);
+    }
+    if (type == "handrail_segment") {
+        return CreateHandrailSegmentMesh(options);
     }
 
     const std::optional<ConvexSolid> solid = CreateConvexPrimitiveSolid(type, options);

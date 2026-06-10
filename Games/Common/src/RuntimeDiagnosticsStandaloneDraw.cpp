@@ -400,4 +400,73 @@ void HideStandaloneRuntimeDiagnosticsScene(ri::scene::Scene& scene,
     }
 }
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+
+void DrawStandaloneDiagnosticsTextOverlay(void* const hwndVoid, const std::vector<std::string>& lines) {
+    HWND hwnd = static_cast<HWND>(hwndVoid);
+    if (hwnd == nullptr || lines.empty()) {
+        return;
+    }
+    HDC deviceContext = GetDC(hwnd);
+    if (deviceContext == nullptr) {
+        return;
+    }
+
+    RECT client{};
+    if (!GetClientRect(hwnd, &client)) {
+        ReleaseDC(hwnd, deviceContext);
+        return;
+    }
+
+    const int clientWidth = static_cast<int>(client.right - client.left);
+    const int clientHeight = static_cast<int>(client.bottom - client.top);
+    const int panelWidth = (std::min)(clientWidth - 16, 560);
+    const int panelHeight = (std::min)(clientHeight - 16, 18 * static_cast<int>(lines.size()) + 14);
+    const RECT panel{
+        client.left + 8,
+        client.top + 8,
+        client.left + 8 + panelWidth,
+        client.top + 8 + panelHeight,
+    };
+
+    HBRUSH backdrop = CreateSolidBrush(RGB(12, 14, 18));
+    FillRect(deviceContext, &panel, backdrop);
+    DeleteObject(backdrop);
+
+    HPEN border = CreatePen(PS_SOLID, 1, RGB(72, 88, 108));
+    HGDIOBJ oldPen = SelectObject(deviceContext, border);
+    HGDIOBJ oldBrush = SelectObject(deviceContext, GetStockObject(HOLLOW_BRUSH));
+    Rectangle(deviceContext, panel.left, panel.top, panel.right, panel.bottom);
+    SelectObject(deviceContext, oldBrush);
+    SelectObject(deviceContext, oldPen);
+    DeleteObject(border);
+
+    SetBkMode(deviceContext, TRANSPARENT);
+    SetTextColor(deviceContext, RGB(214, 222, 232));
+    HFONT font = CreateFontW(
+        14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    HGDIOBJ oldFont = SelectObject(deviceContext, font);
+
+    int y = panel.top + 6;
+    for (const std::string& line : lines) {
+        std::wstring wide(line.begin(), line.end());
+        RECT textRect{panel.left + 8, y, panel.right - 8, y + 18};
+        DrawTextW(deviceContext, wide.c_str(), static_cast<int>(wide.size()), &textRect, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
+        y += 16;
+    }
+
+    SelectObject(deviceContext, oldFont);
+    DeleteObject(font);
+    ReleaseDC(hwnd, deviceContext);
+}
+#endif
+
 } // namespace ri::games

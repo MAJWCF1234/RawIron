@@ -13,7 +13,9 @@
 #include "EditorInput.h"
 #include "EditorInspectorPanels.h"
 #include "EditorLeftPanel.h"
+#include "EditorLevelExport.h"
 #include "EditorPlaytestLauncher.h"
+#include "EditorProjectHealth.h"
 #include "RawIron/Editor/PreviewSceneRegistry.h"
 #include "EditorHierarchy.h"
 #include "EditorProjectScaffolding.h"
@@ -24,7 +26,18 @@
 #include "EditorSceneController.h"
 #include "EditorViewportRenderer.h"
 #include "EditorWorkspace.h"
+#include "EditorCreatorPalette.h"
+#include "EditorHelpDialog.h"
+#include "EditorNewGame.h"
+#include "EditorStructuralPicker.h"
+#include "EditorAuthoringCatalog.h"
+#include "EditorLogicLayer.h"
+#include "EditorPluginManager.h"
+#include "RawIron/Content/PluginProjectData.h"
+#include "RawIron/Content/PluginRuntime.h"
 #include "RawIron/Render/ScenePreview.h"
+#include "RawIron/Render/ScenePreviewPlacement.h"
+#include "RawIron/Render/ScenePreviewRenderingScript.h"
 #include "RawIron/Runtime/ExperiencePresets.h"
 #include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Scene/Components.h"
@@ -35,6 +48,8 @@
 #include "RawIron/Scene/StructuralPrimitivePresets.h"
 #include "RawIron/Scene/WorkspaceSandbox.h"
 #include "RawIron/Scene/SceneUtils.h"
+#include "RawIron/Scene/PhotoModeCamera.h"
+#include "RawIron/Spatial/Aabb.h"
 #include "RawIron/Core/Detail/JsonScan.h"
 #include "RawIron/Ui/UiJsonIO.h"
 #include "RawIron/Ui/UiPaths.h"
@@ -86,9 +101,20 @@ using ri::editor::IsLikelyTextResourcePath;
 using ri::editor::BuildFilteredHierarchyDrawOrder;
 using ri::editor::BuildHierarchyDrawOrder;
 using ri::editor::BuildFilesInspectorPanelModel;
+using ri::editor::RenderFilesInspectorPanel;
 using ri::editor::ComputeVisibleHierarchyScrollTop;
 using ri::editor::ComputeGameplayPanelLayout;
 using ri::editor::ComputeUiWorkbenchLayout;
+using ri::editor::InspectorTabLayout;
+using ri::editor::UiWorkbenchInspectorLayout;
+using ri::editor::UiWorkbenchViewportLayout;
+using ri::editor::ComputeInspectorTabLayout;
+using ri::editor::ComputePluginStoreLayout;
+using ri::editor::ComputeUiWorkbenchInspectorLayout;
+using ri::editor::ComputeUiWorkbenchScreenRowRects;
+using ri::editor::ComputeUiWorkbenchInspectorPreviewBlockRects;
+using ri::editor::ComputeUiWorkbenchViewportLayout;
+using ri::editor::ComputeUiWorkbenchViewportBlockRects;
 using ri::editor::FindDrawOrderIndex;
 using ri::editor::LoadResourceDocument;
 using ri::editor::ComputeProjectShortcutLayout;
@@ -99,6 +125,11 @@ using ri::editor::NodeInspectorPanelModel;
 using ri::editor::BrushInspectorPanelModel;
 using ri::editor::GameplayInspectorPanelModel;
 using ri::editor::GameplayPanelLayout;
+using ri::editor::PluginStorePanelModel;
+using ri::editor::PluginStoreCardModel;
+using ri::editor::PluginStoreLayout;
+using ri::editor::PluginStorePackage;
+using ri::editor::RenderPluginStorePanel;
 using ri::editor::UiWorkbenchPanelModel;
 using ri::editor::UiWorkbenchPreviewBlock;
 using ri::editor::UiWorkbenchScreenSummary;
@@ -121,6 +152,38 @@ using ri::editor::WorkspaceCategoryShortLabel;
 using ri::editor::WorkspaceGameEntry;
 using ri::editor::WorkspaceResourceCategory;
 using ri::editor::WorkspaceResourceEntry;
+using ri::editor::ApplyAtmospherePreset;
+using ri::editor::AtmospherePresetLabel;
+using ri::editor::CreateNewGameProject;
+using ri::editor::CreatorAtmospherePreset;
+using ri::editor::CreatorCameraPreset;
+using ri::editor::CreatorInsertPreset;
+using ri::editor::DefaultDisplayNameForTemplate;
+using ri::editor::DispatchCreatorPanelClick;
+using ri::editor::NewGameCreationResult;
+using ri::editor::NewGameTemplate;
+using ri::editor::NewGameTemplateLabel;
+using ri::editor::RenderCreatorPanel;
+using ri::editor::ComputeCreatorPanelLayout;
+using ri::editor::CreateTabRect;
+using ri::editor::HitTestViewportCreateMenu;
+using ri::editor::HitTestViewportHelpMenu;
+using ri::editor::SlugFromDisplayName;
+using ri::editor::ComputeStructuralPickerLayout;
+using ri::editor::ComputeStructuralPickerPanelHeight;
+using ri::editor::AuthoringCatalogBottomInset;
+using ri::editor::ComputeStructuralPickerCollapsedBarRect;
+using ri::editor::HitTestStructuralPickerCollapsedBar;
+using ri::editor::RenderStructuralPickerCollapsedBar;
+using ri::editor::CycleCreatorAtmosphere;
+using ri::editor::CycleCreatorCamera;
+using ri::editor::CycleCreatorInsert;
+using ri::editor::HitTestStructuralPicker;
+using ri::editor::RenderStructuralPickerOverlay;
+using ri::editor::StructuralPickerHitKind;
+using ri::editor::StructuralPickerLayout;
+using ri::editor::StructuralPresetDisplayLabel;
+using ri::editor::StructuralThumbnailCache;
 using ri::editor::TryCreateGroupNode;
 using ri::editor::TryDeleteSelectedNode;
 using ri::editor::TryDuplicateSelectedNode;
@@ -130,6 +193,17 @@ using ri::editor::TryResetSelectedTransform;
 using ri::editor::TrySelectAdjacentAuthoredNode;
 using ri::editor::TrySnapSelectedNodeToGrid;
 using ri::editor::TryUngroupSelectedNode;
+using ri::editor::TryExportAssemblyCollidersCsv;
+using ri::editor::TryExportAssemblyLightingCsv;
+using ri::editor::TryImportAssemblyCollidersCsv;
+using ri::editor::TryImportAssemblyLightingCsv;
+using ri::editor::TryImportAssemblyTriggersCsv;
+using ri::editor::TryExportAssemblyTriggersCsv;
+using ri::editor::BuildProjectHealthReport;
+using ri::editor::CanResolvePlaytestExecutable;
+using ri::editor::ResolveDedicatedPlaytestExecutable;
+using ri::editor::SummarizeProjectHealthForWelcome;
+using ri::editor::SummarizeProjectHealthForFilesPanel;
 using ri::content::DescribeOptionalAssetState;
 
 [[nodiscard]] std::string ToLowerAsciiCopy(std::string_view text) {
@@ -169,6 +243,10 @@ bool LooksLikeWorkspaceRoot(const fs::path& path) {
 
 fs::path BuildEditorSceneStatePath(const fs::path& workspaceRoot, std::string_view sceneId) {
     return workspaceRoot / "Saved" / "Editor" / std::string(sceneId) / "scene_state.ri_state";
+}
+
+fs::path BuildEditorLogicAuthoringPath(const fs::path& sceneStatePath) {
+    return sceneStatePath.parent_path() / "logic_authoring.ri_logic";
 }
 
 fs::path ResolveEditorWorkspaceRoot(const fs::path& fallbackWorkspaceRoot,
@@ -1043,7 +1121,7 @@ void DrawTextLine(HDC dc, const RECT& rect, const std::string& text, COLORREF co
     EditorRenderer::DrawTextLine(dc, rect, text, color, font, format);
 }
 
-HFONT CreateUiFont(int height, int weight, const wchar_t* faceName = L"Segoe UI") {
+HFONT CreateUiFont(int height, int weight, const wchar_t* faceName = L"Tahoma") {
     return CreateFontW(
         height,
         0,
@@ -1056,7 +1134,7 @@ HFONT CreateUiFont(int height, int weight, const wchar_t* faceName = L"Segoe UI"
         ANSI_CHARSET,
         OUT_DEFAULT_PRECIS,
         CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY,
+        DEFAULT_QUALITY,
         DEFAULT_PITCH | FF_DONTCARE,
         faceName);
 }
@@ -1320,6 +1398,87 @@ void ScreenToRawIronSideInv(const RECT& plot,
     return best;
 }
 
+[[nodiscard]] std::optional<int> PickRenderableInCameraView(const RECT& plot,
+                                                              const int mx,
+                                                              const int my,
+                                                              const ri::scene::Scene& scene,
+                                                              const int cameraNodeHandle) {
+    if (plot.right <= plot.left + 4 || plot.bottom <= plot.top + 4
+        || cameraNodeHandle == ri::scene::kInvalidHandle
+        || cameraNodeHandle >= static_cast<int>(scene.NodeCount())) {
+        return std::nullopt;
+    }
+
+    const float plotWidth = static_cast<float>(plot.right - plot.left);
+    const float plotHeight = static_cast<float>(plot.bottom - plot.top);
+    const float aspectRatio = plotWidth / std::max(plotHeight, 1.0f);
+    const ri::scene::Node& cameraNode = scene.GetNode(cameraNodeHandle);
+    if (cameraNode.camera == ri::scene::kInvalidHandle) {
+        return std::nullopt;
+    }
+    const ri::scene::Camera& camera = scene.GetCamera(cameraNode.camera);
+    const float fieldOfViewDegrees =
+        ri::scene::ResolvePhotoModeFieldOfViewDegrees(camera.fieldOfViewDegrees, {}, aspectRatio);
+    const ri::math::Mat4 worldMatrix = scene.ComputeWorldMatrix(cameraNodeHandle);
+    const ri::math::Vec3 cameraPosition = ri::math::ExtractTranslation(worldMatrix);
+    const ri::math::Vec3 cameraRight = ri::math::ExtractRight(worldMatrix);
+    const ri::math::Vec3 cameraUp = ri::math::ExtractUp(worldMatrix);
+    const ri::math::Vec3 cameraForward = ri::math::ExtractForward(worldMatrix);
+
+    const float ndcX = ((static_cast<float>(mx - plot.left) / plotWidth) * 2.0f) - 1.0f;
+    const float ndcY = 1.0f - ((static_cast<float>(my - plot.top) / plotHeight) * 2.0f);
+    const float tanHalfFovY = std::tan(ri::math::DegreesToRadians(fieldOfViewDegrees * 0.5f));
+    const float tanHalfFovX = tanHalfFovY * aspectRatio;
+    const ri::math::Vec3 rayDirection = ri::math::Normalize(
+        cameraForward + (cameraRight * (ndcX * tanHalfFovX)) + (cameraUp * (ndcY * tanHalfFovY)));
+    const ri::spatial::Ray ray{.origin = cameraPosition, .direction = rayDirection};
+
+    float bestDistance = std::numeric_limits<float>::infinity();
+    int best = ri::scene::kInvalidHandle;
+    const float farClip = std::max(camera.nearClip + 0.01f, camera.farClip);
+    for (const int handle : ri::scene::CollectRenderableNodes(scene)) {
+        const std::optional<ri::scene::WorldBounds> bounds =
+            ri::scene::ComputeNodeWorldBounds(scene, handle, true);
+        if (!bounds.has_value()) {
+            continue;
+        }
+        const ri::spatial::Aabb box{
+            .min = bounds->min,
+            .max = bounds->max,
+        };
+        float hitDistance = 0.0f;
+        if (!ri::spatial::IntersectRayAabb(ray, box, farClip, &hitDistance)) {
+            continue;
+        }
+        if (hitDistance < bestDistance) {
+            bestDistance = hitDistance;
+            best = handle;
+        }
+    }
+
+    if (best == ri::scene::kInvalidHandle) {
+        return std::nullopt;
+    }
+    return best;
+}
+
+[[nodiscard]] ri::render::software::CameraViewRect CameraViewRectFrom(const RECT& plot) {
+    return ri::render::software::CameraViewRect{
+        .left = plot.left,
+        .top = plot.top,
+        .right = plot.right,
+        .bottom = plot.bottom,
+    };
+}
+
+[[nodiscard]] ri::math::Vec3 StructuralBrushSpawnPositionAtPoint(const std::string_view structuralType,
+                                                                   const ri::math::Vec3& hitPoint) {
+    if (structuralType == "plane") {
+        return {hitPoint.x, 0.0f, hitPoint.z};
+    }
+    return {hitPoint.x, hitPoint.y + 0.5f, hitPoint.z};
+}
+
 [[nodiscard]] fs::path EditorOrbitSidecarPath(const fs::path& sceneStatePath) {
     return sceneStatePath.parent_path() / "editor_orbit.ri_cam";
 }
@@ -1379,8 +1538,8 @@ void DrawRawIronOrthoGrid(HDC dc,
                          float cxA,
                          float cxB,
                          float halfSpan) {
-    const COLORREF lineA = RGB(105, 105, 105);
-    const COLORREF lineB = RGB(88, 88, 88);
+    const COLORREF lineA = ri::editor::EditorUiTheme::kOrthoGridA;
+    const COLORREF lineB = ri::editor::EditorUiTheme::kOrthoGridB;
     const float step = PickNiceGridStep(halfSpan * 2.0f);
     const float startA = std::floor((cxA - halfSpan) / step) * step;
     const float startB = std::floor((cxB - halfSpan) / step) * step;
@@ -1430,14 +1589,18 @@ void DrawRawIronFlatSceneView(HDC dc,
                               RawIronFlatProjection projection,
                               const char* title,
                               HFONT labelFont) {
-    DrawInsetFrame(dc, cell, RGB(40, 40, 40), RGB(150, 150, 150), RGB(16, 16, 16));
+    DrawInsetFrame(dc,
+                   cell,
+                   ri::editor::EditorUiTheme::kViewportWellFill,
+                   ri::editor::EditorUiTheme::kWellHi,
+                   ri::editor::EditorUiTheme::kWellShadow);
     RECT inner{cell.left + 2, cell.top + 2, cell.right - 2, cell.bottom - 2};
-    FillRectColor(dc, inner, RGB(56, 56, 56));
+    FillRectColor(dc, inner, ri::editor::EditorUiTheme::kOrthoCellFill);
 
     DrawTextLine(dc,
                  RECT{inner.left + 6, inner.top + 4, inner.right - 6, inner.top + 22},
                  std::string(title),
-                 RGB(255, 255, 200),
+                 ri::editor::EditorUiTheme::kOrthoTitle,
                  labelFont,
                  DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
@@ -1466,8 +1629,8 @@ void DrawRawIronFlatSceneView(HDC dc,
         LONG fx = 0;
         LONG fy = 0;
         ProjectRawIronTop(plot, cxA, cxB, halfSpan, orbitFocus.x, orbitFocus.z, fx, fy);
-        DcStrokeLine(dc, fx - 6, fy, fx + 6, fy, RGB(255, 220, 80), 1);
-        DcStrokeLine(dc, fx, fy - 6, fx, fy + 6, RGB(255, 220, 80), 1);
+        DcStrokeLine(dc, fx - 6, fy, fx + 6, fy, ri::editor::EditorUiTheme::kOrthoCrosshair, 1);
+        DcStrokeLine(dc, fx, fy - 6, fx, fy + 6, ri::editor::EditorUiTheme::kOrthoCrosshair, 1);
     } else if (projection == RawIronFlatProjection::FrontXy) {
         cxA = center.x;
         cxB = center.y;
@@ -1476,8 +1639,8 @@ void DrawRawIronFlatSceneView(HDC dc,
         LONG fx = 0;
         LONG fy = 0;
         ProjectRawIronFront(plot, cxA, cxB, halfSpan, orbitFocus.x, orbitFocus.y, fx, fy);
-        DcStrokeLine(dc, fx - 6, fy, fx + 6, fy, RGB(255, 220, 80), 1);
-        DcStrokeLine(dc, fx, fy - 6, fx, fy + 6, RGB(255, 220, 80), 1);
+        DcStrokeLine(dc, fx - 6, fy, fx + 6, fy, ri::editor::EditorUiTheme::kOrthoCrosshair, 1);
+        DcStrokeLine(dc, fx, fy - 6, fx, fy + 6, ri::editor::EditorUiTheme::kOrthoCrosshair, 1);
     } else {
         cxA = center.z;
         cxB = center.y;
@@ -1486,8 +1649,8 @@ void DrawRawIronFlatSceneView(HDC dc,
         LONG fx = 0;
         LONG fy = 0;
         ProjectRawIronSide(plot, cxA, cxB, halfSpan, orbitFocus.z, orbitFocus.y, fx, fy);
-        DcStrokeLine(dc, fx - 6, fy, fx + 6, fy, RGB(255, 220, 80), 1);
-        DcStrokeLine(dc, fx, fy - 6, fx, fy + 6, RGB(255, 220, 80), 1);
+        DcStrokeLine(dc, fx - 6, fy, fx + 6, fy, ri::editor::EditorUiTheme::kOrthoCrosshair, 1);
+        DcStrokeLine(dc, fx, fy - 6, fx, fy + 6, ri::editor::EditorUiTheme::kOrthoCrosshair, 1);
     }
 
     const std::vector<int> renderables = ri::scene::CollectRenderableNodes(scene);
@@ -1497,7 +1660,8 @@ void DrawRawIronFlatSceneView(HDC dc,
             continue;
         }
         const bool isSelected = static_cast<std::size_t>(handle) == selectedNode;
-        const COLORREF stroke = isSelected ? RGB(255, 255, 40) : RGB(200, 200, 200);
+        const COLORREF stroke =
+            isSelected ? ri::editor::EditorUiTheme::kOrthoSelBox : ri::editor::EditorUiTheme::kTextMuted;
         const int penW = isSelected ? 2 : 1;
 
         const float minx = nb->min.x;
@@ -1616,7 +1780,8 @@ public:
           sceneConfig_(ResolveSceneConfig(commandLine)),
           statsOverlayVisible_(commandLine.HasFlag("--stats-overlay")),
           statsOverlayState_(true),
-          autoOrbitPreview_(commandLine.HasFlag("--auto-orbit")) {
+          autoOrbitPreview_(commandLine.HasFlag("--auto-orbit")),
+          viewportRayTracePreview_(commandLine.HasFlag("--viewport-ray-trace")) {
         ri::editor::RegisterBundledGameEditorPreviews();
         starterScene_ = ri::editor::BuildEditorWorkspaceScene(
             sceneConfig_.editorPreviewScene,
@@ -1630,11 +1795,16 @@ public:
         if (!sceneConfig_.statusMessage.empty()) {
             lastIoStatus_ = sceneConfig_.statusMessage + "  ";
         }
-        lastIoStatus_ += "Camera: drag in CAMERA, wheel zooms. Tab: full 3D / quad.";
+        lastIoStatus_ += "Camera: drag in CAMERA, wheel zooms. Tab: full 3D / quad. Alt+LMB/MMB orbit on geometry.";
         lastIoStatus_ +=
-            "  Authoring: +Cube/+Plane, T/R/U, Ctrl+S save, Ctrl+E export, Ctrl+D duplicate, F2 rename, Playtest.";
+            "  Authoring: +Light cycles point/spot/directional, Ctrl+Shift+I import level CSVs, Ctrl+E export, Playtest.";
         if (autoOrbitPreview_) {
             lastIoStatus_ += "  (--auto-orbit: demo camera motion on)";
+        }
+        if (viewportRayTracePreview_) {
+            lastIoStatus_ += "  (--viewport-ray-trace: quality preview on; Ctrl+Shift+R toggles)";
+        } else {
+            lastIoStatus_ += "  (Ctrl+Shift+R: ray-traced viewport preview)";
         }
         RefreshWorkspaceGamesAndResources();
         RebuildFilteredHierarchyOrder();
@@ -1653,12 +1823,32 @@ public:
         if (fs::exists(ResolveAutosaveScenePath(), ec)) {
             lastIoStatus_ += "  Autosave found (Ctrl+Shift+L loads it).";
         }
+        logicLayer_.EnsureKitLoaded(sceneConfig_.workspaceRoot);
+        if (sceneConfig_.gameManifest.has_value()) {
+            logicLayer_.EnsureGameColliderTrace(sceneConfig_.gameManifest->rootPath);
+        }
+        ri::editor::BindAuthoringLogicCatalog(&logicLayer_);
+        RefreshPluginStoreState();
+        if (!fs::exists(ResolveSceneStatePath(), loadEc) && !fs::exists(ResolveAuthoredSceneStatePath(), loadEc)) {
+            (void)logicLayer_.Load(
+                ResolveLogicAuthoringPath(), starterScene_.scene, starterScene_.handles.root);
+        }
+        if (sceneConfig_.gameManifest.has_value()) {
+            ri::render::software::SnapshotGamePreviewScriptTimestamps(sceneConfig_.gameManifest->rootPath,
+                                                                      gamePreviewScriptTimestamps_);
+            leftPanelMode_ = LeftPanelMode::Scene;
+            full3DViewport_ = true;
+            rightPanelCollapsed_ = true;
+            toolMode_ = ri::editor::EditorToolMode::Create;
+            authoringCatalogExpanded_ = true;
+        }
+        lastIoStatus_ += "  S select · C create · click viewport to stamp · Sky bar cycles atmosphere · F1 help.";
     }
 
     int Run(HINSTANCE instance) {
         const wchar_t* className = L"RawIronEditorWindow";
         WNDCLASSW windowClass{};
-        windowClass.style = CS_HREDRAW | CS_VREDRAW;
+        windowClass.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
         windowClass.lpfnWndProc = &RawIronEditorWindow::WindowProc;
         windowClass.hInstance = instance;
         windowClass.lpszClassName = className;
@@ -1711,13 +1901,20 @@ private:
     };
     enum class LeftPanelMode {
         Scene,
+        Create,
         Resources,
+    };
+    enum class CameraDragMode {
+        None,
+        Orbit,
+        Pan,
     };
     enum class InspectorPanel {
         Node,
         Brush,
         Gameplay,
         Files,
+        PluginStore,
         UiWorkbench,
     };
 enum class UiWorkbenchSource {
@@ -1805,10 +2002,30 @@ enum class UiWorkbenchTextEditTarget {
                 return self->OnChar(wParam);
             case WM_LBUTTONDOWN:
                 return self->OnLeftButtonDown(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)));
+            case WM_LBUTTONDBLCLK:
+                return self->OnLeftButtonDoubleClick(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)));
             case WM_LBUTTONUP:
                 return self->OnLeftButtonUp(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)));
+            case WM_MBUTTONDOWN:
+                return self->OnMiddleButtonDown(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)));
+            case WM_MBUTTONUP:
+                return self->OnMiddleButtonUp(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)));
+            case WM_RBUTTONDOWN:
+                return self->OnRightButtonDown(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)));
+            case WM_RBUTTONUP:
+                return self->OnRightButtonUp(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)));
             case WM_MOUSEMOVE:
                 return self->OnMouseMove(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)), wParam);
+            case WM_SETCURSOR:
+                if (LOWORD(lParam) == HTCLIENT) {
+                    POINT pt{};
+                    GetCursorPos(&pt);
+                    ScreenToClient(hwnd, &pt);
+                    if (self->UpdateInteractiveCursor(pt.x, pt.y)) {
+                        return TRUE;
+                    }
+                }
+                break;
             case WM_CAPTURECHANGED:
                 self->OnCaptureLost();
                 break;
@@ -1822,8 +2039,15 @@ enum class UiWorkbenchTextEditTarget {
                 break;
             }
             case WM_SIZE:
+                self->ClearViewportPreviewCache();
                 InvalidateRect(hwnd, nullptr, FALSE);
                 break;
+            case WM_GETMINMAXINFO: {
+                auto* minMax = reinterpret_cast<MINMAXINFO*>(lParam);
+                minMax->ptMinTrackSize.x = 680;
+                minMax->ptMinTrackSize.y = 520;
+                return 0;
+            }
             case WM_PAINT:
                 self->Paint();
                 return 0;
@@ -1855,19 +2079,268 @@ enum class UiWorkbenchTextEditTarget {
         statsOverlayState_.SetAttached(true);
         statsOverlayState_.SetVisible(statsOverlayVisible_);
         ri::editor::AnimateEditorWorkspaceScene(sceneConfig_.editorPreviewScene, starterScene_, elapsedSeconds_);
+        if (!logicLayer_.PlacedNodes().empty()) {
+            logicLayer_.TickSenseProbes(editorOrbitState_.target);
+            logicLayer_.ApplyCircuitProbeColors(starterScene_.scene);
+        }
         if (!autoOrbitPreview_) {
             ApplyEditorOrbitToScene();
         } else {
             editorOrbitState_ = starterScene_.handles.orbitCamera.orbit;
         }
+        const EditorLayout layout = ComputeLayout();
+        UpdateCameraPlotRect(layout.viewportInner);
+        if (sceneConfig_.gameManifest.has_value()
+            && ri::render::software::DidGamePreviewScriptsChange(sceneConfig_.gameManifest->rootPath,
+                                                                 gamePreviewScriptTimestamps_)) {
+            ClearViewportPreviewCache();
+            lastIoStatus_ = "Rendering/postprocess scripts changed — viewport atmosphere reloaded.";
+        }
+        RebuildViewportPreviewBitmap();
+        AdaptEditorTimerInterval();
         MaybeAutosaveState();
         InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    void ClearViewportPreviewCache() {
+        viewportPreviewCache_ = {};
+        viewportPreviewScratch_ = {};
+        viewportPreviewReady_ = false;
+    }
+
+    void AdaptEditorTimerInterval() {
+        const UINT intervalMs =
+            (cameraDragMode_ != CameraDragMode::None || autoOrbitPreview_) ? 16U
+            : (lastViewportPreviewMs_ > 45.0 ? 66U : (lastViewportPreviewMs_ > 22.0 ? 50U : 33U));
+        SetTimer(hwnd_, 1, intervalMs, nullptr);
+    }
+
+    void RebuildViewportPreviewBitmap() {
+        if (starterScene_.handles.orbitCamera.cameraNode == ri::scene::kInvalidHandle) {
+            viewportPreviewReady_ = false;
+            return;
+        }
+        if (cameraPlotRect_.right <= cameraPlotRect_.left + 8
+            || cameraPlotRect_.bottom <= cameraPlotRect_.top + 8) {
+            viewportPreviewReady_ = false;
+            return;
+        }
+
+        const int plotWidth = std::max(1, static_cast<int>(cameraPlotRect_.right - cameraPlotRect_.left));
+        const int plotHeight = std::max(1, static_cast<int>(cameraPlotRect_.bottom - cameraPlotRect_.top));
+
+        constexpr int kMaxInteractivePreviewDim = 480;
+        float scale = 1.0f;
+        if (plotWidth > kMaxInteractivePreviewDim || plotHeight > kMaxInteractivePreviewDim) {
+            scale = std::min(static_cast<float>(kMaxInteractivePreviewDim) / static_cast<float>(plotWidth),
+                             static_cast<float>(kMaxInteractivePreviewDim) / static_cast<float>(plotHeight));
+        }
+        const int renderWidth = std::max(64, static_cast<int>(static_cast<float>(plotWidth) * scale));
+        const int renderHeight = std::max(64, static_cast<int>(static_cast<float>(plotHeight) * scale));
+
+        ri::render::software::ScenePreviewOptions options{};
+        options.width = renderWidth;
+        options.height = renderHeight;
+
+        std::filesystem::path editorExe{};
+        wchar_t moduleWide[MAX_PATH]{};
+        if (GetModuleFileNameW(nullptr, moduleWide, MAX_PATH) > 0) {
+            editorExe = std::filesystem::path(std::wstring(moduleWide));
+        }
+        const std::filesystem::path textureDir =
+            ri::content::PickEngineTexturesDirectory(sceneConfig_.workspaceRoot, editorExe);
+        if (!textureDir.empty()) {
+            options.textureRoot = textureDir;
+        }
+        options.hiddenNodeHandles = {
+            starterScene_.handles.grid,
+            starterScene_.handles.axes.root,
+            starterScene_.handles.axes.xAxis,
+            starterScene_.handles.axes.yAxis,
+            starterScene_.handles.axes.zAxis,
+        };
+
+        ri::editor::ConfigureEditorViewportForPreview(
+            sceneConfig_.editorPreviewScene,
+            options,
+            sceneConfig_.gameManifest.has_value() ? &sceneConfig_.gameManifest->rootPath : nullptr);
+        if (viewportRayTracePreview_) {
+            options.renderer = ri::render::software::ScenePreviewRenderer::RayTrace;
+            options.rayTracingResolutionScale = 0.68f;
+            options.rayTracingShadowRays = 4;
+            options.rayTracingMaxBounces = 2;
+            options.rayTracingReflections = true;
+        } else {
+            options.renderer = ri::render::software::ScenePreviewRenderer::Raster;
+            // Keep perspective-correct UVs on hall-scale quads; lowSpecMode enables affine mapping
+            // which warps large floors/walls in the editor viewport.
+            options.affineTextureMapping = false;
+            options.farHorizonMaxNodeStride = std::max(options.farHorizonMaxNodeStride, 6U);
+            options.farHorizonMaxInstanceStride = std::max(options.farHorizonMaxInstanceStride, 10U);
+        }
+
+        const auto renderStart = std::chrono::steady_clock::now();
+        ri::render::software::RenderScenePreviewInto(starterScene_.scene,
+                                                      starterScene_.handles.orbitCamera.cameraNode,
+                                                      options,
+                                                      viewportPreviewScratch_,
+                                                      &viewportPreviewCache_);
+        if (toolMode_ == ri::editor::EditorToolMode::Create) {
+            if (const std::optional<ri::math::Vec3> ghostCenter = ResolveCreateModeGhostCenter();
+                ghostCenter.has_value() && !viewportPreviewCache_.depthBuffer.empty()) {
+                ri::render::software::DrawWireBoxOverlayIntoScenePreview(
+                    viewportPreviewScratch_,
+                    viewportPreviewCache_.depthBuffer,
+                    starterScene_.scene,
+                    starterScene_.handles.orbitCamera.cameraNode,
+                    options,
+                    *ghostCenter,
+                    ResolveCreateModeGhostHalfExtents());
+            }
+        }
+        lastViewportPreviewMs_ =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - renderStart).count();
+        viewportPreviewReady_ = !viewportPreviewScratch_.pixels.empty();
     }
 
     void ApplyEditorOrbitToScene() {
         editorOrbitState_.pitchDegrees = std::clamp(editorOrbitState_.pitchDegrees, -85.0f, 85.0f);
         editorOrbitState_.distance = std::clamp(editorOrbitState_.distance, 0.75f, 180.0f);
         ri::scene::SetOrbitCameraState(starterScene_.scene, starterScene_.handles.orbitCamera, editorOrbitState_);
+    }
+
+    void PanEditorOrbitCamera(const int dx, const int dy) {
+        const float yawRad = editorOrbitState_.yawDegrees * (3.14159265f / 180.0f);
+        const float pitchRad = editorOrbitState_.pitchDegrees * (3.14159265f / 180.0f);
+        const float cosPitch = std::cos(pitchRad);
+        const float sinPitch = std::sin(pitchRad);
+        const float sinYaw = std::sin(yawRad);
+        const float cosYaw = std::cos(yawRad);
+        const ri::math::Vec3 forward{cosPitch * sinYaw, sinPitch, cosPitch * cosYaw};
+        const ri::math::Vec3 worldUp{0.0f, 1.0f, 0.0f};
+        ri::math::Vec3 right = ri::math::Cross(forward, worldUp);
+        if (ri::math::LengthSquared(right) < 1.0e-6f) {
+            right = ri::math::Vec3{1.0f, 0.0f, 0.0f};
+        } else {
+            right = ri::math::Normalize(right);
+        }
+        const ri::math::Vec3 up = ri::math::Normalize(ri::math::Cross(right, forward));
+        const float scale = std::max(0.0015f, editorOrbitState_.distance * 0.0018f);
+        editorOrbitState_.target =
+            editorOrbitState_.target + right * (-static_cast<float>(dx) * scale) + up * (static_cast<float>(dy) * scale);
+    }
+
+    void ApplyCameraDragDelta(const int dx, const int dy) {
+        if (cameraDragMode_ == CameraDragMode::Orbit) {
+            editorOrbitState_.yawDegrees += static_cast<float>(dx) * 0.38f;
+            editorOrbitState_.pitchDegrees -= static_cast<float>(dy) * 0.38f;
+        } else if (cameraDragMode_ == CameraDragMode::Pan) {
+            PanEditorOrbitCamera(dx, dy);
+        } else {
+            return;
+        }
+        ApplyEditorOrbitToScene();
+        RebuildViewportPreviewBitmap();
+        AdaptEditorTimerInterval();
+    }
+
+    [[nodiscard]] bool IsKeyDown(const int virtualKey) const {
+        return (GetKeyState(virtualKey) & 0x8000) != 0;
+    }
+
+    [[nodiscard]] bool HitCameraPlot(const POINT& point) const {
+        return PtInRect(&cameraPlotRect_, point) != FALSE;
+    }
+
+    bool TryBeginCameraDrag(const POINT& point, const CameraDragMode mode) {
+        if (autoOrbitPreview_ || mode == CameraDragMode::None || !HitCameraPlot(point)) {
+            return false;
+        }
+        cameraDragMode_ = mode;
+        lastDragX_ = point.x;
+        lastDragY_ = point.y;
+        SetCapture(hwnd_);
+        lastIoStatus_ = mode == CameraDragMode::Pan ? "Camera: panning (release to stop)."
+                                                    : "Camera: orbiting (release to stop).";
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return true;
+    }
+
+    void EndCameraDrag() {
+        if (cameraDragMode_ == CameraDragMode::None) {
+            return;
+        }
+        cameraDragMode_ = CameraDragMode::None;
+        if (GetCapture() == hwnd_) {
+            ReleaseCapture();
+        }
+    }
+
+    void TryFrameSelection() {
+        if (autoOrbitPreview_) {
+            lastIoStatus_ = "Frame selection unavailable while auto-orbit preview is running.";
+            return;
+        }
+        if (selectedNode_ >= starterScene_.scene.NodeCount()) {
+            lastIoStatus_ = "Frame selection: pick a node first.";
+            return;
+        }
+        const std::vector<int> handles = {static_cast<int>(selectedNode_)};
+        if (ri::scene::FrameNodesWithOrbitCamera(starterScene_.scene,
+                                                 starterScene_.handles.orbitCamera,
+                                                 handles,
+                                                 1.35f)) {
+            editorOrbitState_ = starterScene_.handles.orbitCamera.orbit;
+            ApplyEditorOrbitToScene();
+            ClearViewportPreviewCache();
+            lastIoStatus_ = "Framed selection (F or double-click hierarchy). Ctrl+S saves orbit sidecar.";
+        } else {
+            lastIoStatus_ = "Could not frame selection.";
+        }
+    }
+
+    [[nodiscard]] bool UpdateInteractiveCursor(const int x, const int y) {
+        if (cameraDragMode_ == CameraDragMode::Pan) {
+            SetCursor(LoadCursor(nullptr, IDC_SIZEALL));
+            return true;
+        }
+        if (cameraDragMode_ == CameraDragMode::Orbit) {
+            SetCursor(LoadCursor(nullptr, IDC_HAND));
+            return true;
+        }
+        if (draggingHierarchySplitter_ || draggingInspectorSplitter_) {
+            SetCursor(LoadCursor(nullptr, IDC_SIZEWE));
+            return true;
+        }
+        const EditorLayout layout = ComputeLayout();
+        const POINT point{x, y};
+        const int splitterGrab = 6;
+        if (!leftPanelCollapsed_
+            && std::abs(x - layout.hierarchySplitter.right) <= splitterGrab
+            && y >= layout.hierarchy.top && y <= layout.hierarchy.bottom) {
+            SetCursor(LoadCursor(nullptr, IDC_SIZEWE));
+            return true;
+        }
+        if (!rightPanelCollapsed_
+            && std::abs(x - layout.inspectorSplitter.left) <= splitterGrab
+            && y >= layout.inspector.top && y <= layout.inspector.bottom) {
+            SetCursor(LoadCursor(nullptr, IDC_SIZEWE));
+            return true;
+        }
+        UpdateCameraPlotRect(layout.viewportInner);
+        if (full3DViewport_ && PtInRect(&cameraPlotRect_, point) != FALSE && !autoOrbitPreview_) {
+            const bool shiftHeld = IsKeyDown(VK_SHIFT);
+            const bool altHeld = IsKeyDown(VK_MENU);
+            if (shiftHeld) {
+                SetCursor(LoadCursor(nullptr, IDC_SIZEALL));
+            } else if (altHeld) {
+                SetCursor(LoadCursor(nullptr, IDC_HAND));
+            } else {
+                SetCursor(LoadCursor(nullptr, IDC_CROSS));
+            }
+            return true;
+        }
+        return false;
     }
 
     void RefreshWorkspaceGamesAndResources() {
@@ -1969,16 +2442,68 @@ enum class UiWorkbenchTextEditTarget {
         (void)ri::core::detail::WriteTextFile(policyPath, body.str());
     }
 
-    void TryImportPrimaryLevelCsv() {
-        if (!sceneConfig_.gameManifest.has_value() || sceneConfig_.gameManifest->primaryLevel.empty()) {
+    void TryImportLevelCsvSupplement(std::string* statusOut = nullptr) {
+        if (!sceneConfig_.gameManifest.has_value()) {
             return;
         }
         if (starterScene_.handles.root == ri::scene::kInvalidHandle) {
             return;
         }
-        const fs::path levelPath = sceneConfig_.gameManifest->rootPath / sceneConfig_.gameManifest->primaryLevel;
+        const fs::path gameRoot = sceneConfig_.gameManifest->rootPath;
+        const std::size_t nodeCountBefore = starterScene_.scene.NodeCount();
+        auto appendStatus = [statusOut](const std::string& text) {
+            if (statusOut != nullptr) {
+                *statusOut += text;
+            }
+        };
+
+        const ri::editor::LevelImportResult lightingImport = TryImportAssemblyLightingCsv(
+            starterScene_.scene, starterScene_.handles.root, gameRoot / "levels" / "assembly.lighting.csv");
+        if (lightingImport.success && lightingImport.importedCount > 0U) {
+            appendStatus("  Imported " + std::to_string(lightingImport.importedCount) + " light(s).");
+        } else if (!lightingImport.error.empty() && lightingImport.error != "lighting CSV not found") {
+            appendStatus("  Lighting import: " + lightingImport.error + ".");
+        }
+
+        const ri::editor::LevelImportResult colliderImport = TryImportAssemblyCollidersCsv(
+            starterScene_.scene, starterScene_.handles.root, gameRoot / "levels" / "assembly.colliders.csv");
+        if (colliderImport.success && colliderImport.importedCount > 0U) {
+            appendStatus("  Imported " + std::to_string(colliderImport.importedCount) + " collider proxy cube(s).");
+        } else if (!colliderImport.error.empty() && colliderImport.error != "colliders CSV not found") {
+            appendStatus("  Collider import: " + colliderImport.error + ".");
+        }
+
+        const ri::editor::LevelImportResult triggerImport = TryImportAssemblyTriggersCsv(
+            starterScene_.scene, starterScene_.handles.root, gameRoot / "levels" / "assembly.triggers.csv");
+        if (triggerImport.success && triggerImport.importedCount > 0U) {
+            appendStatus("  Imported " + std::to_string(triggerImport.importedCount) + " trigger volume(s).");
+        } else if (!triggerImport.error.empty() && triggerImport.error != "triggers CSV not found") {
+            appendStatus("  Trigger import: " + triggerImport.error + ".");
+        }
+
+        if (starterScene_.scene.NodeCount() > nodeCountBefore) {
+            authoredNodeStart_ = std::min(authoredNodeStart_, nodeCountBefore);
+            autosavePending_ = true;
+        }
+    }
+
+    void TryImportPrimaryLevelCsv() {
+        if (!sceneConfig_.gameManifest.has_value()) {
+            lastIoStatus_ = "Import skipped: no game manifest mounted.";
+            return;
+        }
+        if (starterScene_.handles.root == ri::scene::kInvalidHandle) {
+            lastIoStatus_ = "Import skipped: scene has no world root.";
+            return;
+        }
+        const fs::path gameRoot = sceneConfig_.gameManifest->rootPath;
+        const std::string primaryLevel = sceneConfig_.gameManifest->primaryLevel.empty()
+            ? std::string("levels/assembly.primitives.csv")
+            : sceneConfig_.gameManifest->primaryLevel;
+        const fs::path levelPath = gameRoot / primaryLevel;
         std::error_code ec{};
         if (!fs::exists(levelPath, ec)) {
+            lastIoStatus_ = "Import skipped: primary level CSV not found at " + primaryLevel + ".";
             return;
         }
         const std::size_t importStart = starterScene_.scene.NodeCount();
@@ -1990,14 +2515,15 @@ enum class UiWorkbenchTextEditTarget {
                 levelPath,
                 &importResult,
                 &importError)) {
-            lastIoStatus_ += "  Level CSV import skipped: " + importError;
+            lastIoStatus_ = "Level CSV import failed: " + importError;
             return;
         }
         if (importStart < starterScene_.scene.NodeCount()) {
             authoredNodeStart_ = std::min(authoredNodeStart_, importStart);
         }
-        lastIoStatus_ += "  Imported " + std::to_string(importResult.spawnedCount) + " primitives from "
-            + sceneConfig_.gameManifest->primaryLevel + ".";
+        lastIoStatus_ = "Imported " + std::to_string(importResult.spawnedCount) + " primitives from "
+            + primaryLevel + ".";
+        TryImportLevelCsvSupplement(&lastIoStatus_);
     }
 
     void ReloadEditorSceneForFocusedGame(bool importPrimaryLevelIfMissing) {
@@ -2046,15 +2572,233 @@ enum class UiWorkbenchTextEditTarget {
             std::error_code importEc{};
             importCsv = !fs::exists(ResolveAuthoredSceneStatePath(), importEc);
         }
+        std::string levelImportNote;
         if (importCsv) {
             TryImportPrimaryLevelCsv();
+        } else {
+            TryImportLevelCsvSupplement(&levelImportNote);
         }
+        logicLayer_.EnsureKitLoaded(sceneConfig_.workspaceRoot);
+        logicLayer_.EnsureGameColliderTrace(manifest->rootPath);
+        ri::editor::BindAuthoringLogicCatalog(&logicLayer_);
+        structuralThumbnailCache_.Clear();
 
         if (hwnd_ != nullptr) {
             SetWindowTextW(hwnd_, Widen(sceneConfig_.windowTitle).c_str());
             InvalidateRect(hwnd_, nullptr, FALSE);
         }
         lastIoStatus_ = "Switched project: " + game.displayName + " (preview reloaded). Use Ctrl+S to persist edits.";
+        if (!levelImportNote.empty()) {
+            lastIoStatus_ += levelImportNote;
+        }
+        RefreshPluginStoreState();
+    }
+
+    void RefreshPluginStoreState() {
+        pluginStorePackages_ = ri::editor::ListPluginStorePackages(sceneConfig_.workspaceRoot);
+        ClampPluginStoreScrollRow();
+        if (sceneConfig_.gameManifest.has_value()) {
+            const ri::content::GamePluginBootstrap bootstrap =
+                ri::content::BootstrapGamePlugins(sceneConfig_.gameManifest->rootPath);
+            pluginProjectData_ = bootstrap.projectData;
+            pluginStoreStatusLine_.clear();
+            if (bootstrap.startupHooksExecuted > 0U) {
+                pluginStoreStatusLine_ = std::to_string(bootstrap.startupHooksExecuted) + " startup hook(s) dispatched.";
+            }
+            if (!pluginProjectData_.issues.empty()) {
+                if (!pluginStoreStatusLine_.empty()) {
+                    pluginStoreStatusLine_ += " ";
+                }
+                pluginStoreStatusLine_ += std::to_string(pluginProjectData_.issues.size()) + " validation issue(s).";
+            }
+            for (const ri::content::PluginHookResult& result : bootstrap.startupResults) {
+                if (result.handled && pluginStoreStatusLine_.size() < 180U) {
+                    pluginStoreStatusLine_ += " [" + result.pluginId + "]";
+                }
+            }
+        } else {
+            pluginProjectData_ = {};
+            pluginStoreStatusLine_.clear();
+        }
+    }
+
+    [[nodiscard]] PluginStorePanelModel BuildPluginStorePanelModel() const {
+        PluginStorePanelModel model{};
+        model.headingLine = "Plugin Store";
+        model.hasMountedGame = sceneConfig_.gameManifest.has_value();
+        model.summaryLine = model.hasMountedGame
+            ? ri::content::SummarizePluginProjectData(pluginProjectData_)
+            : "No game mounted — pick a project from the workspace strip.";
+        model.modelHelpLine = "Policy → manifest → hooks → runtime handlers (declarative mod pipeline).";
+        if (model.hasMountedGame && !pluginProjectData_.activePlugins.empty()) {
+            model.summaryLine += " · active:";
+            for (const ri::content::ActivePlugin& active : pluginProjectData_.activePlugins) {
+                model.summaryLine += " " + active.manifest.id;
+            }
+        }
+        model.storePathLine = "Store: " + ri::editor::ResolvePluginStoreRoot(sceneConfig_.workspaceRoot).string();
+        model.statusLine = pluginStoreStatusLine_;
+        model.scrollTopRow = pluginStoreScrollRow_;
+
+        for (std::size_t index = 0; index < pluginStorePackages_.size(); ++index) {
+            const PluginStorePackage& package = pluginStorePackages_[index];
+            PluginStoreCardModel card{};
+            card.packageIndex = static_cast<int>(index);
+            card.titleLine = (package.badge.empty() ? "" : package.badge + "  ") + package.name + "  v" + package.version;
+            card.metaLine = package.author + " · " + package.category + " · source: project";
+            card.tagLine = package.tagLine.empty() ? package.id : package.tagLine;
+            card.descriptionLine = package.description;
+            card.installed = model.hasMountedGame && ri::editor::IsPluginInstalled(pluginProjectData_, package.id);
+            card.enabled = false;
+            if (card.installed) {
+                for (const ri::content::PluginRegistryEntry& entry : pluginProjectData_.registryEntries) {
+                    if (entry.id == package.id) {
+                        card.enabled = entry.enabled;
+                        break;
+                    }
+                }
+                if (const ri::content::PluginManifestEntry* manifest =
+                        ri::content::FindPluginManifestEntry(pluginProjectData_, package.id)) {
+                    card.policyLine = "Policy: " + std::string(ri::content::ToString(manifest->sourceKind));
+                    if (manifest->blockedByPolicy) {
+                        card.blocked = true;
+                        card.statusLine = "Blocked by policy";
+                        card.policyLine += " · " + manifest->policyBlockReason;
+                    }
+                }
+                if (!card.blocked) {
+                    card.statusLine = card.enabled ? "Installed · enabled" : "Installed · disabled";
+                }
+                card.actionLabel = card.blocked ? "Blocked" : (card.enabled ? "Disable" : "Enable");
+                card.secondaryActionLabel = "Remove";
+            } else {
+                if (model.hasMountedGame && !pluginProjectData_.policy.allowProjectPlugins) {
+                    card.blocked = true;
+                    card.policyLine = "Policy: project · project plugins disabled";
+                    card.statusLine = "Install blocked by project policy";
+                    card.actionLabel = "Blocked";
+                } else {
+                    card.policyLine = "Policy: project";
+                    card.actionLabel = "Install";
+                }
+            }
+            model.cards.push_back(std::move(card));
+        }
+        if (!pluginStorePackages_.empty()) {
+            model.scrollLine = "Showing " + std::to_string(std::min(pluginStorePackages_.size(),
+                                                                      static_cast<std::size_t>(pluginStoreScrollRow_ + 3)))
+                + " of " + std::to_string(pluginStorePackages_.size()) + " packages";
+        }
+        return model;
+    }
+
+    void ClampPluginStoreScrollRow() {
+        pluginStoreScrollRow_ = std::max(0, pluginStoreScrollRow_);
+        if (pluginStorePackages_.size() <= 3U) {
+            pluginStoreScrollRow_ = 0;
+        } else if (pluginStoreScrollRow_ > static_cast<int>(pluginStorePackages_.size()) - 1) {
+            pluginStoreScrollRow_ = std::max(0, static_cast<int>(pluginStorePackages_.size()) - 3);
+        }
+    }
+
+    void TryInstallStorePlugin(const int cardIndex) {
+        if (!sceneConfig_.gameManifest.has_value()) {
+            pluginStoreStatusLine_ = "Mount a game project before installing plugins.";
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return;
+        }
+        if (cardIndex < 0 || cardIndex >= static_cast<int>(pluginStorePackages_.size())) {
+            return;
+        }
+        if (!pluginProjectData_.policy.allowProjectPlugins) {
+            pluginStoreStatusLine_ = "Install blocked: project plugins are disabled by policy.";
+            lastIoStatus_ = pluginStoreStatusLine_;
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return;
+        }
+        const ri::editor::PluginInstallResult result = ri::editor::InstallPluginStorePackage(
+            sceneConfig_.gameManifest->rootPath,
+            pluginStorePackages_[static_cast<std::size_t>(cardIndex)]);
+        pluginStoreStatusLine_ = result.message;
+        lastIoStatus_ = result.message;
+        RefreshPluginStoreState();
+        RefreshWorkspaceResourceRows();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    void TryToggleStorePlugin(const int cardIndex) {
+        if (!sceneConfig_.gameManifest.has_value()) {
+            return;
+        }
+        if (cardIndex < 0 || cardIndex >= static_cast<int>(pluginStorePackages_.size())) {
+            return;
+        }
+        const PluginStorePackage& package = pluginStorePackages_[static_cast<std::size_t>(cardIndex)];
+        if (const ri::content::PluginManifestEntry* manifest =
+                ri::content::FindPluginManifestEntry(pluginProjectData_, package.id);
+            manifest != nullptr && manifest->blockedByPolicy) {
+            pluginStoreStatusLine_ = "Toggle blocked: " + manifest->policyBlockReason + ".";
+            lastIoStatus_ = pluginStoreStatusLine_;
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return;
+        }
+        bool enabled = false;
+        for (const ri::content::PluginRegistryEntry& entry : pluginProjectData_.registryEntries) {
+            if (entry.id == package.id) {
+                enabled = entry.enabled;
+                break;
+            }
+        }
+        const ri::editor::PluginInstallResult result = ri::editor::SetPluginEnabled(
+            sceneConfig_.gameManifest->rootPath,
+            package.id,
+            !enabled);
+        pluginStoreStatusLine_ = result.message;
+        lastIoStatus_ = result.message;
+        RefreshPluginStoreState();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    void TryPluginStoreCardAction(const int cardIndex) {
+        if (cardIndex < 0 || cardIndex >= static_cast<int>(pluginStorePackages_.size())) {
+            return;
+        }
+        const PluginStorePackage& package = pluginStorePackages_[static_cast<std::size_t>(cardIndex)];
+        if (sceneConfig_.gameManifest.has_value()
+            && ri::editor::IsPluginInstalled(pluginProjectData_, package.id)) {
+            TryToggleStorePlugin(cardIndex);
+        } else {
+            TryInstallStorePlugin(cardIndex);
+        }
+    }
+
+    void TryUninstallStorePlugin(const int cardIndex) {
+        if (!sceneConfig_.gameManifest.has_value()) {
+            return;
+        }
+        if (cardIndex < 0 || cardIndex >= static_cast<int>(pluginStorePackages_.size())) {
+            return;
+        }
+        const PluginStorePackage& package = pluginStorePackages_[static_cast<std::size_t>(cardIndex)];
+        const ri::editor::PluginInstallResult result = ri::editor::UninstallPluginStorePackage(
+            sceneConfig_.gameManifest->rootPath,
+            package.id);
+        pluginStoreStatusLine_ = result.message;
+        lastIoStatus_ = result.message;
+        RefreshPluginStoreState();
+        ClampPluginStoreScrollRow();
+        RefreshWorkspaceResourceRows();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    void OpenPluginStoreFolder() const {
+#if defined(_WIN32)
+        const fs::path storeRoot = ri::editor::ResolvePluginStoreRoot(sceneConfig_.workspaceRoot);
+        std::error_code ec{};
+        fs::create_directories(storeRoot, ec);
+        const std::wstring path = storeRoot.wstring();
+        ShellExecuteW(hwnd_, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#endif
     }
 
     void SwitchFocusedWorkspaceGame() {
@@ -2065,7 +2809,7 @@ enum class UiWorkbenchTextEditTarget {
 
     void TryScaffoldMountedGame() {
         if (!sceneConfig_.gameManifest.has_value()) {
-            lastIoStatus_ = "Scaffold needs an open game manifest.";
+            lastIoStatus_ = "Setup Files needs an open game manifest.";
             return;
         }
         std::size_t createdCount = 0;
@@ -2077,12 +2821,394 @@ enum class UiWorkbenchTextEditTarget {
         }
         EnsureProjectDevConfig(sceneConfig_.gameManifest->rootPath);
         RefreshWorkspaceResourceRows();
+        RefreshPluginStoreState();
         RebuildFilteredResourceRows();
         if (createdCount == 0) {
             lastIoStatus_ = "Project scaffold already present. Resources refreshed.";
             return;
         }
         lastIoStatus_ = "Created " + std::to_string(createdCount) + " missing authoring files.";
+    }
+
+    [[nodiscard]] std::string CurrentNewGameDisplayName() const {
+        std::string name = DefaultDisplayNameForTemplate(newGameTemplate_);
+        if (newGameNameVariant_ > 0) {
+            name += " " + std::to_string(newGameNameVariant_ + 1);
+        }
+        return name;
+    }
+
+    void CycleNewGameNameVariant(const int delta) {
+        newGameNameVariant_ = std::max(0, newGameNameVariant_ + delta);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    [[nodiscard]] ri::editor::CreatorPanelModel BuildCreatorPanelModel() const {
+        const std::string displayName = CurrentNewGameDisplayName();
+        return ri::editor::CreatorPanelModel{
+            .selectedTemplate = newGameTemplate_,
+            .displayNameDraft = displayName,
+            .slugPreview = SlugFromDisplayName(displayName),
+            .mountedGameLabel = FocusedWorkspaceGameLabel(),
+            .hasMountedGame = sceneConfig_.gameManifest.has_value(),
+            .selectedAtmosphere = creatorAtmospherePreset_,
+            .selectedInsert = creatorInsertPreset_,
+            .selectedCamera = creatorCameraPreset_,
+        };
+    }
+
+    void MountWorkspaceGameById(const std::string& gameId) {
+        for (std::size_t i = 0; i < workspaceGames_.size(); ++i) {
+            if (workspaceGames_[i].id == gameId) {
+                focusedWorkspaceGameIndex_ = static_cast<int>(i);
+                SwitchFocusedWorkspaceGame();
+                return;
+            }
+        }
+    }
+
+    void TryCreateNewGameFromWizard() {
+        const NewGameCreationResult created = CreateNewGameProject(
+            sceneConfig_.workspaceRoot, newGameTemplate_, CurrentNewGameDisplayName());
+        if (!created.ok) {
+            lastIoStatus_ = created.error.empty() ? "Could not create new game project." : created.error;
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return;
+        }
+
+        RefreshWorkspaceGamesAndResources();
+        MountWorkspaceGameById(created.manifest.id);
+        leftPanelMode_ = LeftPanelMode::Scene;
+        newGameNameVariant_ = 0;
+
+        CreatorAtmospherePreset atmosphere = CreatorAtmospherePreset::ClearDay;
+        if (newGameTemplate_ == NewGameTemplate::OutdoorScene) {
+            atmosphere = CreatorAtmospherePreset::GoldenHour;
+        } else if (newGameTemplate_ == NewGameTemplate::InteriorRoom) {
+            atmosphere = CreatorAtmospherePreset::NightStudio;
+        }
+        std::string atmosphereError;
+        if (!ApplyAtmospherePreset(created.projectRoot, atmosphere, &atmosphereError)) {
+            lastIoStatus_ = "Created " + created.manifest.name + ", but atmosphere setup failed: " + atmosphereError;
+        } else {
+            lastIoStatus_ = "Created game '" + created.manifest.name + "' under Games/. Scene and atmosphere are ready.";
+        }
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    void ApplyCreatorAtmosphere(const CreatorAtmospherePreset preset) {
+        if (!sceneConfig_.gameManifest.has_value()) {
+            lastIoStatus_ = "Mount a game before applying atmosphere presets.";
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return;
+        }
+        std::string error;
+        if (!ApplyAtmospherePreset(sceneConfig_.gameManifest->rootPath, preset, &error)) {
+            lastIoStatus_ = error.empty() ? "Atmosphere preset failed." : error;
+        } else {
+            lastIoStatus_ = "Applied atmosphere preset: " + AtmospherePresetLabel(preset) + " (viewport sky updated).";
+            RefreshWorkspaceResourceRows();
+            ri::render::software::SnapshotGamePreviewScriptTimestamps(sceneConfig_.gameManifest->rootPath,
+                                                                      gamePreviewScriptTimestamps_);
+            ClearViewportPreviewCache();
+            RebuildViewportPreviewBitmap();
+        }
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    void AddCreatorPrimitive(const ri::scene::PrimitiveType primitive,
+                             const std::string& basename,
+                             const ri::math::Vec3& position,
+                             const ri::math::Vec3& scale,
+                             const ri::math::Vec3& baseColor,
+                             const std::string& materialName) {
+        if (starterScene_.handles.root == ri::scene::kInvalidHandle) {
+            lastIoStatus_ = "Cannot insert object: scene has no world root.";
+            return;
+        }
+        ri::scene::PrimitiveNodeOptions options{};
+        options.parent = starterScene_.handles.root;
+        options.primitive = primitive;
+        options.nodeName = NextAuthoringPrimitiveBasename(basename);
+        options.materialName = materialName;
+        options.shadingModel = ri::scene::ShadingModel::Lit;
+        options.baseColor = baseColor;
+        options.baseColorTexture = ri::scene::DefaultStructuralBrushAlbedoTexture();
+        options.baseColor = ri::scene::DefaultStructuralBrushBaseColor();
+        options.textureTiling = ri::math::Vec2{2.0f, 2.0f};
+        options.transform.position = position;
+        options.transform.scale = scale;
+        const int newHandle = ri::scene::AddPrimitiveNode(starterScene_.scene, options);
+        selectedNode_ = static_cast<std::size_t>(newHandle);
+        const EditorLayout layout = ComputeLayout();
+        EnsureHierarchySelectionVisible(layout.hierarchyInner);
+    }
+
+    void ApplyCreatorInsert(const CreatorInsertPreset preset) {
+        const ri::math::Vec3 focus = starterScene_.handles.orbitCamera.orbit.target;
+        switch (preset) {
+            case CreatorInsertPreset::GroundPlate:
+                AddCreatorPrimitive(ri::scene::PrimitiveType::Plane,
+                                    "Ground_",
+                                    ri::math::Vec3{focus.x, 0.0f, focus.z},
+                                    ri::math::Vec3{18.0f, 1.0f, 18.0f},
+                                    ri::math::Vec3{0.52f, 0.56f, 0.48f},
+                                    "creator_ground");
+                lastIoStatus_ = "Inserted ground plate at world origin height.";
+                break;
+            case CreatorInsertPreset::RockCluster:
+                AddCreatorPrimitive(ri::scene::PrimitiveType::Cube,
+                                    "Rock_",
+                                    ri::math::Vec3{focus.x + 2.0f, 0.8f, focus.z + 1.5f},
+                                    ri::math::Vec3{1.4f, 1.1f, 1.2f},
+                                    ri::math::Vec3{0.44f, 0.42f, 0.40f},
+                                    "creator_rock");
+                AddCreatorPrimitive(ri::scene::PrimitiveType::Cube,
+                                    "Rock_",
+                                    ri::math::Vec3{focus.x - 1.5f, 0.6f, focus.z - 2.0f},
+                                    ri::math::Vec3{1.8f, 0.9f, 1.5f},
+                                    ri::math::Vec3{0.48f, 0.46f, 0.44f},
+                                    "creator_rock");
+                AddCreatorPrimitive(ri::scene::PrimitiveType::Cube,
+                                    "Rock_",
+                                    ri::math::Vec3{focus.x + 3.0f, 0.5f, focus.z - 1.0f},
+                                    ri::math::Vec3{1.0f, 0.8f, 0.9f},
+                                    ri::math::Vec3{0.40f, 0.38f, 0.36f},
+                                    "creator_rock");
+                lastIoStatus_ = "Inserted rock cluster near camera focus.";
+                break;
+            case CreatorInsertPreset::WaterSurface:
+                AddCreatorPrimitive(ri::scene::PrimitiveType::Plane,
+                                    "Water_",
+                                    ri::math::Vec3{focus.x, -0.05f, focus.z},
+                                    ri::math::Vec3{20.0f, 1.0f, 20.0f},
+                                    ri::math::Vec3{0.18f, 0.34f, 0.52f},
+                                    "creator_water");
+                lastIoStatus_ = "Inserted water surface plane.";
+                break;
+            case CreatorInsertPreset::SkyBackdrop:
+                AddCreatorPrimitive(ri::scene::PrimitiveType::Plane,
+                                    "Sky_",
+                                    ri::math::Vec3{focus.x, 16.0f, focus.z - 12.0f},
+                                    ri::math::Vec3{28.0f, 1.0f, 18.0f},
+                                    ri::math::Vec3{0.58f, 0.72f, 0.92f},
+                                    "creator_sky");
+                lastIoStatus_ = "Inserted sky backdrop slab.";
+                break;
+            case CreatorInsertPreset::PortalArch:
+                AddCreatorPrimitive(ri::scene::PrimitiveType::Cube,
+                                    "Arch_",
+                                    ri::math::Vec3{focus.x - 1.2f, 1.5f, focus.z},
+                                    ri::math::Vec3{0.4f, 3.0f, 0.4f},
+                                    ri::math::Vec3{0.62f, 0.64f, 0.68f},
+                                    "creator_arch");
+                AddCreatorPrimitive(ri::scene::PrimitiveType::Cube,
+                                    "Arch_",
+                                    ri::math::Vec3{focus.x + 1.2f, 1.5f, focus.z},
+                                    ri::math::Vec3{0.4f, 3.0f, 0.4f},
+                                    ri::math::Vec3{0.62f, 0.64f, 0.68f},
+                                    "creator_arch");
+                AddCreatorPrimitive(ri::scene::PrimitiveType::Cube,
+                                    "Arch_",
+                                    ri::math::Vec3{focus.x, 2.8f, focus.z},
+                                    ri::math::Vec3{2.8f, 0.4f, 0.5f},
+                                    ri::math::Vec3{0.66f, 0.68f, 0.72f},
+                                    "creator_arch");
+                lastIoStatus_ = "Inserted portal arch near camera focus.";
+                break;
+        }
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    void ApplyCreatorCamera(const CreatorCameraPreset preset) {
+        switch (preset) {
+            case CreatorCameraPreset::Hero:
+                editorOrbitState_.yawDegrees = 28.0f;
+                editorOrbitState_.pitchDegrees = -16.0f;
+                editorOrbitState_.distance = 11.0f;
+                editorOrbitState_.target = ri::math::Vec3{0.0f, 1.0f, 0.0f};
+                lastIoStatus_ = "Camera preset: Hero framing.";
+                break;
+            case CreatorCameraPreset::TopDown:
+                editorOrbitState_.yawDegrees = 0.0f;
+                editorOrbitState_.pitchDegrees = -78.0f;
+                editorOrbitState_.distance = 20.0f;
+                editorOrbitState_.target = ri::math::Vec3{0.0f, 0.0f, 0.0f};
+                lastIoStatus_ = "Camera preset: Top-down overview.";
+                break;
+            case CreatorCameraPreset::LowAngle:
+                editorOrbitState_.yawDegrees = -18.0f;
+                editorOrbitState_.pitchDegrees = -7.0f;
+                editorOrbitState_.distance = 6.5f;
+                editorOrbitState_.target = ri::math::Vec3{0.0f, 0.6f, 0.0f};
+                lastIoStatus_ = "Camera preset: Low dramatic angle.";
+                break;
+        }
+        ApplyEditorOrbitToScene();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    [[nodiscard]] bool ShouldShowAuthoringCatalogChrome() const {
+        return leftPanelMode_ == LeftPanelMode::Create || inspectorPanel_ == InspectorPanel::Brush
+            || toolMode_ == ri::editor::EditorToolMode::Create;
+    }
+
+    [[nodiscard]] bool ShouldShowViewportWorldBar() const {
+        return sceneConfig_.gameManifest.has_value();
+    }
+
+    [[nodiscard]] std::string ArmedCatalogPresetSummary() const {
+        return ri::editor::ActiveCatalogPresetLabel(authoringCatalogSection_,
+                                                    SelectedCatalogPresetIndex(authoringCatalogSection_));
+    }
+
+    [[nodiscard]] std::string CreateModeHintLine() const {
+        if (toolMode_ != ri::editor::EditorToolMode::Create) {
+            return {};
+        }
+        return "Stamp: " + ArmedCatalogPresetSummary() + "  |  click scene  |  Place / dbl-click preset";
+    }
+
+    void SetToolMode(const ri::editor::EditorToolMode mode) {
+        toolMode_ = mode;
+        if (mode == ri::editor::EditorToolMode::Create) {
+            leftPanelMode_ = LeftPanelMode::Scene;
+            authoringCatalogExpanded_ = true;
+            (void)SetInspectorPanel(InspectorPanel::Brush);
+            lastIoStatus_ = "Create mode (Bryce-style): pick a preset below, then click the scene to stamp it.";
+        } else if (mode == ri::editor::EditorToolMode::Select) {
+            lastIoStatus_ = "Select mode: click objects to edit transforms and properties.";
+        } else {
+            lastIoStatus_ = "Camera mode: drag to orbit and pan without stamping objects.";
+        }
+        ClearViewportPreviewCache();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    [[nodiscard]] bool ShouldShowStructuralPicker() const {
+        return ShouldShowAuthoringCatalogChrome() && authoringCatalogExpanded_;
+    }
+
+    [[nodiscard]] int AuthoringCatalogBottomChromeInset() const {
+        if (!ShouldShowAuthoringCatalogChrome()) {
+            return 0;
+        }
+        return AuthoringCatalogBottomInset(authoringCatalogExpanded_);
+    }
+
+    [[nodiscard]] bool TryHandleAuthoringCatalogClick(const POINT& point, const RECT& viewportInner) {
+        if (!ShouldShowAuthoringCatalogChrome()) {
+            return false;
+        }
+        if (!authoringCatalogExpanded_) {
+            const RECT barRect = ComputeStructuralPickerCollapsedBarRect(viewportInner);
+            if (HitTestStructuralPickerCollapsedBar(barRect, point).kind == StructuralPickerHitKind::ToggleExpand) {
+                authoringCatalogExpanded_ = true;
+                ClearViewportPreviewCache();
+                lastIoStatus_ = "Authoring catalog expanded (Ctrl+2 toggles).";
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return true;
+            }
+            return false;
+        }
+        return HandleStructuralPickerClick(point, viewportInner);
+    }
+
+    [[nodiscard]] fs::path ResolveEditorTextureRoot() const {
+        fs::path editorExe{};
+        wchar_t moduleWide[MAX_PATH]{};
+        if (GetModuleFileNameW(nullptr, moduleWide, MAX_PATH) > 0) {
+            editorExe = fs::path(std::wstring(moduleWide));
+        }
+        return ri::content::PickEngineTexturesDirectory(sceneConfig_.workspaceRoot, editorExe);
+    }
+
+    [[nodiscard]] StructuralPickerLayout CurrentStructuralPickerLayout(const RECT& viewportInner) const {
+        return ComputeStructuralPickerLayout(viewportInner, authoringCatalogSection_, structuralPickerScrollRow_);
+    }
+
+    [[nodiscard]] std::size_t& SelectedCatalogPresetIndex(const ri::editor::AuthoringCatalogSection section) {
+        switch (section) {
+            case ri::editor::AuthoringCatalogSection::Volumes:
+                return volumeCatalogPresetIndex_;
+            case ri::editor::AuthoringCatalogSection::Logic:
+                return logicCatalogPresetIndex_;
+            case ri::editor::AuthoringCatalogSection::Structural:
+                break;
+        }
+        return structuralBrushPresetIndex_;
+    }
+
+    [[nodiscard]] std::size_t SelectedCatalogPresetIndex(const ri::editor::AuthoringCatalogSection section) const {
+        switch (section) {
+            case ri::editor::AuthoringCatalogSection::Volumes:
+                return volumeCatalogPresetIndex_;
+            case ri::editor::AuthoringCatalogSection::Logic:
+                return logicCatalogPresetIndex_;
+            case ri::editor::AuthoringCatalogSection::Structural:
+                break;
+        }
+        return structuralBrushPresetIndex_;
+    }
+
+    void SwitchAuthoringCatalogSection(const ri::editor::AuthoringCatalogSection section) {
+        if (authoringCatalogSection_ == section) {
+            return;
+        }
+        authoringCatalogSection_ = section;
+        structuralPickerScrollRow_ = 0;
+        lastIoStatus_ = std::string("Authoring catalog: ") + std::string(ri::editor::AuthoringCatalogSectionLabel(section))
+            + " tab.";
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    [[nodiscard]] bool HandleStructuralPickerClick(const POINT& point, const RECT& viewportInner) {
+        if (!ShouldShowStructuralPicker()) {
+            return false;
+        }
+        const StructuralPickerLayout layout = CurrentStructuralPickerLayout(viewportInner);
+        const ri::editor::StructuralPickerHit hit = HitTestStructuralPicker(layout, point);
+        switch (hit.kind) {
+            case StructuralPickerHitKind::Preset:
+                SelectedCatalogPresetIndex(authoringCatalogSection_) = hit.presetIndex;
+                lastIoStatus_ = "Selected " + std::string(ri::editor::AuthoringCatalogSectionLabel(authoringCatalogSection_))
+                    + " preset: " + ri::editor::ActiveCatalogPresetLabel(authoringCatalogSection_, hit.presetIndex)
+                    + "  |  click scene to stamp · Place · dbl-click preset.";
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return true;
+            case StructuralPickerHitKind::SectionStructural:
+                SwitchAuthoringCatalogSection(ri::editor::AuthoringCatalogSection::Structural);
+                return true;
+            case StructuralPickerHitKind::SectionVolumes:
+                SwitchAuthoringCatalogSection(ri::editor::AuthoringCatalogSection::Volumes);
+                return true;
+            case StructuralPickerHitKind::SectionLogic:
+                SwitchAuthoringCatalogSection(ri::editor::AuthoringCatalogSection::Logic);
+                return true;
+            case StructuralPickerHitKind::PrevPage:
+                structuralPickerScrollRow_ = std::max(0, structuralPickerScrollRow_ - 1);
+                lastIoStatus_ = "Authoring catalog: previous page.";
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return true;
+            case StructuralPickerHitKind::NextPage:
+                structuralPickerScrollRow_ =
+                    std::min(std::max(0, layout.totalRows - layout.visibleRows), structuralPickerScrollRow_ + 1);
+                lastIoStatus_ = "Authoring catalog: next page.";
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return true;
+            case StructuralPickerHitKind::Place:
+                SpawnAuthoringCatalogAtFocus();
+                return true;
+            case StructuralPickerHitKind::ToggleExpand:
+                authoringCatalogExpanded_ = false;
+                ClearViewportPreviewCache();
+                lastIoStatus_ = "Authoring catalog collapsed — viewport enlarged (Ctrl+2 toggles).";
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return true;
+            case StructuralPickerHitKind::None:
+                break;
+        }
+        return false;
     }
 
     void OpenProjectResourceShortcut(std::string_view relativePath) {
@@ -2208,13 +3334,13 @@ enum class UiWorkbenchTextEditTarget {
     [[nodiscard]] UiWorkbenchPanelModel BuildUiWorkbenchPanelModel(const RECT& inspectorInner) {
         UiWorkbenchPanelModel model{};
         model.layout = ComputeUiWorkbenchLayout(inspectorInner);
-        model.headingLine = "2D / UI / VN workbench";
+        model.headingLine = "Menu / UI / VN workbench";
         model.usingAutoSource = uiWorkbenchSource_ == UiWorkbenchSource::AutoSelection;
         model.usingMenuSample = uiWorkbenchSource_ == UiWorkbenchSource::MenuSample;
         model.usingVnSample = uiWorkbenchSource_ == UiWorkbenchSource::VnSample;
-        model.hintLine = "Auto mode stays inside the mounted game. Workspace demos are opt-in only.";
+        model.hintLine = "Menu blocks: + Button / Heading / Paragraph / Spacer. Auto mode stays inside the mounted game.";
         model.actionsHeaderLine = "Authoring actions write directly into the selected game-local manifest.";
-        model.blockActionsHeaderLine = "Block actions target the selected screen card and selected block below.";
+        model.blockActionsHeaderLine = "Use New Menu for a title screen template. F2 edits labels and text in-place.";
         model.previewFooterLine = "F2 edits the selected block or screen title. Shift+F2 edits dialogue speaker when available.";
 
         const std::optional<fs::path> manifestPath = ResolveUiWorkbenchManifestPath();
@@ -2301,6 +3427,7 @@ enum class UiWorkbenchTextEditTarget {
                     preview.tone = UiWorkbenchBlockTone::Heading;
                     preview.titleLine = "Heading";
                     preview.detailLine = block.text;
+                    preview.preferredHeight = 40;
                     break;
                 case ri::ui::UiBlockKind::Say:
                     preview.tone = UiWorkbenchBlockTone::Say;
@@ -2341,15 +3468,17 @@ enum class UiWorkbenchTextEditTarget {
                     preview.tone = UiWorkbenchBlockTone::Other;
                     preview.titleLine = "Spacer";
                     preview.detailLine = "Height " + std::to_string(static_cast<int>(block.spacerHeight));
+                    preview.preferredHeight = std::clamp(static_cast<int>(block.spacerHeight), 12, 64);
                     break;
                 case ri::ui::UiBlockKind::Separator:
                     preview.tone = UiWorkbenchBlockTone::Other;
                     preview.titleLine = "Separator";
                     break;
                 case ri::ui::UiBlockKind::Button:
-                    preview.tone = UiWorkbenchBlockTone::Choices;
+                    preview.tone = UiWorkbenchBlockTone::Button;
                     preview.titleLine = "Button";
-                    preview.detailLine = block.label;
+                    preview.detailLine = block.label.empty() ? "Untitled button" : block.label;
+                    preview.preferredHeight = 44;
                     break;
             }
             if (preview.detailLine.size() > 72) {
@@ -2391,44 +3520,6 @@ enum class UiWorkbenchTextEditTarget {
         lastIoStatus_ = "UI/VN workbench: screen " + std::to_string(uiWorkbenchSelectedScreenIndex_ + 1) + " / "
             + std::to_string(screenCount) + ".";
         InvalidateRect(hwnd_, nullptr, FALSE);
-    }
-
-    [[nodiscard]] std::vector<RECT> ComputeUiWorkbenchScreenRowRects(const RECT& inspectorInner, const int screenCount) const {
-        const RECT manifestCard{inspectorInner.left + 10, inspectorInner.top + 258, inspectorInner.right - 10, inspectorInner.top + 334};
-        const RECT railCard{inspectorInner.left + 10, manifestCard.bottom + 10, inspectorInner.right - 10, manifestCard.bottom + 120};
-        std::vector<RECT> rects{};
-        rects.reserve(static_cast<std::size_t>(std::max(0, screenCount)));
-        int rowTop = railCard.top + 34;
-        for (int i = 0; i < screenCount; ++i) {
-            RECT rowRect{railCard.left + 10, rowTop, railCard.right - 10, rowTop + 22};
-            if (rowRect.bottom > railCard.bottom - 28) {
-                break;
-            }
-            rects.push_back(rowRect);
-            rowTop += 24;
-        }
-        return rects;
-    }
-
-    [[nodiscard]] std::vector<RECT> ComputeUiWorkbenchPreviewBlockRects(const RECT& inspectorInner,
-                                                                        const UiWorkbenchPanelModel& model) const {
-        const RECT manifestCard{inspectorInner.left + 10, inspectorInner.top + 258, inspectorInner.right - 10, inspectorInner.top + 334};
-        const RECT railCard{inspectorInner.left + 10, manifestCard.bottom + 10, inspectorInner.right - 10, manifestCard.bottom + 120};
-        const RECT previewCard{inspectorInner.left + 10, railCard.bottom + 10, inspectorInner.right - 10, inspectorInner.bottom - 72};
-        const RECT stageRect{previewCard.left + 14, previewCard.top + 58, previewCard.right - 14, previewCard.bottom - 32};
-        std::vector<RECT> rects{};
-        rects.reserve(model.previewBlocks.size());
-        int blockTop = stageRect.top + 12;
-        for (const UiWorkbenchPreviewBlock& block : model.previewBlocks) {
-            const int blockHeight = block.detailLine.empty() ? 28 : 44;
-            RECT blockRect{stageRect.left + 12, blockTop, stageRect.right - 12, blockTop + blockHeight};
-            if (blockRect.bottom > stageRect.bottom - 8) {
-                break;
-            }
-            rects.push_back(blockRect);
-            blockTop += blockHeight + 10;
-        }
-        return rects;
     }
 
     void SelectUiWorkbenchScreen(const int screenIndex) {
@@ -2478,14 +3569,16 @@ enum class UiWorkbenchTextEditTarget {
             return false;
         }
         UiWorkbenchPanelModel model = BuildUiWorkbenchPanelModel(inspectorInner);
-        const std::vector<RECT> screenRows = ComputeUiWorkbenchScreenRowRects(inspectorInner, static_cast<int>(model.screens.size()));
+        const UiWorkbenchInspectorLayout cards = ComputeUiWorkbenchInspectorLayout(inspectorInner);
+        const std::vector<RECT> screenRows =
+            ComputeUiWorkbenchScreenRowRects(cards, static_cast<int>(model.screens.size()));
         for (std::size_t i = 0; i < screenRows.size(); ++i) {
             if (PtInRect(&screenRows[i], point) != FALSE) {
                 SelectUiWorkbenchScreen(static_cast<int>(i));
                 return true;
             }
         }
-        const std::vector<RECT> blockRows = ComputeUiWorkbenchPreviewBlockRects(inspectorInner, model);
+        const std::vector<RECT> blockRows = ComputeUiWorkbenchInspectorPreviewBlockRects(cards, model.previewBlocks);
         for (std::size_t i = 0; i < blockRows.size(); ++i) {
             if (PtInRect(&blockRows[i], point) != FALSE) {
                 SelectUiWorkbenchBlock(static_cast<int>(i));
@@ -2595,6 +3688,58 @@ enum class UiWorkbenchTextEditTarget {
         });
     }
 
+    [[nodiscard]] static ri::ui::UiBlock MakeMenuButtonBlock(std::string label, ri::ui::UiAction action) {
+        ri::ui::UiBlock block{};
+        block.kind = ri::ui::UiBlockKind::Button;
+        block.label = std::move(label);
+        block.action = std::move(action);
+        return block;
+    }
+
+    void UiWorkbenchCreateMenuScreen() {
+        ApplyUiWorkbenchMutation("Menu workbench: created menu screen.", [this](ri::ui::UiManifest& manifest) {
+            ri::ui::UiScreen screen{};
+            const int nextIndex = static_cast<int>(manifest.screens.size()) + 1;
+            screen.id = "menu_" + std::to_string(nextIndex);
+            screen.title = "Menu " + std::to_string(nextIndex);
+            screen.backgroundRgba = {0.04f, 0.05f, 0.10f, 0.98f};
+            screen.blocks.push_back(ri::ui::UiBlock{
+                .kind = ri::ui::UiBlockKind::Heading,
+                .text = screen.title,
+                .align = "center",
+            });
+            screen.blocks.push_back(ri::ui::UiBlock{
+                .kind = ri::ui::UiBlockKind::Spacer,
+                .spacerHeight = 24.0f,
+            });
+            screen.blocks.push_back(ri::ui::UiBlock{
+                .kind = ri::ui::UiBlockKind::Paragraph,
+                .text = "Replace this subtitle with your game pitch or chapter title.",
+                .align = "center",
+            });
+            screen.blocks.push_back(ri::ui::UiBlock{
+                .kind = ri::ui::UiBlockKind::Spacer,
+                .spacerHeight = 32.0f,
+            });
+            screen.blocks.push_back(MakeMenuButtonBlock(
+                "Play",
+                ri::ui::UiAction{.kind = ri::ui::UiActionKind::Emit, .target = "game.start"}));
+            screen.blocks.push_back(MakeMenuButtonBlock(
+                "Settings",
+                ri::ui::UiAction{.kind = ri::ui::UiActionKind::Navigate, .target = screen.id}));
+            screen.blocks.push_back(MakeMenuButtonBlock(
+                "Quit",
+                ri::ui::UiAction{.kind = ri::ui::UiActionKind::Emit, .target = "app.quit"}));
+            manifest.screens.push_back(std::move(screen));
+            uiWorkbenchSelectedScreenIndex_ = static_cast<int>(manifest.screens.size()) - 1;
+            uiWorkbenchSelectedBlockIndex_ = 0;
+            if (manifest.startScreenId.empty()) {
+                manifest.startScreenId = manifest.screens.back().id;
+            }
+            return true;
+        });
+    }
+
     void UiWorkbenchCreateScreen() {
         ApplyUiWorkbenchMutation("UI/VN workbench: created new screen.", [this](ri::ui::UiManifest& manifest) {
             ri::ui::UiScreen screen{};
@@ -2639,6 +3784,79 @@ enum class UiWorkbenchTextEditTarget {
               return true;
           });
       }
+
+    void UiWorkbenchAddButtonBlock() {
+        ApplyUiWorkbenchMutation("Menu workbench: added button block.", [this](ri::ui::UiManifest& manifest) {
+            if (manifest.screens.empty()) {
+                lastIoStatus_ = "Menu workbench: no screen available.";
+                return false;
+            }
+            uiWorkbenchSelectedScreenIndex_ =
+                std::clamp(uiWorkbenchSelectedScreenIndex_, 0, static_cast<int>(manifest.screens.size()) - 1);
+            auto& blocks = manifest.screens[static_cast<std::size_t>(uiWorkbenchSelectedScreenIndex_)].blocks;
+            blocks.push_back(MakeMenuButtonBlock(
+                "New Button",
+                ri::ui::UiAction{.kind = ri::ui::UiActionKind::Emit, .target = "game.start"}));
+            uiWorkbenchSelectedBlockIndex_ = static_cast<int>(blocks.size()) - 1;
+            return true;
+        });
+    }
+
+    void UiWorkbenchAddHeadingBlock() {
+        ApplyUiWorkbenchMutation("Menu workbench: added heading block.", [this](ri::ui::UiManifest& manifest) {
+            if (manifest.screens.empty()) {
+                lastIoStatus_ = "Menu workbench: no screen available.";
+                return false;
+            }
+            uiWorkbenchSelectedScreenIndex_ =
+                std::clamp(uiWorkbenchSelectedScreenIndex_, 0, static_cast<int>(manifest.screens.size()) - 1);
+            auto& blocks = manifest.screens[static_cast<std::size_t>(uiWorkbenchSelectedScreenIndex_)].blocks;
+            ri::ui::UiBlock block{};
+            block.kind = ri::ui::UiBlockKind::Heading;
+            block.text = "New Heading";
+            block.align = "center";
+            blocks.push_back(std::move(block));
+            uiWorkbenchSelectedBlockIndex_ = static_cast<int>(blocks.size()) - 1;
+            return true;
+        });
+    }
+
+    void UiWorkbenchAddParagraphBlock() {
+        ApplyUiWorkbenchMutation("Menu workbench: added paragraph block.", [this](ri::ui::UiManifest& manifest) {
+            if (manifest.screens.empty()) {
+                lastIoStatus_ = "Menu workbench: no screen available.";
+                return false;
+            }
+            uiWorkbenchSelectedScreenIndex_ =
+                std::clamp(uiWorkbenchSelectedScreenIndex_, 0, static_cast<int>(manifest.screens.size()) - 1);
+            auto& blocks = manifest.screens[static_cast<std::size_t>(uiWorkbenchSelectedScreenIndex_)].blocks;
+            ri::ui::UiBlock block{};
+            block.kind = ri::ui::UiBlockKind::Paragraph;
+            block.text = "New paragraph text.";
+            block.align = "center";
+            blocks.push_back(std::move(block));
+            uiWorkbenchSelectedBlockIndex_ = static_cast<int>(blocks.size()) - 1;
+            return true;
+        });
+    }
+
+    void UiWorkbenchAddSpacerBlock() {
+        ApplyUiWorkbenchMutation("Menu workbench: added spacer block.", [this](ri::ui::UiManifest& manifest) {
+            if (manifest.screens.empty()) {
+                lastIoStatus_ = "Menu workbench: no screen available.";
+                return false;
+            }
+            uiWorkbenchSelectedScreenIndex_ =
+                std::clamp(uiWorkbenchSelectedScreenIndex_, 0, static_cast<int>(manifest.screens.size()) - 1);
+            auto& blocks = manifest.screens[static_cast<std::size_t>(uiWorkbenchSelectedScreenIndex_)].blocks;
+            ri::ui::UiBlock block{};
+            block.kind = ri::ui::UiBlockKind::Spacer;
+            block.spacerHeight = 24.0f;
+            blocks.push_back(std::move(block));
+            uiWorkbenchSelectedBlockIndex_ = static_cast<int>(blocks.size()) - 1;
+            return true;
+        });
+    }
 
     void UiWorkbenchAddChoicesBlock() {
         ApplyUiWorkbenchMutation("UI/VN workbench: added choices block.", [this](ri::ui::UiManifest& manifest) {
@@ -2969,12 +4187,19 @@ enum class UiWorkbenchTextEditTarget {
     }
 
     void LayoutResourceTextEditorControl(const RECT& inspectorInner) {
+        const WorkspaceResourceEntry* selectedResourceEntry = nullptr;
+        if (selectedResourceRow_ >= 0 && selectedResourceRow_ < static_cast<int>(resourceCatalogEntries_.size())) {
+            selectedResourceEntry = &resourceCatalogEntries_[static_cast<std::size_t>(selectedResourceRow_)];
+        }
+        const ri::editor::FilesInspectorPanelModel filesPanel = BuildFilesInspectorPanelModelForWindow(
+            selectedResourceEntry);
         ri::editor::LayoutResourceTextEditorControl(hwnd_,
                                                     resourceTextEditHwnd_,
                                                     inspectorPanel_ == InspectorPanel::Files,
                                                     loadedResourceAbsolutePath_,
                                                     resourceEditorAuxMessage_,
-                                                    inspectorInner);
+                                                    inspectorInner,
+                                                    filesPanel);
     }
 
     void SyncResourceTextEditorContent() {
@@ -2987,7 +4212,17 @@ enum class UiWorkbenchTextEditTarget {
             return false;
         }
         resourceFileDirty_ = false;
-        lastIoStatus_ = "Saved resource: " + loadedResourceAbsolutePath_.filename().string();
+        const std::string savedName = loadedResourceAbsolutePath_.filename().string();
+        lastIoStatus_ = "Saved resource: " + savedName;
+        if (savedName == "rendering.riscript" || savedName == "postprocess.riscript") {
+            if (sceneConfig_.gameManifest.has_value()) {
+                ri::render::software::SnapshotGamePreviewScriptTimestamps(sceneConfig_.gameManifest->rootPath,
+                                                                          gamePreviewScriptTimestamps_);
+            }
+            ClearViewportPreviewCache();
+            RebuildViewportPreviewBitmap();
+            lastIoStatus_ += " (viewport atmosphere reloaded).";
+        }
         return true;
     }
 
@@ -3032,16 +4267,22 @@ enum class UiWorkbenchTextEditTarget {
         return true;
     }
 
-    [[nodiscard]] int LeftPanelContentTop(const RECT& hierarchyInner) const {
-        int top = hierarchyInner.top + 6 + kLeftPanelTabHeight_;
+    [[nodiscard]] ri::editor::EditorLeftPanelMode EditorLeftPanelModeForPaint() const {
         if (leftPanelMode_ == LeftPanelMode::Resources) {
-            top += kLeftPanelGameStripHeight_ + 4;
-            top += kResourceFilterStripHeight_ + 6;
-            top += 24 + 6;
-        } else {
-            top += 24 + 6;
+            return ri::editor::EditorLeftPanelMode::Resources;
         }
-        return top;
+        if (leftPanelMode_ == LeftPanelMode::Create) {
+            return ri::editor::EditorLeftPanelMode::Create;
+        }
+        return ri::editor::EditorLeftPanelMode::Scene;
+    }
+
+    [[nodiscard]] int LeftPanelContentTop(const RECT& hierarchyInner) const {
+        return LeftPanelContentTop(hierarchyInner, EditorLeftPanelModeForPaint());
+    }
+
+    [[nodiscard]] int LeftPanelContentTop(const RECT& hierarchyInner, const ri::editor::EditorLeftPanelMode mode) const {
+        return ri::editor::LeftPanelContentTop(hierarchyInner, mode);
     }
 
     [[nodiscard]] RECT SceneSearchBoxRect(const RECT& hierarchyInner) const {
@@ -3064,19 +4305,11 @@ enum class UiWorkbenchTextEditTarget {
     }
 
     [[nodiscard]] RECT ResourceSearchBoxRect(const RECT& hierarchyInner) const {
-        const int tabStripBottom = hierarchyInner.top + 4 + kLeftPanelTabHeight_;
-        const int filterTop = tabStripBottom + 4 + kLeftPanelGameStripHeight_ + 4;
-        return RECT{
-            hierarchyInner.left + 6,
-            filterTop + kResourceFilterStripHeight_ + 4,
-            hierarchyInner.right - 40,
-            filterTop + kResourceFilterStripHeight_ + 26
-        };
+        return ri::editor::ResourceSearchBoxRect(hierarchyInner);
     }
 
     [[nodiscard]] RECT ResourceSearchClearRect(const RECT& hierarchyInner) const {
-        const RECT searchRect = ResourceSearchBoxRect(hierarchyInner);
-        return RECT{searchRect.right + 4, searchRect.top, searchRect.right + 30, searchRect.bottom};
+        return ri::editor::ResourceSearchClearRect(hierarchyInner);
     }
 
     [[nodiscard]] int CountVisibleSceneRows(const RECT& hierarchyInner) const {
@@ -3131,14 +4364,16 @@ enum class UiWorkbenchTextEditTarget {
     void UpdateCameraPlotRect(const RECT& viewportInner) {
         constexpr int kBannerHeight = 24;
         constexpr int kMetaStrip = 26;
+        const int worldBarHeight = ShouldShowViewportWorldBar() ? kViewportWorldBarHeight_ : 0;
+        const int bottomInset = AuthoringCatalogBottomChromeInset();
         const RECT menuBanner{viewportInner.left + 4,
                               viewportInner.top + 6,
                               viewportInner.right - 4,
                               viewportInner.top + 6 + kBannerHeight};
         const RECT quadArea{viewportInner.left + 4,
-                            menuBanner.bottom + 4,
+                            menuBanner.bottom + 4 + worldBarHeight,
                             viewportInner.right - 4,
-                            viewportInner.bottom - 4 - kMetaStrip};
+                            viewportInner.bottom - 4 - kMetaStrip - bottomInset};
 
         if (full3DViewport_) {
             RECT plot{quadArea.left + 6, quadArea.top + 22, quadArea.right - 6, quadArea.bottom - 6};
@@ -3189,12 +4424,25 @@ enum class UiWorkbenchTextEditTarget {
         ScreenToClient(hwnd_, &point);
         const EditorLayout layout = ComputeLayout();
         UpdateCameraPlotRect(layout.viewportInner);
+        if (ShouldShowAuthoringCatalogChrome()) {
+            const StructuralPickerLayout pickerLayout = CurrentStructuralPickerLayout(layout.viewportInner);
+            if (PtInRect(&pickerLayout.panelRect, point) != FALSE) {
+                const int rowDelta = wheelDelta > 0 ? -1 : 1;
+                structuralPickerScrollRow_ = std::clamp(
+                    structuralPickerScrollRow_ + rowDelta,
+                    0,
+                    std::max(0, pickerLayout.totalRows - pickerLayout.visibleRows));
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return true;
+            }
+        }
         if (PtInRect(&cameraPlotRect_, point) != FALSE) {
             if (!autoOrbitPreview_) {
                 const float steps = static_cast<float>(wheelDelta) / static_cast<float>(WHEEL_DELTA);
                 const float factor = std::exp(-steps * 0.14f);
                 editorOrbitState_.distance *= factor;
                 ApplyEditorOrbitToScene();
+                RebuildViewportPreviewBitmap();
                 lastIoStatus_ = "Camera: zoom.";
             }
             InvalidateRect(hwnd_, nullptr, FALSE);
@@ -3236,6 +4484,11 @@ enum class UiWorkbenchTextEditTarget {
             clientRect,
             point,
             {
+                .onNewGame = [this]() {
+                    leftPanelMode_ = LeftPanelMode::Create;
+                    lastIoStatus_ = "Creator Lab: pick a template and click Create Game Project.";
+                    InvalidateRect(hwnd_, nullptr, FALSE);
+                },
                 .onSave = [this]() {
                 std::string saveError;
                 if (SavePersistentEditorScene(ResolveSceneStatePath(),
@@ -3299,6 +4552,10 @@ enum class UiWorkbenchTextEditTarget {
                     (void)SetInspectorPanel(InspectorPanel::Files);
                     InvalidateRect(hwnd_, nullptr, FALSE);
                 },
+                .onStore = [this]() {
+                    (void)SetInspectorPanel(InspectorPanel::PluginStore);
+                    InvalidateRect(hwnd_, nullptr, FALSE);
+                },
                 .onUiWorkbench = [this]() {
                     if (!SetInspectorPanel(InspectorPanel::UiWorkbench)) {
                         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -3310,6 +4567,12 @@ enum class UiWorkbenchTextEditTarget {
     }
 
     [[nodiscard]] bool HandleInspectorPanelClick(const EditorLayout& layout, const POINT& point) {
+        gameplayPanelLayout_ = ComputeGameplayPanelLayout(layout.inspectorInner);
+        uiWorkbenchLayout_ = ComputeUiWorkbenchLayout(layout.inspectorInner);
+        pluginStoreLayout_ = ComputePluginStoreLayout(
+            layout.inspectorInner,
+            static_cast<int>(pluginStorePackages_.size()),
+            pluginStoreScrollRow_);
         const ProjectShortcutLayout shortcuts = ComputeProjectShortcutLayout(layout.inspectorInner);
         const std::string primaryLevelShortcutPath =
             sceneConfig_.gameManifest.has_value() && !sceneConfig_.gameManifest->primaryLevel.empty()
@@ -3321,11 +4584,13 @@ enum class UiWorkbenchTextEditTarget {
                 .inspectorInner = layout.inspectorInner,
                 .gameplayLayout = gameplayPanelLayout_,
                 .uiWorkbenchLayout = uiWorkbenchLayout_,
+                .pluginStoreLayout = pluginStoreLayout_,
                 .projectShortcuts = shortcuts,
                 .primaryLevelShortcutPath = primaryLevelShortcutPath,
                 .brushPanelActive = inspectorPanel_ == InspectorPanel::Brush,
                 .filesPanelActive = inspectorPanel_ == InspectorPanel::Files,
                 .gameplayPanelActive = inspectorPanel_ == InspectorPanel::Gameplay,
+                .pluginStoreActive = inspectorPanel_ == InspectorPanel::PluginStore,
                 .uiWorkbenchActive = inspectorPanel_ == InspectorPanel::UiWorkbench,
                 .tryHandleNudge = [this](const POINT& clickPoint) {
                     return TryHandleInspectorNudgeClick(clickPoint);
@@ -3371,6 +4636,28 @@ enum class UiWorkbenchTextEditTarget {
                     TryLaunchPlayer();
                     InvalidateRect(hwnd_, nullptr, FALSE);
                 },
+                .onRefreshPluginStore = [this]() {
+                    RefreshPluginStoreState();
+                    InvalidateRect(hwnd_, nullptr, FALSE);
+                },
+                .onOpenPluginStoreFolder = [this]() {
+                    OpenPluginStoreFolder();
+                },
+                .onPluginStoreScrollPrev = [this]() {
+                    pluginStoreScrollRow_ = std::max(0, pluginStoreScrollRow_ - 1);
+                    InvalidateRect(hwnd_, nullptr, FALSE);
+                },
+                .onPluginStoreScrollNext = [this]() {
+                    pluginStoreScrollRow_ += 1;
+                    ClampPluginStoreScrollRow();
+                    InvalidateRect(hwnd_, nullptr, FALSE);
+                },
+                .onPluginStoreAction = [this](const int cardIndex) {
+                    TryPluginStoreCardAction(cardIndex);
+                },
+                .onPluginStoreUninstall = [this](const int cardIndex) {
+                    TryUninstallStorePlugin(cardIndex);
+                },
                 .onCycleUiWorkbenchScreen = [this](int delta) {
                     CycleUiWorkbenchScreen(delta);
                 },
@@ -3386,8 +4673,23 @@ enum class UiWorkbenchTextEditTarget {
                 .onUiWorkbenchNewScreen = [this]() {
                     UiWorkbenchCreateScreen();
                 },
+                .onUiWorkbenchNewMenuScreen = [this]() {
+                    UiWorkbenchCreateMenuScreen();
+                },
                 .onUiWorkbenchDuplicateScreen = [this]() {
                     UiWorkbenchDuplicateScreen();
+                },
+                .onUiWorkbenchAddButtonBlock = [this]() {
+                    UiWorkbenchAddButtonBlock();
+                },
+                .onUiWorkbenchAddHeadingBlock = [this]() {
+                    UiWorkbenchAddHeadingBlock();
+                },
+                .onUiWorkbenchAddParagraphBlock = [this]() {
+                    UiWorkbenchAddParagraphBlock();
+                },
+                .onUiWorkbenchAddSpacerBlock = [this]() {
+                    UiWorkbenchAddSpacerBlock();
                 },
                 .onUiWorkbenchAddChoiceBlock = [this]() {
                     UiWorkbenchAddChoicesBlock();
@@ -3506,9 +4808,26 @@ enum class UiWorkbenchTextEditTarget {
         return false;
     }
 
-    [[nodiscard]] bool HandleGlobalEditorHotkeys(WPARAM key, const bool controlHeld, const bool shiftHeld) {
+    void ShowHelpGuide() {
+        ri::editor::ShowEditorHelpDialog(hwnd_);
+    }
+
+    [[nodiscard]] bool HandleGlobalEditorHotkeys(WPARAM key, const bool controlHeld, const bool shiftHeld, const bool altHeld) {
+        if (key == VK_F1) {
+            ShowHelpGuide();
+            return true;
+        }
+        if (key == 'S' && !controlHeld && !shiftHeld && !altHeld && !resourceSearchActive_) {
+            SetToolMode(ri::editor::EditorToolMode::Select);
+            return true;
+        }
+        if (key == 'C' && !controlHeld && !shiftHeld && !altHeld && !resourceSearchActive_) {
+            SetToolMode(ri::editor::EditorToolMode::Create);
+            return true;
+        }
         if (key == VK_TAB) {
             full3DViewport_ = !full3DViewport_;
+            ClearViewportPreviewCache();
             lastIoStatus_ = full3DViewport_ ? "Layout: full 3D (Tab for quad views)." : "Layout: quad views (Tab for full 3D).";
             InvalidateRect(hwnd_, nullptr, FALSE);
             return true;
@@ -3543,12 +4862,62 @@ enum class UiWorkbenchTextEditTarget {
             InvalidateRect(hwnd_, nullptr, FALSE);
             return true;
         }
+        if (controlHeld && shiftHeld && key == 'R') {
+            viewportRayTracePreview_ = !viewportRayTracePreview_;
+            ClearViewportPreviewCache();
+            lastIoStatus_ = viewportRayTracePreview_
+                ? "Viewport: ray-traced quality preview ON (slower). Ctrl+Shift+R toggles."
+                : "Viewport: fast raster preview ON. Ctrl+Shift+R toggles ray trace.";
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return true;
+        }
+        if (controlHeld && !shiftHeld && !altHeld && key == VK_OEM_4) {
+            leftPanelCollapsed_ = !leftPanelCollapsed_;
+            ClearViewportPreviewCache();
+            lastIoStatus_ = leftPanelCollapsed_ ? "Left panel collapsed." : "Left panel expanded.";
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return true;
+        }
+        if (controlHeld && !shiftHeld && !altHeld && key == VK_OEM_6) {
+            rightPanelCollapsed_ = !rightPanelCollapsed_;
+            ClearViewportPreviewCache();
+            lastIoStatus_ = rightPanelCollapsed_ ? "Right panel collapsed." : "Right panel expanded.";
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return true;
+        }
+        if (controlHeld && !shiftHeld && !altHeld && key == '2') {
+            if (ShouldShowAuthoringCatalogChrome() || leftPanelMode_ == LeftPanelMode::Scene) {
+                if (!ShouldShowAuthoringCatalogChrome()) {
+                    inspectorPanel_ = InspectorPanel::Brush;
+                }
+                authoringCatalogExpanded_ = !authoringCatalogExpanded_;
+                ClearViewportPreviewCache();
+                lastIoStatus_ = authoringCatalogExpanded_ ? "Authoring catalog shown (Ctrl+2 toggles)."
+                                                          : "Authoring catalog hidden — viewport enlarged.";
+                InvalidateRect(hwnd_, nullptr, FALSE);
+            }
+            return true;
+        }
+        if (key == VK_HOME && !controlHeld) {
+            TryFrameAllRenderables();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return true;
+        }
         if (controlHeld && shiftHeld && key == 'Q') {
             DestroyWindow(hwnd_);
             return true;
         }
         if (key == VK_ESCAPE) {
-            if (static_cast<int>(selectedNode_) != starterScene_.handles.root &&
+            if (cameraDragMode_ != CameraDragMode::None) {
+                EndCameraDrag();
+                lastIoStatus_ = "Camera drag cancelled.";
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return true;
+            }
+            if (logicLayer_.WirePickState().armed) {
+                logicLayer_.ClearWirePick();
+                lastIoStatus_ = "Wire pick cleared.";
+            } else if (static_cast<int>(selectedNode_) != starterScene_.handles.root &&
                 starterScene_.handles.root != ri::scene::kInvalidHandle) {
                 selectedNode_ = static_cast<std::size_t>(starterScene_.handles.root);
                 lastIoStatus_ = "Selection cleared (World root). Ctrl+Shift+Q exits the editor.";
@@ -3562,6 +4931,64 @@ enum class UiWorkbenchTextEditTarget {
             statsOverlayVisible_ = !statsOverlayVisible_;
             statsOverlayState_.SetVisible(statsOverlayVisible_);
             lastIoStatus_ = statsOverlayVisible_ ? "Diagnostics overlay visible." : "Diagnostics overlay hidden.";
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return true;
+        }
+        if (controlHeld && altHeld && key == 'L') {
+            logicLayer_.SetPlayerPreviewHidden(starterScene_.scene, !logicLayer_.IsPlayerPreviewHidden());
+            lastIoStatus_ = logicLayer_.IsPlayerPreviewHidden()
+                ? "Logic layer: hidden from player preview (creator/debug view)."
+                : "Logic layer: visible in player preview.";
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return true;
+        }
+        if (key == VK_F7) {
+            const std::size_t inputIndex = shiftHeld ? 1U : 0U;
+            bool pulsed = logicLayer_.PulseLogicNodeAtSceneHandle(
+                starterScene_.scene, static_cast<int>(selectedNode_), inputIndex);
+            if (!pulsed) {
+                pulsed = logicLayer_.PulseMostRecentNode(starterScene_.scene, inputIndex);
+            }
+            if (pulsed) {
+                lastIoStatus_ = std::string(shiftHeld ? "Logic test pulse (Shift+F7) input #2 on selected/recent node.  "
+                                                     : "Logic test pulse (F7) input #1 on selected/recent node.  ")
+                    + logicLayer_.LastCompileSummary();
+            } else {
+                lastIoStatus_ = shiftHeld
+                    ? "Logic test pulse: select a logic node with a second input (e.g. mem_flipflop Clock)."
+                    : "Logic test pulse: select a logic node with inputs first.";
+            }
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return true;
+        }
+        if (altHeld && key == 'W') {
+            const ri::editor::EditorLogicWirePickResult pick = logicLayer_.HandleWirePickAtSceneNode(
+                starterScene_.scene, static_cast<int>(selectedNode_));
+            if (pick.handled) {
+                lastIoStatus_ = pick.message + "  Escape clears wire pick.";
+            } else {
+                lastIoStatus_ = pick.message;
+            }
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return true;
+        }
+        if (altHeld && (key == VK_OEM_4 || key == VK_OEM_6)) {
+            logicLayer_.CycleWirePickPort(key == VK_OEM_4 ? -1 : 1);
+            if (logicLayer_.WirePickState().armed) {
+                lastIoStatus_ = "Wire port: " + logicLayer_.WirePickState().sourceId + "."
+                    + logicLayer_.WirePickState().outputName;
+            } else {
+                lastIoStatus_ = "Alt+[ / Alt+] cycles armed output port.";
+            }
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return true;
+        }
+        if (key == VK_F8) {
+            if (logicLayer_.PulseSelectedTrigger(starterScene_.scene, static_cast<int>(selectedNode_))) {
+                lastIoStatus_ = "Trigger test pulse (F8): OnStartTouch fired into logic graph.";
+            } else {
+                lastIoStatus_ = "Trigger test: select a Trigger_* volume and ensure logic graph compiles.";
+            }
             InvalidateRect(hwnd_, nullptr, FALSE);
             return true;
         }
@@ -3596,7 +5023,7 @@ enum class UiWorkbenchTextEditTarget {
         if (HandleLeftPanelNavigationKey(key, layoutForNav, drawOrder, visibleSceneRows, visibleResRows)) {
             return 0;
         }
-        if (HandleGlobalEditorHotkeys(key, controlHeld, shiftHeld)) {
+        if (HandleGlobalEditorHotkeys(key, controlHeld, shiftHeld, altHeld)) {
             return 0;
         }
         if (ri::editor::DispatchEditorCommandHotkey(
@@ -3669,6 +5096,10 @@ enum class UiWorkbenchTextEditTarget {
                         AddTriggerVolumePrimitive();
                         InvalidateRect(hwnd_, nullptr, FALSE);
                     },
+                    .onAddLight = [this]() {
+                        AddLightAtFocus();
+                        InvalidateRect(hwnd_, nullptr, FALSE);
+                    },
                     .onSpawnStructuralBrush = [this]() {
                         SpawnStructuralBrushAtFocus();
                         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -3730,19 +5161,7 @@ enum class UiWorkbenchTextEditTarget {
                         InvalidateRect(hwnd_, nullptr, FALSE);
                     },
                     .onFrameSelection = [this]() {
-                        if (!autoOrbitPreview_ && selectedNode_ < starterScene_.scene.NodeCount()) {
-                            const std::vector<int> handles = {static_cast<int>(selectedNode_)};
-                            if (ri::scene::FrameNodesWithOrbitCamera(starterScene_.scene,
-                                                                     starterScene_.handles.orbitCamera,
-                                                                     handles,
-                                                                     1.35f)) {
-                                editorOrbitState_ = starterScene_.handles.orbitCamera.orbit;
-                                ApplyEditorOrbitToScene();
-                                lastIoStatus_ = "Framed selection in orbit camera (Ctrl+S saves orbit).";
-                            } else {
-                                lastIoStatus_ = "Could not frame selection.";
-                            }
-                        }
+                        TryFrameSelection();
                         InvalidateRect(hwnd_, nullptr, FALSE);
                     },
                     .onSetEditModeTranslate = [this]() {
@@ -3792,6 +5211,10 @@ enum class UiWorkbenchTextEditTarget {
                     },
                     .onSelectInspectorFiles = [this]() {
                         (void)SetInspectorPanel(InspectorPanel::Files);
+                        InvalidateRect(hwnd_, nullptr, FALSE);
+                    },
+                    .onSelectInspectorStore = [this]() {
+                        (void)SetInspectorPanel(InspectorPanel::PluginStore);
                         InvalidateRect(hwnd_, nullptr, FALSE);
                     },
                     .onSelectInspectorUiWorkbench = [this]() {
@@ -4038,10 +5461,53 @@ enum class UiWorkbenchTextEditTarget {
             return 0;
         }
 
+        if (TryHandlePanelCollapseClick(point)) {
+            return 0;
+        }
+
+        if (HitTestViewportCreateMenu(layout.viewportInner, point)) {
+            leftPanelMode_ = LeftPanelMode::Create;
+            lastIoStatus_ = "Creator Lab opened from Viewport > Create menu.";
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
+        }
+
+        if (HitTestViewportHelpMenu(layout.viewportInner, point)) {
+            ShowHelpGuide();
+            return 0;
+        }
+
+        if (ShouldShowViewportWorldBar()) {
+            const ri::editor::EditorViewportWorldBarHit worldBarHit = ri::editor::HitTestViewportWorldBar(
+                layout.viewportInner, point, true, kViewportWorldBarHeight_);
+            if (worldBarHit.hitAtmosphereCycle) {
+                creatorAtmospherePreset_ = CycleCreatorAtmosphere(creatorAtmospherePreset_);
+                ApplyCreatorAtmosphere(creatorAtmospherePreset_);
+                ClearViewportPreviewCache();
+                RebuildViewportPreviewBitmap();
+                lastIoStatus_ = "Sky preset: " + AtmospherePresetLabel(creatorAtmospherePreset_) + " (click Sky bar to cycle).";
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return 0;
+            }
+        }
+
+        if (TryHandleAuthoringCatalogClick(point, layout.viewportInner)) {
+            return 0;
+        }
+
         if (ri::editor::DispatchEditorToolbarClick(
                 layout.toolStrip,
                 point,
                 {
+                    .onSelectMode = [this]() {
+                        SetToolMode(ri::editor::EditorToolMode::Select);
+                    },
+                    .onCreateMode = [this]() {
+                        SetToolMode(ri::editor::EditorToolMode::Create);
+                    },
+                    .onCameraMode = [this]() {
+                        SetToolMode(ri::editor::EditorToolMode::Camera);
+                    },
                     .onTranslate = [this]() {
                         editMode_ = EditMode::Translate;
                         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -4093,6 +5559,10 @@ enum class UiWorkbenchTextEditTarget {
                         AddTriggerVolumePrimitive();
                         InvalidateRect(hwnd_, nullptr, FALSE);
                     },
+                    .onAddLight = [this]() {
+                        AddLightAtFocus();
+                        InvalidateRect(hwnd_, nullptr, FALSE);
+                    },
                     .onDuplicate = [this]() {
                         TryDuplicateSelectedNode();
                         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -4112,7 +5582,47 @@ enum class UiWorkbenchTextEditTarget {
         const ri::editor::EditorLeftPanelMode inputLeftPanelMode =
             leftPanelMode_ == LeftPanelMode::Resources
                 ? ri::editor::EditorLeftPanelMode::Resources
-                : ri::editor::EditorLeftPanelMode::Scene;
+                : (leftPanelMode_ == LeftPanelMode::Create ? ri::editor::EditorLeftPanelMode::Create
+                                                           : ri::editor::EditorLeftPanelMode::Scene);
+
+        if (leftPanelMode_ == LeftPanelMode::Create
+            && DispatchCreatorPanelClick(
+                layout.hierarchyInner,
+                point,
+                {
+                    .onSelectTemplate = [this](const NewGameTemplate templateKind) {
+                        newGameTemplate_ = templateKind;
+                        newGameNameVariant_ = 0;
+                        lastIoStatus_ = "Template: " + NewGameTemplateLabel(templateKind) + ".";
+                        InvalidateRect(hwnd_, nullptr, FALSE);
+                    },
+                    .onCycleNameVariant = [this](const int delta) { CycleNewGameNameVariant(delta); },
+                    .onCreateProject = [this]() { TryCreateNewGameFromWizard(); },
+                    .onApplyAtmosphere = [this](const CreatorAtmospherePreset preset) {
+                        ApplyCreatorAtmosphere(preset);
+                    },
+                    .onInsertPreset = [this](const CreatorInsertPreset preset) { ApplyCreatorInsert(preset); },
+                    .onApplyCamera = [this](const CreatorCameraPreset preset) { ApplyCreatorCamera(preset); },
+                    .onSetupFiles = [this]() {
+                        TryScaffoldMountedGame();
+                        InvalidateRect(hwnd_, nullptr, FALSE);
+                    },
+                    .onCycleAtmosphereMenu = [this]() {
+                        creatorAtmospherePreset_ = CycleCreatorAtmosphere(creatorAtmospherePreset_);
+                        ApplyCreatorAtmosphere(creatorAtmospherePreset_);
+                    },
+                    .onCycleInsertMenu = [this]() {
+                        creatorInsertPreset_ = CycleCreatorInsert(creatorInsertPreset_);
+                        ApplyCreatorInsert(creatorInsertPreset_);
+                    },
+                    .onCycleCameraMenu = [this]() {
+                        creatorCameraPreset_ = CycleCreatorCamera(creatorCameraPreset_);
+                        ApplyCreatorCamera(creatorCameraPreset_);
+                    },
+                })) {
+            return 0;
+        }
+
         if (ri::editor::DispatchEditorLeftPanelClick(
                 {
                     .hierarchyInner = layout.hierarchyInner,
@@ -4135,7 +5645,16 @@ enum class UiWorkbenchTextEditTarget {
                     },
                     .onSceneTab = [this]() {
                         leftPanelMode_ = LeftPanelMode::Scene;
+                        if (sceneConfig_.gameManifest.has_value()) {
+                            authoringCatalogExpanded_ = false;
+                            ClearViewportPreviewCache();
+                        }
                         RebuildFilteredHierarchyOrder();
+                        InvalidateRect(hwnd_, nullptr, FALSE);
+                    },
+                    .onCreateTab = [this]() {
+                        leftPanelMode_ = LeftPanelMode::Create;
+                        lastIoStatus_ = "Creator Lab opened. Templates, atmosphere, inserts, and cameras live here.";
                         InvalidateRect(hwnd_, nullptr, FALSE);
                     },
                     .onResourcesTab = [this]() {
@@ -4212,30 +5731,122 @@ enum class UiWorkbenchTextEditTarget {
             return 0;
         }
 
+        if (HitCameraPlot(point) && starterScene_.handles.orbitCamera.cameraNode != ri::scene::kInvalidHandle) {
+            const bool altHeld = IsKeyDown(VK_MENU);
+            const bool shiftHeld = IsKeyDown(VK_SHIFT);
+            if (toolMode_ == ri::editor::EditorToolMode::Create && !altHeld && !shiftHeld) {
+                if (TryPlaceAuthoringCatalogInViewport(x, y)) {
+                    return 0;
+                }
+            }
+            if (toolMode_ == ri::editor::EditorToolMode::Select && !altHeld && !shiftHeld) {
+                if (const std::optional<int> picked = PickRenderableInCameraView(
+                        cameraPlotRect_,
+                        x,
+                        y,
+                        starterScene_.scene,
+                        starterScene_.handles.orbitCamera.cameraNode)) {
+                    selectedNode_ = static_cast<std::size_t>(*picked);
+                    lastIoStatus_ = "3D viewport: selected renderable (F to frame · Alt+drag to orbit).";
+                    EnsureHierarchySelectionVisible(layout.hierarchyInner);
+                    InvalidateRect(hwnd_, nullptr, FALSE);
+                    return 0;
+                }
+            }
+            if (TryBeginCameraDrag(point, shiftHeld ? CameraDragMode::Pan : CameraDragMode::Orbit)) {
+                return 0;
+            }
+        }
+
         const int splitterGrab = 6;
-        if (std::abs(x - layout.hierarchySplitter.right) <= splitterGrab
+        if (!leftPanelCollapsed_
+            && std::abs(x - layout.hierarchySplitter.right) <= splitterGrab
             && y >= layout.hierarchy.top && y <= layout.hierarchy.bottom) {
             draggingHierarchySplitter_ = true;
             SetCapture(hwnd_);
             return 0;
         }
-        if (std::abs(x - layout.inspectorSplitter.left) <= splitterGrab
+        if (!rightPanelCollapsed_
+            && std::abs(x - layout.inspectorSplitter.left) <= splitterGrab
             && y >= layout.inspector.top && y <= layout.inspector.bottom) {
             draggingInspectorSplitter_ = true;
             SetCapture(hwnd_);
             return 0;
         }
 
-        if (hitRect(cameraPlotRect_) && !autoOrbitPreview_) {
-            cameraDragActive_ = true;
-            lastDragX_ = x;
-            lastDragY_ = y;
-            SetCapture(hwnd_);
-            lastIoStatus_ = "Camera: drag to orbit (release to stop).";
-            InvalidateRect(hwnd_, nullptr, FALSE);
+        return 0;
+    }
+
+    LRESULT OnLeftButtonDoubleClick(const int x, const int y) {
+        const EditorLayout layout = ComputeLayout();
+        const POINT point{x, y};
+        if (ShouldShowStructuralPicker() && HitCameraPlot(point) == FALSE) {
+            const StructuralPickerLayout pickerLayout = CurrentStructuralPickerLayout(layout.viewportInner);
+            const ri::editor::StructuralPickerHit hit = HitTestStructuralPicker(pickerLayout, point);
+            if (hit.kind == StructuralPickerHitKind::Preset) {
+                SelectedCatalogPresetIndex(authoringCatalogSection_) = hit.presetIndex;
+                SpawnAuthoringCatalogAtFocus();
+                return 0;
+            }
+        }
+        if (leftPanelCollapsed_ || leftPanelMode_ != LeftPanelMode::Scene) {
             return 0;
         }
+        if (PtInRect(&layout.hierarchyInner, point) == FALSE) {
+            return 0;
+        }
+        const int row = ri::editor::HitTestSceneRow(layout.hierarchyInner, point.y, hierarchyScrollTopRow_);
+        if (row < 0) {
+            return 0;
+        }
+        const std::vector<int>& order = HierarchyDrawOrder();
+        if (row >= static_cast<int>(order.size())) {
+            return 0;
+        }
+        selectedNode_ = static_cast<std::size_t>(order[static_cast<std::size_t>(row)]);
+        TryFrameSelection();
+        EnsureHierarchySelectionVisible(layout.hierarchyInner);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return 0;
+    }
 
+    LRESULT OnMiddleButtonDown(int x, int y) {
+        POINT point{x, y};
+        const EditorLayout layout = ComputeLayout();
+        UpdateCameraPlotRect(layout.viewportInner);
+        if (TryBeginCameraDrag(point, CameraDragMode::Orbit)) {
+            return 0;
+        }
+        return 0;
+    }
+
+    LRESULT OnMiddleButtonUp(int x, int y) {
+        (void)x;
+        (void)y;
+        if (cameraDragMode_ != CameraDragMode::None) {
+            EndCameraDrag();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
+        return 0;
+    }
+
+    LRESULT OnRightButtonDown(int x, int y) {
+        POINT point{x, y};
+        const EditorLayout layout = ComputeLayout();
+        UpdateCameraPlotRect(layout.viewportInner);
+        if (TryBeginCameraDrag(point, CameraDragMode::Pan)) {
+            return 0;
+        }
+        return 0;
+    }
+
+    LRESULT OnRightButtonUp(int x, int y) {
+        (void)x;
+        (void)y;
+        if (cameraDragMode_ != CameraDragMode::None) {
+            EndCameraDrag();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
         return 0;
     }
 
@@ -4251,11 +5862,8 @@ enum class UiWorkbenchTextEditTarget {
             InvalidateRect(hwnd_, nullptr, FALSE);
             return 0;
         }
-        if (cameraDragActive_) {
-            cameraDragActive_ = false;
-            if (GetCapture() == hwnd_) {
-                ReleaseCapture();
-            }
+        if (cameraDragMode_ != CameraDragMode::None) {
+            EndCameraDrag();
             InvalidateRect(hwnd_, nullptr, FALSE);
         }
         return 0;
@@ -4280,21 +5888,96 @@ enum class UiWorkbenchTextEditTarget {
             InvalidateRect(hwnd_, nullptr, FALSE);
             return 0;
         }
-        if (cameraDragActive_ && (flags & MK_LBUTTON) != 0 && !autoOrbitPreview_) {
-            const int dx = x - lastDragX_;
-            const int dy = y - lastDragY_;
-            lastDragX_ = x;
-            lastDragY_ = y;
-            editorOrbitState_.yawDegrees += static_cast<float>(dx) * 0.38f;
-            editorOrbitState_.pitchDegrees -= static_cast<float>(dy) * 0.38f;
-            ApplyEditorOrbitToScene();
-            InvalidateRect(hwnd_, nullptr, FALSE);
+        if (cameraDragMode_ != CameraDragMode::None && !autoOrbitPreview_) {
+            const bool leftHeld = (flags & MK_LBUTTON) != 0;
+            const bool middleHeld = (flags & MK_MBUTTON) != 0;
+            const bool rightHeld = (flags & MK_RBUTTON) != 0;
+            const bool dragButtonHeld =
+                (cameraDragMode_ == CameraDragMode::Orbit && (leftHeld || middleHeld))
+                || (cameraDragMode_ == CameraDragMode::Pan && (leftHeld || rightHeld));
+            if (dragButtonHeld) {
+                const int dx = x - lastDragX_;
+                const int dy = y - lastDragY_;
+                lastDragX_ = x;
+                lastDragY_ = y;
+                ApplyCameraDragDelta(dx, dy);
+                InvalidateRect(hwnd_, nullptr, FALSE);
+            }
+        } else {
+            (void)UpdateInteractiveCursor(x, y);
+            lastMouseClientPos_ = POINT{x, y};
+            hasLastMouseClientPos_ = true;
+            if (toolMode_ == ri::editor::EditorToolMode::Create && HitCameraPlot(lastMouseClientPos_)) {
+                createModePlacementPoint_ = ri::render::software::PickPlacementPointInCameraView(
+                    CameraViewRectFrom(cameraPlotRect_),
+                    x,
+                    y,
+                    starterScene_.scene,
+                    starterScene_.handles.orbitCamera.cameraNode);
+                InvalidateRect(hwnd_, nullptr, FALSE);
+            } else {
+                createModePlacementPoint_.reset();
+            }
         }
         return 0;
     }
 
+    [[nodiscard]] std::optional<ri::math::Vec3> ResolveCreateModeGhostCenter() const {
+        if (!createModePlacementPoint_.has_value()) {
+            return std::nullopt;
+        }
+        if (authoringCatalogSection_ == ri::editor::AuthoringCatalogSection::Structural) {
+            return StructuralBrushSpawnPositionAtPoint(CurrentStructuralPrimitivePreset().structuralType,
+                                                       *createModePlacementPoint_);
+        }
+        return *createModePlacementPoint_;
+    }
+
+    [[nodiscard]] ri::math::Vec3 ResolveCreateModeGhostHalfExtents() const {
+        if (authoringCatalogSection_ == ri::editor::AuthoringCatalogSection::Structural) {
+            const ri::scene::StructuralPrimitivePreset& preset = CurrentStructuralPrimitivePreset();
+            ri::scene::StructuralBrushSpawnOptions brush{};
+            brush.structuralType = preset.structuralType;
+            brush.shape = ri::scene::ShapeFromStructuralPreset(preset);
+            return ri::scene::EstimateStructuralBrushHalfExtents(brush);
+        }
+        const std::size_t presetIndex = SelectedCatalogPresetIndex(authoringCatalogSection_);
+        const ri::editor::AuthoringCatalogPreset& preset =
+            ri::editor::AuthoringCatalogPresetAt(authoringCatalogSection_, presetIndex);
+        if (preset.spawnKind == ri::editor::AuthoringCatalogSpawnKind::VolumeMarker) {
+            return {1.0f, 1.0f, 1.0f};
+        }
+        return {0.5f, 0.5f, 0.5f};
+    }
+
+    void DrawCreateModeStampCursor(HDC dc) const {
+        if (toolMode_ != ri::editor::EditorToolMode::Create || !hasLastMouseClientPos_) {
+            return;
+        }
+        if (!HitCameraPlot(lastMouseClientPos_)) {
+            return;
+        }
+        HPEN pen = CreatePen(PS_SOLID, 2, RGB(255, 196, 88));
+        HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+        const int cx = lastMouseClientPos_.x;
+        const int cy = lastMouseClientPos_.y;
+        MoveToEx(dc, cx - 10, cy, nullptr);
+        LineTo(dc, cx + 10, cy);
+        MoveToEx(dc, cx, cy - 10, nullptr);
+        LineTo(dc, cx, cy + 10);
+        SelectObject(dc, oldPen);
+        DeleteObject(pen);
+        HPEN ringPen = CreatePen(PS_DOT, 1, RGB(255, 220, 140));
+        oldPen = static_cast<HPEN>(SelectObject(dc, ringPen));
+        HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(HOLLOW_BRUSH)));
+        Ellipse(dc, cx - 14, cy - 14, cx + 14, cy + 14);
+        SelectObject(dc, oldBrush);
+        SelectObject(dc, oldPen);
+        DeleteObject(ringPen);
+    }
+
     void OnCaptureLost() {
-        cameraDragActive_ = false;
+        cameraDragMode_ = CameraDragMode::None;
         draggingHierarchySplitter_ = false;
         draggingInspectorSplitter_ = false;
     }
@@ -4376,8 +6059,13 @@ enum class UiWorkbenchTextEditTarget {
             lastIoStatus_ = "Play: no project manifest is active.";
             return;
         }
-        const ri::editor::PlaytestLaunchResult launchResult =
-            ri::editor::LaunchPlaytestForManifest(hwnd_, *targetManifest, sceneConfig_.workspaceRoot);
+        const fs::path logicPath = ResolveLogicAuthoringPath();
+        if (!logicLayer_.PlacedNodes().empty()) {
+            (void)logicLayer_.Save(logicPath, starterScene_.scene);
+            (void)logicLayer_.Recompile(starterScene_.scene);
+        }
+        const ri::editor::PlaytestLaunchResult launchResult = ri::editor::LaunchPlaytestForManifest(
+            hwnd_, *targetManifest, sceneConfig_.workspaceRoot, logicPath);
         lastIoStatus_ = launchResult.message;
     }
 
@@ -4393,6 +6081,14 @@ enum class UiWorkbenchTextEditTarget {
         return ResolveAuthoredSceneStatePath(ResolveSceneStatePath());
     }
 
+    [[nodiscard]] fs::path ResolveLogicAuthoringPath() const {
+        return BuildEditorLogicAuthoringPath(ResolveSceneStatePath());
+    }
+
+    [[nodiscard]] fs::path ResolveLogicAuthoringPath(const fs::path& baseScenePath) const {
+        return BuildEditorLogicAuthoringPath(baseScenePath);
+    }
+
     [[nodiscard]] bool SavePersistentEditorScene(const fs::path& baseScenePath,
                                                  const fs::path& orbitPath,
                                                  std::string* errorMessage) {
@@ -4403,7 +6099,8 @@ enum class UiWorkbenchTextEditTarget {
             editorTrashFolderHandle_,
             ResolveAuthoredSceneStatePath(baseScenePath));
         const bool orbitSaved = SaveEditorOrbitStateToPath(orbitPath, editorOrbitState_);
-        if (sceneSaved && authoredSaved && orbitSaved) {
+        const bool logicSaved = logicLayer_.Save(ResolveLogicAuthoringPath(baseScenePath), starterScene_.scene);
+        if (sceneSaved && authoredSaved && orbitSaved && logicSaved) {
             return true;
         }
         if (errorMessage != nullptr) {
@@ -4422,6 +6119,12 @@ enum class UiWorkbenchTextEditTarget {
                     message += ", ";
                 }
                 message += "orbit sidecar";
+            }
+            if (!logicSaved) {
+                if (!message.empty()) {
+                    message += ", ";
+                }
+                message += "logic authoring";
             }
             *errorMessage = "failed to save " + message;
         }
@@ -4446,6 +6149,15 @@ enum class UiWorkbenchTextEditTarget {
             ApplyEditorOrbitToScene();
         }
         RebindEditorTrashFolderAfterSceneReplace();
+
+        logicLayer_.Reset();
+        ri::editor::BindAuthoringLogicCatalog(&logicLayer_);
+        logicLayer_.EnsureKitLoaded(sceneConfig_.workspaceRoot);
+        if (sceneConfig_.gameManifest.has_value()) {
+            logicLayer_.EnsureGameColliderTrace(sceneConfig_.gameManifest->rootPath);
+        }
+        (void)logicLayer_.Load(ResolveLogicAuthoringPath(baseScenePath), starterScene_.scene, starterScene_.handles.root);
+        structuralThumbnailCache_.Clear();
 
         if (sceneLoaded) {
             RebuildFilteredHierarchyOrder();
@@ -4525,80 +6237,309 @@ enum class UiWorkbenchTextEditTarget {
         const EditorLayout layout = ComputeLayout();
         EnsureHierarchySelectionVisible(layout.hierarchyInner);
         lastIoStatus_ = "Added trigger volume '" + options.nodeName +
-                        "'. Resize/move it, then Ctrl+E exports assembly.primitives.csv and assembly.triggers.csv.";
+                        "'. Resize/move it, then Ctrl+E exports assembly.primitives.csv, lighting, colliders, and triggers.";
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
 
-    [[nodiscard]] bool TryExportAssemblyTriggersCsv(const fs::path& outputPath, std::string* errorMessage) const {
-        std::error_code ec{};
-        fs::create_directories(outputPath.parent_path(), ec);
-        if (ec) {
-            if (errorMessage != nullptr) {
-                *errorMessage = "could not create trigger export folder";
+    [[nodiscard]] std::string NextLightBasename() const {
+        static constexpr std::string_view kPrefix = "Light_";
+        int maxIndex = 0;
+        for (const ri::scene::Node& node : starterScene_.scene.Nodes()) {
+            const std::string& name = node.name;
+            if (name.rfind(kPrefix, 0) != 0) {
+                continue;
             }
-            return false;
+            int parsed = 0;
+            bool anyDigit = false;
+            bool bad = false;
+            for (std::size_t i = kPrefix.size(); i < name.size(); ++i) {
+                const char ch = name[i];
+                if (ch < '0' || ch > '9') {
+                    bad = true;
+                    break;
+                }
+                anyDigit = true;
+                parsed = parsed * 10 + static_cast<int>(ch - '0');
+            }
+            if (!bad && anyDigit) {
+                maxIndex = std::max(maxIndex, parsed);
+            }
+        }
+        return std::string(kPrefix) + std::to_string(maxIndex + 1);
+    }
+
+    void AddLightAtFocus() {
+        if (starterScene_.handles.root == ri::scene::kInvalidHandle) {
+            lastIoStatus_ = "Cannot add light: scene has no world root.";
+            return;
         }
 
-        std::ofstream stream(outputPath, std::ios::out | std::ios::trunc);
-        if (!stream.is_open()) {
-            if (errorMessage != nullptr) {
-                *errorMessage = "could not open trigger export file";
-            }
-            return false;
+        static constexpr std::array<ri::scene::LightType, 3> kSpawnCycle{
+            ri::scene::LightType::Point,
+            ri::scene::LightType::Spot,
+            ri::scene::LightType::Directional,
+        };
+        static constexpr std::array<const char*, 3> kSpawnLabels{"point", "spot", "directional"};
+        const ri::scene::LightType lightType = kSpawnCycle[lightSpawnTypeIndex_ % kSpawnCycle.size()];
+        const char* typeLabel = kSpawnLabels[lightSpawnTypeIndex_ % kSpawnLabels.size()];
+        lightSpawnTypeIndex_ = (lightSpawnTypeIndex_ + 1U) % kSpawnCycle.size();
+        const char* nextLabel = kSpawnLabels[lightSpawnTypeIndex_ % kSpawnLabels.size()];
+
+        const std::string lightName = NextLightBasename();
+        ri::scene::LightNodeOptions options{};
+        options.parent = starterScene_.handles.root;
+        options.nodeName = lightName;
+        options.transform.position = starterScene_.handles.orbitCamera.orbit.target + ri::math::Vec3{0.0f, 1.5f, 0.0f};
+        options.light = ri::scene::Light{
+            .name = lightName,
+            .type = lightType,
+            .color = ri::math::Vec3{0.96f, 0.92f, 0.84f},
+            .intensity = 2.4f,
+            .range = 10.0f,
+            .spotAngleDegrees = 42.0f,
+        };
+        if (lightType == ri::scene::LightType::Spot) {
+            options.light.intensity = 3.2f;
+            options.light.range = 14.0f;
+            options.transform.rotationDegrees = ri::math::Vec3{-35.0f, 25.0f, 0.0f};
+        } else if (lightType == ri::scene::LightType::Directional) {
+            options.light.intensity = 1.6f;
+            options.light.range = 0.0f;
+            options.transform.rotationDegrees = ri::math::Vec3{-42.0f, 34.0f, 0.0f};
         }
 
-        stream << "trigger_id,event_type,min_x,min_y,min_z,max_x,max_y,max_z,param\n";
-        std::size_t exportedCount = 0;
+        const int newHandle = ri::scene::AddLightNode(starterScene_.scene, options);
+        selectedNode_ = static_cast<std::size_t>(newHandle);
+        autosavePending_ = true;
+        const EditorLayout layout = ComputeLayout();
+        EnsureHierarchySelectionVisible(layout.hierarchyInner);
+        lastIoStatus_ = "Added " + std::string(typeLabel) + " light '" + lightName
+            + "'. Next + Light spawns " + nextLabel + ". Ctrl+E exports assembly.lighting.csv.";
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    [[nodiscard]] std::string NextVolumeMarkerBasename(const std::string_view volumeType) const {
+        const std::string prefix = std::string("Volume_") + SanitizeBrushLabelForName(volumeType) + "_";
+        std::size_t maxIndex = 0;
         for (std::size_t index = 0; index < starterScene_.scene.NodeCount(); ++index) {
             const ri::scene::Node& node = starterScene_.scene.GetNode(static_cast<int>(index));
-            if (node.name.rfind("Trigger_", 0) != 0) {
+            if (node.name.rfind(prefix, 0) != 0) {
                 continue;
             }
-            if (node.mesh == ri::scene::kInvalidHandle) {
+            const std::string suffix = node.name.substr(prefix.size());
+            try {
+                const std::size_t parsed = static_cast<std::size_t>(std::stoul(suffix));
+                maxIndex = std::max(maxIndex, parsed);
+            } catch (...) {
+            }
+        }
+        return prefix + std::to_string(maxIndex + 1);
+    }
+
+    [[nodiscard]] std::string NextLogicPortBasename(const std::string_view logicType) const {
+        const std::string prefix = std::string("LogicPort_") + SanitizeBrushLabelForName(logicType) + "_";
+        std::size_t maxIndex = 0;
+        for (std::size_t index = 0; index < starterScene_.scene.NodeCount(); ++index) {
+            const ri::scene::Node& node = starterScene_.scene.GetNode(static_cast<int>(index));
+            if (node.name.rfind(prefix, 0) != 0) {
                 continue;
             }
-            const ri::scene::Mesh& mesh = starterScene_.scene.GetMesh(node.mesh);
-            if (mesh.primitive != ri::scene::PrimitiveType::Cube) {
-                continue;
+            const std::string suffix = node.name.substr(prefix.size());
+            try {
+                const std::size_t parsed = static_cast<std::size_t>(std::stoul(suffix));
+                maxIndex = std::max(maxIndex, parsed);
+            } catch (...) {
             }
-            const std::optional<ri::scene::WorldBounds> bounds =
-                ri::scene::ComputeNodeWorldBounds(starterScene_.scene, static_cast<int>(index), false);
-            if (!bounds.has_value()) {
-                continue;
-            }
-            stream << node.name
-                   << ",generic_trigger_volume,"
-                   << bounds->min.x << "," << bounds->min.y << "," << bounds->min.z << ","
-                   << bounds->max.x << "," << bounds->max.y << "," << bounds->max.z << ","
-                   << "\n";
-            exportedCount += 1U;
+        }
+        return prefix + std::to_string(maxIndex);
+    }
+
+    void SpawnStructuralBrushAt(const std::optional<ri::math::Vec3>& clickPoint) {
+        if (starterScene_.handles.root == ri::scene::kInvalidHandle) {
+            lastIoStatus_ = "Cannot spawn brush: scene has no world root.";
+            return;
+        }
+        if (!SetInspectorPanel(InspectorPanel::Brush)) {
+            return;
+        }
+        const ri::scene::StructuralPrimitivePreset& preset = CurrentStructuralPrimitivePreset();
+        const std::string_view type = preset.structuralType;
+        ri::scene::StructuralBrushSpawnOptions opt{};
+        opt.structuralType = type;
+        opt.shape = ri::scene::ShapeFromStructuralPreset(preset);
+        opt.parent = starterScene_.handles.root;
+        opt.nodeName = NextStructuralBrushBasename(SanitizeBrushLabelForName(preset.label));
+        opt.transform.position = clickPoint.has_value()
+            ? StructuralBrushSpawnPositionAtPoint(type, *clickPoint)
+            : StructuralBrushSpawnPosition(type, starterScene_.handles.orbitCamera.orbit.target);
+        opt.materialName = std::string("brush_") + SanitizeBrushLabelForName(preset.label);
+        if (ri::editor::IsGuideStructuralPreset(type)) {
+            const ri::math::Vec3 guideColor = ri::editor::GuideStructuralWireColor(type);
+            opt.shadingModel = ri::scene::ShadingModel::Unlit;
+            opt.baseColor = guideColor * 0.35f + ri::math::Vec3{0.08f, 0.08f, 0.10f};
+            opt.emissiveColor = guideColor * 0.85f;
+            opt.baseColorTexture.clear();
+            opt.roughness = 1.0f;
+        } else {
+            opt.baseColorTexture = ri::scene::DefaultStructuralBrushAlbedoTexture();
+            opt.textureTiling = ri::math::Vec2{2.0f, 2.0f};
+            opt.baseColor = ri::scene::DefaultStructuralBrushBaseColor();
         }
 
-        if (!stream.good()) {
-            if (errorMessage != nullptr) {
-                *errorMessage = "failed while writing trigger rows";
+        const int newHandle = ri::scene::AddStructuralBrushNode(starterScene_.scene, opt);
+        if (newHandle == ri::scene::kInvalidHandle) {
+            lastIoStatus_ =
+                "Structural brush '" + std::string(type) + "' produced no mesh (internal compiler issue).";
+            return;
+        }
+        selectedNode_ = static_cast<std::size_t>(newHandle);
+        const EditorLayout layout = ComputeLayout();
+        EnsureHierarchySelectionVisible(layout.hierarchyInner);
+        lastIoStatus_ = "Stamped '" + std::string(preset.label) + "' as " + opt.nodeName + ".";
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    void SpawnStructuralBrushAtFocus() {
+        SpawnStructuralBrushAt(std::nullopt);
+    }
+
+    void SpawnVolumeMarkerAt(const ri::editor::AuthoringCatalogPreset& preset,
+                             const std::optional<ri::math::Vec3>& clickPoint) {
+        if (starterScene_.handles.root == ri::scene::kInvalidHandle) {
+            lastIoStatus_ = "Cannot spawn volume: scene has no world root.";
+            return;
+        }
+
+        const ri::math::Vec3 wireColor = ri::editor::AuthoringCatalogWireColor(
+            ri::editor::AuthoringCatalogSection::Volumes, preset.typeId);
+        const ri::math::Vec3 anchor =
+            clickPoint.value_or(starterScene_.handles.orbitCamera.orbit.target);
+        ri::scene::PrimitiveNodeOptions options{};
+        options.parent = starterScene_.handles.root;
+        options.primitive = ri::scene::PrimitiveType::Cube;
+        options.shadingModel = ri::scene::ShadingModel::Unlit;
+        options.nodeName = NextVolumeMarkerBasename(preset.typeId);
+        options.materialName = std::string("volume_") + SanitizeBrushLabelForName(preset.typeId);
+        options.baseColor = wireColor * 0.30f + ri::math::Vec3{0.06f, 0.06f, 0.08f};
+        options.emissiveColor = wireColor * 0.85f;
+        options.transform.position = anchor;
+        options.transform.scale = ri::math::Vec3{2.0f, 2.0f, 2.0f};
+
+        const int newHandle = ri::scene::AddPrimitiveNode(starterScene_.scene, options);
+        selectedNode_ = static_cast<std::size_t>(newHandle);
+        const EditorLayout layout = ComputeLayout();
+        EnsureHierarchySelectionVisible(layout.hierarchyInner);
+        lastIoStatus_ = "Placed volume marker '" + options.nodeName + "' (" + std::string(preset.typeId) + ").";
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    void SpawnVolumeMarkerAtFocus(const ri::editor::AuthoringCatalogPreset& preset) {
+        SpawnVolumeMarkerAt(preset, std::nullopt);
+    }
+
+    void SpawnLogicKitNodeAtFocus(const ri::editor::AuthoringCatalogPreset& preset) {
+        if (starterScene_.handles.root == ri::scene::kInvalidHandle) {
+            lastIoStatus_ = "Cannot spawn logic node: scene has no world root.";
+            return;
+        }
+
+        const bool shiftHeld = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const ri::editor::EditorLogicPlaceResult result = logicLayer_.PlaceKitNode(
+            starterScene_.scene,
+            starterScene_.handles.root,
+            preset.typeId,
+            starterScene_.handles.orbitCamera.orbit.target,
+            shiftHeld);
+        if (!result.placed) {
+            lastIoStatus_ = result.message.empty() ? "Logic node placement failed." : result.message;
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return;
+        }
+
+        if (!logicLayer_.PlacedNodes().empty()) {
+            const std::vector<int>& handles = logicLayer_.PlacedNodes().back().sceneHandles;
+            if (!handles.empty()) {
+                selectedNode_ = static_cast<std::size_t>(handles.front());
             }
+        }
+        const EditorLayout layout = ComputeLayout();
+        EnsureHierarchySelectionVisible(layout.hierarchyInner);
+        lastIoStatus_ = result.message + "  " + logicLayer_.LastCompileSummary()
+            + "  Shift+Place auto-wire · Alt+W manual wire · Ctrl+Alt+L player-preview hide.";
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    void SpawnAuthoringCatalogAt(const std::optional<ri::math::Vec3>& clickPoint) {
+        if (authoringCatalogSection_ == ri::editor::AuthoringCatalogSection::Structural) {
+            SpawnStructuralBrushAt(clickPoint);
+            return;
+        }
+
+        const std::size_t presetIndex = SelectedCatalogPresetIndex(authoringCatalogSection_);
+        const ri::editor::AuthoringCatalogPreset& preset =
+            ri::editor::AuthoringCatalogPresetAt(authoringCatalogSection_, presetIndex);
+        switch (preset.spawnKind) {
+            case ri::editor::AuthoringCatalogSpawnKind::TriggerVolume:
+                AddTriggerVolumePrimitive();
+                break;
+            case ri::editor::AuthoringCatalogSpawnKind::VolumeMarker:
+                SpawnVolumeMarkerAt(preset, clickPoint);
+                break;
+            case ri::editor::AuthoringCatalogSpawnKind::LogicPort:
+                SpawnLogicKitNodeAtFocus(preset);
+                break;
+            case ri::editor::AuthoringCatalogSpawnKind::StructuralBrush:
+                SpawnStructuralBrushAt(clickPoint);
+                break;
+        }
+    }
+
+    void SpawnAuthoringCatalogAtFocus() {
+        SpawnAuthoringCatalogAt(std::nullopt);
+    }
+
+    [[nodiscard]] bool TryPlaceAuthoringCatalogInViewport(const int x, const int y) {
+        if (toolMode_ != ri::editor::EditorToolMode::Create) {
             return false;
         }
-        if (exportedCount == 0U && errorMessage != nullptr) {
-            *errorMessage = "no Trigger_* cube nodes found to export";
+        const POINT point{x, y};
+        if (!HitCameraPlot(point)) {
+            return false;
         }
-        return exportedCount > 0U;
+        const std::optional<ri::math::Vec3> placement = ri::render::software::PickPlacementPointInCameraView(
+            CameraViewRectFrom(cameraPlotRect_),
+            x,
+            y,
+            starterScene_.scene,
+            starterScene_.handles.orbitCamera.cameraNode);
+        if (!placement.has_value()) {
+            return false;
+        }
+        SpawnAuthoringCatalogAt(placement);
+        lastIoStatus_ = "Stamped " + ArmedCatalogPresetSummary() + " at click.";
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return true;
     }
 
     void TryExportAssemblyPrimitivesCsv() {
         fs::path outputPath;
         fs::path triggersOutputPath;
+        fs::path lightingOutputPath;
+        fs::path collidersOutputPath;
         std::string destinationSummary;
         if (!workspaceGames_.empty() && focusedWorkspaceGameIndex_ >= 0 &&
             focusedWorkspaceGameIndex_ < static_cast<int>(workspaceGames_.size())) {
             const WorkspaceGameEntry& game = workspaceGames_[static_cast<std::size_t>(focusedWorkspaceGameIndex_)];
             outputPath = game.rootPath / "levels" / "assembly.primitives.csv";
             triggersOutputPath = game.rootPath / "levels" / "assembly.triggers.csv";
+            lightingOutputPath = game.rootPath / "levels" / "assembly.lighting.csv";
+            collidersOutputPath = game.rootPath / "levels" / "assembly.colliders.csv";
             destinationSummary = game.displayName + " → levels/assembly.primitives.csv";
         } else {
             outputPath = ResolveSceneStatePath().parent_path() / "assembly.primitives.export.csv";
             triggersOutputPath = ResolveSceneStatePath().parent_path() / "assembly.triggers.export.csv";
+            lightingOutputPath = ResolveSceneStatePath().parent_path() / "assembly.lighting.export.csv";
+            collidersOutputPath = ResolveSceneStatePath().parent_path() / "assembly.colliders.export.csv";
             destinationSummary = "editor session folder (no workspace game focused)";
         }
 
@@ -4636,10 +6577,31 @@ enum class UiWorkbenchTextEditTarget {
         }
 
         std::string triggerError;
-        if (TryExportAssemblyTriggersCsv(triggersOutputPath, &triggerError)) {
-            lastIoStatus_ += "  Exported trigger volumes to " + triggersOutputPath.filename().string() + ".";
-        } else if (!triggerError.empty() && triggerError != "no Trigger_* cube nodes found to export") {
-            lastIoStatus_ += "  Trigger export failed: " + triggerError + ".";
+        const ri::editor::LevelExportResult triggerResult =
+            TryExportAssemblyTriggersCsv(starterScene_.scene, triggersOutputPath);
+        if (triggerResult.success) {
+            lastIoStatus_ += "  Exported " + std::to_string(triggerResult.rowCount) + " trigger(s) to "
+                + triggersOutputPath.filename().string() + ".";
+        } else if (!triggerResult.error.empty() && triggerResult.error != "no Trigger_* cube nodes found to export") {
+            lastIoStatus_ += "  Trigger export failed: " + triggerResult.error + ".";
+        }
+
+        const ri::editor::LevelExportResult lightingResult =
+            TryExportAssemblyLightingCsv(starterScene_.scene, lightingOutputPath);
+        if (lightingResult.success) {
+            lastIoStatus_ += "  Exported " + std::to_string(lightingResult.rowCount) + " light(s) to "
+                + lightingOutputPath.filename().string() + ".";
+        } else if (!lightingResult.error.empty()) {
+            lastIoStatus_ += "  Lighting export failed: " + lightingResult.error + ".";
+        }
+
+        const ri::editor::LevelExportResult colliderResult =
+            TryExportAssemblyCollidersCsv(starterScene_.scene, collidersOutputPath);
+        if (colliderResult.success) {
+            lastIoStatus_ += "  Exported " + std::to_string(colliderResult.rowCount) + " collider(s) to "
+                + collidersOutputPath.filename().string() + ".";
+        } else if (!colliderResult.error.empty()) {
+            lastIoStatus_ += "  Collider export failed: " + colliderResult.error + ".";
         }
     }
 
@@ -4717,7 +6679,8 @@ enum class UiWorkbenchTextEditTarget {
         options.primitive = primitive;
         options.shadingModel = ri::scene::ShadingModel::Lit;
         options.textureTiling = ri::math::Vec2{2.0f, 2.0f};
-        options.baseColorTexture = "ri_psx_wall_vent.png";
+        options.baseColorTexture = ri::scene::DefaultStructuralBrushAlbedoTexture();
+        options.baseColor = ri::scene::DefaultStructuralBrushBaseColor();
 
         const ri::math::Vec3 focus = starterScene_.handles.orbitCamera.orbit.target;
         if (primitive == ri::scene::PrimitiveType::Cube) {
@@ -4776,43 +6739,6 @@ enum class UiWorkbenchTextEditTarget {
         const ri::scene::StructuralPrimitivePreset& preset = CurrentStructuralPrimitivePreset();
         lastIoStatus_ = "Selected structural preset " + std::string(preset.label) + " (" +
                         std::string(preset.structuralType) + ") via Ctrl+Shift+" + std::to_string(oneBasedDigit) + ".";
-    }
-
-    void SpawnStructuralBrushAtFocus() {
-        if (starterScene_.handles.root == ri::scene::kInvalidHandle) {
-            lastIoStatus_ = "Cannot spawn brush: scene has no world root.";
-            return;
-        }
-        if (!SetInspectorPanel(InspectorPanel::Brush)) {
-            return;
-        }
-        const ri::scene::StructuralPrimitivePreset& preset = CurrentStructuralPrimitivePreset();
-        const std::string_view type = preset.structuralType;
-        ri::scene::StructuralBrushSpawnOptions opt{};
-        opt.structuralType = type;
-        opt.shape = ri::scene::ShapeFromStructuralPreset(preset);
-        opt.parent = starterScene_.handles.root;
-        opt.nodeName = NextStructuralBrushBasename(SanitizeBrushLabelForName(preset.label));
-        opt.transform.position =
-            StructuralBrushSpawnPosition(type, starterScene_.handles.orbitCamera.orbit.target);
-        opt.materialName = std::string("brush_") + SanitizeBrushLabelForName(preset.label);
-        opt.baseColorTexture = "ri_psx_wall_vent.png";
-        opt.textureTiling = ri::math::Vec2{2.0f, 2.0f};
-        opt.baseColor = ri::math::Vec3{0.58f, 0.62f, 0.68f};
-
-        const int newHandle = ri::scene::AddStructuralBrushNode(starterScene_.scene, opt);
-        if (newHandle == ri::scene::kInvalidHandle) {
-            lastIoStatus_ =
-                "Structural brush '" + std::string(type) + "' produced no mesh (internal compiler issue).";
-            return;
-        }
-        selectedNode_ = static_cast<std::size_t>(newHandle);
-        const EditorLayout layout = ComputeLayout();
-        EnsureHierarchySelectionVisible(layout.hierarchyInner);
-        lastIoStatus_ = "Placed structural brush '" + std::string(preset.label) + "' (" +
-                        std::string(preset.structuralType) + ") as " + opt.nodeName +
-                        " (Custom mesh). Game CSV export lists procedural cube/plane rows only.";
-        InvalidateRect(hwnd_, nullptr, FALSE);
     }
 
     void EnsureEditorTrashFolder() {
@@ -4886,6 +6812,7 @@ enum class UiWorkbenchTextEditTarget {
                                                  1.25f)) {
             editorOrbitState_ = starterScene_.handles.orbitCamera.orbit;
             ApplyEditorOrbitToScene();
+            ClearViewportPreviewCache();
             lastIoStatus_ = "Framed all renderables in orbit camera.";
         } else {
             lastIoStatus_ = "Frame all failed.";
@@ -5150,6 +7077,31 @@ enum class UiWorkbenchTextEditTarget {
         if (inspectorPanel_ != InspectorPanel::Node) {
             return false;
         }
+        for (std::size_t index = 0; index < materialNudgeButtons_.size(); ++index) {
+            const RECT& rect = materialNudgeButtons_[index];
+            if (rect.left >= rect.right || rect.top >= rect.bottom) {
+                continue;
+            }
+            if (point.x < rect.left || point.x > rect.right || point.y < rect.top || point.y > rect.bottom) {
+                continue;
+            }
+            const int field = static_cast<int>(index / 2);
+            const float direction = (index % 2) == 0 ? -1.0f : 1.0f;
+            NudgeSelectedMaterialProperty(field, direction);
+            return true;
+        }
+        for (std::size_t index = 0; index < lightNudgeButtons_.size(); ++index) {
+            const RECT& rect = lightNudgeButtons_[index];
+            if (rect.left >= rect.right || rect.top >= rect.bottom) {
+                continue;
+            }
+            if (point.x < rect.left || point.x > rect.right || point.y < rect.top || point.y > rect.bottom) {
+                continue;
+            }
+            const float direction = (index % 2) == 0 ? -1.0f : 1.0f;
+            NudgeSelectedLightProperty(direction);
+            return true;
+        }
         for (std::size_t index = 0; index < inspectorNudgeButtons_.size(); ++index) {
             const RECT& rect = inspectorNudgeButtons_[index];
             if (rect.left >= rect.right || rect.top >= rect.bottom) {
@@ -5198,6 +7150,94 @@ enum class UiWorkbenchTextEditTarget {
             x += 58;
         }
         top += 22;
+    }
+
+    void DrawMaterialNudgeRow(HDC dc,
+                              int& top,
+                              const RECT& inspectorInner,
+                              const char* label,
+                              const int fieldIndex) {
+        DrawTextLine(dc,
+                     RECT{inspectorInner.left + 10, top, inspectorInner.left + 70, top + 18},
+                     label,
+                     RGB(200, 200, 200),
+                     smallFont_,
+                     DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        const RECT minusRect{inspectorInner.left + 72, top, inspectorInner.left + 90, top + 18};
+        const RECT plusRect{inspectorInner.left + 92, top, inspectorInner.left + 110, top + 18};
+        const std::size_t minusIndex = static_cast<std::size_t>(fieldIndex * 2);
+        materialNudgeButtons_[minusIndex] = minusRect;
+        materialNudgeButtons_[minusIndex + 1U] = plusRect;
+        DrawToolbarButton(dc, minusRect, "-", false);
+        DrawToolbarButton(dc, plusRect, "+", false);
+        top += 22;
+    }
+
+    void DrawLightNudgeRow(HDC dc,
+                           int& top,
+                           const RECT& inspectorInner,
+                           const char* label,
+                           const int /*fieldIndex*/) {
+        DrawTextLine(dc,
+                     RECT{inspectorInner.left + 10, top, inspectorInner.left + 70, top + 18},
+                     label,
+                     RGB(200, 200, 200),
+                     smallFont_,
+                     DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        const RECT minusRect{inspectorInner.left + 72, top, inspectorInner.left + 90, top + 18};
+        const RECT plusRect{inspectorInner.left + 92, top, inspectorInner.left + 110, top + 18};
+        lightNudgeButtons_[0] = minusRect;
+        lightNudgeButtons_[1] = plusRect;
+        DrawToolbarButton(dc, minusRect, "-", false);
+        DrawToolbarButton(dc, plusRect, "+", false);
+        top += 22;
+    }
+
+    void NudgeSelectedMaterialProperty(const int field, const float direction) {
+        if (selectedNode_ >= starterScene_.scene.NodeCount()) {
+            return;
+        }
+        const ri::scene::Node& node = starterScene_.scene.GetNode(static_cast<int>(selectedNode_));
+        if (node.material == ri::scene::kInvalidHandle
+            || static_cast<std::size_t>(node.material) >= starterScene_.scene.MaterialCount()) {
+            lastIoStatus_ = "Material edit blocked: selection has no material.";
+            return;
+        }
+        ri::scene::Material& material = starterScene_.scene.GetMaterial(node.material);
+        switch (field) {
+        case 0:
+            material.roughness = std::clamp(material.roughness + direction * 0.05f, 0.04f, 1.0f);
+            break;
+        case 1:
+            material.metallic = std::clamp(material.metallic + direction * 0.05f, 0.0f, 1.0f);
+            break;
+        default:
+            material.opacity = std::clamp(material.opacity + direction * 0.05f, 0.05f, 1.0f);
+            if (material.opacity < 0.98f) {
+                material.transparent = true;
+            }
+            break;
+        }
+        autosavePending_ = true;
+        lastIoStatus_ = "Material updated for " + node.name + ".";
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    void NudgeSelectedLightProperty(const float direction) {
+        if (selectedNode_ >= starterScene_.scene.NodeCount()) {
+            return;
+        }
+        const ri::scene::Node& node = starterScene_.scene.GetNode(static_cast<int>(selectedNode_));
+        if (node.light == ri::scene::kInvalidHandle
+            || static_cast<std::size_t>(node.light) >= starterScene_.scene.LightCount()) {
+            lastIoStatus_ = "Light edit blocked: selection has no light.";
+            return;
+        }
+        ri::scene::Light& light = starterScene_.scene.GetLight(node.light);
+        light.intensity = std::clamp(light.intensity + direction * 0.15f, 0.05f, 8.0f);
+        autosavePending_ = true;
+        lastIoStatus_ = "Light intensity updated for " + node.name + ".";
+        InvalidateRect(hwnd_, nullptr, FALSE);
     }
 
     void ApplySelectedNodeEdit(float delta) {
@@ -5415,6 +7455,7 @@ enum class UiWorkbenchTextEditTarget {
             case InspectorPanel::Brush: return "Brush";
             case InspectorPanel::Gameplay: return "Gameplay";
             case InspectorPanel::Files: return "Files";
+            case InspectorPanel::PluginStore: return "Store";
             case InspectorPanel::UiWorkbench: return "UI / VN";
         }
         return "Node";
@@ -5515,6 +7556,27 @@ enum class UiWorkbenchTextEditTarget {
         return "No file selected";
     }
 
+    [[nodiscard]] ri::editor::FilesInspectorPanelModel BuildFilesInspectorPanelModelForWindow(
+        const WorkspaceResourceEntry* selectedResourceEntry) const {
+        ri::editor::FilesInspectorPanelModel model = BuildFilesInspectorPanelModel(
+            selectedResourceEntry,
+            resourceManifestIssues_,
+            resourceEditorAuxMessage_,
+            resourceFileDirty_,
+            ResourceFocusSummary());
+        if (sceneConfig_.gameManifest.has_value()) {
+            const ri::editor::ProjectHealthReport health = BuildProjectHealthReport(
+                *sceneConfig_.gameManifest,
+                ResolveDedicatedPlaytestExecutable(*sceneConfig_.gameManifest),
+                CanResolvePlaytestExecutable(*sceneConfig_.gameManifest));
+            const ri::editor::FilesPanelHealthSummary healthSummary = SummarizeProjectHealthForFilesPanel(health);
+            model.showProjectHealth = true;
+            model.projectHealthReadyLine = healthSummary.readyLine;
+            model.projectHealthWarnings = healthSummary.warnings;
+        }
+        return model;
+    }
+
     [[nodiscard]] std::string TriggerSelectionSummary() const {
         if (selectedNode_ >= starterScene_.scene.NodeCount()) {
             return "Selection is not a trigger volume.";
@@ -5568,12 +7630,37 @@ enum class UiWorkbenchTextEditTarget {
         GetClientRect(hwnd_, &client);
         EditorLayout layout{};
         const int clientRight = static_cast<int>(client.right);
+        constexpr int kMinViewportWidth = 160;
+        constexpr int kMinLeftWidth = 220;
+        constexpr int kMinRightWidth = 260;
+        constexpr int kCollapsedPanelRailWidth = 36;
+        constexpr int kOuterMargin = 20;
+        constexpr int kRegionGutter = 20;
+
+        int leftWidth = leftPanelCollapsed_
+            ? kCollapsedPanelRailWidth
+            : std::clamp(hierarchyPanelWidth_, kMinLeftWidth, std::max(kMinLeftWidth, clientRight - kOuterMargin));
+        int rightWidth = rightPanelCollapsed_
+            ? kCollapsedPanelRailWidth
+            : std::clamp(inspectorPanelWidth_, kMinRightWidth, std::max(kMinRightWidth, clientRight - kOuterMargin));
+        const int maxCombined =
+            std::max(kMinLeftWidth + kMinRightWidth, clientRight - kOuterMargin - kRegionGutter - kMinViewportWidth);
+        if (leftWidth + rightWidth > maxCombined) {
+            const int excess = leftWidth + rightWidth - maxCombined;
+            const int leftShrink = std::min(excess, leftWidth - kMinLeftWidth);
+            leftWidth -= leftShrink;
+            rightWidth -= std::min(excess - leftShrink, rightWidth - kMinRightWidth);
+        }
+
         layout.toolStrip = RECT{10, 66, client.right - 10, 106};
-        const int leftWidth = std::clamp(hierarchyPanelWidth_, 240, std::max(240, clientRight - 620));
-        const int rightWidth = std::clamp(inspectorPanelWidth_, 290, std::max(290, clientRight - 620));
         layout.hierarchy = RECT{10, 116, 10 + leftWidth, client.bottom - 92};
         layout.inspector = RECT{clientRight - 10 - rightWidth, 116, clientRight - 10, client.bottom - 92};
-        layout.viewport = RECT{layout.hierarchy.right + 10, 116, layout.inspector.left - 10, client.bottom - 92};
+        int viewportLeft = layout.hierarchy.right + 10;
+        int viewportRight = layout.inspector.left - 10;
+        if (viewportRight < viewportLeft + kMinViewportWidth) {
+            viewportRight = viewportLeft + kMinViewportWidth;
+        }
+        layout.viewport = RECT{viewportLeft, 116, viewportRight, client.bottom - 92};
         layout.hierarchySplitter = RECT{layout.hierarchy.right + 2, 116, layout.hierarchy.right + 8, client.bottom - 92};
         layout.inspectorSplitter = RECT{layout.inspector.left - 8, 116, layout.inspector.left - 2, client.bottom - 92};
         layout.hierarchyInner = RECT{layout.hierarchy.left + 8, layout.hierarchy.top + 36, layout.hierarchy.right - 8, layout.hierarchy.bottom - 8};
@@ -5582,74 +7669,56 @@ enum class UiWorkbenchTextEditTarget {
         return layout;
     }
 
-    void DrawToolbarButton(HDC dc, const RECT& rect, const std::string& label, bool active) {
-        EditorRenderer::DrawToolbarButton(dc, rect, label, active, smallFont_);
+    void DrawToolbarButton(HDC dc,
+                           const RECT& rect,
+                           const std::string& label,
+                           bool active,
+                           ri::editor::EditorToolbarStyle style = ri::editor::EditorToolbarStyle::Dark) {
+        EditorRenderer::DrawToolbarButton(dc, rect, label, active, smallFont_, style);
     }
 
-    void DrawPanelHeader(HDC dc, const RECT& panelRect, const std::string& title, const std::string& meta = {}) {
-        EditorRenderer::DrawPanelHeader(dc, panelRect, title, headerFont_, smallFont_, meta);
+    void DrawPanelHeader(HDC dc,
+                         const RECT& panelRect,
+                         const std::string& title,
+                         const std::string& meta = {},
+                         const bool showCollapseToggle = false,
+                         const bool collapsed = false,
+                         RECT* collapseToggleRectOut = nullptr) {
+        EditorRenderer::DrawPanelHeader(
+            dc, panelRect, title, headerFont_, smallFont_, meta, showCollapseToggle, collapsed, collapseToggleRectOut);
+    }
+
+    [[nodiscard]] bool TryHandlePanelCollapseClick(const POINT& point) {
+        if (PtInRect(&leftPanelCollapseToggleRect_, point) != FALSE) {
+            leftPanelCollapsed_ = !leftPanelCollapsed_;
+            ClearViewportPreviewCache();
+            lastIoStatus_ = leftPanelCollapsed_ ? "Left panel collapsed (Ctrl+[)." : "Left panel expanded.";
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return true;
+        }
+        if (PtInRect(&rightPanelCollapseToggleRect_, point) != FALSE) {
+            rightPanelCollapsed_ = !rightPanelCollapsed_;
+            ClearViewportPreviewCache();
+            lastIoStatus_ = rightPanelCollapsed_ ? "Right panel collapsed (Ctrl+])." : "Right panel expanded.";
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return true;
+        }
+        return false;
     }
 
     void DrawViewportPreview(HDC dc, const RECT& targetRect) {
-        const int width = std::max(1L, targetRect.right - targetRect.left);
-        const int height = std::max(1L, targetRect.bottom - targetRect.top);
         if (starterScene_.handles.orbitCamera.cameraNode == ri::scene::kInvalidHandle) {
             FillRectColor(dc, targetRect, RGB(32, 36, 42));
             return;
         }
-
-        ri::render::software::ScenePreviewOptions options{};
-        options.width = width;
-        options.height = height;
-
-        std::filesystem::path editorExe{};
-        wchar_t moduleWide[MAX_PATH]{};
-        if (GetModuleFileNameW(nullptr, moduleWide, MAX_PATH) > 0) {
-            editorExe = std::filesystem::path(std::wstring(moduleWide));
+        if (!viewportPreviewReady_) {
+            RebuildViewportPreviewBitmap();
         }
-        const std::filesystem::path textureDir =
-            ri::content::PickEngineTexturesDirectory(sceneConfig_.workspaceRoot, editorExe);
-        if (!textureDir.empty()) {
-            options.textureRoot = textureDir;
-        }
-        options.hiddenNodeHandles = {
-            starterScene_.handles.grid,
-            starterScene_.handles.axes.root,
-            starterScene_.handles.axes.xAxis,
-            starterScene_.handles.axes.yAxis,
-            starterScene_.handles.axes.zAxis,
-        };
-
-        ri::editor::ConfigureEditorViewportForPreview(sceneConfig_.editorPreviewScene, options);
-
-        const ri::render::software::SoftwareImage image =
-            ri::render::software::RenderScenePreview(starterScene_.scene, starterScene_.handles.orbitCamera.cameraNode, options);
-        if (image.pixels.empty()) {
+        if (!viewportPreviewReady_ || viewportPreviewScratch_.pixels.empty()) {
             FillRectColor(dc, targetRect, RGB(32, 36, 42));
             return;
         }
-
-        BITMAPINFO bitmapInfo{};
-        bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        bitmapInfo.bmiHeader.biWidth = image.width;
-        bitmapInfo.bmiHeader.biHeight = -image.height;
-        bitmapInfo.bmiHeader.biPlanes = 1;
-        bitmapInfo.bmiHeader.biBitCount = 24;
-        bitmapInfo.bmiHeader.biCompression = BI_RGB;
-
-        StretchDIBits(dc,
-                      targetRect.left,
-                      targetRect.top,
-                      width,
-                      height,
-                      0,
-                      0,
-                      image.width,
-                      image.height,
-                      image.pixels.data(),
-                      &bitmapInfo,
-                      DIB_RGB_COLORS,
-                      SRCCOPY);
+        ri::editor::EditorRenderer::BlitSoftwareImage(dc, targetRect, viewportPreviewScratch_);
     }
 
     [[nodiscard]] ri::world::RuntimeStatsOverlaySnapshot BuildRuntimeStatsOverlaySnapshot() const {
@@ -5710,13 +7779,24 @@ enum class UiWorkbenchTextEditTarget {
 
     void DrawRawIronQuadViewportBlock(HDC dc, const RECT& viewportInner) {
         const ri::math::Vec3 orbitFocus = starterScene_.handles.orbitCamera.orbit.target;
-        const std::string mode =
-            autoOrbitPreview_ ? "auto-orbit demo" : "drag in CAMERA / wheel / Tab full 3D";
+        const std::string mode = autoOrbitPreview_
+            ? "auto-orbit demo"
+            : (toolMode_ == ri::editor::EditorToolMode::Create
+                   ? "Create: click to stamp preset"
+                   : toolMode_ == ri::editor::EditorToolMode::Camera
+                         ? "Camera: drag to move view"
+                         : "Select: click objects · F frame");
         ri::editor::RenderEditorViewportBlock(
             dc,
             viewportInner,
             ri::editor::EditorViewportBlockModel{
                 .full3DViewport = full3DViewport_,
+                .createMenuActive = leftPanelMode_ == LeftPanelMode::Create,
+                .showWorldBar = ShouldShowViewportWorldBar(),
+                .atmosphereLabel = AtmospherePresetLabel(creatorAtmospherePreset_),
+                .createHintLine = CreateModeHintLine(),
+                .bottomChromeInset = AuthoringCatalogBottomChromeInset(),
+                .worldBarHeight = kViewportWorldBarHeight_,
                 .cameraPlotRect = cameraPlotRect_,
                 .cameraSummaryLine =
                     "Camera "
@@ -5738,43 +7818,18 @@ enum class UiWorkbenchTextEditTarget {
                     this->DrawRuntimeStatsOverlay(dc, rect);
                 },
                 .drawTopView = [this, dc, orbitFocus](const RECT& rect) {
-                    this->DrawRawIronFlatSceneView(
+                    DrawRawIronFlatSceneView(
                         dc, rect, starterScene_.scene, selectedNode_, orbitFocus, RawIronFlatProjection::TopXz, "TOP (X / Z)", smallFont_);
                 },
                 .drawSideView = [this, dc, orbitFocus](const RECT& rect) {
-                    this->DrawRawIronFlatSceneView(
+                    DrawRawIronFlatSceneView(
                         dc, rect, starterScene_.scene, selectedNode_, orbitFocus, RawIronFlatProjection::SideZy, "SIDE (Z / Y)", smallFont_);
                 },
                 .drawFrontView = [this, dc, orbitFocus](const RECT& rect) {
-                    this->DrawRawIronFlatSceneView(
+                    DrawRawIronFlatSceneView(
                         dc, rect, starterScene_.scene, selectedNode_, orbitFocus, RawIronFlatProjection::FrontXy, "FRONT (X / Y)", smallFont_);
                 },
             });
-    }
-
-    [[nodiscard]] std::vector<RECT> ComputeUiWorkbenchViewportBlockRects(const RECT& viewportInner,
-                                                                         const UiWorkbenchPanelModel& model,
-                                                                         RECT& stageRectOut) const {
-        RECT headerRect{viewportInner.left + 18, viewportInner.top + 16, viewportInner.right - 18, viewportInner.top + 54};
-        RECT stageCard{headerRect.right - std::max(320L, (viewportInner.right - viewportInner.left) - 254),
-                       headerRect.bottom + 10,
-                       viewportInner.right - 18,
-                       viewportInner.bottom - 18};
-        stageRectOut = RECT{stageCard.left + 18, stageCard.top + 52, stageCard.right - 18, stageCard.bottom - 18};
-
-        std::vector<RECT> rects{};
-        rects.reserve(model.previewBlocks.size());
-        int blockTop = stageRectOut.top + 14;
-        for (const UiWorkbenchPreviewBlock& block : model.previewBlocks) {
-            const int blockHeight = block.detailLine.empty() ? 34 : 56;
-            RECT blockRect{stageRectOut.left + 16, blockTop, stageRectOut.right - 16, blockTop + blockHeight};
-            if (blockRect.bottom > stageRectOut.bottom - 10) {
-                break;
-            }
-            rects.push_back(blockRect);
-            blockTop += blockHeight + 12;
-        }
-        return rects;
     }
 
     [[nodiscard]] bool TryHandleUiWorkbenchViewportClick(const RECT& viewportInner, const POINT& point) {
@@ -5782,8 +7837,8 @@ enum class UiWorkbenchTextEditTarget {
             return false;
         }
         UiWorkbenchPanelModel model = BuildUiWorkbenchPanelModel(ComputeLayout().inspectorInner);
-        RECT stageRect{};
-        const std::vector<RECT> blockRects = ComputeUiWorkbenchViewportBlockRects(viewportInner, model, stageRect);
+        const UiWorkbenchViewportLayout viewportLayout = ComputeUiWorkbenchViewportLayout(viewportInner);
+        const std::vector<RECT> blockRects = ComputeUiWorkbenchViewportBlockRects(viewportLayout, model.previewBlocks);
         for (std::size_t i = 0; i < blockRects.size(); ++i) {
             if (PtInRect(&blockRects[i], point) != FALSE) {
                 SelectUiWorkbenchBlock(static_cast<int>(i));
@@ -5795,13 +7850,10 @@ enum class UiWorkbenchTextEditTarget {
 
     void DrawUiWorkbenchViewport(HDC dc, const RECT& viewportInner) {
         UiWorkbenchPanelModel model = BuildUiWorkbenchPanelModel(ComputeLayout().inspectorInner);
-
-        const RECT headerRect{viewportInner.left + 18, viewportInner.top + 16, viewportInner.right - 18, viewportInner.top + 54};
-        const RECT shelfRect{viewportInner.left + 18, headerRect.bottom + 10, viewportInner.left + 212, viewportInner.bottom - 18};
-        const RECT stageCard{headerRect.right - std::max(320L, (viewportInner.right - viewportInner.left) - 254),
-                             headerRect.bottom + 10,
-                             viewportInner.right - 18,
-                             viewportInner.bottom - 18};
+        const UiWorkbenchViewportLayout viewportLayout = ComputeUiWorkbenchViewportLayout(viewportInner);
+        const RECT headerRect = viewportLayout.headerRect;
+        const RECT shelfRect = viewportLayout.shelfRect;
+        const RECT stageCard = viewportLayout.stageCard;
 
         DrawInsetFrame(dc, headerRect, RGB(64, 70, 80), RGB(188, 194, 202), RGB(24, 28, 34));
         FillRectColor(dc, RECT{headerRect.left + 1, headerRect.top + 1, headerRect.right - 1, headerRect.top + 5}, RGB(214, 150, 56));
@@ -5865,8 +7917,8 @@ enum class UiWorkbenchTextEditTarget {
                      smallFont_,
                      DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
 
-        RECT stageRect{};
-        const std::vector<RECT> blockRects = ComputeUiWorkbenchViewportBlockRects(viewportInner, model, stageRect);
+        const RECT stageRect = viewportLayout.stageRect;
+        const std::vector<RECT> blockRects = ComputeUiWorkbenchViewportBlockRects(viewportLayout, model.previewBlocks);
         DrawInsetFrame(dc, stageRect, RGB(14, 16, 22), RGB(104, 112, 124), RGB(10, 12, 18));
         FillRectColor(dc, RECT{stageRect.left + 1, stageRect.top + 1, stageRect.right - 1, stageRect.bottom - 1}, RGB(18, 22, 30));
         FillRectColor(dc, RECT{stageRect.left + 1, stageRect.top + 1, stageRect.right - 1, stageRect.top + 6}, RGB(214, 150, 56));
@@ -5903,6 +7955,12 @@ enum class UiWorkbenchTextEditTarget {
                         border = RGB(118, 176, 128);
                     }
                     break;
+                case UiWorkbenchBlockTone::Button:
+                    if (!block.selected) {
+                        fill = RGB(34, 58, 44);
+                        border = RGB(118, 176, 128);
+                    }
+                    break;
                 case UiWorkbenchBlockTone::Image:
                     if (!block.selected) {
                         fill = RGB(48, 48, 38);
@@ -5913,8 +7971,35 @@ enum class UiWorkbenchTextEditTarget {
                 case UiWorkbenchBlockTone::Other:
                     break;
             }
+            if (block.tone == UiWorkbenchBlockTone::Button) {
+                const int buttonWidth = std::min(220, std::max(120, static_cast<int>(blockRect.right - blockRect.left - 80)));
+                const int buttonLeft = blockRect.left + ((blockRect.right - blockRect.left) - buttonWidth) / 2;
+                RECT buttonRect{buttonLeft, blockRect.top + 4, buttonLeft + buttonWidth, blockRect.bottom - 4};
+                FillRectColor(dc, buttonRect, fill);
+                DrawInsetFrame(dc, buttonRect, RGB(18, 20, 24), border, RGB(14, 16, 20));
+                FillRectColor(dc,
+                              RECT{buttonRect.left + 1, buttonRect.top + 1, buttonRect.right - 1, buttonRect.top + 4},
+                              RGB(214, 150, 56));
+                DrawTextLine(dc,
+                             RECT{buttonRect.left + 10, buttonRect.top, buttonRect.right - 10, buttonRect.bottom},
+                             block.detailLine.empty() ? block.titleLine : block.detailLine,
+                             title,
+                             bodyFont_,
+                             DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+                continue;
+            }
+
             FillRectColor(dc, blockRect, fill);
             DrawInsetFrame(dc, blockRect, RGB(18, 20, 24), border, RGB(14, 16, 20));
+            if (block.tone == UiWorkbenchBlockTone::Heading) {
+                DrawTextLine(dc,
+                             RECT{blockRect.left + 12, blockRect.top, blockRect.right - 12, blockRect.bottom},
+                             block.detailLine.empty() ? block.titleLine : block.detailLine,
+                             title,
+                             headerFont_,
+                             DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+                continue;
+            }
             DrawTextLine(dc,
                          RECT{blockRect.left + 12, blockRect.top + 8, blockRect.right - 12, blockRect.top + 26},
                          std::to_string(static_cast<int>(i) + 1) + ". " + block.titleLine,
@@ -5934,7 +8019,7 @@ enum class UiWorkbenchTextEditTarget {
         if (blockRects.empty()) {
             DrawTextLine(dc,
                          RECT{stageRect.left + 16, stageRect.top + 28, stageRect.right - 16, stageRect.bottom - 16},
-                         "No blocks on this screen yet. Use Add Dialogue, Add Narration, or Add Choices in the inspector.",
+                         "No blocks on this screen yet. Use + Button, New Menu, Add Dialogue, or Add Choices in the inspector.",
                          RGB(214, 218, 224),
                          bodyFont_,
                          DT_CENTER | DT_WORDBREAK | DT_VCENTER);
@@ -5953,10 +8038,7 @@ enum class UiWorkbenchTextEditTarget {
         HBITMAP backBuffer = CreateCompatibleBitmap(windowDc, width, height);
         HGDIOBJ oldBitmap = SelectObject(dc, backBuffer);
 
-        const COLORREF kWindowBg = RGB(52, 56, 62);
-        const COLORREF kInsetFill = RGB(44, 50, 58);
-        const COLORREF kViewportFill = RGB(38, 44, 52);
-        FillRectColor(dc, client, kWindowBg);
+        FillRectColor(dc, client, ri::editor::EditorUiTheme::kWindowBg);
 
         RECT topBar{0, 0, client.right, 56};
         const ri::editor::EditorViewportTheme viewportTheme{
@@ -5971,7 +8053,7 @@ enum class UiWorkbenchTextEditTarget {
             topBar,
             ri::editor::EditorViewportChromeModel{
                 .title = "RawIron Editor",
-                .subtitle = "Hammer discipline, Unity flow, and a tighter native workspace.",
+                .subtitle = "Quad views · project archive · creator lab · native workspace.",
                 .focusedWorkspaceGameLabel = FocusedWorkspaceGameLabel(),
                 .workspaceLabel = sceneConfig_.workspaceLabel,
                 .resourcesModeActive = leftPanelMode_ == LeftPanelMode::Resources,
@@ -5984,6 +8066,8 @@ enum class UiWorkbenchTextEditTarget {
             dc,
             toolStrip,
             ri::editor::EditorViewportToolStripModel{
+                .toolMode = toolMode_,
+                .armedPresetLabel = toolMode_ == ri::editor::EditorToolMode::Create ? ArmedCatalogPresetSummary() : std::string{},
                 .editModeLabel = EditModeLabel(),
                 .axisLabel = AxisLabel(),
                 .gridSnapEnabled = gridSnapEnabled_,
@@ -6011,43 +8095,89 @@ enum class UiWorkbenchTextEditTarget {
         const std::string leftPanelMeta =
             leftPanelMode_ == LeftPanelMode::Scene
                 ? (std::to_string(starterScene_.scene.NodeCount()) + " nodes")
-                : (std::to_string(workspaceGames_.size()) + " games · " +
-                   std::to_string(filteredResourceRows_.size()) + "/" +
-                   std::to_string(resourceCatalogEntries_.size()) + " files");
+                : (leftPanelMode_ == LeftPanelMode::Create
+                       ? "Creator Lab · quick-start templates"
+                       : (std::to_string(workspaceGames_.size()) + " games · " +
+                          std::to_string(filteredResourceRows_.size()) + "/" +
+                          std::to_string(resourceCatalogEntries_.size()) + " files"));
         DrawPanelHeader(dc,
                         hierarchy,
-                        leftPanelMode_ == LeftPanelMode::Scene ? "Hierarchy" : "Project Archive",
-                        leftPanelMode_ == LeftPanelMode::Scene ? SelectedNodeSummary() : FocusedWorkspaceGameLabel());
+                        leftPanelMode_ == LeftPanelMode::Scene
+                            ? "Hierarchy"
+                            : (leftPanelMode_ == LeftPanelMode::Create ? "Create" : "Project Archive"),
+                        leftPanelCollapsed_ ? "collapsed" : (leftPanelMode_ == LeftPanelMode::Scene ? SelectedNodeSummary()
+                        : (leftPanelMode_ == LeftPanelMode::Create ? CurrentNewGameDisplayName()
+                                                                   : FocusedWorkspaceGameLabel())),
+                        true,
+                        leftPanelCollapsed_,
+                        &leftPanelCollapseToggleRect_);
         DrawPanelHeader(dc,
                         viewport,
                         "Viewport",
-                        sceneConfig_.gameManifest.has_value() ? sceneConfig_.gameManifest->id : "starter");
-        DrawPanelHeader(dc, inspector, "Inspector", InspectorPanelLabel() + "  |  " + leftPanelMeta);
+                        (full3DViewport_ ? "full 3D" : "quad")
+                            + std::string("  |  Tab layout  |  ")
+                            + (authoringCatalogExpanded_ ? "catalog shown" : "catalog hidden"));
+        DrawPanelHeader(dc,
+                        inspector,
+                        "Inspector",
+                        rightPanelCollapsed_ ? "collapsed" : InspectorPanelLabel() + "  |  " + leftPanelMeta,
+                        true,
+                        rightPanelCollapsed_,
+                        &rightPanelCollapseToggleRect_);
 
         RECT hierarchyInner = layout.hierarchyInner;
         RECT viewportInner = layout.viewportInner;
         RECT inspectorInner = layout.inspectorInner;
-        DrawInsetFrame(dc, hierarchyInner, kInsetFill, RGB(154, 160, 170), RGB(26, 29, 35));
-        DrawInsetFrame(dc, viewportInner, kViewportFill, RGB(154, 160, 170), RGB(24, 26, 30));
-        DrawInsetFrame(dc, inspectorInner, kInsetFill, RGB(154, 160, 170), RGB(26, 29, 35));
-
         const auto& nodes = starterScene_.scene.Nodes();
         const std::vector<int> hierarchyOrder = HierarchyDrawOrder();
+        DrawInsetFrame(dc,
+                       hierarchyInner,
+                       ri::editor::EditorUiTheme::kWellFill,
+                       ri::editor::EditorUiTheme::kWellHi,
+                       ri::editor::EditorUiTheme::kWellShadow);
+        DrawInsetFrame(dc,
+                       viewportInner,
+                       ri::editor::EditorUiTheme::kViewportWellFill,
+                       ri::editor::EditorUiTheme::kWellHi,
+                       ri::editor::EditorUiTheme::kWellShadow);
+        DrawInsetFrame(dc,
+                       inspectorInner,
+                       ri::editor::EditorUiTheme::kWellFill,
+                       ri::editor::EditorUiTheme::kWellHi,
+                       ri::editor::EditorUiTheme::kWellShadow);
 
+        const int leftPanelClip = SaveDC(dc);
+        IntersectClipRect(dc, hierarchyInner.left, hierarchyInner.top, hierarchyInner.right, hierarchyInner.bottom);
+
+        if (leftPanelCollapsed_) {
+            DrawTextLine(dc,
+                         RECT{hierarchyInner.left + 4, hierarchyInner.top + 40, hierarchyInner.right - 4, hierarchyInner.bottom - 8},
+                         "Left panel collapsed. Click » in the header or press Ctrl+[.",
+                         RGB(170, 176, 186),
+                         smallFont_,
+                         DT_LEFT | DT_WORDBREAK);
+        } else {
         DrawToolbarButton(dc,
                          RECT{hierarchyInner.left + 6,
                               hierarchyInner.top + 4,
-                              hierarchyInner.left + 78,
+                              hierarchyInner.left + 68,
                               hierarchyInner.top + 4 + kLeftPanelTabHeight_},
                          "Scene",
-                         leftPanelMode_ == LeftPanelMode::Scene);
+                         leftPanelMode_ == LeftPanelMode::Scene,
+                         ri::editor::EditorToolbarStyle::Light);
         DrawToolbarButton(dc,
-                         RECT{hierarchyInner.left + 82,
+                         CreateTabRect(hierarchyInner),
+                         "Create",
+                         leftPanelMode_ == LeftPanelMode::Create,
+                         ri::editor::EditorToolbarStyle::Light);
+        DrawToolbarButton(dc,
+                         RECT{hierarchyInner.left + 140,
                               hierarchyInner.top + 4,
-                              hierarchyInner.left + 190,
+                              hierarchyInner.left + 248,
                               hierarchyInner.top + 4 + kLeftPanelTabHeight_},
                          "Resources",
-                         leftPanelMode_ == LeftPanelMode::Resources);
+                         leftPanelMode_ == LeftPanelMode::Resources,
+                         ri::editor::EditorToolbarStyle::Light);
 
         const int tabBottom = hierarchyInner.top + 4 + kLeftPanelTabHeight_;
         if (leftPanelMode_ == LeftPanelMode::Resources && !workspaceGames_.empty()) {
@@ -6078,8 +8208,8 @@ enum class UiWorkbenchTextEditTarget {
                      DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
         }
         if (leftPanelMode_ == LeftPanelMode::Resources) {
-            const int filterTop = tabBottom + 4 + kLeftPanelGameStripHeight_ + 4;
-            int fx = hierarchyInner.left + 6;
+            const ri::editor::ResourceCategoryChipLayout chipLayout =
+                ri::editor::ComputeResourceCategoryChipLayout(hierarchyInner);
             const std::array<WorkspaceResourceCategory, 8> categories = {
                 WorkspaceResourceCategory::Manifest,
                 WorkspaceResourceCategory::Level,
@@ -6090,12 +8220,13 @@ enum class UiWorkbenchTextEditTarget {
                 WorkspaceResourceCategory::Asset,
                 WorkspaceResourceCategory::Other,
             };
-            for (const WorkspaceResourceCategory category : categories) {
-                const int width = 56;
-                const RECT chip{fx, filterTop, fx + width, filterTop + kResourceFilterStripHeight_};
-                fx += width + 4;
+            for (int index = 0; index < static_cast<int>(categories.size()); ++index) {
+                const WorkspaceResourceCategory category = categories[static_cast<std::size_t>(index)];
                 const bool active = (resourceCategoryMask_ & WorkspaceCategoryBit(category)) != 0u;
-                DrawToolbarButton(dc, chip, WorkspaceCategoryShortLabel(category), active);
+                DrawToolbarButton(dc,
+                                  ri::editor::ResourceCategoryChipRect(hierarchyInner, index, chipLayout),
+                                  WorkspaceCategoryShortLabel(category),
+                                  active);
             }
             const RECT searchRect = ResourceSearchBoxRect(hierarchyInner);
             const RECT clearRect = ResourceSearchClearRect(hierarchyInner);
@@ -6114,7 +8245,7 @@ enum class UiWorkbenchTextEditTarget {
                          smallFont_,
                          DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
             DrawToolbarButton(dc, clearRect, "x", !resourceSearchQuery_.empty());
-        } else {
+        } else if (leftPanelMode_ == LeftPanelMode::Scene) {
             const RECT searchRect = SceneSearchBoxRect(hierarchyInner);
             const RECT clearRect = SceneSearchClearRect(hierarchyInner);
             DrawInsetFrame(dc,
@@ -6134,6 +8265,20 @@ enum class UiWorkbenchTextEditTarget {
             DrawToolbarButton(dc, clearRect, "x", !resourceSearchQuery_.empty());
         }
 
+        if (leftPanelMode_ == LeftPanelMode::Create) {
+            RenderCreatorPanel(
+                dc,
+                hierarchyInner,
+                ComputeCreatorPanelLayout(hierarchyInner),
+                BuildCreatorPanelModel(),
+                headerFont_,
+                bodyFont_,
+                smallFont_,
+                [this](HDC paintDc, const RECT& rect, const std::string& label, const bool active) {
+                    DrawToolbarButton(paintDc, rect, label, active, ri::editor::EditorToolbarStyle::Creator);
+                });
+        }
+
         const int listTop = LeftPanelContentTop(hierarchyInner);
         const int listBottom = LeftPanelSceneListBottom(hierarchyInner);
         const int listPixels = std::max(0, listBottom - listTop - 8);
@@ -6149,13 +8294,24 @@ enum class UiWorkbenchTextEditTarget {
                     "Rows " + std::to_string(hierarchyScrollTopRow_ + 1) + "-" +
                     std::to_string(std::min(static_cast<int>(hierarchyOrder.size()),
                                             hierarchyScrollTopRow_ + visibleHierarchyRows)) +
-                    " of " + std::to_string(hierarchyOrder.size()) + "  |  wheel / PgUp PgDn";
+                    " of " + std::to_string(hierarchyOrder.size()) +
+                    "  |  wheel scroll  |  dbl-click / F frame";
                 DrawTextLine(dc,
                              RECT{hierarchyInner.left + 6,
                                   hierarchyInner.bottom - 22,
                                   hierarchyInner.right - 6,
                                   hierarchyInner.bottom - 4},
                              scrollHint,
+                             RGB(36, 38, 42),
+                             smallFont_,
+                             DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+            } else if (!hierarchyOrder.empty()) {
+                DrawTextLine(dc,
+                             RECT{hierarchyInner.left + 6,
+                                  hierarchyInner.bottom - 22,
+                                  hierarchyInner.right - 6,
+                                  hierarchyInner.bottom - 4},
+                             std::to_string(hierarchyOrder.size()) + " nodes  |  dbl-click / F frame  |  Home frame all",
                              RGB(36, 38, 42),
                              smallFont_,
                              DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
@@ -6174,14 +8330,14 @@ enum class UiWorkbenchTextEditTarget {
                 const ri::scene::Node& node = nodes[static_cast<std::size_t>(nodeIndex)];
                 const int depth = ComputeNodeDepth(starterScene_.scene, nodeIndex);
                 const int indent = 8 + depth * 14;
-                RECT rowRect{hierarchyInner.left + 6, y, hierarchyInner.right - 6, y + 24};
+                RECT rowRect{hierarchyInner.left + 6, y, hierarchyInner.right - 6, y + kHierarchyRowHeight_};
                 if (static_cast<std::size_t>(nodeIndex) == selectedNode_) {
-                    FillRectColor(dc, rowRect, RGB(124, 89, 40));
+                    FillRectColor(dc, rowRect, ri::editor::EditorUiTheme::kSelSceneFill);
                 }
                 DrawTextLine(dc,
                              RECT{rowRect.left + indent, rowRect.top, rowRect.right - 90, rowRect.bottom},
                              std::to_string(nodeIndex) + "  " + node.name,
-                             static_cast<std::size_t>(nodeIndex) == selectedNode_ ? RGB(255, 255, 160)
+                             static_cast<std::size_t>(nodeIndex) == selectedNode_ ? ri::editor::EditorUiTheme::kSelSceneText
                                                                                 : RGB(236, 240, 244),
                              bodyFont_,
                              DT_LEFT | DT_SINGLELINE | DT_VCENTER);
@@ -6194,7 +8350,7 @@ enum class UiWorkbenchTextEditTarget {
                              DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
                 y += kHierarchyRowHeight_;
             }
-        } else {
+        } else if (leftPanelMode_ == LeftPanelMode::Resources) {
             const int visibleResourceRows = std::max(0, listPixels / kResourceListRowHeight_);
             const int maxResourceScroll =
                 std::max(0, static_cast<int>(filteredResourceRows_.size()) - visibleResourceRows);
@@ -6243,7 +8399,7 @@ enum class UiWorkbenchTextEditTarget {
                                  hierarchyInner.right - 6,
                                  ry + kResourceListRowHeight_};
                     if (visibleIdx == selectedResourceVisibleRow_) {
-                        FillRectColor(dc, rowRect, RGB(64, 84, 118));
+                        FillRectColor(dc, rowRect, ri::editor::EditorUiTheme::kSelResourceFill);
                     }
                     DrawTextLine(dc,
                                  RECT{rowRect.left + 6, rowRect.top, rowRect.right - 110, rowRect.bottom},
@@ -6262,21 +8418,58 @@ enum class UiWorkbenchTextEditTarget {
             }
         }
 
+        }
+
+        RestoreDC(dc, leftPanelClip);
+
+        if (!rightPanelCollapsed_) {
         const RECT inspectorTabShelf{inspectorInner.left + 6, inspectorInner.top + 6, inspectorInner.right - 6, inspectorInner.top + 36};
-        DrawInsetFrame(dc, inspectorTabShelf, RGB(52, 58, 68), RGB(156, 162, 170), RGB(22, 24, 30));
+        DrawInsetFrame(dc,
+                       inspectorTabShelf,
+                       ri::editor::EditorUiTheme::kWellFill,
+                       ri::editor::EditorUiTheme::kWellHi,
+                       ri::editor::EditorUiTheme::kWellShadow);
         FillRectColor(dc,
-                      RECT{inspectorTabShelf.left + 1, inspectorTabShelf.top + 1, inspectorTabShelf.right - 1, inspectorTabShelf.top + 5},
-                      RGB(204, 145, 60));
-        DrawToolbarButton(dc, RECT{inspectorInner.left + 12, inspectorInner.top + 10, inspectorInner.left + 78, inspectorInner.top + 34},
-                          "Node", inspectorPanel_ == InspectorPanel::Node);
-        DrawToolbarButton(dc, RECT{inspectorInner.left + 84, inspectorInner.top + 10, inspectorInner.left + 154, inspectorInner.top + 34},
-                          "Brush", inspectorPanel_ == InspectorPanel::Brush);
-        DrawToolbarButton(dc, RECT{inspectorInner.left + 160, inspectorInner.top + 10, inspectorInner.left + 244, inspectorInner.top + 34},
-                          "Gameplay", inspectorPanel_ == InspectorPanel::Gameplay);
-        DrawToolbarButton(dc, RECT{inspectorInner.left + 250, inspectorInner.top + 10, inspectorInner.left + 320, inspectorInner.top + 34},
-                          "Files", inspectorPanel_ == InspectorPanel::Files);
-        DrawToolbarButton(dc, RECT{inspectorInner.left + 326, inspectorInner.top + 10, inspectorInner.left + 404, inspectorInner.top + 34},
-                          "UI / VN", inspectorPanel_ == InspectorPanel::UiWorkbench);
+                      RECT{inspectorTabShelf.left + 1, inspectorTabShelf.top + 1, inspectorTabShelf.right - 1, inspectorTabShelf.top + 4},
+                      ri::editor::EditorUiTheme::kHeaderAccent);
+        const InspectorTabLayout inspectorTabs = ComputeInspectorTabLayout(inspectorInner);
+        DrawToolbarButton(dc,
+                         inspectorTabs.nodeTab,
+                         "Node",
+                         inspectorPanel_ == InspectorPanel::Node,
+                         ri::editor::EditorToolbarStyle::Light);
+        DrawToolbarButton(dc,
+                         inspectorTabs.brushTab,
+                         "Brush",
+                         inspectorPanel_ == InspectorPanel::Brush,
+                         ri::editor::EditorToolbarStyle::Light);
+        DrawToolbarButton(dc,
+                         inspectorTabs.gameplayTab,
+                         "Gameplay",
+                         inspectorPanel_ == InspectorPanel::Gameplay,
+                         ri::editor::EditorToolbarStyle::Light);
+        DrawToolbarButton(dc,
+                         inspectorTabs.filesTab,
+                         "Files",
+                         inspectorPanel_ == InspectorPanel::Files,
+                         ri::editor::EditorToolbarStyle::Light);
+        DrawToolbarButton(dc,
+                         inspectorTabs.storeTab,
+                         "Store",
+                         inspectorPanel_ == InspectorPanel::PluginStore,
+                         ri::editor::EditorToolbarStyle::Light);
+        DrawToolbarButton(dc,
+                         inspectorTabs.uiWorkbenchTab,
+                         "UI / VN",
+                         inspectorPanel_ == InspectorPanel::UiWorkbench,
+                         ri::editor::EditorToolbarStyle::Light);
+
+        const int inspectorContentClip = SaveDC(dc);
+        IntersectClipRect(dc,
+                          inspectorInner.left,
+                          inspectorInner.top + 44,
+                          inspectorInner.right,
+                          ri::editor::InspectorContentBottom(inspectorInner));
 
         int infoTop = inspectorInner.top + 48;
         if (inspectorPanel_ == InspectorPanel::Files) {
@@ -6285,119 +8478,31 @@ enum class UiWorkbenchTextEditTarget {
                 && selectedResourceRow_ < static_cast<int>(resourceCatalogEntries_.size())) {
                 selectedResourceEntry = &resourceCatalogEntries_[static_cast<std::size_t>(selectedResourceRow_)];
             }
-            const ri::editor::FilesInspectorPanelModel filesPanel = BuildFilesInspectorPanelModel(
-                selectedResourceEntry,
-                resourceManifestIssues_,
-                resourceEditorAuxMessage_,
-                resourceFileDirty_,
-                ResourceFocusSummary());
-            DrawTextLine(dc, RECT{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 22},
-                         filesPanel.heading,
-                         RGB(224, 224, 236),
-                         headerFont_,
-                         DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-            infoTop += 26;
-            const ProjectShortcutLayout shortcuts = ComputeProjectShortcutLayout(inspectorInner);
-            const RECT shortcutCard{inspectorInner.left + 10, infoTop + 2, inspectorInner.right - 10, shortcuts.plugins.bottom + 12};
-            DrawInsetFrame(dc, shortcutCard, RGB(54, 60, 70), RGB(160, 166, 174), RGB(22, 24, 30));
-            FillRectColor(dc,
-                          RECT{shortcutCard.left + 1, shortcutCard.top + 1, shortcutCard.right - 1, shortcutCard.top + 5},
-                          RGB(124, 150, 198));
-            DrawTextLine(dc, RECT{inspectorInner.left + 20, infoTop + 10, inspectorInner.right - 20, infoTop + 28},
-                         filesPanel.sectionLabel,
-                         RGB(210, 214, 220),
-                         smallFont_,
-                         DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-            DrawToolbarButton(dc, shortcuts.manifest, "Manifest", false);
-            DrawToolbarButton(dc, shortcuts.level, "Level", false);
-            DrawToolbarButton(dc, shortcuts.gameplay, "Gameplay", false);
-            DrawToolbarButton(dc, shortcuts.rendering, "Render", false);
-            DrawToolbarButton(dc, shortcuts.uiLayout, "UI Flow", false);
-            DrawToolbarButton(dc, shortcuts.uiStyle, "VN Flow", false);
-            DrawToolbarButton(dc, shortcuts.menu, "Menu", false);
-            DrawToolbarButton(dc, shortcuts.ai, "AI", false);
-            DrawToolbarButton(dc, shortcuts.network, "Network", false);
-            DrawToolbarButton(dc, shortcuts.plugins, "Plugins", false);
-            infoTop = shortcuts.plugins.bottom + 18;
-            if (filesPanel.hasSelection) {
-                const RECT fileCard{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 112};
-                DrawInsetFrame(dc, fileCard, RGB(54, 58, 68), RGB(160, 166, 176), RGB(20, 24, 30));
-                FillRectColor(dc,
-                              RECT{fileCard.left + 1, fileCard.top + 1, fileCard.right - 1, fileCard.top + 5},
-                              RGB(106, 154, 122));
-                DrawTextLine(dc, RECT{fileCard.left + 10, fileCard.top + 10, fileCard.right - 10, fileCard.top + 28},
-                             filesPanel.selectedPath,
-                             RGB(228, 236, 248),
-                             smallFont_,
-                             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
-                DrawTextLine(dc, RECT{fileCard.left + 10, fileCard.top + 34, fileCard.right - 10, fileCard.top + 52},
-                             filesPanel.categoryLabel,
-                             RGB(208, 212, 220),
-                             smallFont_,
-                             DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                infoTop = fileCard.top + 58;
-                if (!filesPanel.manifestStatus.empty()) {
-                    DrawTextLine(dc,
-                                 RECT{fileCard.left + 10, infoTop, fileCard.right - 10, infoTop + 18},
-                                 filesPanel.manifestStatus,
-                                 filesPanel.manifestOk ? RGB(160, 220, 170) : RGB(255, 180, 120),
-                                 smallFont_,
-                                 DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-                    infoTop += 20;
-                    for (const std::string& issue : filesPanel.manifestIssues) {
-                        DrawTextLine(dc,
-                                     RECT{fileCard.left + 14, infoTop, fileCard.right - 10, infoTop + 32},
-                                     issue,
-                                     RGB(230, 190, 150),
-                                     smallFont_,
-                                     DT_LEFT | DT_WORDBREAK);
-                        infoTop += 34;
-                    }
-                    if (filesPanel.manifestOk) {
-                        infoTop += 0;
-                    }
-                }
-                infoTop = fileCard.bottom + 10;
-            } else {
-                const RECT emptyCard{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 68};
-                DrawInsetFrame(dc, emptyCard, RGB(54, 58, 68), RGB(156, 162, 170), RGB(22, 24, 30));
-                FillRectColor(dc,
-                              RECT{emptyCard.left + 1, emptyCard.top + 1, emptyCard.right - 1, emptyCard.top + 5},
-                              RGB(108, 116, 132));
-                DrawTextLine(dc, RECT{emptyCard.left + 10, emptyCard.top + 12, emptyCard.right - 10, emptyCard.bottom - 10},
-                             filesPanel.emptySelectionMessage,
-                             RGB(180, 180, 190),
-                             smallFont_,
-                             DT_LEFT | DT_WORDBREAK);
-                infoTop = emptyCard.bottom + 10;
-            }
-            if (!filesPanel.auxMessage.empty()) {
-                const RECT auxCard{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 56};
-                DrawInsetFrame(dc, auxCard, RGB(68, 60, 54), RGB(184, 162, 138), RGB(26, 22, 20));
-                FillRectColor(dc,
-                              RECT{auxCard.left + 1, auxCard.top + 1, auxCard.right - 1, auxCard.top + 5},
-                              RGB(204, 145, 60));
-                DrawTextLine(dc, RECT{auxCard.left + 10, auxCard.top + 10, auxCard.right - 10, auxCard.bottom - 10},
-                             filesPanel.auxMessage,
-                             RGB(220, 160, 120),
-                             smallFont_,
-                             DT_LEFT | DT_WORDBREAK);
-                infoTop = auxCard.bottom + 10;
-            }
-            DrawToolbarButton(dc,
-                             RECT{inspectorInner.left + 10, inspectorInner.top + 74, inspectorInner.left + 118, inspectorInner.top + 100},
-                             filesPanel.saveLabel,
-                             false);
-            DrawToolbarButton(dc,
-                             RECT{inspectorInner.left + 124, inspectorInner.top + 74, inspectorInner.right - 10, inspectorInner.top + 100},
-                             "Explorer",
-                             false);
-            DrawTextLine(dc,
-                         RECT{inspectorInner.left + 10, inspectorInner.top + 106, inspectorInner.right - 10, inspectorInner.top + 122},
-                         filesPanel.footerHint,
-                         RGB(200, 196, 160),
-                         smallFont_,
-                         DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
+            const ri::editor::FilesInspectorPanelModel filesPanel =
+                BuildFilesInspectorPanelModelForWindow(selectedResourceEntry);
+            RenderFilesInspectorPanel(
+                dc,
+                inspectorInner,
+                filesPanel,
+                headerFont_,
+                smallFont_,
+                [this](HDC innerDc, const RECT& rect, const std::string& label, const bool active) {
+                    DrawToolbarButton(innerDc, rect, label, active);
+                });
+        } else if (inspectorPanel_ == InspectorPanel::PluginStore) {
+            PluginStorePanelModel storeModel = BuildPluginStorePanelModel();
+            RenderPluginStorePanel(
+                dc,
+                inspectorInner,
+                storeModel,
+                headerFont_,
+                bodyFont_,
+                smallFont_,
+                [this](HDC innerDc, const RECT& rect, const std::string& label, bool active) {
+                    this->DrawToolbarButton(innerDc, rect, label, active);
+                });
+            pluginStoreLayout_ = storeModel.layout;
+            pluginStoreScrollRow_ = storeModel.layout.scrollTopRow;
         } else if (inspectorPanel_ == InspectorPanel::UiWorkbench) {
             uiWorkbenchLayout_ = ComputeUiWorkbenchLayout(inspectorInner);
             UiWorkbenchPanelModel model = BuildUiWorkbenchPanelModel(inspectorInner);
@@ -6417,6 +8522,8 @@ enum class UiWorkbenchTextEditTarget {
             infoTop = inspectorInner.top + 42;
             if (inspectorPanel_ == InspectorPanel::Node) {
                 inspectorNudgeButtons_.fill(RECT{});
+                materialNudgeButtons_.fill(RECT{});
+                lightNudgeButtons_.fill(RECT{});
                 NodeInspectorPanelModel model{};
                 model.renameTypingActive = nodeRenameTypingActive_;
                 model.renameDraft = nodeRenameDraft_;
@@ -6436,6 +8543,67 @@ enum class UiWorkbenchTextEditTarget {
                 model.groupingLine = "Grouping: Ctrl+G group  |  Ctrl+Shift+G ungroup  |  Ctrl+Shift+N new group";
                 model.opsLine = "Actions: Ctrl+R reset  |  Shift+F frame all  |  Ctrl+Shift+W parent to World";
                 model.worldPosLine = "World position: " + ri::math::ToString(worldPos);
+                if (node.material != ri::scene::kInvalidHandle
+                    && static_cast<std::size_t>(node.material) < starterScene_.scene.MaterialCount()) {
+                    const ri::scene::Material& material = starterScene_.scene.GetMaterial(node.material);
+                    model.hasMaterial = true;
+                    model.materialEditable = IsEditableAuthoredNode(static_cast<int>(selectedNode_));
+                    model.materialNameLine = "Name: " + material.name;
+                    model.materialColorLine =
+                        "Base color: " + ri::math::ToString(material.baseColor);
+                    {
+                        std::ostringstream roughStream;
+                        roughStream.setf(std::ios::fixed);
+                        roughStream.precision(2);
+                        roughStream << material.roughness;
+                        model.materialRoughnessLine = "Roughness: " + roughStream.str();
+                        roughStream.str({});
+                        roughStream << material.metallic;
+                        model.materialMetallicLine = "Metallic: " + roughStream.str();
+                        roughStream.str({});
+                        roughStream << material.opacity;
+                        model.materialOpacityLine = "Opacity: " + roughStream.str();
+                    }
+                    model.materialTextureLine = material.baseColorTexture.empty()
+                        ? "Albedo texture: (none)"
+                        : ("Albedo texture: " + material.baseColorTexture);
+                    model.materialFlagsLine =
+                        std::string(material.transparent ? "transparent" : "opaque")
+                        + (material.doubleSided ? " · double-sided" : "")
+                        + (material.additiveBlend ? " · additive" : "");
+                }
+                if (node.light != ri::scene::kInvalidHandle
+                    && static_cast<std::size_t>(node.light) < starterScene_.scene.LightCount()) {
+                    const ri::scene::Light& light = starterScene_.scene.GetLight(node.light);
+                    model.hasLight = true;
+                    model.lightEditable = true;
+                    model.lightTypeLine = "Type: " + ri::scene::ToString(light.type);
+                    model.lightColorLine = "Color: " + ri::math::ToString(light.color);
+                    {
+                        std::ostringstream lightStream;
+                        lightStream.setf(std::ios::fixed);
+                        lightStream.precision(2);
+                        lightStream << light.intensity;
+                        model.lightIntensityLine = "Intensity: " + lightStream.str();
+                        lightStream.str({});
+                        lightStream << light.range;
+                        model.lightRangeLine = "Range: " + lightStream.str();
+                    }
+                }
+                if (IsTriggerNode(node)) {
+                    const std::optional<ri::scene::WorldBounds> triggerBounds =
+                        ri::scene::ComputeNodeWorldBounds(starterScene_.scene, static_cast<int>(selectedNode_), false);
+                    model.hasTrigger = true;
+                    if (triggerBounds.has_value()) {
+                        model.triggerBoundsLine =
+                            "World AABB: min " + ri::math::ToString(triggerBounds->min)
+                            + "  max " + ri::math::ToString(triggerBounds->max);
+                    } else {
+                        model.triggerBoundsLine = "World AABB: unavailable (add/resize mesh)";
+                    }
+                    model.triggerHelpLine =
+                        "Gameplay trigger volume. Wire in Logic tab · Ctrl+Shift+I import · Ctrl+E exports triggers CSV.";
+                }
                 RenderNodeInspectorPanel(
                     dc,
                     inspectorInner,
@@ -6445,6 +8613,12 @@ enum class UiWorkbenchTextEditTarget {
                     smallFont_,
                     [this](HDC innerDc, int& top, const RECT& innerRect, const char* label, int componentIndex) {
                         this->DrawInspectorNudgeRow(innerDc, top, innerRect, label, componentIndex);
+                    },
+                    [this](HDC innerDc, int& top, const RECT& innerRect, const char* label, int fieldIndex) {
+                        this->DrawMaterialNudgeRow(innerDc, top, innerRect, label, fieldIndex);
+                    },
+                    [this](HDC innerDc, int& top, const RECT& innerRect, const char* label, int fieldIndex) {
+                        this->DrawLightNudgeRow(innerDc, top, innerRect, label, fieldIndex);
                     });
             } else if (inspectorPanel_ == InspectorPanel::Brush) {
                 const auto bounds =
@@ -6509,18 +8683,30 @@ enum class UiWorkbenchTextEditTarget {
             }
         } else {
             infoTop = inspectorInner.top + 42;
-            const RECT welcomeCard{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 62};
+            const RECT welcomeCard{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 96};
             DrawInsetFrame(dc, welcomeCard, RGB(58, 64, 74), RGB(170, 176, 184), RGB(22, 26, 32));
-            DrawTextLine(dc, RECT{welcomeCard.left + 10, welcomeCard.top + 10, welcomeCard.right - 10, welcomeCard.bottom - 10},
-                         "Choose a scene node to edit transforms and authored data, or switch to Project Archive / Files to work with game resources.",
+            std::string welcomeText =
+                "Choose a scene node to edit transforms, materials, and lights. Use Project Archive / Files for game resources.";
+            if (sceneConfig_.gameManifest.has_value()) {
+                const ri::editor::ProjectHealthReport health = BuildProjectHealthReport(
+                    *sceneConfig_.gameManifest,
+                    ResolveDedicatedPlaytestExecutable(*sceneConfig_.gameManifest),
+                    CanResolvePlaytestExecutable(*sceneConfig_.gameManifest));
+                welcomeText = SummarizeProjectHealthForWelcome(health) + "\n\n" + welcomeText;
+            }
+            DrawTextLine(dc,
+                         RECT{welcomeCard.left + 10, welcomeCard.top + 10, welcomeCard.right - 10, welcomeCard.bottom - 10},
+                         welcomeText,
                          RGB(200, 200, 200),
                          smallFont_,
                          DT_LEFT | DT_WORDBREAK);
         }
 
+        RestoreDC(dc, inspectorContentClip);
+
         {
-            const int sessionTop = inspectorInner.bottom - 64;
-            const RECT sessionCard{inspectorInner.left + 10, sessionTop - 8, inspectorInner.right - 10, inspectorInner.bottom - 8};
+            const int sessionTop = ri::editor::InspectorContentBottom(inspectorInner) + 8;
+            const RECT sessionCard{inspectorInner.left + 10, sessionTop, inspectorInner.right - 10, inspectorInner.bottom - 8};
             DrawInsetFrame(dc, sessionCard, RGB(56, 61, 70), RGB(160, 166, 174), RGB(20, 24, 30));
             FillRectColor(dc,
                           RECT{sessionCard.left + 1, sessionCard.top + 1, sessionCard.right - 1, sessionCard.top + 5},
@@ -6539,11 +8725,56 @@ enum class UiWorkbenchTextEditTarget {
                          DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
         }
 
+        } else {
+            DrawTextLine(dc,
+                         RECT{inspectorInner.left + 8, inspectorInner.top + 40, inspectorInner.right - 8, inspectorInner.bottom - 8},
+                         "Inspector collapsed. Click » in the header or press Ctrl+].",
+                         RGB(170, 176, 186),
+                         smallFont_,
+                         DT_LEFT | DT_WORDBREAK);
+        }
+
         if (inspectorPanel_ == InspectorPanel::UiWorkbench) {
             DrawUiWorkbenchViewport(dc, viewportInner);
         } else {
             UpdateCameraPlotRect(viewportInner);
             DrawRawIronQuadViewportBlock(dc, viewportInner);
+            DrawCreateModeStampCursor(dc);
+            if (ShouldShowStructuralPicker()) {
+                const StructuralPickerLayout pickerLayout = CurrentStructuralPickerLayout(viewportInner);
+                RenderStructuralPickerOverlay(
+                    dc,
+                    pickerLayout,
+                    ri::editor::StructuralPickerModel{
+                        .visible = true,
+                        .section = authoringCatalogSection_,
+                        .selectedPresetIndex = SelectedCatalogPresetIndex(authoringCatalogSection_),
+                        .hoveredPresetIndex = structuralPickerHovered_,
+                        .scrollTopRow = structuralPickerScrollRow_,
+                    },
+                    structuralThumbnailCache_,
+                    ResolveEditorTextureRoot(),
+                    ri::editor::StructuralPickerTheme{
+                        .headerFont = headerFont_,
+                        .bodyFont = bodyFont_,
+                        .smallFont = smallFont_,
+                    },
+                    [this](HDC paintDc, const RECT& rect, const std::string& label, const bool active) {
+                        DrawToolbarButton(paintDc, rect, label, active);
+                    });
+            } else if (ShouldShowAuthoringCatalogChrome()) {
+                RenderStructuralPickerCollapsedBar(
+                    dc,
+                    ComputeStructuralPickerCollapsedBarRect(viewportInner),
+                    ri::editor::StructuralPickerTheme{
+                        .headerFont = headerFont_,
+                        .bodyFont = bodyFont_,
+                        .smallFont = smallFont_,
+                    },
+                    [this](HDC paintDc, const RECT& rect, const std::string& label, const bool active) {
+                        DrawToolbarButton(paintDc, rect, label, active);
+                    });
+            }
         }
 
         const ri::scene::Node& camNode = starterScene_.scene.GetNode(starterScene_.handles.orbitCamera.cameraNode);
@@ -6558,7 +8789,7 @@ enum class UiWorkbenchTextEditTarget {
             ri::editor::EditorViewportStatusModel{
                 .consoleLine = consoleLine,
                 .controlsLine =
-                    "Esc root select · Ctrl+Shift+Q quit · Space orbit demo · Tab quad/perspective · T/R/U transform · WASDQE edit (Shift fine / Alt coarse) · G snap toggle · Ctrl+G snap selection · +/- grid step · Ctrl+R reset · Shift+F frame all · Ctrl+Shift+W to World · Ctrl+Shift+T trigger · ,/. authored cycle · Ctrl+Shift+S snapshot · Ctrl+Shift+L autosave load · Ctrl+Shift+M scaffold · Ctrl+E export · Ctrl+Z/Y · Ctrl+S persist/load · F5 reload · F6 stats",
+                    "S select · C create · click scene to stamp · Sky bar cycles atmosphere · Tab layout · F1 help",
                 .stateLine = "Status: " + lastIoStatus_ + "  |  Scene state: " + ResolveSceneStatePath().string(),
             },
             ri::editor::EditorViewportTheme{
@@ -6612,6 +8843,11 @@ enum class UiWorkbenchTextEditTarget {
     int activeAxis_ = 0;
     /// Preset into `ri::scene::kStructuralPrimitivePresets` (structural / brush spawn).
     std::size_t structuralBrushPresetIndex_ = 0;
+    std::size_t volumeCatalogPresetIndex_ = 0;
+    std::size_t logicCatalogPresetIndex_ = 0;
+    ri::editor::AuthoringCatalogSection authoringCatalogSection_ = ri::editor::AuthoringCatalogSection::Structural;
+    std::uint32_t lightSpawnTypeIndex_ = 0U;
+    ri::editor::EditorLogicLayer logicLayer_{};
     std::size_t selectedNode_ = 0;
     int hierarchyScrollTopRow_ = 0;
     double elapsedSeconds_ = 0.0;
@@ -6627,20 +8863,44 @@ enum class UiWorkbenchTextEditTarget {
     ri::world::RuntimeStatsOverlayState statsOverlayState_{true};
     ri::scene::OrbitCameraState editorOrbitState_{};
     bool autoOrbitPreview_ = false;
+    bool viewportRayTracePreview_ = false;
+    bool viewportPreviewReady_ = false;
+    double lastViewportPreviewMs_ = 0.0;
+    ri::render::software::ScenePreviewCache viewportPreviewCache_{};
+    ri::render::software::SoftwareImage viewportPreviewScratch_{};
     bool full3DViewport_ = false;
-    bool cameraDragActive_ = false;
+    ri::editor::EditorToolMode toolMode_ = ri::editor::EditorToolMode::Select;
+    static constexpr int kViewportWorldBarHeight_ = 28;
+    POINT lastMouseClientPos_{};
+    bool hasLastMouseClientPos_ = false;
+    std::optional<ri::math::Vec3> createModePlacementPoint_{};
+    CameraDragMode cameraDragMode_ = CameraDragMode::None;
     bool draggingHierarchySplitter_ = false;
     bool draggingInspectorSplitter_ = false;
     int lastDragX_ = 0;
     int lastDragY_ = 0;
     RECT cameraPlotRect_{};
-    int hierarchyPanelWidth_ = 304;
-    int inspectorPanelWidth_ = 392;
+    int hierarchyPanelWidth_ = 272;
+    int inspectorPanelWidth_ = 320;
+    bool leftPanelCollapsed_ = false;
+    bool rightPanelCollapsed_ = false;
+    bool authoringCatalogExpanded_ = false;
+    RECT leftPanelCollapseToggleRect_{};
+    RECT rightPanelCollapseToggleRect_{};
+    ri::render::software::GamePreviewScriptTimestamps gamePreviewScriptTimestamps_{};
+    CreatorAtmospherePreset creatorAtmospherePreset_ = CreatorAtmospherePreset::ClearDay;
+    CreatorInsertPreset creatorInsertPreset_ = CreatorInsertPreset::GroundPlate;
+    CreatorCameraPreset creatorCameraPreset_ = CreatorCameraPreset::Hero;
 
     /// Deleted authored nodes move here (meshes stripped); subtree hidden from hierarchy list.
     int editorTrashFolderHandle_ = ri::scene::kInvalidHandle;
 
     LeftPanelMode leftPanelMode_ = LeftPanelMode::Scene;
+    NewGameTemplate newGameTemplate_ = NewGameTemplate::EmptyStudio;
+    int newGameNameVariant_ = 0;
+    int structuralPickerScrollRow_ = 0;
+    std::size_t structuralPickerHovered_ = SIZE_MAX;
+    StructuralThumbnailCache structuralThumbnailCache_{};
     std::vector<WorkspaceGameEntry> workspaceGames_;
     int focusedWorkspaceGameIndex_ = 0;
     std::vector<WorkspaceResourceEntry> resourceCatalogEntries_;
@@ -6648,6 +8908,11 @@ enum class UiWorkbenchTextEditTarget {
     std::vector<int> filteredHierarchyOrder_;
     GameplayPanelLayout gameplayPanelLayout_{};
     UiWorkbenchLayout uiWorkbenchLayout_{};
+    PluginStoreLayout pluginStoreLayout_{};
+    ri::content::PluginProjectData pluginProjectData_{};
+    std::vector<PluginStorePackage> pluginStorePackages_{};
+    int pluginStoreScrollRow_ = 0;
+    std::string pluginStoreStatusLine_;
     std::uint32_t resourceCategoryMask_ = 0xFFu;
     std::string resourceSearchQuery_;
     bool resourceSearchActive_ = false;
@@ -6673,6 +8938,8 @@ enum class UiWorkbenchTextEditTarget {
     std::string resourceEditorAuxMessage_;
     std::vector<std::string> resourceManifestIssues_;
     std::array<RECT, 18> inspectorNudgeButtons_{};
+    std::array<RECT, 6> materialNudgeButtons_{};
+    std::array<RECT, 2> lightNudgeButtons_{};
 #if defined(_WIN32)
     HWND resourceTextEditHwnd_ = nullptr;
 #endif

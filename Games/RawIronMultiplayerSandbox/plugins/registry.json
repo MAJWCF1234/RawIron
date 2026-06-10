@@ -1,1 +1,3 @@
-{"plugins":[{"id":"sandbox-core","enabled":true}]}
+{
+  "plugins": []
+}

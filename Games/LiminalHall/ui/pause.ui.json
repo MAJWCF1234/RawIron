@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "startScreen": "pause",
+  "screens": [
+    {
+      "id": "pause",
+      "title": "Paused",
+      "background": {
+        "tint": [0.02, 0.03, 0.07, 0.94]
+      },
+      "blocks": [
+        { "type": "heading", "text": "Paused", "align": "center" },
+        { "type": "spacer", "height": 24 },
+        { "type": "paragraph", "text": "Take a breath in the hall.", "align": "center" },
+        { "type": "spacer", "height": 32 },
+        { "type": "button", "label": "Resume", "action": { "type": "emit", "id": "game.resume" } },
+        { "type": "button", "label": "Main Menu", "action": { "type": "emit", "id": "game.main_menu" } },
+        { "type": "button", "label": "Quit", "action": { "type": "emit", "id": "app.quit" } }
+      ]
+    }
+  ]
+}

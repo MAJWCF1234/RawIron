@@ -25,13 +25,13 @@ Liminal Hall is the surreal in-repo exploration and runtime showcase project. It
 ## Controls
 
 - `WASD` move
-- `Mouse` look
+- `Mouse` look (click the game window first so it has focus)
 - `Space` jump
 - `Shift` sprint
 - `E` interact
-- `Esc` quit
-- `F1` toggle game-local main menu flow
-- `F2` toggle game-local VN flow
+- `Esc` pause menu during gameplay (Esc again or Resume to continue; Esc on title menu quits)
+- `F1` toggle game-local main menu flow (console/log only in `RawIron.LiminalGame`; does not block movement)
+- `F2` toggle game-local VN flow (blocks movement while active)
 - `Tab` cycle runtime UI options
 - `1-9` choose a runtime UI option directly
 - `Enter` / `Space` activate or advance runtime UI

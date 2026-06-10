@@ -77,7 +77,9 @@ build\dev-msvc\Apps\RawIron.DedicatedServer\RelWithDebInfo\RawIron.DedicatedServ
 
 **Games** (from each game folder under `Games\`, after build — see **`Play Liminal Hall.cmd`**, **`Play Wilderness Ruins.cmd`**, and **`Play RawIron Multiplayer Sandbox.cmd`**).
 
-**If MSVC fails on a removable / odd filesystem:** use `cmake --preset dev-msvc-localappdata` and `cmake --build --preset build-dev-msvc-localappdata`, then optionally `.\Scripts\Sync-ProfileBuildToRepo.ps1` to mirror binaries under `.\build\dev-msvc`.
+**One build tree on Windows:** use `build\dev-msvc` only. Launchers resolve binaries there via `Scripts\Resolve-RawIronBinary.cmd`. To drop legacy flat `build\` ninja output or old `build\dev-clang` / `build\dev-mingw` trees while keeping MSVC output: `.\Scripts\Clean-StaleBuildRoots.ps1`.
+
+**If MSVC fails on a removable / odd filesystem:** use `cmake --preset dev-msvc-localappdata` and `cmake --build --preset build-dev-msvc-localappdata`, then `.\Scripts\Sync-ProfileBuildToRepo.ps1` to mirror binaries under `.\build\dev-msvc`.
 
 ## Engine shape
 

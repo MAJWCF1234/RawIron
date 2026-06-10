@@ -1,5 +1,8 @@
 #include "EditorInput.h"
 
+#include "EditorCreatorPalette.h"
+#include "EditorFilesInspector.h"
+#include "EditorLeftPanel.h"
 #include "EditorViewportRenderer.h"
 
 #include <array>
@@ -14,6 +17,7 @@ EditorTopChromeHit HitTestEditorTopChrome(const RECT& clientRect, const POINT& p
     };
     const RECT topBar{0, 0, clientRect.right, 56};
     const TopChromeRects topChrome = ComputeTopChromeRects(topBar);
+    if (hitRect(topChrome.newGame)) return EditorTopChromeHit::NewGame;
     if (hitRect(topChrome.save)) return EditorTopChromeHit::Save;
     if (hitRect(topChrome.scaffold)) return EditorTopChromeHit::Scaffold;
     if (hitRect(topChrome.exportScene)) return EditorTopChromeHit::ExportScene;
@@ -27,17 +31,23 @@ EditorToolbarHit HitTestEditorToolbar(const RECT& toolStrip, const POINT& point)
         return PtInRect(&rect, point) != FALSE;
     };
 
-    const RECT translateButton{toolStrip.left + 194, toolStrip.top + 8, toolStrip.left + 268, toolStrip.bottom - 8};
-    const RECT rotateButton{toolStrip.left + 274, toolStrip.top + 8, toolStrip.left + 342, toolStrip.bottom - 8};
-    const RECT scaleButton{toolStrip.left + 348, toolStrip.top + 8, toolStrip.left + 416, toolStrip.bottom - 8};
-    const RECT axisXButton{toolStrip.left + 422, toolStrip.top + 8, toolStrip.left + 468, toolStrip.bottom - 8};
-    const RECT axisYButton{toolStrip.left + 474, toolStrip.top + 8, toolStrip.left + 520, toolStrip.bottom - 8};
-    const RECT axisZButton{toolStrip.left + 526, toolStrip.top + 8, toolStrip.left + 572, toolStrip.bottom - 8};
-    const RECT snapToggleButton{toolStrip.left + 578, toolStrip.top + 8, toolStrip.left + 656, toolStrip.bottom - 8};
-    const RECT snapStepDownButton{toolStrip.left + 662, toolStrip.top + 8, toolStrip.left + 694, toolStrip.bottom - 8};
-    const RECT snapStepUpButton{toolStrip.left + 698, toolStrip.top + 8, toolStrip.left + 730, toolStrip.bottom - 8};
+    const RECT selectButton{toolStrip.left + 78, toolStrip.top + 8, toolStrip.left + 130, toolStrip.bottom - 8};
+    const RECT createButton{toolStrip.left + 134, toolStrip.top + 8, toolStrip.left + 188, toolStrip.bottom - 8};
+    const RECT cameraButton{toolStrip.left + 194, toolStrip.top + 8, toolStrip.left + 248, toolStrip.bottom - 8};
+    const RECT translateButton{toolStrip.left + 254, toolStrip.top + 8, toolStrip.left + 328, toolStrip.bottom - 8};
+    const RECT rotateButton{toolStrip.left + 334, toolStrip.top + 8, toolStrip.left + 402, toolStrip.bottom - 8};
+    const RECT scaleButton{toolStrip.left + 408, toolStrip.top + 8, toolStrip.left + 476, toolStrip.bottom - 8};
+    const RECT axisXButton{toolStrip.left + 482, toolStrip.top + 8, toolStrip.left + 528, toolStrip.bottom - 8};
+    const RECT axisYButton{toolStrip.left + 534, toolStrip.top + 8, toolStrip.left + 580, toolStrip.bottom - 8};
+    const RECT axisZButton{toolStrip.left + 586, toolStrip.top + 8, toolStrip.left + 632, toolStrip.bottom - 8};
+    const RECT snapToggleButton{toolStrip.left + 638, toolStrip.top + 8, toolStrip.left + 716, toolStrip.bottom - 8};
+    const RECT snapStepDownButton{toolStrip.left + 722, toolStrip.top + 8, toolStrip.left + 754, toolStrip.bottom - 8};
+    const RECT snapStepUpButton{toolStrip.left + 758, toolStrip.top + 8, toolStrip.left + 790, toolStrip.bottom - 8};
     const AuthoringToolbarRects authoringTools = ComputeAuthoringToolbarRects(toolStrip);
 
+    if (hitRect(selectButton)) return EditorToolbarHit::Select;
+    if (hitRect(createButton)) return EditorToolbarHit::Create;
+    if (hitRect(cameraButton)) return EditorToolbarHit::Camera;
     if (hitRect(translateButton)) return EditorToolbarHit::Translate;
     if (hitRect(rotateButton)) return EditorToolbarHit::Rotate;
     if (hitRect(scaleButton)) return EditorToolbarHit::Scale;
@@ -50,6 +60,7 @@ EditorToolbarHit HitTestEditorToolbar(const RECT& toolStrip, const POINT& point)
     if (hitRect(authoringTools.addCube)) return EditorToolbarHit::AddCube;
     if (hitRect(authoringTools.addPlane)) return EditorToolbarHit::AddPlane;
     if (hitRect(authoringTools.addTrigger)) return EditorToolbarHit::AddTrigger;
+    if (hitRect(authoringTools.addLight)) return EditorToolbarHit::AddLight;
     if (hitRect(authoringTools.duplicate)) return EditorToolbarHit::Duplicate;
     if (hitRect(authoringTools.exportCsv)) return EditorToolbarHit::ExportCsv;
     if (hitRect(authoringTools.play)) return EditorToolbarHit::Play;
@@ -69,6 +80,9 @@ EditorLeftPanelHit HitTestEditorLeftPanel(const RECT& hierarchyInner,
     if (hitRect(SceneTabRect(hierarchyInner))) {
         return {.type = EditorLeftPanelHitType::SceneTab};
     }
+    if (hitRect(CreateTabRect(hierarchyInner))) {
+        return {.type = EditorLeftPanelHitType::CreateTab};
+    }
     if (hitRect(ResourcesTabRect(hierarchyInner))) {
         return {.type = EditorLeftPanelHitType::ResourcesTab};
     }
@@ -80,6 +94,10 @@ EditorLeftPanelHit HitTestEditorLeftPanel(const RECT& hierarchyInner,
         if (hitRect(FocusedGameNextRect(hierarchyInner))) {
             return {.type = EditorLeftPanelHitType::FocusedGameNext};
         }
+    }
+
+    if (mode == EditorLeftPanelMode::Create) {
+        return {};
     }
 
     if (mode == EditorLeftPanelMode::Scene) {
@@ -100,8 +118,9 @@ EditorLeftPanelHit HitTestEditorLeftPanel(const RECT& hierarchyInner,
             WorkspaceResourceCategory::Asset,
             WorkspaceResourceCategory::Other,
         };
+        const ResourceCategoryChipLayout chipLayout = ComputeResourceCategoryChipLayout(hierarchyInner);
         for (int index = 0; index < static_cast<int>(kCategories.size()); ++index) {
-            if (hitRect(ResourceCategoryChipRect(hierarchyInner, index))) {
+            if (hitRect(ResourceCategoryChipRect(hierarchyInner, index, chipLayout))) {
                 return {.type = EditorLeftPanelHitType::ResourceCategoryChip, .index = index};
             }
         }
@@ -136,16 +155,13 @@ EditorInspectorTabHit HitTestEditorInspectorTabs(const RECT& inspectorInner, con
     const auto hitRect = [&point](const RECT& rect) {
         return PtInRect(&rect, point) != FALSE;
     };
-    const RECT nodeTab{inspectorInner.left + 12, inspectorInner.top + 10, inspectorInner.left + 78, inspectorInner.top + 34};
-    const RECT brushTab{inspectorInner.left + 84, inspectorInner.top + 10, inspectorInner.left + 154, inspectorInner.top + 34};
-    const RECT gameplayTab{inspectorInner.left + 160, inspectorInner.top + 10, inspectorInner.left + 244, inspectorInner.top + 34};
-    const RECT filesTab{inspectorInner.left + 250, inspectorInner.top + 10, inspectorInner.left + 320, inspectorInner.top + 34};
-    const RECT uiWorkbenchTab{inspectorInner.left + 326, inspectorInner.top + 10, inspectorInner.left + 404, inspectorInner.top + 34};
-    if (hitRect(nodeTab)) return EditorInspectorTabHit::Node;
-    if (hitRect(brushTab)) return EditorInspectorTabHit::Brush;
-    if (hitRect(gameplayTab)) return EditorInspectorTabHit::Gameplay;
-    if (hitRect(filesTab)) return EditorInspectorTabHit::Files;
-    if (hitRect(uiWorkbenchTab)) return EditorInspectorTabHit::UiWorkbench;
+    const InspectorTabLayout tabs = ComputeInspectorTabLayout(inspectorInner);
+    if (hitRect(tabs.nodeTab)) return EditorInspectorTabHit::Node;
+    if (hitRect(tabs.brushTab)) return EditorInspectorTabHit::Brush;
+    if (hitRect(tabs.gameplayTab)) return EditorInspectorTabHit::Gameplay;
+    if (hitRect(tabs.filesTab)) return EditorInspectorTabHit::Files;
+    if (hitRect(tabs.storeTab)) return EditorInspectorTabHit::Store;
+    if (hitRect(tabs.uiWorkbenchTab)) return EditorInspectorTabHit::UiWorkbench;
     return EditorInspectorTabHit::None;
 }
 
@@ -153,10 +169,9 @@ EditorInspectorPanelHit HitTestBrushInspectorPanel(const RECT& inspectorInner, c
     const auto hitRect = [&point](const RECT& rect) {
         return PtInRect(&rect, point) != FALSE;
     };
-    const RECT brushPresetPrev{inspectorInner.left + 10, inspectorInner.top + 42, inspectorInner.left + 52, inspectorInner.top + 66};
-    const RECT brushPresetNext{inspectorInner.left + 56, inspectorInner.top + 42, inspectorInner.left + 98, inspectorInner.top + 66};
-    if (hitRect(brushPresetPrev)) return {.type = EditorInspectorPanelHitType::BrushPresetPrev};
-    if (hitRect(brushPresetNext)) return {.type = EditorInspectorPanelHitType::BrushPresetNext};
+    const BrushPanelLayout brushLayout = ComputeBrushPanelLayout(inspectorInner);
+    if (hitRect(brushLayout.presetPrevBtn)) return {.type = EditorInspectorPanelHitType::BrushPresetPrev};
+    if (hitRect(brushLayout.presetNextBtn)) return {.type = EditorInspectorPanelHitType::BrushPresetNext};
     return {};
 }
 
@@ -166,17 +181,9 @@ EditorInspectorPanelHit HitTestFilesInspectorPanel(const RECT& inspectorInner,
     const auto hitRect = [&point](const RECT& rect) {
         return PtInRect(&rect, point) != FALSE;
     };
-    const RECT saveResourceBtn{
-        inspectorInner.left + 10,
-        inspectorInner.top + 66,
-        inspectorInner.left + 108,
-        inspectorInner.top + 92};
-    const RECT explorerBtn{inspectorInner.left + 114,
-                           inspectorInner.top + 66,
-                           inspectorInner.right - 10,
-                           inspectorInner.top + 92};
-    if (hitRect(saveResourceBtn)) return {.type = EditorInspectorPanelHitType::SaveResource};
-    if (hitRect(explorerBtn)) return {.type = EditorInspectorPanelHitType::Explorer};
+    const FilesInspectorLayout filesLayout = ComputeFilesInspectorLayout(inspectorInner);
+    if (hitRect(filesLayout.saveBtn)) return {.type = EditorInspectorPanelHitType::SaveResource};
+    if (hitRect(filesLayout.explorerBtn)) return {.type = EditorInspectorPanelHitType::Explorer};
     if (hitRect(shortcuts.manifest)) return {.type = EditorInspectorPanelHitType::ShortcutManifest};
     if (hitRect(shortcuts.level)) return {.type = EditorInspectorPanelHitType::ShortcutLevel};
     if (hitRect(shortcuts.gameplay)) return {.type = EditorInspectorPanelHitType::ShortcutGameplay};
@@ -202,6 +209,39 @@ EditorInspectorPanelHit HitTestGameplayInspectorPanel(const GameplayPanelLayout&
     return {};
 }
 
+EditorInspectorPanelHit HitTestPluginStorePanel(const PluginStoreLayout& layout, const POINT& point) {
+    const auto hitRect = [&point](const RECT& rect) {
+        return PtInRect(&rect, point) != FALSE;
+    };
+    if (hitRect(layout.refreshBtn)) {
+        return {.type = EditorInspectorPanelHitType::PluginStoreRefresh};
+    }
+    if (hitRect(layout.openFolderBtn)) {
+        return {.type = EditorInspectorPanelHitType::PluginStoreOpenFolder};
+    }
+    if (hitRect(layout.scrollPrevBtn)) {
+        return {.type = EditorInspectorPanelHitType::PluginStoreScrollPrev};
+    }
+    if (hitRect(layout.scrollNextBtn)) {
+        return {.type = EditorInspectorPanelHitType::PluginStoreScrollNext};
+    }
+    for (std::size_t index = 0; index < layout.actionBtns.size(); ++index) {
+        if (hitRect(layout.actionBtns[index])) {
+            const int packageIndex =
+                index < layout.cardPackageIndices.size() ? layout.cardPackageIndices[index] : static_cast<int>(index);
+            return {.type = EditorInspectorPanelHitType::PluginStoreAction, .index = packageIndex};
+        }
+    }
+    for (std::size_t index = 0; index < layout.secondaryActionBtns.size(); ++index) {
+        if (hitRect(layout.secondaryActionBtns[index])) {
+            const int packageIndex =
+                index < layout.cardPackageIndices.size() ? layout.cardPackageIndices[index] : static_cast<int>(index);
+            return {.type = EditorInspectorPanelHitType::PluginStoreUninstall, .index = packageIndex};
+        }
+    }
+    return {};
+}
+
 EditorInspectorPanelHit HitTestUiWorkbenchInspectorPanel(const UiWorkbenchLayout& layout, const POINT& point) {
     const auto hitRect = [&point](const RECT& rect) {
         return PtInRect(&rect, point) != FALSE;
@@ -212,7 +252,12 @@ EditorInspectorPanelHit HitTestUiWorkbenchInspectorPanel(const UiWorkbenchLayout
     if (hitRect(layout.useMenuSampleBtn)) return {.type = EditorInspectorPanelHitType::UiWorkbenchUseMenuSample};
     if (hitRect(layout.useVnSampleBtn)) return {.type = EditorInspectorPanelHitType::UiWorkbenchUseVnSample};
     if (hitRect(layout.newScreenBtn)) return {.type = EditorInspectorPanelHitType::UiWorkbenchNewScreen};
+    if (hitRect(layout.newMenuScreenBtn)) return {.type = EditorInspectorPanelHitType::UiWorkbenchNewMenuScreen};
     if (hitRect(layout.duplicateScreenBtn)) return {.type = EditorInspectorPanelHitType::UiWorkbenchDuplicateScreen};
+    if (hitRect(layout.addButtonBlockBtn)) return {.type = EditorInspectorPanelHitType::UiWorkbenchAddButtonBlock};
+    if (hitRect(layout.addHeadingBlockBtn)) return {.type = EditorInspectorPanelHitType::UiWorkbenchAddHeadingBlock};
+    if (hitRect(layout.addParagraphBlockBtn)) return {.type = EditorInspectorPanelHitType::UiWorkbenchAddParagraphBlock};
+    if (hitRect(layout.addSpacerBlockBtn)) return {.type = EditorInspectorPanelHitType::UiWorkbenchAddSpacerBlock};
     if (hitRect(layout.addChoiceBlockBtn)) return {.type = EditorInspectorPanelHitType::UiWorkbenchAddChoiceBlock};
     if (hitRect(layout.setStartScreenBtn)) return {.type = EditorInspectorPanelHitType::UiWorkbenchSetStartScreen};
     if (hitRect(layout.addDialogueBlockBtn)) return {.type = EditorInspectorPanelHitType::UiWorkbenchAddDialogueBlock};
@@ -227,6 +272,9 @@ bool DispatchEditorTopChromeClick(const RECT& clientRect,
                                   const POINT& point,
                                   const EditorTopChromeDispatchCallbacks& callbacks) {
     switch (HitTestEditorTopChrome(clientRect, point)) {
+        case EditorTopChromeHit::NewGame:
+            if (callbacks.onNewGame) callbacks.onNewGame();
+            return true;
         case EditorTopChromeHit::Save:
             if (callbacks.onSave) callbacks.onSave();
             return true;
@@ -252,6 +300,15 @@ bool DispatchEditorToolbarClick(const RECT& toolStrip,
                                 const POINT& point,
                                 const EditorToolbarDispatchCallbacks& callbacks) {
     switch (HitTestEditorToolbar(toolStrip, point)) {
+        case EditorToolbarHit::Select:
+            if (callbacks.onSelectMode) callbacks.onSelectMode();
+            return true;
+        case EditorToolbarHit::Create:
+            if (callbacks.onCreateMode) callbacks.onCreateMode();
+            return true;
+        case EditorToolbarHit::Camera:
+            if (callbacks.onCameraMode) callbacks.onCameraMode();
+            return true;
         case EditorToolbarHit::Translate:
             if (callbacks.onTranslate) callbacks.onTranslate();
             return true;
@@ -288,6 +345,9 @@ bool DispatchEditorToolbarClick(const RECT& toolStrip,
         case EditorToolbarHit::AddTrigger:
             if (callbacks.onAddTrigger) callbacks.onAddTrigger();
             return true;
+        case EditorToolbarHit::AddLight:
+            if (callbacks.onAddLight) callbacks.onAddLight();
+            return true;
         case EditorToolbarHit::Duplicate:
             if (callbacks.onDuplicate) callbacks.onDuplicate();
             return true;
@@ -315,6 +375,9 @@ bool DispatchEditorLeftPanelClick(const EditorLeftPanelDispatchContext& context)
     switch (leftHit.type) {
         case EditorLeftPanelHitType::SceneTab:
             if (context.onSceneTab) context.onSceneTab();
+            return true;
+        case EditorLeftPanelHitType::CreateTab:
+            if (context.onCreateTab) context.onCreateTab();
             return true;
         case EditorLeftPanelHitType::ResourcesTab:
             if (context.onResourcesTab) context.onResourcesTab();
@@ -424,6 +487,9 @@ bool DispatchEditorInspectorTabClick(const RECT& inspectorInner,
         case EditorInspectorTabHit::Files:
             if (callbacks.onFiles) callbacks.onFiles();
             return true;
+        case EditorInspectorTabHit::Store:
+            if (callbacks.onStore) callbacks.onStore();
+            return true;
         case EditorInspectorTabHit::UiWorkbench:
             if (callbacks.onUiWorkbench) callbacks.onUiWorkbench();
             return true;
@@ -524,6 +590,37 @@ bool DispatchEditorInspectorPanelClick(const POINT& point,
         }
     }
 
+    if (context.pluginStoreActive) {
+        const EditorInspectorPanelHit storeHit = HitTestPluginStorePanel(context.pluginStoreLayout, point);
+        switch (storeHit.type) {
+            case EditorInspectorPanelHitType::PluginStoreRefresh:
+                if (context.onRefreshPluginStore) context.onRefreshPluginStore();
+                return true;
+            case EditorInspectorPanelHitType::PluginStoreOpenFolder:
+                if (context.onOpenPluginStoreFolder) context.onOpenPluginStoreFolder();
+                return true;
+            case EditorInspectorPanelHitType::PluginStoreScrollPrev:
+                if (context.onPluginStoreScrollPrev) context.onPluginStoreScrollPrev();
+                return true;
+            case EditorInspectorPanelHitType::PluginStoreScrollNext:
+                if (context.onPluginStoreScrollNext) context.onPluginStoreScrollNext();
+                return true;
+            case EditorInspectorPanelHitType::PluginStoreAction:
+                if (context.onPluginStoreAction && storeHit.index >= 0) {
+                    context.onPluginStoreAction(storeHit.index);
+                }
+                return true;
+            case EditorInspectorPanelHitType::PluginStoreUninstall:
+                if (context.onPluginStoreUninstall && storeHit.index >= 0) {
+                    context.onPluginStoreUninstall(storeHit.index);
+                }
+                return true;
+            case EditorInspectorPanelHitType::None:
+            default:
+                break;
+        }
+    }
+
     if (context.uiWorkbenchActive) {
         switch (HitTestUiWorkbenchInspectorPanel(context.uiWorkbenchLayout, point).type) {
             case EditorInspectorPanelHitType::UiWorkbenchPrevScreen:
@@ -544,8 +641,23 @@ bool DispatchEditorInspectorPanelClick(const POINT& point,
             case EditorInspectorPanelHitType::UiWorkbenchNewScreen:
                 if (context.onUiWorkbenchNewScreen) context.onUiWorkbenchNewScreen();
                 return true;
+            case EditorInspectorPanelHitType::UiWorkbenchNewMenuScreen:
+                if (context.onUiWorkbenchNewMenuScreen) context.onUiWorkbenchNewMenuScreen();
+                return true;
             case EditorInspectorPanelHitType::UiWorkbenchDuplicateScreen:
                 if (context.onUiWorkbenchDuplicateScreen) context.onUiWorkbenchDuplicateScreen();
+                return true;
+            case EditorInspectorPanelHitType::UiWorkbenchAddButtonBlock:
+                if (context.onUiWorkbenchAddButtonBlock) context.onUiWorkbenchAddButtonBlock();
+                return true;
+            case EditorInspectorPanelHitType::UiWorkbenchAddHeadingBlock:
+                if (context.onUiWorkbenchAddHeadingBlock) context.onUiWorkbenchAddHeadingBlock();
+                return true;
+            case EditorInspectorPanelHitType::UiWorkbenchAddParagraphBlock:
+                if (context.onUiWorkbenchAddParagraphBlock) context.onUiWorkbenchAddParagraphBlock();
+                return true;
+            case EditorInspectorPanelHitType::UiWorkbenchAddSpacerBlock:
+                if (context.onUiWorkbenchAddSpacerBlock) context.onUiWorkbenchAddSpacerBlock();
                 return true;
             case EditorInspectorPanelHitType::UiWorkbenchAddChoiceBlock:
                 if (context.onUiWorkbenchAddChoiceBlock) context.onUiWorkbenchAddChoiceBlock();
@@ -626,6 +738,10 @@ bool DispatchEditorCommandHotkey(const EditorCommandHotkeyContext& context) {
         if (context.onAddTrigger) context.onAddTrigger();
         return true;
     }
+    if (controlHeld && shiftHeld && key == 'O') {
+        if (context.onAddLight) context.onAddLight();
+        return true;
+    }
     if (controlHeld && shiftHeld && key == 'B') {
         if (context.onSpawnStructuralBrush) context.onSpawnStructuralBrush();
         return true;
@@ -692,6 +808,10 @@ bool DispatchEditorCommandHotkey(const EditorCommandHotkeyContext& context) {
         if (context.onFrameAllRenderables) context.onFrameAllRenderables();
         return true;
     }
+    if (key == VK_HOME) {
+        if (context.onFrameAllRenderables) context.onFrameAllRenderables();
+        return true;
+    }
     if (key == 'F') {
         if (context.onFrameSelection) context.onFrameSelection();
         return true;
@@ -737,6 +857,10 @@ bool DispatchEditorCommandHotkey(const EditorCommandHotkeyContext& context) {
         return true;
     }
     if (key == '5') {
+        if (context.onSelectInspectorStore) context.onSelectInspectorStore();
+        return true;
+    }
+    if (key == '6') {
         if (context.onSelectInspectorUiWorkbench) context.onSelectInspectorUiWorkbench();
         return true;
     }

@@ -1,0 +1,13 @@
+# RawIron UI script
+# Scalar-only runtime flags for HUD and diagnostics.
+# Primary flow authoring lives in `ui/main.ui.json` and `ui/vn_intro.ui.json`.
+# `ui/layout.xml` and `ui/styling.css` remain optional support assets for HUD/chrome.
+# runtime_ui_boot_flow: 0=gameplay, 1=menu, 2=vn.
+# runtime_ui_hotkeys_enabled: allow F1/F2 manifest switching in standalone runtime.
+show_runtime_diagnostics=0
+show_objective_panel=1
+crosshair_mode=1
+crosshair_scale=1.0
+hud_style_variant=1
+runtime_ui_boot_flow=1
+runtime_ui_hotkeys_enabled=1

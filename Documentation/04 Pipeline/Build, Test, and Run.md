@@ -9,11 +9,13 @@ cmake --preset dev-msvc
 cmake --build build/dev-msvc --config RelWithDebInfo --target RawIron.Player RawIron.Preview RawIron.Editor RawIron.VisualShell RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame RawIron.MultiplayerSandboxGame RawIron.BotClient RawIron.DedicatedServer
 ```
 
-A LocalAppData-based preset also exists for environments where the repo path is not a good build location.
+A LocalAppData-based preset (`dev-msvc-localappdata`) exists for environments where the repo path is not a good build location. After building there, run `Scripts/Sync-ProfileBuildToRepo.ps1` to mirror binaries into `build/dev-msvc`.
+
+**Canonical layout:** all Windows launchers resolve binaries under `build/dev-msvc/<Apps|Games|Tools>/.../RelWithDebInfo/`. Legacy flat `build/` ninja trees and extra preset subdirs (`build/dev-clang`, `build/dev-mingw`) are stale — remove them with `Scripts/Clean-StaleBuildRoots.ps1` (keeps `build/dev-msvc`).
 
 ## Launch surfaces
 
-- root launchers such as `Launch RawIron Editor.cmd`, `Launch RawIron Visual Shell.cmd`, and project play scripts
+- root launchers such as `Launch RawIron Editor.cmd`, `Launch RawIron Visual Shell.cmd`, and project play scripts (they call `Scripts/Resolve-RawIronBinary.cmd`)
 - game-local launchers in each `Games/<Project>` folder
 - direct executable invocation from `build/dev-msvc/...`
 

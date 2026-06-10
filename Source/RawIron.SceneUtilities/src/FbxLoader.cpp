@@ -137,7 +137,9 @@ std::string ResolveFbxTextureByRole(const std::vector<std::filesystem::path>& te
     if (bestPath == nullptr) {
         return {};
     }
-    return bestPath->generic_string();
+    std::error_code ec{};
+    const std::filesystem::path absolute = std::filesystem::absolute(*bestPath, ec);
+    return absolute.lexically_normal().generic_string();
 }
 
 int ScoreTextureCandidate(const std::filesystem::path& candidate,
@@ -192,7 +194,9 @@ std::string ResolveFbxBaseColorTexture(const ufbx_material* material,
     if (bestPath == nullptr || bestScore <= 0) {
         return {};
     }
-    return bestPath->generic_string();
+    std::error_code ec{};
+    const std::filesystem::path absolute = std::filesystem::absolute(*bestPath, ec);
+    return absolute.lexically_normal().generic_string();
 }
 
 bool IsFoliageLikeName(std::string_view lower) {

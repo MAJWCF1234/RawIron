@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EditorUiTheme.h"
+
 #include <cstddef>
 #include <functional>
 #include <string>
@@ -21,12 +23,14 @@ struct AuthoringToolbarRects {
     RECT addCube{};
     RECT addPlane{};
     RECT addTrigger{};
+    RECT addLight{};
     RECT duplicate{};
     RECT exportCsv{};
     RECT play{};
 };
 
 struct TopChromeRects {
+    RECT newGame{};
     RECT save{};
     RECT scaffold{};
     RECT exportScene{};
@@ -50,6 +54,8 @@ struct EditorViewportChromeModel {
 };
 
 struct EditorViewportToolStripModel {
+    EditorToolMode toolMode = EditorToolMode::Select;
+    std::string armedPresetLabel;
     std::string editModeLabel;
     std::string axisLabel;
     bool gridSnapEnabled = false;
@@ -68,9 +74,24 @@ struct EditorViewportStatusModel {
 
 struct EditorViewportBlockModel {
     bool full3DViewport = false;
+    bool createMenuActive = false;
+    bool showWorldBar = false;
+    std::string atmosphereLabel;
+    std::string createHintLine;
+    int bottomChromeInset = 0;
+    int worldBarHeight = 0;
     RECT cameraPlotRect{};
     std::string cameraSummaryLine;
 };
+
+struct EditorViewportWorldBarHit {
+    bool hitAtmosphereCycle = false;
+};
+
+[[nodiscard]] EditorViewportWorldBarHit HitTestViewportWorldBar(const RECT& viewportInner,
+                                                                  const POINT& point,
+                                                                  bool showWorldBar,
+                                                                  int worldBarHeight);
 
 struct EditorViewportBlockCallbacks {
     std::function<void(const RECT&)> drawViewportPreview;
@@ -82,6 +103,8 @@ struct EditorViewportBlockCallbacks {
 
 [[nodiscard]] AuthoringToolbarRects ComputeAuthoringToolbarRects(const RECT& toolStrip);
 [[nodiscard]] TopChromeRects ComputeTopChromeRects(const RECT& topBar);
+[[nodiscard]] bool HitTestViewportCreateMenu(const RECT& viewportInner, const POINT& point);
+[[nodiscard]] bool HitTestViewportHelpMenu(const RECT& viewportInner, const POINT& point);
 
 void RenderEditorTopChrome(HDC dc,
                            const RECT& client,

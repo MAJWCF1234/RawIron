@@ -1,6 +1,9 @@
 #include "EditorViewportRenderer.h"
 
 #include "EditorRenderer.h"
+#include "EditorUiTheme.h"
+
+#include <algorithm>
 
 namespace ri::editor {
 
@@ -18,16 +21,18 @@ void StrokeLine(HDC dc, LONG x1, LONG y1, LONG x2, LONG y2, COLORREF color, int 
 } // namespace
 
 AuthoringToolbarRects ComputeAuthoringToolbarRects(const RECT& toolStrip) {
+    constexpr LONG kAuthoringBlockWidth = 656;
     const LONG rowTop = toolStrip.top + 8;
     const LONG rowBot = toolStrip.bottom - 8;
-    const LONG x0 = toolStrip.left + 720;
+    const LONG x0 = std::max(toolStrip.left + 806L, toolStrip.right - 12 - kAuthoringBlockWidth);
     AuthoringToolbarRects rects{};
-    rects.addCube = {x0, rowTop, x0 + 88, rowBot};
-    rects.addPlane = {x0 + 94, rowTop, x0 + 188, rowBot};
-    rects.addTrigger = {x0 + 194, rowTop, x0 + 300, rowBot};
-    rects.duplicate = {x0 + 306, rowTop, x0 + 388, rowBot};
-    rects.exportCsv = {x0 + 394, rowTop, x0 + 484, rowBot};
-    rects.play = {x0 + 490, rowTop, x0 + 568, rowBot};
+    rects.addCube = {x0, rowTop, x0 + 80, rowBot};
+    rects.addPlane = {x0 + 86, rowTop, x0 + 166, rowBot};
+    rects.addTrigger = {x0 + 172, rowTop, x0 + 268, rowBot};
+    rects.addLight = {x0 + 274, rowTop, x0 + 350, rowBot};
+    rects.duplicate = {x0 + 356, rowTop, x0 + 432, rowBot};
+    rects.exportCsv = {x0 + 438, rowTop, x0 + 518, rowBot};
+    rects.play = {x0 + 524, rowTop, x0 + 656, rowBot};
     return rects;
 }
 
@@ -41,7 +46,60 @@ TopChromeRects ComputeTopChromeRects(const RECT& topBar) {
     rects.exportScene = {right - 300, rowTop, right - 200, rowBot};
     rects.scaffold = {right - 406, rowTop, right - 306, rowBot};
     rects.save = {right - 512, rowTop, right - 412, rowBot};
+    rects.newGame = {right - 624, rowTop, right - 518, rowBot};
     return rects;
+}
+
+bool HitTestViewportCreateMenu(const RECT& viewportInner, const POINT& point) {
+    constexpr int kBannerHeight = 24;
+    const RECT menuBanner{viewportInner.left + 4,
+                          viewportInner.top + 6,
+                          viewportInner.right - 4,
+                          viewportInner.top + 6 + kBannerHeight};
+    if (PtInRect(&menuBanner, point) == FALSE) {
+        return false;
+    }
+    const LONG createLeft = menuBanner.left + 188;
+    const LONG createRight = menuBanner.left + 252;
+    return point.x >= createLeft && point.x <= createRight;
+}
+
+bool HitTestViewportHelpMenu(const RECT& viewportInner, const POINT& point) {
+    constexpr int kBannerHeight = 24;
+    const RECT menuBanner{viewportInner.left + 4,
+                          viewportInner.top + 6,
+                          viewportInner.right - 4,
+                          viewportInner.top + 6 + kBannerHeight};
+    if (PtInRect(&menuBanner, point) == FALSE) {
+        return false;
+    }
+    const LONG helpLeft = menuBanner.right - 56;
+    const LONG helpRight = menuBanner.right - 8;
+    return point.x >= helpLeft && point.x <= helpRight;
+}
+
+EditorViewportWorldBarHit HitTestViewportWorldBar(const RECT& viewportInner,
+                                                  const POINT& point,
+                                                  const bool showWorldBar,
+                                                  const int worldBarHeight) {
+    EditorViewportWorldBarHit hit{};
+    if (!showWorldBar || worldBarHeight <= 0) {
+        return hit;
+    }
+    constexpr int kBannerHeight = 24;
+    const RECT menuBanner{viewportInner.left + 4,
+                          viewportInner.top + 6,
+                          viewportInner.right - 4,
+                          viewportInner.top + 6 + kBannerHeight};
+    const RECT worldBar{viewportInner.left + 4,
+                        menuBanner.bottom + 4,
+                        viewportInner.right - 4,
+                        menuBanner.bottom + 4 + worldBarHeight};
+    const RECT skyBtn{worldBar.left + 8, worldBar.top + 4, worldBar.left + 232, worldBar.bottom - 4};
+    if (PtInRect(&skyBtn, point) != FALSE) {
+        hit.hitAtmosphereCycle = true;
+    }
+    return hit;
 }
 
 #if defined(_WIN32)
@@ -50,104 +108,145 @@ void RenderEditorTopChrome(HDC dc,
                            const RECT& topBar,
                            const EditorViewportChromeModel& model,
                            const EditorViewportTheme& theme) {
-    EditorRenderer::DrawPanelFrame(dc, topBar, RGB(92, 97, 104), RGB(192, 198, 206), RGB(30, 34, 40));
-    EditorRenderer::FillRectColor(dc, RECT{0, 0, client.right, 8}, RGB(214, 150, 56));
+    EditorRenderer::DrawPanelFrame(dc,
+                                   topBar,
+                                   EditorUiTheme::kPanelRaisedFill,
+                                   EditorUiTheme::kPanelRaisedHi,
+                                   EditorUiTheme::kPanelRaisedShadow);
+    EditorRenderer::FillRectColor(dc, RECT{0, 0, client.right, 6}, EditorUiTheme::kTopStripe);
     const RECT projectBand{16, 8, client.right - 16, 50};
-    EditorRenderer::DrawInsetFrame(
-        dc, projectBand, RGB(112, 118, 126), RGB(212, 216, 222), RGB(36, 42, 48));
-    EditorRenderer::FillRectColor(dc,
-                                  RECT{projectBand.left + 1, projectBand.top + 1, projectBand.right - 1, projectBand.top + 5},
-                                  RGB(226, 162, 68));
+    EditorRenderer::DrawInsetFrame(dc,
+                                   projectBand,
+                                   EditorUiTheme::kProjectBandFill,
+                                   EditorUiTheme::kProjectBandHi,
+                                   EditorUiTheme::kProjectBandShadow);
+    EditorRenderer::FillRectColor(
+        dc, RECT{projectBand.left + 1, projectBand.top + 1, projectBand.right - 1, projectBand.top + 4},
+        EditorUiTheme::kProjectBandAccent);
     EditorRenderer::DrawTextLine(dc,
                                  RECT{28, 10, 360, 30},
                                  model.title,
-                                 RGB(248, 248, 244),
+                                 EditorUiTheme::kTextOnPanel,
                                  theme.titleFont,
                                  DT_LEFT | DT_SINGLELINE | DT_VCENTER);
     EditorRenderer::DrawTextLine(dc,
                                  RECT{28, 28, 620, 46},
                                  model.subtitle,
-                                 RGB(222, 226, 230),
+                                 EditorUiTheme::kTextOnPanelMuted,
                                  theme.smallFont,
                                  DT_LEFT | DT_SINGLELINE | DT_VCENTER);
     EditorRenderer::DrawTextLine(dc,
                                  RECT{360, 10, 880, 30},
                                  model.focusedWorkspaceGameLabel,
-                                 RGB(255, 221, 154),
+                                 EditorUiTheme::kTextGold,
                                  theme.bodyFont,
                                  DT_LEFT | DT_SINGLELINE | DT_VCENTER);
     EditorRenderer::DrawTextLine(dc,
                                  RECT{360, 28, client.right - 450, 46},
                                  model.workspaceLabel,
-                                 RGB(216, 220, 226),
+                                 EditorUiTheme::kTextOnPanelMuted,
                                  theme.smallFont,
                                  DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
 
     const TopChromeRects topChrome = ComputeTopChromeRects(topBar);
-    EditorRenderer::DrawToolbarButton(dc, topChrome.save, "Save", false, theme.smallFont);
-    EditorRenderer::DrawToolbarButton(dc, topChrome.scaffold, "Scaffold", false, theme.smallFont);
-    EditorRenderer::DrawToolbarButton(dc, topChrome.exportScene, "Export", false, theme.smallFont);
-    EditorRenderer::DrawToolbarButton(dc, topChrome.play, "Playtest", false, theme.smallFont);
-    EditorRenderer::DrawToolbarButton(dc, topChrome.files, "Files", model.resourcesModeActive, theme.smallFont);
+    EditorRenderer::DrawToolbarButton(
+        dc, topChrome.newGame, "New Game", false, theme.smallFont, EditorToolbarStyle::Light);
+    EditorRenderer::DrawToolbarButton(dc, topChrome.save, "Save", false, theme.smallFont, EditorToolbarStyle::Light);
+    EditorRenderer::DrawToolbarButton(
+        dc, topChrome.scaffold, "Setup Files", false, theme.smallFont, EditorToolbarStyle::Light);
+    EditorRenderer::DrawToolbarButton(
+        dc, topChrome.exportScene, "Export", false, theme.smallFont, EditorToolbarStyle::Light);
+    EditorRenderer::DrawToolbarButton(
+        dc, topChrome.play, "Playtest", false, theme.smallFont, EditorToolbarStyle::Light);
+    EditorRenderer::DrawToolbarButton(
+        dc, topChrome.files, "Files", model.resourcesModeActive, theme.smallFont, EditorToolbarStyle::Light);
 }
 
 void RenderEditorToolStrip(HDC dc,
                            const RECT& toolStrip,
                            const EditorViewportToolStripModel& model,
                            const EditorViewportTheme& theme) {
-    EditorRenderer::DrawPanelFrame(dc, toolStrip, RGB(60, 66, 74), RGB(176, 182, 190), RGB(24, 28, 34));
-    EditorRenderer::FillRectColor(dc,
-                                  RECT{toolStrip.left + 1, toolStrip.top + 1, toolStrip.right - 1, toolStrip.top + 5},
-                                  RGB(74, 84, 98));
+    EditorRenderer::DrawPanelFrame(dc,
+                                   toolStrip,
+                                   EditorUiTheme::kToolStripFill,
+                                   EditorUiTheme::kToolStripHi,
+                                   EditorUiTheme::kToolStripShadow);
+    EditorRenderer::FillRectColor(
+        dc, RECT{toolStrip.left + 1, toolStrip.top + 1, toolStrip.right - 1, toolStrip.top + 3},
+        EditorUiTheme::kToolStripAccent);
+    const int savedDc = SaveDC(dc);
+    IntersectClipRect(dc, toolStrip.left, toolStrip.top, toolStrip.right, toolStrip.bottom);
     EditorRenderer::DrawTextLine(dc,
                                  RECT{toolStrip.left + 12, toolStrip.top + 8, toolStrip.left + 72, toolStrip.bottom - 8},
                                  "Transform",
-                                 RGB(238, 242, 248),
+                                 EditorUiTheme::kTextOnDark,
                                  theme.headerFont,
                                  DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    EditorRenderer::DrawToolbarButton(
-        dc, RECT{toolStrip.left + 78, toolStrip.top + 8, toolStrip.left + 130, toolStrip.bottom - 8}, "Select", true, theme.smallFont);
-    EditorRenderer::DrawToolbarButton(
-        dc, RECT{toolStrip.left + 134, toolStrip.top + 8, toolStrip.left + 188, toolStrip.bottom - 8}, "Camera", false, theme.smallFont);
-    EditorRenderer::DrawToolbarButton(
-        dc, RECT{toolStrip.left + 194, toolStrip.top + 8, toolStrip.left + 268, toolStrip.bottom - 8}, "Move", model.editModeLabel == "Move", theme.smallFont);
-    EditorRenderer::DrawToolbarButton(
-        dc, RECT{toolStrip.left + 274, toolStrip.top + 8, toolStrip.left + 342, toolStrip.bottom - 8}, "Rotate", model.editModeLabel == "Rotate", theme.smallFont);
-    EditorRenderer::DrawToolbarButton(
-        dc, RECT{toolStrip.left + 348, toolStrip.top + 8, toolStrip.left + 416, toolStrip.bottom - 8}, "Scale", model.editModeLabel == "Scale", theme.smallFont);
-    EditorRenderer::DrawToolbarButton(
-        dc, RECT{toolStrip.left + 422, toolStrip.top + 8, toolStrip.left + 468, toolStrip.bottom - 8}, "X", model.axisLabel == "X", theme.smallFont);
-    EditorRenderer::DrawToolbarButton(
-        dc, RECT{toolStrip.left + 474, toolStrip.top + 8, toolStrip.left + 520, toolStrip.bottom - 8}, "Y", model.axisLabel == "Y", theme.smallFont);
-    EditorRenderer::DrawToolbarButton(
-        dc, RECT{toolStrip.left + 526, toolStrip.top + 8, toolStrip.left + 572, toolStrip.bottom - 8}, "Z", model.axisLabel == "Z", theme.smallFont);
-    EditorRenderer::DrawToolbarButton(
-        dc,
-        RECT{toolStrip.left + 578, toolStrip.top + 8, toolStrip.left + 656, toolStrip.bottom - 8},
-        std::string("Snap ") + (model.gridSnapEnabled ? "On" : "Off"),
-        model.gridSnapEnabled,
-        theme.smallFont);
-    EditorRenderer::DrawToolbarButton(
-        dc, RECT{toolStrip.left + 662, toolStrip.top + 8, toolStrip.left + 694, toolStrip.bottom - 8}, "-", false, theme.smallFont);
-    EditorRenderer::DrawToolbarButton(
-        dc, RECT{toolStrip.left + 698, toolStrip.top + 8, toolStrip.left + 730, toolStrip.bottom - 8}, "+", false, theme.smallFont);
+    const auto toolBtn = [&](const RECT& rect, const std::string& label, bool active) {
+        EditorRenderer::DrawToolbarButton(dc, rect, label, active, theme.smallFont, EditorToolbarStyle::Dark);
+    };
+    toolBtn(RECT{toolStrip.left + 78, toolStrip.top + 8, toolStrip.left + 130, toolStrip.bottom - 8},
+            "Select",
+            model.toolMode == EditorToolMode::Select);
+    toolBtn(RECT{toolStrip.left + 134, toolStrip.top + 8, toolStrip.left + 188, toolStrip.bottom - 8},
+            "Create",
+            model.toolMode == EditorToolMode::Create);
+    toolBtn(RECT{toolStrip.left + 194, toolStrip.top + 8, toolStrip.left + 248, toolStrip.bottom - 8},
+            "Camera",
+            model.toolMode == EditorToolMode::Camera);
+    toolBtn(RECT{toolStrip.left + 254, toolStrip.top + 8, toolStrip.left + 328, toolStrip.bottom - 8},
+            "Move",
+            model.editModeLabel == "Move");
+    toolBtn(RECT{toolStrip.left + 334, toolStrip.top + 8, toolStrip.left + 402, toolStrip.bottom - 8},
+            "Rotate",
+            model.editModeLabel == "Rotate");
+    toolBtn(RECT{toolStrip.left + 408, toolStrip.top + 8, toolStrip.left + 476, toolStrip.bottom - 8},
+            "Scale",
+            model.editModeLabel == "Scale");
+    toolBtn(RECT{toolStrip.left + 482, toolStrip.top + 8, toolStrip.left + 528, toolStrip.bottom - 8}, "X", model.axisLabel == "X");
+    toolBtn(RECT{toolStrip.left + 534, toolStrip.top + 8, toolStrip.left + 580, toolStrip.bottom - 8}, "Y", model.axisLabel == "Y");
+    toolBtn(RECT{toolStrip.left + 586, toolStrip.top + 8, toolStrip.left + 632, toolStrip.bottom - 8}, "Z", model.axisLabel == "Z");
+    toolBtn(RECT{toolStrip.left + 638, toolStrip.top + 8, toolStrip.left + 716, toolStrip.bottom - 8},
+            std::string("Snap ") + (model.gridSnapEnabled ? "On" : "Off"),
+            model.gridSnapEnabled);
+    toolBtn(RECT{toolStrip.left + 722, toolStrip.top + 8, toolStrip.left + 754, toolStrip.bottom - 8}, "-", false);
+    toolBtn(RECT{toolStrip.left + 758, toolStrip.top + 8, toolStrip.left + 790, toolStrip.bottom - 8}, "+", false);
 
     const AuthoringToolbarRects authoringPaint = ComputeAuthoringToolbarRects(toolStrip);
-    EditorRenderer::DrawToolbarButton(dc, authoringPaint.addCube, "+ Cube", false, theme.smallFont);
-    EditorRenderer::DrawToolbarButton(dc, authoringPaint.addPlane, "+ Plane", false, theme.smallFont);
-    EditorRenderer::DrawToolbarButton(dc, authoringPaint.addTrigger, "+ Trigger", false, theme.smallFont);
-    EditorRenderer::DrawToolbarButton(dc, authoringPaint.duplicate, "Duplicate", false, theme.smallFont);
-    EditorRenderer::DrawToolbarButton(dc, authoringPaint.exportCsv, "Export", false, theme.smallFont);
-    EditorRenderer::DrawToolbarButton(dc, authoringPaint.play, "Play", false, theme.smallFont);
+    toolBtn(authoringPaint.addCube, "+ Cube", false);
+    toolBtn(authoringPaint.addPlane, "+ Plane", false);
+    toolBtn(authoringPaint.addTrigger, "+ Trigger", false);
+    toolBtn(authoringPaint.addLight, "+ Light", false);
+    toolBtn(authoringPaint.duplicate, "Duplicate", false);
+    toolBtn(authoringPaint.exportCsv, "Export", false);
+    toolBtn(authoringPaint.play, "Play", false);
+    const LONG statusLeft =
+        std::min(toolStrip.left + 1010L, std::max(authoringPaint.play.right + 12L, toolStrip.left + 806L));
+    std::string modeLine = "Mode ";
+    switch (model.toolMode) {
+        case EditorToolMode::Select:
+            modeLine += "Select";
+            break;
+        case EditorToolMode::Create:
+            modeLine += "Create";
+            if (!model.armedPresetLabel.empty()) {
+                modeLine += " · " + model.armedPresetLabel;
+            }
+            break;
+        case EditorToolMode::Camera:
+            modeLine += "Camera";
+            break;
+    }
     EditorRenderer::DrawTextLine(
         dc,
-        RECT{toolStrip.left + 954, toolStrip.top + 8, toolStrip.right - 12, toolStrip.bottom - 8},
-        "Step " + model.editStepLabel + "  |  Undo " + std::to_string(model.undoDepth) +
+        RECT{statusLeft, toolStrip.top + 8, toolStrip.right - 12, toolStrip.bottom - 8},
+        modeLine + "  |  Step " + model.editStepLabel + "  |  Undo " + std::to_string(model.undoDepth) +
             "  |  Grid " + model.gridSnapLabel + "  |  Authored " + std::to_string(model.authoredCount) +
             "  |  Triggers " + std::to_string(model.triggerCount),
-        RGB(220, 226, 234),
+        EditorUiTheme::kTextMuted,
         theme.smallFont,
         DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
+    RestoreDC(dc, savedDc);
 }
 
 void RenderEditorFramePanels(HDC dc,
@@ -157,12 +256,28 @@ void RenderEditorFramePanels(HDC dc,
                              const RECT& hierarchySplitter,
                              const RECT& inspectorSplitter,
                              const RECT& statusBar) {
-    EditorRenderer::DrawPanelFrame(dc, hierarchy, RGB(184, 188, 192), RGB(238, 241, 244), RGB(63, 68, 76));
-    EditorRenderer::DrawPanelFrame(dc, viewport, RGB(184, 188, 192), RGB(238, 241, 244), RGB(63, 68, 76));
-    EditorRenderer::DrawPanelFrame(dc, inspector, RGB(184, 188, 192), RGB(238, 241, 244), RGB(63, 68, 76));
-    EditorRenderer::FillRectColor(dc, hierarchySplitter, RGB(132, 136, 144));
-    EditorRenderer::FillRectColor(dc, inspectorSplitter, RGB(132, 136, 144));
-    EditorRenderer::DrawPanelFrame(dc, statusBar, RGB(168, 170, 174), RGB(252, 252, 252), RGB(96, 98, 102));
+    EditorRenderer::DrawPanelFrame(dc,
+                                   hierarchy,
+                                   EditorUiTheme::kPanelRaisedFill,
+                                   EditorUiTheme::kPanelRaisedHi,
+                                   EditorUiTheme::kPanelRaisedShadow);
+    EditorRenderer::DrawPanelFrame(dc,
+                                   viewport,
+                                   EditorUiTheme::kPanelRaisedFill,
+                                   EditorUiTheme::kPanelRaisedHi,
+                                   EditorUiTheme::kPanelRaisedShadow);
+    EditorRenderer::DrawPanelFrame(dc,
+                                   inspector,
+                                   EditorUiTheme::kPanelRaisedFill,
+                                   EditorUiTheme::kPanelRaisedHi,
+                                   EditorUiTheme::kPanelRaisedShadow);
+    EditorRenderer::FillRectColor(dc, hierarchySplitter, EditorUiTheme::kSplitter);
+    EditorRenderer::FillRectColor(dc, inspectorSplitter, EditorUiTheme::kSplitter);
+    EditorRenderer::DrawPanelFrame(dc,
+                                   statusBar,
+                                   EditorUiTheme::kStatusBarFill,
+                                   EditorUiTheme::kStatusBarHi,
+                                   EditorUiTheme::kStatusBarShadow);
 }
 
 void RenderEditorStatusBar(HDC dc,
@@ -172,19 +287,19 @@ void RenderEditorStatusBar(HDC dc,
     EditorRenderer::DrawTextLine(dc,
                                  RECT{statusBar.left + 12, statusBar.top + 8, statusBar.right - 12, statusBar.top + 28},
                                  model.consoleLine,
-                                 RGB(228, 234, 240),
+                                 EditorUiTheme::kTextOnPanel,
                                  theme.smallFont,
                                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
     EditorRenderer::DrawTextLine(dc,
                                  RECT{statusBar.left + 12, statusBar.top + 30, statusBar.right - 12, statusBar.top + 50},
                                  model.controlsLine,
-                                 RGB(212, 217, 223),
+                                 EditorUiTheme::kTextOnPanelMuted,
                                  theme.smallFont,
                                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
     EditorRenderer::DrawTextLine(dc,
                                  RECT{statusBar.left + 12, statusBar.top + 50, statusBar.right - 12, statusBar.bottom - 8},
                                  model.stateLine,
-                                 RGB(255, 216, 146),
+                                 EditorUiTheme::kTextStatusGold,
                                  theme.smallFont,
                                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
 }
@@ -199,57 +314,124 @@ void RenderEditorViewportBlock(HDC dc,
                           viewportInner.top + 6,
                           viewportInner.right - 4,
                           viewportInner.top + 6 + kBannerHeight};
-    EditorRenderer::FillRectColor(dc, menuBanner, RGB(88, 94, 102));
-    EditorRenderer::DrawInsetFrame(dc, menuBanner, RGB(100, 106, 114), RGB(188, 192, 198), RGB(30, 34, 40));
+    EditorRenderer::DrawPanelFrame(dc,
+                                   menuBanner,
+                                   EditorUiTheme::kMenuBarFill,
+                                   EditorUiTheme::kMenuBarHi,
+                                   EditorUiTheme::kMenuBarShadow);
     EditorRenderer::DrawTextLine(dc,
                                  RECT{menuBanner.left + 8, menuBanner.top + 3, menuBanner.right - 8, menuBanner.bottom - 3},
-                                 "Scene      Edit      View      Create      Build      Tools      Window      Help",
-                                 RGB(242, 245, 248),
+                                 model.createMenuActive
+                                     ? "Scene   Edit   View   [Create]   Build   Tools   Window   Help (F1)"
+                                     : "Scene   Edit   View   Create   Build   Tools   Window   Help (F1)",
+                                 EditorUiTheme::kMenuBarText,
                                  theme.smallFont,
                                  DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
+    const int worldBarHeight = model.showWorldBar ? std::max(0, model.worldBarHeight) : 0;
+    if (worldBarHeight > 0) {
+        const RECT worldBar{viewportInner.left + 4,
+                            menuBanner.bottom + 4,
+                            viewportInner.right - 4,
+                            menuBanner.bottom + 4 + worldBarHeight};
+        EditorRenderer::DrawInsetFrame(dc,
+                                       worldBar,
+                                       EditorUiTheme::kCreatorCardFill,
+                                       EditorUiTheme::kCreatorCardHi,
+                                       EditorUiTheme::kCreatorCardShadow);
+        const RECT skyBtn{worldBar.left + 8, worldBar.top + 4, worldBar.left + 232, worldBar.bottom - 4};
+        EditorRenderer::DrawToolbarButton(
+            dc,
+            skyBtn,
+            "Sky: " + model.atmosphereLabel + "  v",
+            true,
+            theme.smallFont,
+            EditorToolbarStyle::Creator);
+        if (!model.createHintLine.empty()) {
+            EditorRenderer::DrawTextLine(
+                dc,
+                RECT{worldBar.left + 244, worldBar.top + 4, worldBar.right - 8, worldBar.bottom - 4},
+                model.createHintLine,
+                EditorUiTheme::kCreatorBody,
+                theme.smallFont,
+                DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+        }
+    }
+
     constexpr int kMetaStrip = 26;
-    const RECT quadArea{
-        viewportInner.left + 4, menuBanner.bottom + 4, viewportInner.right - 4, viewportInner.bottom - 4 - kMetaStrip};
-    const RECT viewMeta{quadArea.left + 6, quadArea.bottom + 4, quadArea.right - 6, viewportInner.bottom - 4};
+    const int bottomReserve = kMetaStrip + std::max(0, model.bottomChromeInset);
+    const RECT quadArea{viewportInner.left + 4,
+                        menuBanner.bottom + 4 + worldBarHeight,
+                        viewportInner.right - 4,
+                        viewportInner.bottom - 4 - bottomReserve};
+    const RECT viewMeta{
+        quadArea.left + 6, quadArea.bottom + 4, quadArea.right - 6, quadArea.bottom + 4 + kMetaStrip};
 
     const auto drawCameraAndMeta = [&]() {
         if (model.cameraPlotRect.right > model.cameraPlotRect.left + 8
             && model.cameraPlotRect.bottom > model.cameraPlotRect.top + 8) {
-            EditorRenderer::DrawInsetFrame(
-                dc, model.cameraPlotRect, RGB(24, 26, 30), RGB(112, 118, 128), RGB(18, 20, 24));
+            EditorRenderer::DrawInsetFrame(dc,
+                                           model.cameraPlotRect,
+                                           EditorUiTheme::kViewportWellFill,
+                                           EditorUiTheme::kWellHi,
+                                           EditorUiTheme::kWellShadow);
+            const RECT plotInner = EditorRenderer::InsetRect(model.cameraPlotRect, 2);
             if (callbacks.drawViewportPreview) {
-                callbacks.drawViewportPreview(model.cameraPlotRect);
+                callbacks.drawViewportPreview(plotInner);
             }
             if (callbacks.drawRuntimeStatsOverlay) {
-                callbacks.drawRuntimeStatsOverlay(model.cameraPlotRect);
+                callbacks.drawRuntimeStatsOverlay(plotInner);
             }
         }
         EditorRenderer::DrawTextLine(dc,
                                      viewMeta,
                                      model.cameraSummaryLine,
-                                     RGB(166, 172, 182),
+                                     EditorUiTheme::kTextMuted,
                                      theme.smallFont,
                                      DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
     };
 
     if (quadArea.right <= quadArea.left + 32 || quadArea.bottom <= quadArea.top + 32) {
-        EditorRenderer::DrawInsetFrame(dc, quadArea, RGB(32, 32, 32), RGB(120, 120, 120), RGB(16, 16, 16));
+        EditorRenderer::DrawInsetFrame(dc,
+                                       quadArea,
+                                       EditorUiTheme::kViewportWellFill,
+                                       EditorUiTheme::kWellHi,
+                                       EditorUiTheme::kWellShadow);
         if (callbacks.drawViewportPreview) {
-            callbacks.drawViewportPreview(quadArea);
+            callbacks.drawViewportPreview(EditorRenderer::InsetRect(quadArea, 2));
         }
         return;
     }
 
     if (model.full3DViewport) {
-        EditorRenderer::DrawInsetFrame(dc, quadArea, RGB(30, 34, 40), RGB(214, 176, 92), RGB(18, 20, 24));
+        EditorRenderer::DrawInsetFrame(dc,
+                                       quadArea,
+                                       EditorUiTheme::kViewportWellFill,
+                                       EditorUiTheme::kPerspBorder,
+                                       EditorUiTheme::kWellShadow);
+        const RECT quadInner = EditorRenderer::InsetRect(quadArea, 2);
         EditorRenderer::DrawTextLine(dc,
-                                     RECT{quadArea.left + 8, quadArea.top + 6, quadArea.right - 8, quadArea.top + 24},
-                                     "PERSPECTIVE   |   Tab toggles quad views",
-                                     RGB(255, 242, 205),
+                                     RECT{quadInner.left + 6, quadInner.top + 4, quadInner.right - 6, quadInner.top + 22},
+                                     "PERSPECTIVE   |   Create: click to stamp   Select: pick objects   Camera: drag view",
+                                     EditorUiTheme::kPerspTitle,
                                      theme.smallFont,
                                      DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-        drawCameraAndMeta();
+        if (model.cameraPlotRect.right > model.cameraPlotRect.left + 8
+            && model.cameraPlotRect.bottom > model.cameraPlotRect.top + 8) {
+            const RECT plotInner = EditorRenderer::InsetRect(model.cameraPlotRect, 2);
+            if (callbacks.drawViewportPreview) {
+                callbacks.drawViewportPreview(plotInner);
+            }
+            if (callbacks.drawRuntimeStatsOverlay) {
+                callbacks.drawRuntimeStatsOverlay(plotInner);
+            }
+        }
+        EditorRenderer::DrawTextLine(dc,
+                                     viewMeta,
+                                     model.cameraSummaryLine,
+                                     EditorUiTheme::kTextMuted,
+                                     theme.smallFont,
+                                     DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
         return;
     }
 
@@ -260,8 +442,8 @@ void RenderEditorViewportBlock(HDC dc,
     const RECT cellFront{quadArea.left, midY + 1, midX - 1, quadArea.bottom};
     const RECT cellCamera{midX + 1, midY + 1, quadArea.right, quadArea.bottom};
 
-    StrokeLine(dc, midX, quadArea.top, midX, quadArea.bottom, RGB(24, 24, 24), 2);
-    StrokeLine(dc, quadArea.left, midY, quadArea.right, midY, RGB(24, 24, 24), 2);
+    StrokeLine(dc, midX, quadArea.top, midX, quadArea.bottom, EditorUiTheme::kQuadDivider, 2);
+    StrokeLine(dc, quadArea.left, midY, quadArea.right, midY, EditorUiTheme::kQuadDivider, 2);
 
     if (callbacks.drawTopView) {
         callbacks.drawTopView(cellTop);
@@ -273,12 +455,16 @@ void RenderEditorViewportBlock(HDC dc,
         callbacks.drawFrontView(cellFront);
     }
 
-    EditorRenderer::DrawInsetFrame(dc, cellCamera, RGB(28, 32, 38), RGB(214, 176, 92), RGB(12, 12, 12));
+    EditorRenderer::DrawInsetFrame(dc,
+                                   cellCamera,
+                                   EditorUiTheme::kViewportWellFill,
+                                   EditorUiTheme::kPerspBorder,
+                                   EditorUiTheme::kWellShadow);
     const RECT cameraInner{cellCamera.left + 2, cellCamera.top + 2, cellCamera.right - 2, cellCamera.bottom - 2};
     EditorRenderer::DrawTextLine(dc,
                                  RECT{cameraInner.left + 6, cameraInner.top + 4, cameraInner.right - 6, cameraInner.top + 22},
-                                 "PERSPECTIVE",
-                                 RGB(255, 242, 205),
+                                 "PERSPECTIVE   |   Tab layout",
+                                 EditorUiTheme::kPerspTitle,
                                  theme.smallFont,
                                  DT_LEFT | DT_SINGLELINE | DT_VCENTER);
     drawCameraAndMeta();

@@ -217,6 +217,82 @@ float Hash21(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 }
 
+vec3 TraceScreenSpaceReflection(vec2 uv,
+                                vec3 centerNormal,
+                                float roughness,
+                                float metallic,
+                                float centerDepth,
+                                vec2 texel,
+                                float qualityTier,
+                                out float hitConfidence) {
+    hitConfidence = 0.0;
+    float gloss = (1.0 - roughness) * mix(0.35, 1.0, metallic * 0.85 + 0.15);
+    if (gloss < 0.03) {
+        return vec3(0.0);
+    }
+
+    vec2 screenPos = uv * 2.0 - 1.0;
+    vec3 viewWs = normalize(vec3(screenPos.x * 0.62, screenPos.y * 0.62 + 0.38, 1.0));
+    vec3 reflectDir = reflect(-viewWs, centerNormal);
+    vec2 marchDir = reflectDir.xy;
+    float marchLen = length(marchDir);
+    if (marchLen < 1e-5) {
+        marchDir = normalize(centerNormal.xy + vec2(1e-4));
+    } else {
+        marchDir /= marchLen;
+    }
+    marchDir *= texel * mix(5.0, 24.0, gloss);
+
+    int maxSteps = int(mix(5.0, 12.0, qualityTier * 0.5 + gloss * 0.5));
+    vec3 accum = vec3(0.0);
+    float weightSum = 0.0;
+    float thickness = mix(0.0010, 0.038, gloss);
+
+    for (int i = 1; i <= 12; ++i) {
+        if (i > maxSteps) {
+            break;
+        }
+        float t = float(i) / float(maxSteps);
+        float jitter = Hash21(uv + vec2(float(i) * 17.3, float(i) * 9.1)) * 0.28;
+        float marchT = 1.0 - pow(1.0 - t, mix(1.35, 1.85, roughness));
+        vec2 suv = clamp(uv + marchDir * (marchT + jitter * 0.08), texel * 0.5, vec2(1.0) - texel * 0.5);
+        float sampleDepth = SampleDepth(suv);
+        float depthDiff = centerDepth - sampleDepth;
+        if (depthDiff > 0.00035 && depthDiff < thickness * (0.45 + t * 1.6)) {
+            vec3 hitNormal = normalize(texture(sceneNormalRoughness, suv).xyz * 2.0 - 1.0);
+            float normalSimilarity = smoothstep(0.12, 0.78, dot(centerNormal, hitNormal));
+            vec3 hitColor = texture(hdrSceneLinear, suv).rgb;
+            float w = gloss * (1.0 - t * 0.68) * normalSimilarity * smoothstep(0.00035, 0.0016, depthDiff);
+            accum += hitColor * w;
+            weightSum += w;
+            if (weightSum > 0.9) {
+                break;
+            }
+        }
+    }
+
+    if (weightSum < 1e-4) {
+        return vec3(0.0);
+    }
+    hitConfidence = clamp(weightSum, 0.0, 1.0);
+    return accum / weightSum;
+}
+
+vec3 EnvironmentReflectionFallback(vec3 centerNormal,
+                                   vec3 viewWs,
+                                   float roughness,
+                                   float glossyCue,
+                                   vec3 fogNear,
+                                   vec3 ambientBoost) {
+    vec3 reflectDir = reflect(-viewWs, centerNormal);
+    float horizon = clamp(reflectDir.y * 0.5 + 0.5, 0.0, 1.0);
+    vec3 sky = mix(fogNear * 0.48, fogNear + ambientBoost * 0.35 + vec3(0.05, 0.06, 0.07), horizon);
+    vec3 ground = fogNear * 0.34 + ambientBoost * 0.12;
+    vec3 env = mix(ground, sky, horizon);
+    float fresnel = pow(1.0 - max(dot(centerNormal, viewWs), 0.0), mix(3.0, 6.0, roughness));
+    return env * glossyCue * fresnel * (0.22 + (1.0 - roughness) * 0.42);
+}
+
 void main() {
     vec2 uv = vec2(vUv.x, 1.0 - vUv.y);
     vec3 linearHdr = texture(hdrSceneLinear, uv).rgb;
@@ -227,26 +303,43 @@ void main() {
     float metallic = clamp(material.r, 0.0, 1.0);
     float materialAo = clamp(material.g, 0.2, 1.0);
     float emissiveMask = clamp(material.b, 0.0, 1.0);
-    float materialFlags = material.a;
+    float packedMaterialFlags = material.a;
+    float materialFlags = floor(packedMaterialFlags + 0.001);
+    float sunShadow = clamp((packedMaterialFlags - materialFlags) * 100.0, 0.0, 1.0);
+    if (sunShadow <= 1e-4) {
+        sunShadow = 1.0;
+    }
 
     float centerDepth = SampleDepth(uv);
+    if (centerDepth > 0.9995) {
+        fragColor = vec4(linearHdr, 1.0);
+        return;
+    }
     vec2 texel = vec2(cameraData.viewportMetrics.z, cameraData.viewportMetrics.w);
+    float qualityTier = clamp(cameraData.sweetFxTonemapStrengthPad.y, 0.0, 2.0);
 
     // Per-pixel rotation breaks fixed-step banding from a static kernel.
     float spin = Hash21(gl_FragCoord.xy + cameraData.viewportMetrics.xy) * 6.28318530718;
 
     float aoAccum = 0.0;
     float weightSum = 0.0;
-    const int kKernel = 14;
-    const float radiusInnerPx = 8.0;
-    const float radiusOuterPx = 24.0;
+    int aoKernel = int(mix(8.0, 12.0, qualityTier * 0.5 + 0.5));
+    bool skipAo = metallic > 0.94 && roughness < 0.22;
+    const int kKernel = 12;
+    const float goldenAngle = 2.39996323;
+    const float radiusInnerPx = 7.0;
+    const float radiusOuterPx = 22.0;
     // Reject samples across large depth discontinuities (reduces halo on silhouettes / thin geometry).
     const float depthGuard = 0.002;
 
     for (int i = 0; i < kKernel; ++i) {
-        float t = (float(i) + 0.37) / float(kKernel);
-        float a = spin + t * 6.28318530718;
-        float radiusPx = ((i & 1) != 0) ? radiusOuterPx : radiusInnerPx;
+        if (skipAo || i >= aoKernel) {
+            break;
+        }
+        float tap = float(i) + 0.5;
+        float ringMix = tap / float(aoKernel);
+        float radiusPx = mix(radiusInnerPx, radiusOuterPx, ringMix);
+        float a = spin + tap * goldenAngle;
         vec2 offset = vec2(cos(a), sin(a)) * (radiusPx * texel);
 
         vec2 sampleUv = clamp(uv + offset, texel * 0.5, vec2(1.0) - texel * 0.5);
@@ -266,22 +359,76 @@ void main() {
     }
 
     float norm = max(weightSum, 0.35);
-    float ao = mix(1.0, clamp(1.0 - (aoAccum / norm), 0.45, 1.0), 0.38) * materialAo;
+    float aoStrength = mix(0.34, 0.48, qualityTier * 0.5);
+    float ao = mix(1.0, clamp(1.0 - (aoAccum / norm), 0.42, 1.0), aoStrength) * materialAo;
 
     vec3 center = linearHdr;
-    vec3 blurCross =
-        texture(hdrSceneLinear, uv + vec2(texel.x * 2.0, 0.0)).rgb +
-        texture(hdrSceneLinear, uv - vec2(texel.x * 2.0, 0.0)).rgb +
-        texture(hdrSceneLinear, uv + vec2(0.0, texel.y * 2.0)).rgb +
-        texture(hdrSceneLinear, uv - vec2(0.0, texel.y * 2.0)).rgb;
-    blurCross *= 0.25;
+    vec2 blurOffsets[4] = vec2[4](
+        vec2(texel.x * 2.0, 0.0),
+        vec2(-texel.x * 2.0, 0.0),
+        vec2(0.0, texel.y * 2.0),
+        vec2(0.0, -texel.y * 2.0));
+    vec3 blurCross = vec3(0.0);
+    float blurWeightSum = 0.0;
+    for (int bi = 0; bi < 4; ++bi) {
+        vec2 buv = clamp(uv + blurOffsets[bi], texel * 0.5, vec2(1.0) - texel * 0.5);
+        float bDepth = SampleDepth(buv);
+        float depthW = 1.0 - smoothstep(0.0008, 0.006, abs(bDepth - centerDepth));
+        blurCross += texture(hdrSceneLinear, buv).rgb * depthW;
+        blurWeightSum += depthW;
+    }
+    blurCross /= max(blurWeightSum, 1e-4);
     float glossyCue = clamp((1.0 - roughness) * (0.25 + metallic * 0.75), 0.0, 1.0);
-    float highlightMask = clamp(max(max(center.r, center.g), center.b) - 0.42, 0.0, 1.0);
-    float hybridGlow = materialFlags >= 2.0 ? 0.08 : 0.0;
+    float highlightMask = clamp(max(max(center.r, center.g), center.b) - 0.38, 0.0, 1.0);
+    float hybridGlow = materialFlags >= 2.0 ? 0.10 : 0.0;
     float diffuseBounceStrength = (1.0 - metallic) * (1.0 - roughness * 0.35);
-    vec3 pseudoBounce = mix(center, blurCross, 0.55) * highlightMask * diffuseBounceStrength * (0.035 + hybridGlow);
-    vec3 pseudoReflection = blurCross * glossyCue * highlightMask * 0.045;
-    vec3 emissiveBleed = blurCross * emissiveMask * 0.06;
+    vec3 pseudoBounce = mix(center, blurCross, 0.58) * highlightMask * diffuseBounceStrength * (0.042 + hybridGlow);
+    vec3 pseudoReflection = blurCross * glossyCue * highlightMask * mix(0.05, 0.09, qualityTier * 0.5);
+    float emissiveLuma = clamp(max(max(center.r, center.g), center.b) - 0.25, 0.0, 1.0);
+    vec3 emissiveBleed = blurCross * emissiveMask * 0.08 + center * emissiveMask * emissiveLuma * 0.14;
+    if (qualityTier >= 1.0 && emissiveMask > 0.06) {
+        vec2 wideOffset = vec2(texel.x, texel.y) * mix(5.0, 7.0, qualityTier * 0.5);
+        vec2 guvP = clamp(uv + wideOffset, texel * 0.5, vec2(1.0) - texel * 0.5);
+        vec2 guvN = clamp(uv - wideOffset, texel * 0.5, vec2(1.0) - texel * 0.5);
+        float gWp = 1.0 - smoothstep(0.0012, 0.012, abs(SampleDepth(guvP) - centerDepth));
+        float gWn = 1.0 - smoothstep(0.0012, 0.012, abs(SampleDepth(guvN) - centerDepth));
+        vec3 wideGlow = texture(hdrSceneLinear, guvP).rgb * gWp + texture(hdrSceneLinear, guvN).rgb * gWn;
+        wideGlow /= max(gWp + gWn, 1e-4);
+        emissiveBleed += wideGlow * emissiveMask * mix(0.05, 0.11, qualityTier * 0.5);
+    }
+    float ceilingFacing = smoothstep(-0.98, -0.55, centerNormal.y);
+    vec3 ceilingBounce = blurCross * ceilingFacing * (1.0 - metallic) * mix(0.03, 0.07, qualityTier * 0.5);
+    vec2 screenPos = uv * 2.0 - 1.0;
+    vec3 viewWs = normalize(vec3(screenPos.x * 0.62, screenPos.y * 0.62 + 0.38, 1.0));
+    float ssrHitConfidence = 0.0;
+    vec3 screenSpaceReflection = vec3(0.0);
+    if (glossyCue > 0.04) {
+        screenSpaceReflection = TraceScreenSpaceReflection(
+            uv, centerNormal, roughness, metallic, centerDepth, texel, qualityTier, ssrHitConfidence);
+    }
+    float ssrStrength = mix(0.05, 0.24, qualityTier * 0.5) * glossyCue * (0.55 + metallic * 0.35);
+    vec3 fogNear = max(cameraData.sweetFxTonemapFogColorDefog.xyz, vec3(0.02));
+    vec3 fogFar = max(vec3(
+        cameraData.sweetFxTonemapStrengthPad.z,
+        cameraData.sweetFxTonemapStrengthPad.w,
+        cameraData.sweetFxComparePack.w), vec3(0.0));
+    if (length(fogFar) < 0.02) {
+        fogFar = fogNear;
+    }
+    fogNear = mix(fogNear, fogFar, 0.35);
+    vec3 ambientBoost = cameraData.presentationExtra.yzw;
+    vec3 envFallback = EnvironmentReflectionFallback(
+        centerNormal, viewWs, roughness, glossyCue, fogNear, ambientBoost);
+    float fallbackWeight = (1.0 - ssrHitConfidence) * mix(0.18, 0.42, qualityTier * 0.5);
+    vec3 reflectionRadiance =
+        screenSpaceReflection * ssrStrength + envFallback * fallbackWeight + pseudoReflection;
+    float groundContact = smoothstep(0.74, 0.98, centerNormal.y) * (1.0 - metallic);
+    float contactDarken = 1.0 - groundContact * mix(0.04, 0.10, qualityTier * 0.5) * (1.0 - ao);
+    float shadowPreserve = sunShadow;
+    pseudoBounce *= shadowPreserve;
+    reflectionRadiance *= mix(0.40, 1.0, shadowPreserve);
+    ceilingBounce *= shadowPreserve;
+    emissiveBleed *= mix(0.72, 1.0, shadowPreserve);
 
-    fragColor = vec4((linearHdr * ao) + pseudoBounce + pseudoReflection + emissiveBleed, 1.0);
+    fragColor = vec4((center * ao * contactDarken) + pseudoBounce + reflectionRadiance + emissiveBleed + ceilingBounce, 1.0);
 }

@@ -36,6 +36,17 @@ Games also carry `config/security.policy`, which sits alongside plugin policy as
 - `plugins/registry.json`: plugin registry metadata
 - `plugins/hooks.riplugin`: hook declarations consumed by runtime and editor surfaces
 
+## Extension taxonomy
+
+RawIron now treats extension classes as distinct, even when they share some control-plane files:
+
+- `mods` modify existing engine, editor, or game behavior
+- `plugins` add new abilities or systems
+- `data packs` inject or override data, variables, assets, and content
+- `pipes` route services into external tools, providers, or companion apps
+
+Store packages can now declare an explicit `extension` descriptor so tooling can reason about `kind`, `scope`, `host`, `entry`, and capability tags without inferring everything from plugin-only fields.
+
 ## Project ownership
 
 Plugins and mods are not hidden internal features. They are first-class authored project content and are included in the shipped workspace.

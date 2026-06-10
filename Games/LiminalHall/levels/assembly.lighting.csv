@@ -1,6 +1,6 @@
 light_id,type,x,y,z,intensity,color,zone
-light_south_corridor_practical,point,0.0,8.4,-34.0,8.0,1.00|0.94|0.86,wing_south
-light_main_void_skylight,spot,0.0,26.0,8.0,18.0,0.92|0.95|1.00,hub_plaza
-light_west_fog_fill,spot,-18.0,18.0,8.0,11.0,0.84|0.88|0.94,wing_west
-light_east_stair_fill,spot,18.0,14.0,16.0,10.0,0.88|0.90|0.94,wing_east
-light_north_apse_bloom,spot,0.0,6.0,50.0,16.0,1.00|0.99|0.96,wing_north
+light_south_corridor_practical,point,0.0,8.4,-34.0,12.0,1.00|0.92|0.78,wing_south
+light_main_void_skylight,spot,0.0,26.0,8.0,10.0,0.78|0.79|0.80,hub_plaza
+light_west_fog_fill,spot,-18.0,18.0,8.0,6.0,0.72|0.74|0.76,wing_west
+light_east_stair_fill,spot,18.0,14.0,16.0,7.0,0.74|0.75|0.77,wing_east
+light_north_apse_bloom,spot,0.0,6.0,50.0,10.0,0.96|0.93|0.86,wing_north

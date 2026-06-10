@@ -23,6 +23,7 @@ target_link_libraries(RawIron.Game.MultiplayerSandbox
     RawIron::Runtime
     RawIron::SceneUtilities
     RawIron::Trace
+    RawIron::World
 )
 
 if (WIN32)

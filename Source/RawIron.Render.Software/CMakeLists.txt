@@ -2,6 +2,9 @@ add_library(RawIron.Render.Software
   src/PreviewTexture.cpp
   src/RgbaImagePathCache.cpp
   src/ScenePreview.cpp
+  src/ScenePreviewPlacement.cpp
+  src/ScenePreviewRayTrace.cpp
+  src/ScenePreviewRenderingScript.cpp
   src/SoftwarePreview.cpp
 )
 
@@ -19,6 +22,7 @@ target_link_libraries(RawIron.Render.Software
     RawIron::Content
     RawIron::Core
     RawIron::SceneUtilities
+    RawIron::Spatial
 )
 
 target_compile_features(RawIron.Render.Software PUBLIC cxx_std_20)

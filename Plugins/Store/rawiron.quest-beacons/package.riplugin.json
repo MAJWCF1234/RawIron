@@ -1,0 +1,30 @@
+{
+  "id": "rawiron.quest-beacons",
+  "name": "Quest Beacons",
+  "version": "1.0.0",
+  "author": "RawIron",
+  "category": "gameplay",
+  "tagLine": "Refresh quest markers and bootstrap quest UI hooks.",
+  "badge": "Gameplay",
+  "description": "Installs quest marker refresh hooks for runtime gameplay loops. Works with authored trigger CSV and gameplay scalars.",
+  "loadOrder": 50,
+  "hookGroup": "runtime.gameplay",
+  "tags": ["quest", "markers", "gameplay"],
+  "manifestLine": "rawiron.quest-beacons,1.0.0,gameplay,plugins/hooks.riplugin",
+  "hooks": [
+    "startup,rawiron.quest-beacons,bootstrap,12",
+    "runtime,rawiron.quest-beacons,quest_marker_refresh,55"
+  ],
+  "extension": {
+    "id": "rawiron.quest-beacons",
+    "displayName": "Quest Beacons",
+    "version": "1.0.0",
+    "kind": "plugin",
+    "scope": "game",
+    "host": "runtime",
+    "entry": "plugins/hooks.riplugin",
+    "description": "Runtime quest marker refresh and bootstrap hooks for gameplay loops.",
+    "capabilities": ["gameplay.events", "ui.overlay"],
+    "tags": ["quest", "markers", "gameplay"]
+  }
+}

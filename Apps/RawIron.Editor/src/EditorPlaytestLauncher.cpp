@@ -112,21 +112,10 @@ std::wstring BuildShellExecuteParameterString(const std::vector<std::string>& ar
     return Utf8ToWide(joined);
 }
 
-fs::path ResolveBundledGameExecutable(const ri::content::GameManifest& manifest) {
-    const fs::path editorExe = ResolveEditorModulePath();
-    if (editorExe.empty()) {
-        return {};
-    }
-    const fs::path buildRoot = FindBuildRoot(editorExe);
-    if (buildRoot.empty()) {
-        return {};
-    }
-
-    const std::optional<std::string> configuration = TryResolveCurrentBuildConfiguration(editorExe);
+fs::path ResolveExecutableCandidate(const fs::path& buildRoot,
+                                    const std::optional<std::string>& configuration,
+                                    const fs::path& relativePath) {
     std::vector<fs::path> candidates;
-    const std::string executableName = manifest.entry + ".exe";
-    const fs::path gameFolderName = manifest.rootPath.filename();
-
     const auto appendCandidate = [&candidates](const fs::path& candidate) {
         if (!candidate.empty()) {
             candidates.push_back(candidate);
@@ -139,9 +128,7 @@ fs::path ResolveBundledGameExecutable(const ri::content::GameManifest& manifest)
         appendCandidate(std::move(base));
     };
 
-    appendConfigCandidate(buildRoot / "Games" / gameFolderName / "App" / executableName);
-    appendConfigCandidate(buildRoot / "Apps" / manifest.entry / executableName);
-
+    appendConfigCandidate(buildRoot / relativePath);
     for (const fs::path& candidate : candidates) {
         std::error_code ec{};
         if (!candidate.empty() && fs::exists(candidate, ec)) {
@@ -151,17 +138,103 @@ fs::path ResolveBundledGameExecutable(const ri::content::GameManifest& manifest)
     return {};
 }
 
+fs::path ResolveGenericPlaytestHostExecutable(const fs::path& buildRoot,
+                                             const std::optional<std::string>& configuration) {
+    static constexpr const char* kHostCandidates[] = {
+        "Games/RawIronMultiplayerSandbox/App/RawIron.MultiplayerSandboxGame.exe",
+        "Games/WildernessRuins/App/RawIron.WildernessRuinsGame.exe",
+        "Games/LiminalHall/App/RawIron.LiminalHallGame.exe",
+    };
+    for (const char* relative : kHostCandidates) {
+        const fs::path resolved = ResolveExecutableCandidate(buildRoot, configuration, relative);
+        if (!resolved.empty()) {
+            return resolved;
+        }
+    }
+    return {};
+}
+
+fs::path ResolveBundledGameExecutable(const ri::content::GameManifest& manifest) {
+    const fs::path editorExe = ResolveEditorModulePath();
+    if (editorExe.empty()) {
+        return {};
+    }
+    const fs::path buildRoot = FindBuildRoot(editorExe);
+    if (buildRoot.empty()) {
+        return {};
+    }
+
+    const std::optional<std::string> configuration = TryResolveCurrentBuildConfiguration(editorExe);
+    const std::string executableName = manifest.entry + ".exe";
+    const fs::path gameFolderName = manifest.rootPath.filename();
+
+    const fs::path dedicated = ResolveExecutableCandidate(
+        buildRoot,
+        configuration,
+        fs::path("Games") / gameFolderName / "App" / executableName);
+    if (!dedicated.empty()) {
+        return dedicated;
+    }
+    return ResolveExecutableCandidate(buildRoot, configuration, fs::path("Apps") / manifest.entry / executableName);
+}
+
+bool CanResolvePlaytestExecutableImpl(const ri::content::GameManifest& manifest) {
+    if (!ResolveBundledGameExecutable(manifest).empty()) {
+        return true;
+    }
+    const fs::path buildRoot = FindBuildRoot(ResolveEditorModulePath());
+    if (buildRoot.empty()) {
+        return false;
+    }
+    return !ResolveGenericPlaytestHostExecutable(
+        buildRoot,
+        TryResolveCurrentBuildConfiguration(ResolveEditorModulePath()))
+        .empty();
+}
+
+bool ResolveDedicatedPlaytestExecutableImpl(const ri::content::GameManifest& manifest) {
+    return !ResolveBundledGameExecutable(manifest).empty();
+}
+
 } // namespace
 #endif
 
+bool CanResolvePlaytestExecutable(const ri::content::GameManifest& manifest) {
+#if defined(_WIN32)
+    return CanResolvePlaytestExecutableImpl(manifest);
+#else
+    (void)manifest;
+    return false;
+#endif
+}
+
+bool ResolveDedicatedPlaytestExecutable(const ri::content::GameManifest& manifest) {
+#if defined(_WIN32)
+    return ResolveDedicatedPlaytestExecutableImpl(manifest);
+#else
+    (void)manifest;
+    return false;
+#endif
+}
+
 PlaytestLaunchResult LaunchPlaytestForManifest(void* nativeWindowHandle,
                                                const ri::content::GameManifest& manifest,
-                                               const fs::path& workspaceRoot) {
+                                               const fs::path& workspaceRoot,
+                                               const fs::path& logicAuthoringPath) {
     PlaytestLaunchResult result{};
 #if defined(_WIN32)
-    const fs::path gameExe = ResolveBundledGameExecutable(manifest);
+    const fs::path editorExe = ResolveEditorModulePath();
+    const fs::path buildRoot = FindBuildRoot(editorExe);
+    const std::optional<std::string> configuration = TryResolveCurrentBuildConfiguration(editorExe);
+    fs::path gameExe = ResolveBundledGameExecutable(manifest);
+    bool usedGenericHost = false;
+    if (gameExe.empty() && !buildRoot.empty()) {
+        gameExe = ResolveGenericPlaytestHostExecutable(buildRoot, configuration);
+        usedGenericHost = !gameExe.empty();
+    }
     if (gameExe.empty()) {
-        result.message = "Play: could not find built executable for " + manifest.entry + ".";
+        result.message =
+            "Play: build " + manifest.entry + ".exe or RawIron.MultiplayerSandboxGame, then retry.";
         return result;
     }
 
@@ -170,6 +243,13 @@ PlaytestLaunchResult LaunchPlaytestForManifest(void* nativeWindowHandle,
     args.push_back(PathToUtf8(manifest.rootPath));
     args.push_back("--workspace-root");
     args.push_back(PathToUtf8(workspaceRoot));
+    if (!logicAuthoringPath.empty()) {
+        std::error_code ec{};
+        if (fs::exists(logicAuthoringPath, ec)) {
+            args.push_back("--logic-authoring");
+            args.push_back(PathToUtf8(logicAuthoringPath));
+        }
+    }
 
     const std::wstring exePath = gameExe.wstring();
     const std::wstring parameters = BuildShellExecuteParameterString(args);
@@ -181,9 +261,19 @@ PlaytestLaunchResult LaunchPlaytestForManifest(void* nativeWindowHandle,
                                                 cwd.empty() ? nullptr : cwd.c_str(),
                                                 SW_SHOWNORMAL);
     result.launched = reinterpret_cast<INT_PTR>(shellResult) > 32;
-    result.message = result.launched
-        ? "Play: launched " + manifest.name + "."
-        : "Play: could not start " + manifest.entry + ".";
+    if (result.launched) {
+        if (logicAuthoringPath.empty()) {
+            result.message = usedGenericHost
+                ? ("Play: launched " + manifest.name + " via sandbox host (--game-root).")
+                : ("Play: launched " + manifest.name + ".");
+        } else {
+            result.message = usedGenericHost
+                ? ("Play: launched " + manifest.name + " via sandbox host with editor logic graph.")
+                : ("Play: launched " + manifest.name + " with editor logic graph.");
+        }
+    } else {
+        result.message = "Play: could not start " + manifest.entry + ".";
+    }
 #else
     (void)nativeWindowHandle;
     (void)manifest;

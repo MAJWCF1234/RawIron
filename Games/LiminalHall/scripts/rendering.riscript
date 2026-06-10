@@ -1,13 +1,19 @@
-# Liminal Hall rendering — washed concrete void with heavy atmospheric falloff
-clear_top_r=0.92
-clear_top_g=0.92
-clear_top_b=0.92
-clear_bottom_r=0.71
-clear_bottom_g=0.70
+# Liminal Hall rendering — monochrome concrete void, heavy distance haze, warm corridor pockets
+clear_top_r=0.84
+clear_top_g=0.83
+clear_top_b=0.81
+clear_bottom_r=0.72
+clear_bottom_g=0.71
 clear_bottom_b=0.68
-fog_r=0.88
-fog_g=0.87
-fog_b=0.85
-ambient_r=0.06
-ambient_g=0.06
-ambient_b=0.065
+fog_r=0.78
+fog_g=0.76
+fog_b=0.73
+fog_far_r=0.84
+fog_far_g=0.82
+fog_far_b=0.78
+ambient_r=0.075
+ambient_g=0.074
+ambient_b=0.072
+fog_start=2.0
+fog_end=48.0
+fog_strength=0.90

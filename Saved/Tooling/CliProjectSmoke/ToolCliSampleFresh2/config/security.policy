@@ -1,3 +1,0 @@
-# RawIron security policy
-allow_local_scripts=1
-allow_network_bootstrap=1

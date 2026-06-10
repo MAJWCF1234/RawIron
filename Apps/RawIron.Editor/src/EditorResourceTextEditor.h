@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EditorFilesInspector.h"
+
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -32,7 +34,8 @@ void LayoutResourceTextEditorControl(HWND hwnd,
                                      bool filesPanelActive,
                                      const std::filesystem::path& loadedResourceAbsolutePath,
                                      const std::string& resourceEditorAuxMessage,
-                                     const RECT& inspectorInner);
+                                     const RECT& inspectorInner,
+                                     const FilesInspectorPanelModel& filesPanelModel);
 void SyncResourceTextEditorContent(HWND resourceTextEditHwnd,
                                    const std::string& loadedResourceUtf8,
                                    bool resourceFileDirty);

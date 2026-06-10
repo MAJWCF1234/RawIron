@@ -48,6 +48,8 @@ void PrintPreviewUsage() {
         << "  --headless | --save     Write BMP (see --output)\n"
         << "  --output <path>         BMP path (default: rawiron_preview.bmp)\n"
         << "  --backend auto|vulkan|vulkan-native   Preview loop backend\n"
+        << "  --ray-trace            Software path-traced preview (Bryce-style lighting)\n"
+        << "  --ray-scale <0-1>       Ray trace internal resolution scale (default 0.68)\n"
         << "  --psx-water            Live RawIron-native PSX water package proof window\n"
         << "\nPhoto mode (FOV only; does not edit scene cameras):\n"
         << "  --photo-mode            Mild default widen (~1.18x vertical FOV) unless --photo-fov / --photo-scale\n"
@@ -445,6 +447,18 @@ ri::render::software::ScenePreviewOptions BuildPreviewOptions(const ri::core::Co
         }
     }
 
+    if (commandLine.HasFlag("--ray-trace")) {
+        options.renderer = ri::render::software::ScenePreviewRenderer::RayTrace;
+        if (const std::optional<std::string> rayScale = commandLine.GetValue("--ray-scale"); rayScale.has_value()) {
+            options.rayTracingResolutionScale =
+                std::clamp(static_cast<float>(std::stod(*rayScale)), 0.25f, 1.0f);
+        }
+        options.rayTracingShadowRays = 4;
+        options.rayTracingMaxBounces = 2;
+        options.rayTracingReflections = true;
+        options.rayTracingSamplesPerPixel = 2;
+    }
+
     return options;
 }
 
@@ -641,6 +655,9 @@ int main(int argc, char** argv) {
         ri::core::LogSection("Preview Startup");
         ri::core::LogInfo("Example: " + preview.slug + " [" + preview.statusLabel + "]");
         ri::core::LogInfo("Track: " + preview.rawIronTrack);
+        ri::core::LogInfo(std::string("Renderer: ")
+                          + (options.renderer == ri::render::software::ScenePreviewRenderer::RayTrace ? "ray-trace"
+                                                                                                      : "raster"));
         ri::core::LogInfo("Bridge: commands=" + std::to_string(bridgeStats.renderCommandCount)
                           + " batches=" + std::to_string(bridgeStats.submissionBatchCount)
                           + " draws=" + std::to_string(bridgeStats.drawCommandCount)

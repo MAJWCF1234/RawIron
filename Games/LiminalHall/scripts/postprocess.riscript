@@ -2,14 +2,14 @@
 # Required by RawIron game format v1.3.5.
 
 postprocess_quality = 1
-postprocess_tint_strength = 0.02
-bloom_strength = 0.16
-vignette_strength = 0.04
-sharpen_amount = 0.04
-native_exposure = 0.98
-native_contrast = 1.00
-native_saturation = 0.62
-native_fog_density = 0.0145
-fov_base = 72.0
-fov_sprint_add = 4.0
+postprocess_tint_strength = 0.03
+bloom_strength = 0.30
+vignette_strength = 0.06
+sharpen_amount = 0.06
+native_exposure = 0.91
+native_contrast = 0.88
+native_saturation = 0.48
+native_fog_density = 0.024
+fov_base = 78.0
+fov_sprint_add = 3.0
 fov_lerp_per_second = 8.0

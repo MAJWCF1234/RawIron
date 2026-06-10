@@ -3,6 +3,7 @@
 #include "RawIron/Math/Mat4.h"
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Scene/Scene.h"
+#include "RawIron/Scene/WorkspaceSandbox.h"
 
 #include <cstddef>
 #include <string>

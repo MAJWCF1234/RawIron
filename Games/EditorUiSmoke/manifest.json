@@ -1,0 +1,33 @@
+{
+  "id": "editor-ui-smoke",
+  "name": "Editor UI Smoke",
+  "format": "rawiron-game-v1.3.7",
+  "type": "game",
+  "entry": "RawIron.EditorUISmokeGame",
+  "runtimeContract": "rawiron-runtime-v1",
+  "runtimeModule": "RawIron.Game.EditorUISmoke",
+  "runtimeHost": "RuntimeCore",
+  "runtimeServices": [
+    "lifecycle",
+    "events",
+    "services",
+    "paths",
+    "frame-clock"
+  ],
+  "version": "1.0.0",
+  "author": "RawIron Editor",
+  "editorProjectArg": "--game=editor-ui-smoke",
+  "primaryLevel": "levels/assembly.primitives.csv",
+  "description": "Smoke test game created via ri_tool in Games/.",
+  "editorPreviewScene": "editor-ui-smoke",
+  "controls": {
+    "move": "WASD",
+    "look": "Mouse",
+    "jump": "Space",
+    "sprint": "Shift",
+    "quit": "Esc"
+  },
+  "editorOpenArgs": [
+    "--game=editor-ui-smoke"
+  ]
+}

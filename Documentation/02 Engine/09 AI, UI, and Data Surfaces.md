@@ -26,6 +26,12 @@ Games provide UI content through:
 
 The current editor and runtime path already consume UI script scalars for diagnostics, objective panel state, crosshair mode, crosshair scale, and style variants.
 
+### Runtime text overlay (engine)
+
+`RawIron.World` exposes semantic HUD channels through `text_overlay_events` on `RuntimeEventBus` (`message`, `subtitle`, `levelToast`, `objectiveChanged`, loading/voice hooks). `TextOverlayEventBridge` updates `TextOverlayState`; standalone games use `GameTextOverlayHost` (`Games/Common`) to advance timers and draw GDI captions over the Vulkan client area.
+
+Liminal Hall wires this path today — showcase beats, objectives, subtitles, and interaction toasts render on-screen when emitted through the runtime bus.
+
 ## Data and persistence surfaces
 
 Games provide data through:

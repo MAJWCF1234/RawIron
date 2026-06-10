@@ -1,0 +1,30 @@
+{
+  "id": "rawiron.ambient-presence",
+  "name": "Ambient Presence",
+  "version": "1.0.0",
+  "author": "RawIron",
+  "category": "audio",
+  "tagLine": "Layered ambient ticks and zone binding for liminal spaces.",
+  "badge": "Audio",
+  "description": "Adds startup audio zone binding and runtime ambient gain ticks via declarative hooks. Tune presence in scripts/plugins.riscript.",
+  "loadOrder": 40,
+  "hookGroup": "runtime.audio",
+  "tags": ["ambient", "audio", "atmosphere"],
+  "manifestLine": "rawiron.ambient-presence,1.0.0,audio,plugins/hooks.riplugin",
+  "hooks": [
+    "startup,rawiron.ambient-presence,audio_zones_bind,15",
+    "runtime,rawiron.ambient-presence,ambient_tick,45"
+  ],
+  "extension": {
+    "id": "rawiron.ambient-presence",
+    "displayName": "Ambient Presence",
+    "version": "1.0.0",
+    "kind": "plugin",
+    "scope": "game",
+    "host": "runtime",
+    "entry": "plugins/hooks.riplugin",
+    "description": "Runtime audio presence hooks for ambient binding and gain ticks.",
+    "capabilities": ["audio.runtime", "gameplay.events"],
+    "tags": ["ambient", "audio", "atmosphere"]
+  }
+}

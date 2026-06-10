@@ -55,6 +55,8 @@ struct LogicAuthoringWire {
 struct LogicNodeInstance {
     LogicNodeDefinition definition;
     LogicNodePlacement placement{};
+    /// LogicKit manifest id when placed from the editor catalog (used for port schema + compile bridging).
+    std::string sourceKitId{};
 };
 
 /// 3D authoring graph: blocks + routed wires in world space.

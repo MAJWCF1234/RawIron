@@ -817,8 +817,7 @@ int main(int argc, char** argv) {
         ri::core::LogInfo(
             "  --no-shader-cfg      Skip shader.cfg (fixes blown-out / white image if the stack is too hot on your GPU).");
         ri::core::LogInfo(
-            "  --hybrid-hdr         Enable multi-pass HDR + heavy composite (slower startup; can stall weak GPUs). "
-            "Default is off for fast, stable loading.");
+            "  --no-hybrid-hdr      Forward-only presentation (skip hybrid SSR/AO/emissive pass). Default: hybrid on.");
         ri::core::LogInfo(
             "  Reference HLSL packs resolve from Source/RawIron.Render.Vulkan/ReferenceShaders "
             "(legacy: vulkan/reference-shaders beside the exe); runtime tuning is shader.cfg.");
@@ -840,7 +839,10 @@ int main(int argc, char** argv) {
     const int height = std::clamp(commandLine.GetIntOr("--height", 1080), 270, 2160);
     const bool silent = commandLine.HasFlag("--silent");
     const bool noShaderCfg = commandLine.HasFlag("--no-shader-cfg");
-    const bool hybridHdr = commandLine.HasFlag("--hybrid-hdr");
+    bool hybridHdr = true;
+    if (commandLine.HasFlag("--no-hybrid-hdr")) {
+        hybridHdr = false;
+    }
 
     auto runtime = std::make_shared<ShowcaseRuntime>();
     BuildDevRoom(*runtime);
@@ -913,13 +915,10 @@ int main(int argc, char** argv) {
 #if defined(_WIN32)
         .outClientHwnd = &showcaseHwnd,
 #endif
-        // Hybrid HDR builds extra render passes + the heavy NativeComposite path; default off so the window and
-        // first frames appear quickly and weak GPUs do not appear "frozen" during init.
         .enableHybridHdrPresentation = hybridHdr,
     };
 
-    ri::core::LogInfo(std::string("ParticleShowcase: hybrid HDR composite ") + (hybridHdr ? "ON (--hybrid-hdr)"
-                                                                                          : "OFF (default; faster startup)"));
+    ri::core::LogInfo(std::string("ParticleShowcase: hybrid HDR ") + (hybridHdr ? "ON (default)" : "OFF (--no-hybrid-hdr)"));
 
     const auto wallStart = std::chrono::steady_clock::now();
 

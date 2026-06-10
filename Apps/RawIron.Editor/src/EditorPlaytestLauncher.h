@@ -14,6 +14,11 @@ struct PlaytestLaunchResult {
 
 [[nodiscard]] PlaytestLaunchResult LaunchPlaytestForManifest(void* nativeWindowHandle,
                                                              const ri::content::GameManifest& manifest,
-                                                             const std::filesystem::path& workspaceRoot);
+                                                             const std::filesystem::path& workspaceRoot,
+                                                             const std::filesystem::path& logicAuthoringPath = {});
+
+[[nodiscard]] bool CanResolvePlaytestExecutable(const ri::content::GameManifest& manifest);
+
+[[nodiscard]] bool ResolveDedicatedPlaytestExecutable(const ri::content::GameManifest& manifest);
 
 } // namespace ri::editor

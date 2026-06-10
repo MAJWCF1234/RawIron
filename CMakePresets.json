@@ -5,6 +5,7 @@
     "minor": 24,
     "patch": 0
   },
+  "defaultConfigurePreset": "dev-msvc",
   "configurePresets": [
     {
       "name": "dev-base",
@@ -48,10 +49,10 @@
     {
       "name": "dev-mingw",
       "inherits": "dev-base",
-      "displayName": "Development (MinGW)",
+      "displayName": "Development (MinGW, set CC/CXX on PATH)",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "C:/Users/majwc/AppData/Local/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe/mingw64/bin/gcc.exe",
-        "CMAKE_CXX_COMPILER": "C:/Users/majwc/AppData/Local/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe/mingw64/bin/g++.exe"
+        "CMAKE_C_COMPILER": "$penv{CC}",
+        "CMAKE_CXX_COMPILER": "$penv{CXX}"
       }
     },
     {

@@ -67,8 +67,8 @@ std::string ResolveStructuralPrimitiveTypeToken(const std::optional<std::string_
     std::string normalized = NormalizeLower(chosen);
     if (normalized == "cube" || normalized == "box" || normalized == "block") {
         normalized = "box";
-    } else if (normalized == "sphere" || normalized == "ball") {
-        normalized = "sphere";
+    } else if (normalized == "sphere" || normalized == "ball" || normalized == "uv_sphere" || normalized == "uvsphere") {
+        normalized = "uv_sphere";
     } else if (normalized == "plane" || normalized == "quad" || normalized == "ground") {
         normalized = "plane";
     } else if (normalized == "displacement" || normalized == "displacement_map") {

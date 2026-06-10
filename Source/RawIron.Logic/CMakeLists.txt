@@ -1,8 +1,13 @@
 add_library(RawIron.Logic
   src/LogicAuthoring.cpp
+  src/LogicAuthoringEditorIO.cpp
+  src/LogicAuthoringWireLayout.cpp
+  src/LogicKitPortBridge.cpp
+  src/LogicAuthoringSenseRuntime.cpp
   src/LogicAuthoringDetail.cpp
   src/LogicGraph.cpp
   src/LogicKitManifest.cpp
+  src/LogicKitNodeFactory.cpp
   src/LogicPortSchema.cpp
   src/LogicVisualPrimitives.cpp
 )
@@ -27,3 +32,16 @@ target_link_libraries(RawIron.Logic
   PRIVATE
     RawIron::Core
 )
+
+if (RAWIRON_BUILD_TESTS)
+  add_executable(LogicSenseSmoke tests/LogicSenseSmoke.cpp)
+  target_link_libraries(LogicSenseSmoke PRIVATE RawIron::Logic)
+  add_test(NAME RawIron.Logic.SenseSmoke COMMAND LogicSenseSmoke)
+
+  add_test(
+    NAME RawIron.LogicKit.FactoryAudit
+    COMMAND ${CMAKE_COMMAND}
+      -DRAWIRON_WORKSPACE=${CMAKE_SOURCE_DIR}
+      -P ${CMAKE_SOURCE_DIR}/Tests/VerifyLogicKitFactory.cmake
+  )
+endif()

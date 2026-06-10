@@ -31,7 +31,7 @@ Rendering policy is engine-owned.
 ## Preview and runtime surfaces
 
 - `RawIron.Player` is the generic runtime host.
-- `RawIron.Preview` is the snapshot and preview host.
+- `RawIron.Preview` is the snapshot and preview host. Pass `--ray-trace` for software path-traced stills (`ScenePreviewRenderer::RayTrace`); optional `--ray-scale` tunes internal trace resolution.
 - `RawIron.Editor` and `RawIron.EditorPreview` provide authoring-time visualization.
 - `RawIron.ParticleShowcase` isolates particle-focused rendering work.
 

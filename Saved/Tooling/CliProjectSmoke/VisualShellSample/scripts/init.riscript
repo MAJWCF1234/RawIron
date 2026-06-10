@@ -1,3 +1,0 @@
-# RawIron init script
-game.id="visual-shell-sample"
-game.primary_level="levels/assembly.primitives.csv"

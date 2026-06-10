@@ -88,6 +88,10 @@ int main(int argc, char** argv) {
     }
     const auto gameRoot = commandLine.GetValue("--game-root");
     const auto workspaceRoot = commandLine.GetValue("--workspace-root");
+    if (const auto logicAuthoring = commandLine.GetValue("--logic-authoring");
+        logicAuthoring.has_value() && !logicAuthoring->empty()) {
+        options.logicAuthoringPath = std::filesystem::path(*logicAuthoring);
+    }
     if (gameRoot.has_value() && !gameRoot->empty()) {
         options.gameRoot = std::filesystem::path(*gameRoot);
     }

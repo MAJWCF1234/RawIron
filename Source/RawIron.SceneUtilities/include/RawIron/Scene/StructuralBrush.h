@@ -49,6 +49,9 @@ struct StructuralBrushSpawnOptions {
 /// Instantiates one structural primitive as **`PrimitiveType::Custom`** geometry under `parent`.
 [[nodiscard]] int AddStructuralBrushNode(Scene& scene, const StructuralBrushSpawnOptions& options);
 
+/// World-space half extents for editor placement ghosts and previews.
+[[nodiscard]] ri::math::Vec3 EstimateStructuralBrushHalfExtents(const StructuralBrushSpawnOptions& options);
+
 /// Compile a structural graph (solids, subtract cutters, mesh primitives) and spawn under one root.
 struct StructuralPrimitiveAssemblyOptions {
     int parent = kInvalidHandle;
@@ -91,5 +94,11 @@ struct StructuralPrimitiveAssemblyResult {
 [[nodiscard]] StructuralPrimitiveAssemblyResult AddStructuralPrimitiveAssembly(
     Scene& scene,
     const StructuralPrimitiveAssemblyOptions& options);
+
+/// Relative to `Assets/Textures` — LRT tuff brick albedo for editor structural stamps.
+[[nodiscard]] const char* DefaultStructuralBrushAlbedoTexture();
+
+/// Tint paired with `DefaultStructuralBrushAlbedoTexture()`.
+[[nodiscard]] ri::math::Vec3 DefaultStructuralBrushBaseColor();
 
 } // namespace ri::scene

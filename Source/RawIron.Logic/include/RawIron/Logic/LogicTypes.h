@@ -96,7 +96,7 @@ struct PulseDef {
     bool startEnabled = true;
 };
 
-enum class LatchMode { Sr, Toggle, PrioritySet };
+enum class LatchMode { Sr, Toggle, PrioritySet, DFlipFlop };
 
 struct LatchDef {
     bool startValue = false;

@@ -16,6 +16,17 @@ using ScriptScalarMap = std::map<std::string, float, std::less<>>;
 /// - Invalid or non-finite values are skipped.
 [[nodiscard]] ScriptScalarMap LoadScriptScalars(const std::filesystem::path& path);
 
+/// Parses `key=value` float lines from in-memory script text (comments and blanks ignored).
+[[nodiscard]] ScriptScalarMap LoadScriptScalarsFromText(std::string_view text);
+
+/// Overwrites keys present in `overrides`; leaves other destination entries unchanged.
+void MergeScriptScalarMaps(ScriptScalarMap& destination, const ScriptScalarMap& overrides);
+
+/// Updates only the keys listed in `patches`, preserving comments and unrelated keys in the file.
+[[nodiscard]] bool PatchScriptScalarsFile(const std::filesystem::path& path,
+                                          const ScriptScalarMap& patches,
+                                          std::string* errorOut = nullptr);
+
 [[nodiscard]] float ScriptScalarOr(const ScriptScalarMap& values, std::string_view key, float fallback);
 
 [[nodiscard]] float ScriptScalarOrClamped(const ScriptScalarMap& values,

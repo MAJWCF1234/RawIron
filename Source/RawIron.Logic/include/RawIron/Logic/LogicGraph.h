@@ -114,6 +114,7 @@ private:
         bool value = false;
         bool pendingSet = false;
         bool pendingReset = false;
+        bool pendingData = false;
     };
     struct ChannelRt {
         bool enabled = true;

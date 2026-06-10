@@ -44,3 +44,4 @@ if (Test-Path -LiteralPath $ccs) {
 Write-Host "Done. CMake build tree removed under: $(Join-Path $RepoRoot 'build')"
 Write-Host "Next: cmake --preset dev-msvc   (creates build\dev-msvc and compile_commands there)"
 Write-Host "Or (reliable on flaky volumes): cmake --preset dev-msvc-localappdata"
+Write-Host "To drop only legacy flat build/ roots while keeping dev-msvc: Scripts\Clean-StaleBuildRoots.ps1"

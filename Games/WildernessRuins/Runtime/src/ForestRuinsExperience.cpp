@@ -1,6 +1,7 @@
 #include "RawIron/Games/ForestRuins/ForestRuinsRuntime.h"
 #include "RawIron/Games/GameRuntimeCore.h"
 #include "RawIron/Games/GameConfigContracts.h"
+#include "RawIron/Games/GamePluginRuntimeBridge.h"
 #include "RawIron/Games/RuntimeDiagnosticsStandaloneDraw.h"
 
 #include "RawIron/Content/EngineAssets.h"
@@ -14,6 +15,8 @@
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
+#include "RawIron/Render/VulkanScenePreviewBridge.h"
+#include "RawIron/Render/ScenePreviewRenderingScript.h"
 #include "RawIron/Scene/Scene.h"
 #include "RawIron/Scene/SceneStructuralTraceFeed.h"
 #include "RawIron/Scene/Helpers.h"
@@ -193,7 +196,7 @@ NativeRenderTuning BaseNativeRenderTuning(const RenderQuality quality) {
         return NativeRenderTuning{2, 1.03f, 1.04f, 1.03f, 0.0105f};
     case RenderQuality::Balanced:
     default:
-        return NativeRenderTuning{1, 1.00f, 1.00f, 1.00f, 0.0092f};
+        return NativeRenderTuning{2, 1.01f, 1.02f, 1.01f, 0.0095f};
     }
 }
 
@@ -281,6 +284,8 @@ struct RuntimeState {
     std::size_t previousActiveSpawnerCount = 0U;
     ri::runtime::RuntimeEventBus* runtimeEvents = nullptr;
     float lastSimulationDeltaSeconds = 1.0f / 60.0f;
+    ri::games::GamePluginRuntimeHost pluginHost{};
+    bool pluginRenderBoostActive = false;
 };
 
 void ApplyEnvironmentAuthoringVolumes(RuntimeState& state, const float dt) {
@@ -875,6 +880,9 @@ void TickStandaloneFrame(RuntimeState& state) {
                           + (state.diagnosticsVisible
                                  ? "visible (Ctrl+Shift+U): RuntimeDiagnosticsLayer helpers ON"
                                  : "hidden (Ctrl+Shift+U): RuntimeDiagnosticsLayer helpers OFF"));
+        if (state.diagnosticsVisible) {
+            ri::core::LogInfo("[Plugins] " + ri::games::SummarizeGamePluginDiagnostics(state.pluginHost));
+        }
     }
 
     const auto now = std::chrono::steady_clock::now();
@@ -889,6 +897,17 @@ void TickStandaloneFrame(RuntimeState& state) {
     ApplyEnvironmentAuthoringVolumes(state, dt);
     ProcessPendingDoorTransitions(state);
     SimulateAndApplyView(state, input, dt, static_cast<double>(GetTickCount64()) / 1000.0);
+    state.pluginHost.renderBoostActive = state.pluginRenderBoostActive;
+    (void)ri::games::TickGamePluginRuntime(state.pluginHost, static_cast<double>(state.elapsedSeconds));
+    ri::games::ApplyGamePluginRenderTuning(
+        state.pluginHost,
+        {
+            .qualityTier = &state.nativeRenderTuning.qualityTier,
+            .exposure = &state.nativeRenderTuning.exposure,
+            .ambientLight = &state.previewOptions.ambientLight,
+        });
+    ri::games::MaybeLogPluginDiagnostics(state.pluginHost, state.diagnosticsVisible, dt);
+    ri::games::DrawPluginDiagnosticsOverlay(state.hwnd, state.pluginHost, state.diagnosticsVisible);
 }
 
 bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
@@ -910,6 +929,8 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
         .messageUserData = &state,
         .onWin32Message = &LiminalStandaloneWin32Hook,
         .outClientHwnd = &state.hwnd,
+        .enableHybridHdrPresentation = true,
+        .initialRenderQualityTier = state.nativeRenderTuning.qualityTier,
     };
 
     const ri::render::vulkan::VulkanNativeSceneFrameCallback buildFrame =
@@ -938,12 +959,12 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
             frame.renderContrast = state.nativeRenderTuning.contrast;
             frame.renderSaturation = state.nativeRenderTuning.saturation;
             frame.renderFogDensity = state.nativeRenderTuning.fogDensity;
-            frame.useEnvironmentClear = true;
-            frame.environmentClearTop = state.previewOptions.clearTop;
-            frame.environmentClearBottom = state.previewOptions.clearBottom;
-            frame.nativeFogColorNear = state.previewOptions.fogColor;
-            frame.nativeFogColorFar = state.previewOptions.fogColor * 1.08f;
-            frame.nativeAmbientLight = state.previewOptions.ambientLight;
+            ri::render::vulkan::ApplyScenePreviewAtmosphereToVulkanFrame(state.previewOptions, frame);
+            frame.postProcess = ri::world::BuildPostProcessParameters(
+                ri::world::PostProcessState{.enabled = true},
+                static_cast<double>(state.elapsedSeconds),
+                0.0f);
+            ri::render::vulkan::OverlayScenePreviewPostProcessOnParameters(state.previewOptions, frame.postProcess);
             if (options.benchmarkFrames > 0) {
                 ++benchmarkedFrames;
                 if (benchmarkedFrames >= options.benchmarkFrames && state.hwnd != nullptr) {
@@ -1009,12 +1030,16 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/persistence.riscript"));
     const ri::content::ScriptScalarMap ai =
         ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/ai.riscript"));
+    const ri::content::ScriptScalarMap plugins =
+        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/plugins.riscript"));
     const ri::content::ScriptScalarMap networkCfg =
         ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/network.cfg"));
     const ri::content::ScriptScalarMap buildProfile =
         ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/build.profile"));
     const ri::content::ScriptScalarMap securityPolicy =
         ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/security.policy"));
+    const ri::content::ScriptScalarMap pluginsPolicy =
+        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/plugins.policy"));
     std::string contractError;
     if (!ri::games::EnforceGameConfigContracts(
             manifest.rootPath,
@@ -1315,26 +1340,10 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     state.previewOptions.farHorizonMaxDistance = 340.0f;
     state.previewOptions.farHorizonMaxNodeStride = 3U;
     state.previewOptions.farHorizonMaxInstanceStride = 4U;
-    state.previewOptions.clearTop = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "clear_top_r", 0.22f),
-        ri::content::ScriptScalarOr(rendering, "clear_top_g", 0.22f),
-        ri::content::ScriptScalarOr(rendering, "clear_top_b", 0.19f),
-    };
-    state.previewOptions.clearBottom = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_r", 0.06f),
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_g", 0.10f),
-        ri::content::ScriptScalarOr(rendering, "clear_bottom_b", 0.07f),
-    };
-    state.previewOptions.fogColor = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "fog_r", 0.62f),
-        ri::content::ScriptScalarOr(rendering, "fog_g", 0.61f),
-        ri::content::ScriptScalarOr(rendering, "fog_b", 0.55f),
-    };
-    state.previewOptions.ambientLight = ri::math::Vec3{
-        ri::content::ScriptScalarOr(rendering, "ambient_r", 0.18f),
-        ri::content::ScriptScalarOr(rendering, "ambient_g", 0.18f),
-        ri::content::ScriptScalarOr(rendering, "ambient_b", 0.16f),
-    };
+    if (!rendering.empty()) {
+        ri::render::software::ApplyRenderingScriptScalarsToScenePreview(rendering, state.previewOptions);
+    }
+    ri::render::software::ApplyPostprocessScriptScalarsToScenePreview(postprocess, rendering, state.previewOptions);
     state.nativeRenderTuning = BaseNativeRenderTuning(options.renderQuality);
     state.nativeRenderTuning.exposure = ri::content::ScriptScalarOrClamped(
         postprocess,
@@ -1438,6 +1447,20 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     } else {
         ri::core::LogInfo("Texture library not found; preview will render without texture files.");
     }
+
+    ri::games::BootstrapGamePluginRuntime(state.pluginHost, manifest.rootPath);
+    state.pluginRenderBoostActive = ri::games::ResolvePluginRenderBoost(
+        plugins,
+        pluginsPolicy,
+        state.pluginHost.session.projectData.manifestEntries.size());
+    state.pluginHost.renderBoostActive = state.pluginRenderBoostActive;
+    ri::games::ApplyGamePluginRenderTuning(
+        state.pluginHost,
+        {
+            .qualityTier = &state.nativeRenderTuning.qualityTier,
+            .exposure = &state.nativeRenderTuning.exposure,
+            .ambientLight = &state.previewOptions.ambientLight,
+        });
     return true;
 }
 
@@ -1486,6 +1509,8 @@ bool RunStandalone(const StandaloneOptions& options, std::string* error) {
             return false;
         }
         ri::games::BindRuntimeEventBus(runtime, state.runtimeEvents);
+        state.pluginHost.runtimeEvents = state.runtimeEvents;
+        ri::games::WireGamePluginEventBus(state.pluginHost);
 
         ri::core::LogSection("RawIron Standalone");
         ri::core::LogInfo("Game: " + manifest->name + " (" + manifest->id + ")");
@@ -1557,6 +1582,8 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
             return false;
         }
         ri::games::BindRuntimeEventBus(runtime, state.runtimeEvents);
+        state.pluginHost.runtimeEvents = state.runtimeEvents;
+        ri::games::WireGamePluginEventBus(state.pluginHost);
         state.previewOptions.lowSpecMode = options.softwareLowSpec;
         ri::core::LogInfo("Mouse capture forced off for headless mode.");
 
@@ -1589,6 +1616,15 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
             ApplyEnvironmentAuthoringVolumes(state, dt);
             ProcessPendingDoorTransitions(state);
             SimulateAndApplyView(state, input, dt, animationSeconds);
+            state.pluginHost.renderBoostActive = state.pluginRenderBoostActive;
+            (void)ri::games::TickGamePluginRuntime(state.pluginHost, static_cast<double>(state.elapsedSeconds));
+            ri::games::ApplyGamePluginRenderTuning(
+                state.pluginHost,
+                {
+                    .qualityTier = &state.nativeRenderTuning.qualityTier,
+                    .exposure = &state.nativeRenderTuning.exposure,
+                    .ambientLight = &state.previewOptions.ambientLight,
+                });
             if (!runtime.Frame(ri::games::BuildGameRuntimeFrameContext(frameIndex, dt, animationSeconds, animationSeconds))) {
                 break;
             }

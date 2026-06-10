@@ -301,9 +301,16 @@ mat3 CotangentFrame(vec3 n, vec3 positionWs, vec2 uv) {
     return mat3(tangent, bitangent, n);
 }
 
-vec3 ApplyNormalMap(vec3 baseNormal, vec2 uv) {
+vec3 ApplyNormalMap(vec3 baseNormal, vec2 uv, vec2 detailUv, bool blendDetailNormal) {
     vec3 tangentNormal = texture(normalTex, uv).xyz * 2.0 - 1.0;
-    tangentNormal.xy *= 0.78;
+    float tier = clamp(drawData.qualityTier, 0.0, 2.0);
+    float normalStrength = mix(0.95, 1.22, tier * 0.5);
+    tangentNormal.xy *= normalStrength;
+    if (blendDetailNormal) {
+        vec3 detailNormal = texture(detailTex, detailUv).xyz * 2.0 - 1.0;
+        detailNormal.xy *= 0.26 * normalStrength;
+        tangentNormal = normalize(vec3(tangentNormal.xy + detailNormal.xy, tangentNormal.z));
+    }
     tangentNormal = normalize(tangentNormal);
     mat3 tbn = CotangentFrame(normalize(baseNormal), worldPositionWs - cameraData.cameraWorldPosition.xyz, uv);
     return normalize(tbn * tangentNormal);
@@ -317,10 +324,11 @@ vec3 ComputePseudoReflection(vec3 normal,
                              vec3 ambientBoost) {
     vec3 reflected = reflect(-viewDir, normal);
     float horizon = clamp(reflected.y * 0.5 + 0.5, 0.0, 1.0);
-    vec3 skyLow = vec3(0.07, 0.09, 0.12) + ambientBoost * 0.05;
-    vec3 skyHigh = vec3(0.45, 0.61, 0.88) + ambientBoost * 0.11;
-    vec3 groundLow = vec3(0.04, 0.04, 0.05) + ambientBoost * 0.025;
-    vec3 groundHigh = vec3(0.11, 0.09, 0.07) + ambientBoost * 0.04;
+    vec3 fogNear = max(cameraData.sweetFxTonemapFogColorDefog.xyz, vec3(0.02));
+    vec3 skyLow = fogNear * 0.42 + ambientBoost * 0.05;
+    vec3 skyHigh = mix(fogNear, fogNear * vec3(1.06, 1.04, 0.98) + vec3(0.10, 0.14, 0.20), 0.62) + ambientBoost * 0.11;
+    vec3 groundLow = fogNear * 0.22 + ambientBoost * 0.025;
+    vec3 groundHigh = fogNear * 0.55 + ambientBoost * 0.04;
     vec3 sky = mix(skyLow, skyHigh, horizon);
     vec3 ground = mix(groundLow, groundHigh, 1.0 - horizon);
     vec3 env = mix(ground, sky, horizon);
@@ -490,45 +498,53 @@ vec3 CalibrateRoughStoneColor(vec3 color, float roughStone, bool layeredStyle, b
     return max(color, vec3(0.0));
 }
 
-float ComputeShadowFactor(vec3 normal, vec3 lightDir) {
-    if (shadowClipPosition.w <= 1e-5) {
+float ComputeShadowFactor(vec3 normal, vec3 lightDir, vec3 worldPos) {
+    float ndotl = clamp(dot(normal, lightDir), 0.0, 1.0);
+    float worldBias = 0.010 + (1.0 - ndotl) * 0.026;
+    vec4 shadowClip = cameraData.lightViewProjection * vec4(worldPos + normal * worldBias, 1.0);
+    if (shadowClip.w <= 1e-5) {
         return 1.0;
     }
-    vec3 ndc = shadowClipPosition.xyz / shadowClipPosition.w;
+    vec3 ndc = shadowClip.xyz / shadowClip.w;
     vec2 uv = ndc.xy * 0.5 + 0.5;
+    // Shadow map is rendered with a flipped viewport (negative height); flip V to match texel lookup.
+    uv.y = 1.0 - uv.y;
     float receiverDepth = ndc.z;
-    if (receiverDepth <= 0.0 || receiverDepth >= 1.0) {
+    if (receiverDepth < -0.04 || receiverDepth > 1.04) {
         return 1.0;
     }
     // Fade the shadow contribution to fully-lit near the shadow-map coverage border so
     // the limited camera-following region does not leave a hard ring on the ground where
     // shadowed surfaces abruptly snap to lit as the player moves.
     vec2 edge = min(uv, vec2(1.0) - uv);
-    float coverage = smoothstep(0.0, 0.07, min(edge.x, edge.y));
+    float coverage = smoothstep(0.0, 0.05, min(edge.x, edge.y));
     if (coverage <= 0.0) {
         return 1.0;
     }
     float tier = clamp(drawData.qualityTier, 0.0, 2.0);
-    float ndotl = clamp(dot(normal, lightDir), 0.0, 1.0);
-    float bias = max(0.00035, 0.00055 + (1.0 - ndotl) * 0.0015);
-    bias *= tier >= 2.0 ? 0.85 : 1.10;
+    float bias = max(0.00022, 0.00042 + (1.0 - ndotl) * 0.0011);
+    float slopeScale = clamp((1.0 - ndotl) / max(ndotl, 0.12), 0.0, 6.0);
+    bias += slopeScale * 0.00032;
+    bias *= tier >= 2.0 ? 0.82 : 1.05;
     vec2 texel = 1.0 / vec2(textureSize(shadowMapTex, 0));
+    int shadowTaps = tier >= 2.0 ? 16 : (tier >= 1.0 ? 10 : 6);
+    float maxRadius = tier >= 2.0 ? 3.25 : (tier >= 1.0 ? 2.5 : 1.75);
+    const float goldenAngle = 2.39996323;
     float lit = 0.0;
     float weightSum = 0.0;
-    int radius = tier >= 2.0 ? 3 : 2;
-    for (int y = -radius; y <= radius; ++y) {
-        for (int x = -radius; x <= radius; ++x) {
-            float dist = abs(float(x)) + abs(float(y));
-            float weight = 1.0 / (1.0 + dist * dist);
-            vec2 sampleUv = clamp(
-                uv + vec2(float(x), float(y)) * texel,
-                texel * 0.5,
-                vec2(1.0) - texel * 0.5);
-            float sampleDepth = texture(shadowMapTex, sampleUv).r;
-            float visibility = sampleDepth >= (receiverDepth - bias) ? 1.0 : 0.0;
-            lit += visibility * weight;
-            weightSum += weight;
+    for (int i = 0; i < 16; ++i) {
+        if (i >= shadowTaps) {
+            break;
         }
+        float tap = float(i) + 0.5;
+        float r = sqrt(tap / float(shadowTaps)) * maxRadius;
+        float angle = tap * goldenAngle;
+        vec2 offset = vec2(cos(angle), sin(angle)) * r * texel;
+        vec2 sampleUv = clamp(uv + offset, texel * 0.5, vec2(1.0) - texel * 0.5);
+        float sampleDepth = texture(shadowMapTex, sampleUv).r;
+        float visibility = sampleDepth >= (receiverDepth - bias) ? 1.0 : 0.0;
+        lit += visibility;
+        weightSum += 1.0;
     }
     float shadowTerm = lit / max(weightSum, 1e-5);
     return mix(1.0, shadowTerm, coverage);
@@ -576,7 +592,9 @@ void main() {
             );
         }
         if (hasNormalMap) {
-            normal = ApplyNormalMap(normal, uv);
+            const bool blendDetailNormal =
+                (layeredStyle || mixedMediaStyle) && !metalLookupStyle && viewDistanceWs < 40.0;
+            normal = ApplyNormalMap(normal, uv, detailUv, blendDetailNormal);
         }
         if (hasOrmMap) {
             ormTexel = texture(ormTex, uv).rgb;
@@ -656,8 +674,6 @@ void main() {
     float materialFlags =
         (metalLookupStyle ? 1.0 : 0.0) + (crystalStyle ? 2.0 : 0.0) + (mixedMediaStyle ? 4.0 : 0.0);
     float emissiveMask = clamp(length(drawData.emissiveColor + emissiveTexel), 0.0, 8.0) / 8.0;
-    fragNormalRoughness = vec4(normal * 0.5 + 0.5, clamp(drawData.roughness, 0.04, 1.0));
-    fragMaterial = vec4(clamp(drawData.metallic, 0.0, 1.0), 1.0, emissiveMask, materialFlags);
 
     float tier = clamp(drawData.qualityTier, 0.0, 2.0);
     float exposure = cameraData.renderTuning.x;
@@ -681,11 +697,15 @@ void main() {
             float distFade = clamp(1.0 - (viewDistanceWs - 1.5) / 72.0, 0.12, 1.0);
             outputAlpha *= distFade;
         }
-        vec3 linearUnlit = (albedo + drawData.emissiveColor + emissiveTexel) * exposure;
+        float unlitEmissiveBoost = hybridHdrRadiance ? mix(1.35, 2.35, tier * 0.5) : 1.0;
+        vec3 linearUnlit =
+            (albedo + drawData.emissiveColor * unlitEmissiveBoost + emissiveTexel * unlitEmissiveBoost) * exposure;
         if (hybridHdrRadiance) {
             if (retroStyle) {
                 linearUnlit = ApplyRetroStyle(linearUnlit, postUv01, cameraData.postProcessSecondary.z);
             }
+            fragNormalRoughness = vec4(normal * 0.5 + 0.5, clamp(drawData.roughness, 0.04, 1.0));
+            fragMaterial = vec4(clamp(drawData.metallic, 0.0, 1.0), 1.0, emissiveMask, materialFlags);
             fragColor = vec4(linearUnlit, outputAlpha);
             return;
         }
@@ -746,7 +766,6 @@ void main() {
         roughness = clamp(roughness + normalVariance * 0.18, 0.04, 1.0);
     }
     fragNormalRoughness = vec4(normal * 0.5 + 0.5, roughness);
-    fragMaterial = vec4(metallic, ao, emissiveMask, materialFlags);
     vec3 V = viewDir;
     vec3 H = normalize(lightDir + V);
     float nDotL = max(dot(normal, lightDir), 0.0);
@@ -765,23 +784,26 @@ void main() {
     vec3 kS = F;
     vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
     bool foliageCard = (drawData.litShadingModel & 16) != 0;
-    float shadow = ComputeShadowFactor(geomNormal, lightDir);
-    float diffuseTerm = mix(max(nDotL, 0.14), nDotL, foliageCard ? 0.35 : 0.75);
+    float shadow = ComputeShadowFactor(geomNormal, lightDir, worldPositionWs);
+    float diffuseWrapFloor = foliageCard ? 0.14 : (layeredStyle ? mix(0.16, 0.24, tier * 0.5) : 0.14);
+    float diffuseTerm = mix(max(nDotL, diffuseWrapFloor), nDotL, foliageCard ? 0.35 : (layeredStyle ? 0.62 : 0.75));
     vec3 diffuse = (kD * albedo / kPi) * diffuseTerm;
-    vec3 direct = (diffuse + (specular * max(nDotL, 0.0))) * lightColor * (foliageCard ? 1.02 : (metalLookupStyle ? 0.95 : 1.18)) * shadow;
+    vec3 direct = (diffuse + (specular * max(nDotL, 0.0))) * lightColor * (foliageCard ? 1.02 : (metalLookupStyle ? 0.95 : 1.38)) * shadow;
     vec3 ambientBoost = cameraData.presentationExtra.yzw;
     vec3 ambient = albedo * (vec3(0.08, 0.085, 0.09) + ambientBoost * 0.10) * (1.0 - metallic * 0.35);
+    ambient *= mix(0.20, 1.0, shadow);
     if (tier >= 1.0) {
         float hemi = normal.y * 0.5 + 0.5;
         float roughStone = smoothstep(0.86, 0.98, roughness) * (1.0 - metallic);
-        vec3 sky = mix(vec3(0.16, 0.18, 0.21), vec3(0.18, 0.18, 0.17), roughStone) + ambientBoost * 0.06;
-        vec3 ground = vec3(0.055, 0.052, 0.050) + ambientBoost * 0.035;
-        ambient += albedo * mix(ground, sky, hemi) * (foliageCard ? 0.12 : mix(0.095, 0.055, roughStone));
+        vec3 fogAmbientNear = max(cameraData.sweetFxTonemapFogColorDefog.xyz, vec3(0.02));
+        vec3 sky = mix(fogAmbientNear * 0.62, fogAmbientNear * 0.88 + ambientBoost * 0.10, roughStone);
+        vec3 ground = fogAmbientNear * 0.34 + ambientBoost * 0.04;
+        ambient += albedo * mix(ground, sky, hemi) * (foliageCard ? 0.12 : mix(0.10, 0.058, roughStone)) * mix(0.28, 1.0, shadow);
     }
     if (metalLookupStyle) {
         ambient *= 0.72;
     }
-    if (tier >= 2.0) {
+    if (tier >= 2.0 && viewDistanceWs < 52.0) {
         float coatStrength = 0.14;
         vec3 coatF0 = vec3(0.04);
         vec3 coatF = FresnelSchlick(hDotV, coatF0);
@@ -791,17 +813,20 @@ void main() {
         direct *= 1.0 - coatStrength * 0.25;
         direct += clearcoat * lightColor * nDotL * shadow * coatStrength;
     }
-    vec3 pseudoReflectionNear = ComputePseudoReflection(normal, viewDir, lightDir, lightColor, roughness, ambientBoost);
+    float pseudoBendMix = clamp(roughness * roughness, 0.0, 1.0);
     vec3 bentNormal = normalize(normal + normalize(cross(normal, abs(normal.y) > 0.8 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0))) * 0.065);
-    vec3 pseudoReflectionFar = ComputePseudoReflection(bentNormal, viewDir, lightDir, lightColor, roughness + 0.18, ambientBoost);
-    vec3 pseudoReflection = mix(pseudoReflectionNear, pseudoReflectionFar, clamp(roughness * roughness, 0.0, 1.0));
+    vec3 pseudoNormal = normalize(mix(normal, bentNormal, pseudoBendMix * 0.85));
+    float pseudoRoughness = mix(roughness, roughness + 0.18, pseudoBendMix);
+    vec3 pseudoReflection = ComputePseudoReflection(
+        pseudoNormal, viewDir, lightDir, lightColor, pseudoRoughness, ambientBoost);
     float fresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), crystalStyle ? 3.0 : 5.0);
     vec3 indirectFresnel = FresnelSchlickRoughness(max(dot(normal, viewDir), 0.0), F0, roughness);
     float roughStone = smoothstep(0.86, 0.98, roughness) * (1.0 - metallic);
-    float pseudoRtxStrength = layeredStyle ? 0.08 : (mixedMediaStyle ? 0.13 : (crystalStyle ? 0.28 : 0.05));
+    float pseudoRtxStrength = layeredStyle ? 0.10 : (mixedMediaStyle ? 0.15 : (crystalStyle ? 0.30 : 0.09));
     if (metalLookupStyle) {
-        pseudoRtxStrength = max(pseudoRtxStrength, 0.30);
+        pseudoRtxStrength = max(pseudoRtxStrength, 0.32);
     }
+    pseudoRtxStrength *= mix(0.88, 1.42, tier * 0.5);
     pseudoRtxStrength *= mix(1.0, 0.18, roughStone);
     vec3 pseudoRtx = pseudoReflection * mix(vec3(fresnel), indirectFresnel, metalLookupStyle ? 0.85 : 0.35) * pseudoRtxStrength;
     if (metalLookupStyle) {
@@ -817,6 +842,7 @@ void main() {
         roughness = max(roughness, 0.82);
         pseudoRtx *= 0.12;
     }
+    pseudoRtx *= mix(0.16, 1.0, shadow);
     vec3 litRgb = (ambient * ao) + direct + drawData.emissiveColor + emissiveTexel + pseudoRtx;
     vec3 toLocal = cameraData.localLightPositionRange.xyz - worldPositionWs;
     float localDistance = length(toLocal);
@@ -838,27 +864,51 @@ void main() {
         localSpec = (localD * localG * localF) / max(4.0 * localNdotV * localNdotL, 1e-4);
     }
     vec3 localDiffuse = ((vec3(1.0) - localF) * (1.0 - metallic) * albedo / kPi) * mix(max(localNdotL, 0.10), localNdotL, 0.8);
-    litRgb += (localDiffuse + localSpec) * localColor * localNdotL * localAtten * (foliageCard ? 0.72 : 1.0);
+    float localLightScale = hybridHdrRadiance ? mix(1.0, 1.22, tier * 0.5) : 1.0;
+    litRgb += (localDiffuse + localSpec) * localColor * localNdotL * localAtten * localLightScale
+        * mix(0.22, 1.0, shadow) * (foliageCard ? 0.72 : 1.0);
     litRgb = max(litRgb, albedo * (foliageCard ? 0.06 : 0.012));
     if (mixedMediaStyle) {
         litRgb = mix(litRgb, ApplyRetroStyle(litRgb, postUv01, cameraData.postProcessSecondary.z), 0.18);
     }
     litRgb = SoftEnergyLimit(max(litRgb, vec3(0.0)), 12.0);
 
-    float fogAmount = clamp(1.0 - exp2(-viewDistanceWs * fogDensity), 0.0, 1.0);
-    float horizonFactor = clamp(1.0 - max(normalize(viewDirectionWs).y, 0.0), 0.0, 1.0);
+    float fogStart = cameraData.sweetFxSplitscreenModeStrength.z;
+    float fogEnd = cameraData.sweetFxSplitscreenModeStrength.w;
+    bool linearFog = fogEnd > fogStart + 0.001;
     vec3 fogColorNear = max(cameraData.sweetFxTonemapFogColorDefog.xyz, vec3(0.0));
-    vec3 fogColorFar = fogColorNear * vec3(0.94, 1.02, 1.08);
-    vec3 fogColor = mix(fogColorNear, fogColorFar, horizonFactor);
-    vec3 color = mix(litRgb, fogColor, fogAmount * 0.18);
+    vec3 fogColorFar = max(vec3(
+        cameraData.sweetFxTonemapStrengthPad.z,
+        cameraData.sweetFxTonemapStrengthPad.w,
+        cameraData.sweetFxComparePack.w), vec3(0.0));
+    if (length(fogColorFar) < 0.02) {
+        fogColorFar = fogColorNear;
+    }
+    float fogApply = 0.0;
+    vec3 fogColor = fogColorNear;
+    if (linearFog) {
+        float distanceTint = clamp((viewDistanceWs - fogStart) / (fogEnd - fogStart), 0.0, 1.0);
+        fogColor = mix(fogColorNear, fogColorFar, distanceTint);
+        fogApply = distanceTint * clamp(fogDensity, 0.0, 1.0);
+    } else {
+        fogApply = clamp(1.0 - exp2(-viewDistanceWs * fogDensity), 0.0, 1.0);
+        float horizonFactor = clamp(1.0 - max(normalize(viewDirectionWs).y, 0.0), 0.0, 1.0);
+        fogColor = mix(fogColorNear, fogColorFar, horizonFactor);
+    }
+    float fogMix = hybridHdrRadiance ? mix(0.24, 0.36, tier * 0.5) : 0.18;
+    vec3 color = mix(litRgb, fogColor, fogApply * fogMix);
     vec3 linearLit = color * exposure;
     if (hybridHdrRadiance) {
         if (retroStyle) {
             linearLit = ApplyRetroStyle(linearLit, postUv01, cameraData.postProcessSecondary.z);
         }
+        // Pack sun shadow into the fractional part of material flags for the hybrid screen-space pass.
+        // HDR alpha must stay as material opacity so transparent glass keeps correct blending.
+        fragMaterial = vec4(metallic, ao, emissiveMask, materialFlags + shadow * 0.01);
         fragColor = vec4(linearLit, outputAlpha);
         return;
     }
+    fragMaterial = vec4(metallic, ao, emissiveMask, materialFlags);
     vec3 mapped = TonemapAcesApprox(linearLit);
     mapped = ApplyColorGrade(mapped, contrast, saturation);
     mapped = CalibrateRoughStoneColor(mapped, roughStone, layeredStyle, mixedMediaStyle);

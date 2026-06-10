@@ -1,5 +1,6 @@
 #include "EditorLeftPanel.h"
 
+#include "EditorCreatorPalette.h"
 #include "EditorRenderer.h"
 
 #include <algorithm>
@@ -34,11 +35,29 @@ namespace {
 
 } // namespace
 
+ResourceCategoryChipLayout ComputeResourceCategoryChipLayout(const RECT& hierarchyInner) {
+    ResourceCategoryChipLayout layout{};
+    const int innerWidth = std::max(40, static_cast<int>(hierarchyInner.right - hierarchyInner.left - 12));
+    constexpr int kMinChipWidth = 44;
+    constexpr int kChipGap = 4;
+    layout.chipsPerRow =
+        std::max(1, (innerWidth + kChipGap) / (kMinChipWidth + kChipGap));
+    layout.chipsPerRow = std::min(layout.chipsPerRow, kResourceCategoryChipCount);
+    layout.chipWidth =
+        std::max(kMinChipWidth, (innerWidth - (layout.chipsPerRow - 1) * kChipGap) / layout.chipsPerRow);
+    layout.rowCount = (kResourceCategoryChipCount + layout.chipsPerRow - 1) / layout.chipsPerRow;
+    layout.stripHeight = layout.rowCount * kResourceFilterStripHeight + (layout.rowCount - 1) * kChipGap;
+    return layout;
+}
+
 int LeftPanelContentTop(const RECT& hierarchyInner, const EditorLeftPanelMode mode) {
     int top = hierarchyInner.top + 6 + kLeftPanelTabHeight;
+    if (mode == EditorLeftPanelMode::Create) {
+        return top + 8;
+    }
     if (mode == EditorLeftPanelMode::Resources) {
         top += kLeftPanelGameStripHeight + 4;
-        top += kResourceFilterStripHeight + 6;
+        top += ComputeResourceCategoryChipLayout(hierarchyInner).stripHeight + 6;
         top += 24 + 6;
     } else {
         top += 24 + 6;
@@ -50,16 +69,16 @@ RECT SceneTabRect(const RECT& hierarchyInner) {
     return RECT{
         hierarchyInner.left + 6,
         hierarchyInner.top + 4,
-        hierarchyInner.left + 78,
+        hierarchyInner.left + 68,
         hierarchyInner.top + 4 + kLeftPanelTabHeight,
     };
 }
 
 RECT ResourcesTabRect(const RECT& hierarchyInner) {
     return RECT{
-        hierarchyInner.left + 82,
+        hierarchyInner.left + 140,
         hierarchyInner.top + 4,
-        hierarchyInner.left + 190,
+        hierarchyInner.left + 248,
         hierarchyInner.top + 4 + kLeftPanelTabHeight,
     };
 }
@@ -86,11 +105,12 @@ int LeftPanelSceneListBottom(const RECT& hierarchyInner) {
 RECT ResourceSearchBoxRect(const RECT& hierarchyInner) {
     const int tabStripBottom = hierarchyInner.top + 4 + kLeftPanelTabHeight;
     const int filterTop = tabStripBottom + 4 + kLeftPanelGameStripHeight + 4;
+    const ResourceCategoryChipLayout chipLayout = ComputeResourceCategoryChipLayout(hierarchyInner);
     return RECT{
         hierarchyInner.left + 6,
-        filterTop + kResourceFilterStripHeight + 4,
+        filterTop + chipLayout.stripHeight + 4,
         hierarchyInner.right - 40,
-        filterTop + kResourceFilterStripHeight + 26,
+        filterTop + chipLayout.stripHeight + 26,
     };
 }
 
@@ -119,12 +139,16 @@ RECT FocusedGameNextRect(const RECT& hierarchyInner) {
     };
 }
 
-RECT ResourceCategoryChipRect(const RECT& hierarchyInner, const int chipIndex) {
+RECT ResourceCategoryChipRect(const RECT& hierarchyInner,
+                              const int chipIndex,
+                              const ResourceCategoryChipLayout& layout) {
     const int tabStripBottom = hierarchyInner.top + 4 + kLeftPanelTabHeight;
     const int filterTop = tabStripBottom + 4 + kLeftPanelGameStripHeight + 4;
-    const int width = 56;
-    const int left = hierarchyInner.left + 6 + chipIndex * (width + 4);
-    return RECT{left, filterTop, left + width, filterTop + kResourceFilterStripHeight};
+    const int row = chipIndex / layout.chipsPerRow;
+    const int col = chipIndex % layout.chipsPerRow;
+    const int left = hierarchyInner.left + 6 + col * (layout.chipWidth + 4);
+    const int top = filterTop + row * (kResourceFilterStripHeight + 4);
+    return RECT{left, top, left + layout.chipWidth, top + kResourceFilterStripHeight};
 }
 
 int CountVisibleSceneRows(const RECT& hierarchyInner) {
@@ -169,6 +193,8 @@ void RenderEditorLeftPanel(HDC dc,
     EditorRenderer::DrawToolbarButton(
         dc, SceneTabRect(hierarchyInner), "Scene", model.mode == EditorLeftPanelMode::Scene, theme.smallFont);
     EditorRenderer::DrawToolbarButton(
+        dc, CreateTabRect(hierarchyInner), "Create", model.mode == EditorLeftPanelMode::Create, theme.smallFont);
+    EditorRenderer::DrawToolbarButton(
         dc, ResourcesTabRect(hierarchyInner), "Resources", model.mode == EditorLeftPanelMode::Resources, theme.smallFont);
 
     const int tabBottom = hierarchyInner.top + 4 + kLeftPanelTabHeight;
@@ -192,6 +218,10 @@ void RenderEditorLeftPanel(HDC dc,
                                      DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
     }
 
+    if (model.mode == EditorLeftPanelMode::Create) {
+        return;
+    }
+
     if (model.mode == EditorLeftPanelMode::Resources) {
         const std::array<WorkspaceResourceCategory, 8> categories = {
             WorkspaceResourceCategory::Manifest,
@@ -203,11 +233,12 @@ void RenderEditorLeftPanel(HDC dc,
             WorkspaceResourceCategory::Asset,
             WorkspaceResourceCategory::Other,
         };
+        const ResourceCategoryChipLayout chipLayout = ComputeResourceCategoryChipLayout(hierarchyInner);
         for (int index = 0; index < static_cast<int>(categories.size()); ++index) {
             const WorkspaceResourceCategory category = categories[static_cast<std::size_t>(index)];
             const bool active = (model.resourceCategoryMask & WorkspaceCategoryBit(category)) != 0u;
             EditorRenderer::DrawToolbarButton(dc,
-                                              ResourceCategoryChipRect(hierarchyInner, index),
+                                              ResourceCategoryChipRect(hierarchyInner, index, chipLayout),
                                               WorkspaceCategoryShortLabel(category),
                                               active,
                                               theme.smallFont);
@@ -229,7 +260,7 @@ void RenderEditorLeftPanel(HDC dc,
                                      theme.smallFont,
                                      DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
         EditorRenderer::DrawToolbarButton(dc, clearRect, "x", !model.searchQuery.empty(), theme.smallFont);
-    } else {
+    } else if (model.mode == EditorLeftPanelMode::Scene) {
         const RECT searchRect = SceneSearchBoxRect(hierarchyInner);
         const RECT clearRect = SceneSearchClearRect(hierarchyInner);
         EditorRenderer::DrawInsetFrame(dc,
@@ -289,7 +320,7 @@ void RenderEditorLeftPanel(HDC dc,
             const ri::scene::Node& node = nodes[static_cast<std::size_t>(nodeIndex)];
             const int depth = ComputeNodeDepth(*model.scene, nodeIndex);
             const int indent = 8 + depth * 14;
-            RECT rowRect{hierarchyInner.left + 6, y, hierarchyInner.right - 6, y + 24};
+            RECT rowRect{hierarchyInner.left + 6, y, hierarchyInner.right - 6, y + kHierarchyRowHeight};
             if (static_cast<std::size_t>(nodeIndex) == model.selectedNode) {
                 EditorRenderer::FillRectColor(dc, rowRect, RGB(124, 89, 40));
             }
