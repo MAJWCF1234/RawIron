@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -60,6 +61,12 @@ struct VulkanPreviewWindowOptions {
     Win32MessageHook onWin32Message = nullptr;
     /// Written once the client HWND exists (same as swapchain surface target).
     void* outClientHwnd = nullptr;
+    /// Optional existing Win32 HWND to use as the Vulkan surface target instead of creating one.
+    void* clientHwnd = nullptr;
+    /// Optional thread-safe notification when the client HWND has been created.
+    std::function<void(void*)> onClientHwndCreated{};
+    /// Optional Win32 parent HWND. When set, the Vulkan surface is created as an embedded child window.
+    void* parentHwnd = nullptr;
     /// When true, native preview renders scene-linear HDR into an offscreen target and runs a fullscreen
     /// composite (tonemap + existing post chain) to the swapchain — foundation for SSAO/SSR/bloom masks.
     bool enableHybridHdrPresentation = true;
@@ -70,7 +77,13 @@ struct VulkanPreviewWindowOptions {
 };
 
 struct VulkanNativeSceneFrame {
+    /// Optional owner that keeps an immutable scene snapshot alive through submission.
+    std::shared_ptr<const ri::scene::Scene> sceneOwner{};
     const ri::scene::Scene* scene = nullptr;
+    /// Stable identity for GPU mesh/texture caches when `scene` is an immutable per-frame snapshot.
+    const void* sceneCacheIdentity = nullptr;
+    /// Monotonic snapshot id; unchanged ids mean the editor has not published a new frame payload.
+    std::uint64_t frameSequence = 0;
     int cameraNode = -1;
     ri::scene::PhotoModeCameraOverrides photoMode{};
     bool photoModeEnabled = false;

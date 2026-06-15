@@ -3,14 +3,19 @@
 #include "EditorAuthoringCatalog.h"
 #include "EditorRenderer.h"
 #include "RawIron/Render/ScenePreview.h"
+#include "RawIron/Render/PreviewTexture.h"
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Scene/StructuralBrush.h"
 #include "RawIron/Scene/WorkspaceSandbox.h"
 #include "RawIron/Structural/StructuralPrimitives.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
+#include <sstream>
+#include <system_error>
 #include <unordered_set>
 
 namespace ri::editor {
@@ -30,6 +35,188 @@ using ri::scene::SetOrbitCameraState;
 using ri::scene::ShapeFromStructuralPreset;
 using ri::scene::StarterScene;
 using ri::scene::StructuralBrushSpawnOptions;
+
+constexpr int kThumbnailRenderSize = kStructuralPickerCellSize * 2;
+constexpr std::uint32_t kThumbnailCacheVersion = 1U;
+constexpr auto kThumbnailStaleAge = std::chrono::hours(24 * 7);
+
+[[nodiscard]] std::string SanitizeFileToken(std::string_view value) {
+    std::string token;
+    token.reserve(value.size());
+    for (const char c : value) {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+            token.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        } else {
+            token.push_back('_');
+        }
+    }
+    return token.empty() ? std::string("item") : token;
+}
+
+[[nodiscard]] std::filesystem::path ThumbnailCacheRoot() {
+    return std::filesystem::current_path() / "Saved" / "Editor" / "CatalogThumbnailCache";
+}
+
+[[nodiscard]] std::string SectionToken(const AuthoringCatalogSection section) {
+    switch (section) {
+        case AuthoringCatalogSection::Structural:
+            return "structural";
+        case AuthoringCatalogSection::Volumes:
+            return "volumes";
+        case AuthoringCatalogSection::Logic:
+            return "logic";
+    }
+    return "catalog";
+}
+
+[[nodiscard]] std::filesystem::path ThumbnailImagePath(const AuthoringCatalogSection section,
+                                                       const std::size_t presetIndex) {
+    const std::string label = ActiveCatalogPresetLabel(section, presetIndex);
+    return ThumbnailCacheRoot() / SectionToken(section)
+        / (std::to_string(presetIndex) + "_" + SanitizeFileToken(label) + ".bmp");
+}
+
+[[nodiscard]] std::filesystem::path ThumbnailMetaPath(const AuthoringCatalogSection section,
+                                                      const std::size_t presetIndex) {
+    return ThumbnailImagePath(section, presetIndex).replace_extension(".meta");
+}
+
+[[nodiscard]] ri::render::software::SoftwareImage DownsampleSoftwareImage(
+    const ri::render::software::SoftwareImage& source,
+    const int targetWidth,
+    const int targetHeight) {
+    if (source.width <= 0 || source.height <= 0 || source.pixels.empty()) {
+        return {};
+    }
+    ri::render::software::SoftwareImage result{};
+    result.width = std::max(1, targetWidth);
+    result.height = std::max(1, targetHeight);
+    result.pixels.resize(static_cast<std::size_t>(result.width * result.height * 3), 0);
+    for (int y = 0; y < result.height; ++y) {
+        const int srcY0 = (y * source.height) / result.height;
+        const int srcY1 = std::max(srcY0 + 1, ((y + 1) * source.height) / result.height);
+        for (int x = 0; x < result.width; ++x) {
+            const int srcX0 = (x * source.width) / result.width;
+            const int srcX1 = std::max(srcX0 + 1, ((x + 1) * source.width) / result.width);
+            int samples = 0;
+            int sumR = 0;
+            int sumG = 0;
+            int sumB = 0;
+            for (int sy = srcY0; sy < srcY1; ++sy) {
+                for (int sx = srcX0; sx < srcX1; ++sx) {
+                    const std::size_t srcOffset = static_cast<std::size_t>((sy * source.width + sx) * 3);
+                    sumR += source.pixels[srcOffset + 0];
+                    sumG += source.pixels[srcOffset + 1];
+                    sumB += source.pixels[srcOffset + 2];
+                    ++samples;
+                }
+            }
+            const std::size_t dstOffset = static_cast<std::size_t>((y * result.width + x) * 3);
+            result.pixels[dstOffset + 0] = static_cast<std::uint8_t>(sumR / std::max(1, samples));
+            result.pixels[dstOffset + 1] = static_cast<std::uint8_t>(sumG / std::max(1, samples));
+            result.pixels[dstOffset + 2] = static_cast<std::uint8_t>(sumB / std::max(1, samples));
+        }
+    }
+    return result;
+}
+
+[[nodiscard]] ri::render::software::SoftwareImage SoftwareImageFromRgba(
+    const ri::render::software::RgbaImage& rgba) {
+    if (!rgba.Valid()) {
+        return {};
+    }
+    ri::render::software::SoftwareImage image{};
+    image.width = rgba.width;
+    image.height = rgba.height;
+    image.pixels.resize(static_cast<std::size_t>(image.width * image.height * 3), 0);
+    for (std::size_t pixel = 0; pixel < static_cast<std::size_t>(image.width * image.height); ++pixel) {
+        image.pixels[pixel * 3 + 0] = rgba.rgba[pixel * 4 + 0];
+        image.pixels[pixel * 3 + 1] = rgba.rgba[pixel * 4 + 1];
+        image.pixels[pixel * 3 + 2] = rgba.rgba[pixel * 4 + 2];
+    }
+    return image;
+}
+
+[[nodiscard]] std::string ComputeTextureFingerprint(const std::filesystem::path& textureRoot) {
+    if (textureRoot.empty()) {
+        return "no-textures";
+    }
+    std::uint64_t latest = 0;
+    std::error_code ec{};
+    if (!std::filesystem::exists(textureRoot, ec)) {
+        return "missing-textures";
+    }
+    for (std::filesystem::recursive_directory_iterator it(textureRoot, ec), end; it != end; it.increment(ec)) {
+        if (ec || !it->is_regular_file(ec)) {
+            continue;
+        }
+        const auto stamp = it->last_write_time(ec).time_since_epoch().count();
+        if (!ec) {
+            latest = std::max(latest, static_cast<std::uint64_t>(stamp));
+        }
+    }
+    return std::to_string(latest);
+}
+
+[[nodiscard]] std::string ComputePresetFingerprint(const AuthoringCatalogSection section,
+                                                   const std::size_t presetIndex,
+                                                   std::string_view textureFingerprint) {
+    std::ostringstream stream;
+    stream << "v=" << kThumbnailCacheVersion << ";section=" << SectionToken(section) << ";index=" << presetIndex << ";";
+    if (section == AuthoringCatalogSection::Structural) {
+        const auto& preset = StructuralPresetAt(presetIndex);
+        stream << preset.label << ";" << preset.structuralType << ";"
+               << preset.radialSegments << ";" << preset.sides << ";" << preset.detail << ";"
+               << preset.steps << ";" << preset.cellsX << ";" << preset.cellsY << ";" << preset.cellsZ << ";"
+               << preset.hemisphereSegments << ";" << preset.thickness << ";" << preset.depth << ";"
+               << preset.strutRadius << ";" << preset.topRadius << ";" << preset.bottomRadius << ";"
+               << preset.length << ";" << preset.spanDegrees << ";" << preset.sweepDegrees << ";"
+               << preset.startDegrees << ";" << preset.ridgeRatio << ";" << preset.exponentX << ";"
+               << preset.exponentY << ";" << preset.exponentZ << ";" << preset.archStyle << ";"
+               << preset.latticeStyle << ";" << preset.bevelRadius << ";" << preset.bevelSegments << ";"
+               << preset.centerColumn << ";" << textureFingerprint;
+    } else {
+        const auto& preset = AuthoringCatalogPresetAt(section, presetIndex);
+        stream << preset.label << ";" << preset.typeId << ";" << static_cast<int>(preset.spawnKind);
+    }
+    return stream.str();
+}
+
+[[nodiscard]] bool ThumbnailEntryExpired(const std::filesystem::path& path) {
+    std::error_code ec{};
+    if (!std::filesystem::exists(path, ec)) {
+        return true;
+    }
+    const auto stamp = std::filesystem::last_write_time(path, ec);
+    if (ec) {
+        return true;
+    }
+    return (decltype(stamp)::clock::now() - stamp) > kThumbnailStaleAge;
+}
+
+[[nodiscard]] std::string ReadFingerprintFromMeta(const std::filesystem::path& metaPath) {
+    std::ifstream input(metaPath);
+    if (!input) {
+        return {};
+    }
+    std::string line;
+    while (std::getline(input, line)) {
+        if (line.rfind("fingerprint=", 0) == 0) {
+            return line.substr(std::string("fingerprint=").size());
+        }
+    }
+    return {};
+}
+
+void WriteThumbnailMeta(const std::filesystem::path& metaPath, const std::string& fingerprint) {
+    std::error_code ec{};
+    std::filesystem::create_directories(metaPath.parent_path(), ec);
+    std::ofstream output(metaPath, std::ios::trunc);
+    if (!output) {
+        return;
+    }
+    output << "fingerprint=" << fingerprint << "\n";
+}
 
 [[nodiscard]] ri::math::Vec3 ThumbnailScaleForPreset(const ri::scene::StructuralPrimitivePreset& preset) {
     const std::string_view label = preset.label;
@@ -448,6 +635,28 @@ void StructuralThumbnailCache::Clear() {
     logicReady_.clear();
 }
 
+void StructuralThumbnailCache::ClearPersistent() {
+    std::error_code ec{};
+    std::filesystem::remove_all(ThumbnailCacheRoot(), ec);
+    Clear();
+}
+
+void StructuralThumbnailCache::PrecacheAll(const std::filesystem::path& textureRoot, const bool force) {
+    if (force) {
+        ClearPersistent();
+    }
+    textureFingerprint_ = ComputeTextureFingerprint(textureRoot);
+    for (const AuthoringCatalogSection section : {
+             AuthoringCatalogSection::Structural,
+             AuthoringCatalogSection::Volumes,
+             AuthoringCatalogSection::Logic }) {
+        const std::size_t count = ActiveCatalogPresetCount(section);
+        for (std::size_t index = 0; index < count; ++index) {
+            Ensure(section, index, textureRoot);
+        }
+    }
+}
+
 void StructuralThumbnailCache::Ensure(const AuthoringCatalogSection section,
                                       const std::size_t presetIndex,
                                       const std::filesystem::path& textureRoot) {
@@ -470,43 +679,79 @@ void StructuralThumbnailCache::Ensure(const AuthoringCatalogSection section,
         return;
     }
 
+    if (textureFingerprint_.empty()) {
+        textureFingerprint_ = ComputeTextureFingerprint(textureRoot);
+    }
+
+    const std::filesystem::path imagePath = ThumbnailImagePath(section, presetIndex);
+    const std::filesystem::path metaPath = ThumbnailMetaPath(section, presetIndex);
+    const std::string fingerprint = ComputePresetFingerprint(section, presetIndex, textureFingerprint_);
+    const bool cacheValid =
+        !ThumbnailEntryExpired(imagePath)
+        && !ThumbnailEntryExpired(metaPath)
+        && std::filesystem::exists(imagePath)
+        && std::filesystem::exists(metaPath)
+        && ReadFingerprintFromMeta(metaPath) == fingerprint;
+    if (cacheValid) {
+        const auto rgba = ri::render::software::LoadRgbaImageFile(imagePath);
+        (*images)[presetIndex] = SoftwareImageFromRgba(rgba);
+        (*ready)[presetIndex] = !(*images)[presetIndex].pixels.empty();
+        if ((*ready)[presetIndex]) {
+            return;
+        }
+    }
+
+    ri::render::software::SoftwareImage generated{};
+
     if (section == AuthoringCatalogSection::Structural) {
         const ri::scene::StructuralPrimitivePreset& preset = kStructuralPrimitivePresets[presetIndex];
         if (IsGuideStructuralPreset(preset.structuralType)) {
-            (*images)[presetIndex] =
-                RenderGuideWireframeThumbnail(preset, kStructuralPickerCellSize, kStructuralPickerCellSize);
-            (*ready)[presetIndex] = !(*images)[presetIndex].pixels.empty();
-            return;
+            generated = DownsampleSoftwareImage(
+                RenderGuideWireframeThumbnail(preset, kThumbnailRenderSize, kThumbnailRenderSize),
+                kStructuralPickerCellSize,
+                kStructuralPickerCellSize);
+        } else {
+            StarterScene thumbScene = BuildPresetThumbnailScene(preset);
+            ri::render::software::ScenePreviewOptions options{};
+            options.width = kThumbnailRenderSize;
+            options.height = kThumbnailRenderSize;
+            options.clearTop = ri::math::Vec3{0.05f, 0.06f, 0.09f};
+            options.clearBottom = ri::math::Vec3{0.12f, 0.13f, 0.17f};
+            options.ambientLight = ri::math::Vec3{0.20f, 0.21f, 0.24f};
+            options.previewSharpenAmount = 0.10f;
+            options.orderedDither = false;
+            options.pointSampleTextures = false;
+            options.adaptiveTextureSampling = false;
+            options.renderer = ri::render::software::ScenePreviewRenderer::Raster;
+            if (!textureRoot.empty()) {
+                options.textureRoot = textureRoot;
+            }
+            generated = DownsampleSoftwareImage(
+                ri::render::software::RenderScenePreview(thumbScene.scene,
+                                                         thumbScene.handles.orbitCamera.cameraNode,
+                                                         options),
+                kStructuralPickerCellSize,
+                kStructuralPickerCellSize);
         }
-
-        StarterScene thumbScene = BuildPresetThumbnailScene(preset);
-        ri::render::software::ScenePreviewOptions options{};
-        options.width = kStructuralPickerCellSize;
-        options.height = kStructuralPickerCellSize;
-        options.clearTop = ri::math::Vec3{0.06f, 0.07f, 0.10f};
-        options.clearBottom = ri::math::Vec3{0.12f, 0.13f, 0.17f};
-        options.ambientLight = ri::math::Vec3{0.16f, 0.17f, 0.20f};
-        options.orderedDither = false;
-        options.renderer = ri::render::software::ScenePreviewRenderer::Raster;
-        if (!textureRoot.empty()) {
-            options.textureRoot = textureRoot;
-        }
-
-        (*images)[presetIndex] =
-            ri::render::software::RenderScenePreview(thumbScene.scene,
-                                                     thumbScene.handles.orbitCamera.cameraNode,
-                                                     options);
-        (*ready)[presetIndex] = !(*images)[presetIndex].pixels.empty();
-        return;
+    } else {
+        const AuthoringCatalogPreset& preset = AuthoringCatalogPresetAt(section, presetIndex);
+        const ri::math::Vec3 wireColor = AuthoringCatalogWireColor(section, preset.typeId);
+        const ri::math::Vec3 thumbScale =
+            section == AuthoringCatalogSection::Logic ? ri::math::Vec3{0.35f, 0.35f, 0.35f}
+                                                      : ri::math::Vec3{1.0f, 1.0f, 1.0f};
+        generated = DownsampleSoftwareImage(
+            RenderBoxWireframeThumbnail(wireColor, thumbScale, kThumbnailRenderSize, kThumbnailRenderSize),
+            kStructuralPickerCellSize,
+            kStructuralPickerCellSize);
     }
 
-    const AuthoringCatalogPreset& preset = AuthoringCatalogPresetAt(section, presetIndex);
-    const ri::math::Vec3 wireColor = AuthoringCatalogWireColor(section, preset.typeId);
-    const ri::math::Vec3 thumbScale =
-        section == AuthoringCatalogSection::Logic ? ri::math::Vec3{0.35f, 0.35f, 0.35f}
-                                                  : ri::math::Vec3{1.0f, 1.0f, 1.0f};
-    (*images)[presetIndex] =
-        RenderBoxWireframeThumbnail(wireColor, thumbScale, kStructuralPickerCellSize, kStructuralPickerCellSize);
+    std::error_code ec{};
+    std::filesystem::create_directories(imagePath.parent_path(), ec);
+    if (!generated.pixels.empty()) {
+        ri::render::software::SaveBmp(generated, imagePath.string());
+        WriteThumbnailMeta(metaPath, fingerprint);
+    }
+    (*images)[presetIndex] = std::move(generated);
     (*ready)[presetIndex] = !(*images)[presetIndex].pixels.empty();
 }
 
@@ -725,7 +970,7 @@ void RenderStructuralPickerOverlay(HDC dc,
     for (const StructuralPickerCell& cell : layout.cells) {
         visibleIndices.push_back(cell.presetIndex);
     }
-    thumbnails.PrewarmVisible(model.section, visibleIndices, textureRoot, 2);
+    thumbnails.PrewarmVisible(model.section, visibleIndices, textureRoot, 4);
 
     for (const StructuralPickerCell& cell : layout.cells) {
         const bool selected = cell.presetIndex == model.selectedPresetIndex;

@@ -73,6 +73,115 @@ void ToggleSceneSubtreeVisibilityAndCollision(std::vector<int>& hiddenNodeHandle
     }
 }
 
+[[nodiscard]] int CloneSceneSubtreeRecursive(Scene& scene,
+                                             int srcHandle,
+                                             int newParent,
+                                             int sourceRoot,
+                                             const std::string& rootName,
+                                             const Transform& rootPlacement) {
+    const Node& src = scene.GetNode(srcHandle);
+    const std::string nodeName = srcHandle == sourceRoot ? rootName : src.name;
+    const int dup = scene.CreateNode(nodeName, newParent);
+    scene.GetNode(dup).localTransform = srcHandle == sourceRoot ? rootPlacement : src.localTransform;
+    if (src.mesh != kInvalidHandle) {
+        scene.AttachMesh(dup, src.mesh, src.material);
+    }
+    for (const int child : src.children) {
+        (void)CloneSceneSubtreeRecursive(scene, child, dup, sourceRoot, rootName, rootPlacement);
+    }
+    return dup;
+}
+
+int CloneSceneSubtree(Scene& scene,
+                      const int sourceRoot,
+                      const int parent,
+                      const std::string& rootName,
+                      const Transform& rootPlacement) {
+    if (sourceRoot == kInvalidHandle) {
+        return kInvalidHandle;
+    }
+    return CloneSceneSubtreeRecursive(scene, sourceRoot, parent, sourceRoot, rootName, rootPlacement);
+}
+
+int EnsureSceneModelTemplate(Scene& scene,
+                             SceneModelTemplateRegistry& registry,
+                             const ImportedModelOptions& templateImportOptions,
+                             std::string* error) {
+    if (templateImportOptions.sourcePath.empty()) {
+        if (error != nullptr) {
+            *error = "Scene model template import requires a source path.";
+        }
+        return kInvalidHandle;
+    }
+
+    const std::string sourceKey = templateImportOptions.sourcePath.lexically_normal().generic_string();
+    const auto cached = registry.templateRootsBySourceKey.find(sourceKey);
+    if (cached != registry.templateRootsBySourceKey.end()) {
+        if (error != nullptr) {
+            error->clear();
+        }
+        return cached->second;
+    }
+
+    if (registry.templateParent == kInvalidHandle) {
+        registry.templateParent = scene.CreateNode("SceneModelTemplates", kInvalidHandle);
+        scene.GetNode(registry.templateParent).localTransform.position = ri::math::Vec3{0.0f, -2000.0f, 0.0f};
+    }
+
+    ImportedModelOptions importOptions = templateImportOptions;
+    importOptions.parent = registry.templateParent;
+    importOptions.snapMeshBaseToGround = false;
+    std::string importError;
+    const int templateRoot = AddModelNode(scene, importOptions, &importError);
+    if (templateRoot == kInvalidHandle) {
+        if (error != nullptr) {
+            *error = importError;
+        }
+        return kInvalidHandle;
+    }
+
+    registry.templateRootsBySourceKey.emplace(sourceKey, templateRoot);
+    if (error != nullptr) {
+        error->clear();
+    }
+    return templateRoot;
+}
+
+int InstantiateSceneModelTemplate(Scene& scene,
+                                  SceneModelTemplateRegistry& registry,
+                                  const std::filesystem::path& sourcePath,
+                                  const int parent,
+                                  const std::string& instanceName,
+                                  const Transform& placement,
+                                  const float snapGroundY,
+                                  const ImportedModelOptions& templateImportOptions,
+                                  std::string* error) {
+    ImportedModelOptions importOptions = templateImportOptions;
+    importOptions.sourcePath = sourcePath;
+    if (importOptions.nodeName.empty()) {
+        importOptions.nodeName = "Template_" + sourcePath.stem().string();
+    }
+
+    const int templateRoot = EnsureSceneModelTemplate(scene, registry, importOptions, error);
+    if (templateRoot == kInvalidHandle) {
+        return kInvalidHandle;
+    }
+
+    const int instanceRoot = CloneSceneSubtree(scene, templateRoot, parent, instanceName, placement);
+    if (instanceRoot == kInvalidHandle) {
+        if (error != nullptr) {
+            *error = "Failed to clone scene model template for " + sourcePath.string();
+        }
+        return kInvalidHandle;
+    }
+
+    SnapNodeMeshBaseToGround(scene, instanceRoot, snapGroundY);
+    if (error != nullptr) {
+        error->clear();
+    }
+    return instanceRoot;
+}
+
 void ApplySubtreeEmissiveIntensity(Scene& scene,
                                    const int rootNode,
                                    const float emissiveScale,

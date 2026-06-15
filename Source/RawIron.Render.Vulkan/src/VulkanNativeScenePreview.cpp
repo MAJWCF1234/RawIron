@@ -87,6 +87,9 @@ struct NativeSceneDraw {
     std::string resolvedAlbedoRelPath{};
     bool nativeWaterUvMotion = false;
     bool additiveBlend = false;
+    bool transparent = false;
+    float alphaCutoff = 1.0f;
+    float sortDepthSq = 0.0f;
 };
 
 constexpr std::int32_t kNativeMaterialStyleRetro = 1 << 5;
@@ -98,6 +101,7 @@ constexpr std::int32_t kNativeMaterialStyleMetalLookup = 1 << 10;
 constexpr std::int32_t kNativeMaterialHasNormalMap = 1 << 11;
 constexpr std::int32_t kNativeMaterialHasOrmMap = 1 << 12;
 constexpr std::int32_t kNativeMaterialWorldTileUv = 1 << 13;
+constexpr std::int32_t kNativeMaterialAlbedoAlphaSmoothness = 1 << 14;
 
 // When a lit, textured material does not author its own normal/ORM maps, the engine
 // derives them from the albedo (Sobel-based relief + cavity occlusion) so flat
@@ -792,8 +796,9 @@ struct NativeDrawPushConstants {
     float roughness = 1.0f;
     float emissiveColor[3] = {0.0f, 0.0f, 0.0f};
     float qualityTier = 1.0f;
+    float alphaCutoff = 1.0f;
 };
-static_assert(sizeof(NativeDrawPushConstants) == 128, "Must match NativeScenePreview.{vert,frag} push_constant layout.");
+static_assert(sizeof(NativeDrawPushConstants) == 132, "Must match NativeScenePreview.{vert,frag} push_constant layout.");
 static_assert(offsetof(NativeDrawPushConstants, useTexture) == 88);
 static_assert(offsetof(NativeDrawPushConstants, nativeWaterUvMotion) == 92);
 static_assert(offsetof(NativeDrawPushConstants, nativeWaterTime) == 96);
@@ -802,6 +807,7 @@ static_assert(offsetof(NativeDrawPushConstants, metallic) == 104);
 static_assert(offsetof(NativeDrawPushConstants, roughness) == 108);
 static_assert(offsetof(NativeDrawPushConstants, emissiveColor) == 112);
 static_assert(offsetof(NativeDrawPushConstants, qualityTier) == 124);
+static_assert(offsetof(NativeDrawPushConstants, alphaCutoff) == 128);
 static_assert(sizeof(NativeSceneVertex) == 32);
 
 struct CpuMeshGeometry {
@@ -1987,12 +1993,13 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                     color.x,
                     color.y,
                     color.z,
-                    std::clamp(material.opacity, 0.0f, 1.0f),
+                    material.transparent ? std::clamp(material.opacity, 0.0f, 1.0f) : 1.0f,
                 };
                 if (material.alphaCutoff > 0.01f && material.alphaCutoff < 0.99f && !material.transparent) {
                     draw.alphaCutout = true;
-                    draw.color[3] = std::clamp(material.alphaCutoff, 0.01f, 0.99f);
+                    draw.alphaCutoff = std::clamp(material.alphaCutoff, 0.01f, 0.99f);
                 }
+                draw.transparent = material.transparent;
                 draw.emissiveColor = {
                     std::clamp(material.emissiveColor.x, 0.0f, 16.0f),
                     std::clamp(material.emissiveColor.y, 0.0f, 16.0f),
@@ -2042,13 +2049,17 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                 if (material.bakedWorldTileUv) {
                     draw.materialStyleFlags |= kNativeMaterialWorldTileUv;
                 }
+                if (material.albedoAlphaIsSmoothness) {
+                    draw.materialStyleFlags |= kNativeMaterialAlbedoAlphaSmoothness;
+                }
                 const bool hasRealAlbedo =
                     !draw.resolvedAlbedoRelPath.empty()
                     && (!material.baseColorTexture.empty()
                         || (!material.baseColorTextureFrames.empty()
                             && !material.baseColorTextureFrames.front().empty()));
                 const bool canGenerateMaps = kNativeGenerateMissingMaterialMaps && draw.litShadingModel
-                                             && draw.useTexture && hasRealAlbedo && !metalLookupMaterial;
+                                             && draw.useTexture && hasRealAlbedo && !metalLookupMaterial
+                                             && !material.albedoAlphaIsSmoothness;
                 const bool specGlossWorkflow =
                     material.materialWorkflow == ri::scene::MaterialWorkflow::SpecGloss;
                 // Normal maps are workflow-agnostic, but the generated map is ORM-packed
@@ -2063,6 +2074,12 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                 }
                 draw.doubleSided = material.doubleSided;
                 draw.additiveBlend = material.additiveBlend;
+                {
+                    const float dx = draw.model[12] - data.cameraWorldPosition[0];
+                    const float dy = draw.model[13] - data.cameraWorldPosition[1];
+                    const float dz = draw.model[14] - data.cameraWorldPosition[2];
+                    draw.sortDepthSq = (dx * dx) + (dy * dy) + (dz * dz);
+                }
                 data.draws.push_back(draw);
                 break;
             }
@@ -4506,7 +4523,26 @@ struct NativeAlbedoTextureCache {
             return &it->second;
         }
 
-        const ri::render::software::RgbaImage rgba = ri::render::software::LoadRgbaImageFile(absolutePath);
+        ri::render::software::RgbaImage rgba = ri::render::software::LoadRgbaImageFile(absolutePath);
+        if (!rgba.Valid()) {
+            static const std::array<const char*, 4> kAlternateExtensions{".png", ".tif", ".tiff", ".jpg"};
+            const std::string stem = absolutePath.stem().string();
+            const fs::path parent = absolutePath.parent_path();
+            for (const char* ext : kAlternateExtensions) {
+                const fs::path alternate = parent / (stem + ext);
+                if (alternate == absolutePath) {
+                    continue;
+                }
+                std::error_code ec{};
+                if (!fs::exists(alternate, ec) || ec) {
+                    continue;
+                }
+                rgba = ri::render::software::LoadRgbaImageFile(alternate);
+                if (rgba.Valid()) {
+                    break;
+                }
+            }
+        }
         if (!rgba.Valid()) {
             return nullptr;
         }
@@ -4649,10 +4685,34 @@ struct NativeAlbedoTextureCache {
         const bool alreadySuffixed = stem.size() >= 2
                                      && (stem.ends_with("_n") || stem.ends_with("_s") || stem.ends_with("_r"));
         if (!alreadySuffixed) {
-            const fs::path sibling = albedoPath.parent_path() / (stem + suffix + albedoPath.extension().string());
-            std::error_code ec{};
-            if (fs::exists(sibling, ec) && !ec) {
-                result = sibling;
+            static const std::array<const char*, 4> kMapExtensions{".png", ".tif", ".tiff", ".jpg"};
+            for (const char* ext : kMapExtensions) {
+                const fs::path sibling = albedoPath.parent_path() / (stem + suffix + ext);
+                std::error_code ec{};
+                if (fs::exists(sibling, ec) && !ec) {
+                    result = sibling;
+                    break;
+                }
+            }
+            if (result.empty() && suffix == "_n") {
+                static const std::array<const char*, 3> kNormalTokens{
+                    "_Normal",
+                    "_normal",
+                    " Normal combined",
+                };
+                for (const char* token : kNormalTokens) {
+                    for (const char* ext : kMapExtensions) {
+                        const fs::path sibling = albedoPath.parent_path() / (stem + token + ext);
+                        std::error_code ec{};
+                        if (fs::exists(sibling, ec) && !ec) {
+                            result = sibling;
+                            break;
+                        }
+                    }
+                    if (!result.empty()) {
+                        break;
+                    }
+                }
             }
         }
         siblingMapByKey.emplace(cacheKey, result);
@@ -4973,6 +5033,7 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                               VkDescriptorSet skyTextureDescriptorSet,
                               const CachedGpuMesh& skyMesh,
                               VkPipeline scenePipeline,
+                              VkPipeline scenePipelineTransparent,
                               VkPipeline scenePipelineAdditive,
                               VkPipelineLayout pipelineLayout,
                               VkDescriptorSet cameraDescriptorSet,
@@ -5044,6 +5105,12 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                      [&sceneData](const std::size_t leftIndex, const std::size_t rightIndex) {
                          const NativeSceneDraw& left = sceneData.draws[leftIndex];
                          const NativeSceneDraw& right = sceneData.draws[rightIndex];
+                         if (left.transparent && right.transparent && left.sortDepthSq != right.sortDepthSq) {
+                             return left.sortDepthSq > right.sortDepthSq;
+                         }
+                         if (left.transparent != right.transparent) {
+                             return left.transparent < right.transparent;
+                         }
                          if (left.additiveBlend != right.additiveBlend) {
                              return left.additiveBlend < right.additiveBlend;
                          }
@@ -5099,12 +5166,7 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                                 nullptr);
         for (const std::size_t drawIndex : sortedDrawIndices) {
             const NativeSceneDraw& draw = sceneData.draws[drawIndex];
-            // Alpha-cutout foliage is expensive in depth-only pass without alpha sampling;
-            // skip it here to keep realtime shadows stable and performant.
-            if (draw.alphaCutout) {
-                continue;
-            }
-            if (draw.additiveBlend) {
+            if (draw.transparent || draw.additiveBlend) {
                 continue;
             }
             const auto meshIt = meshCache.find(draw.meshHandle);
@@ -5122,9 +5184,36 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
             }
             NativeDrawPushConstants pushConstants{};
             std::copy(draw.model.begin(), draw.model.end(), std::begin(pushConstants.model));
+            std::copy(draw.color.begin(), draw.color.end(), std::begin(pushConstants.color));
+            pushConstants.tiling[0] = draw.textureTiling[0];
+            pushConstants.tiling[1] = draw.textureTiling[1];
+            pushConstants.useTexture = draw.useTexture ? 1 : 0;
+            pushConstants.litShadingModel = (draw.litShadingModel ? 1 : 0) | (draw.alphaCutout ? 2 : 0);
+            if (draw.doubleSided) {
+                pushConstants.litShadingModel |= 8;
+            }
+            if (draw.alphaCutout && draw.doubleSided) {
+                pushConstants.litShadingModel |= 16;
+            }
+            pushConstants.litShadingModel |= draw.materialStyleFlags;
+            pushConstants.alphaCutoff = draw.alphaCutoff;
+            if (draw.alphaCutout && draw.useTexture) {
+                VkDescriptorSet textureSet = textureCache.descriptorFor(scene, draw, sceneData.textureRoot);
+                if (textureSet == VK_NULL_HANDLE) {
+                    textureSet = textureCache.whiteDescriptorSet;
+                }
+                vkCmdBindDescriptorSets(commandBuffer,
+                                        VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        shadowPipelineLayout,
+                                        1,
+                                        1,
+                                        &textureSet,
+                                        0,
+                                        nullptr);
+            }
             vkCmdPushConstants(commandBuffer,
                                shadowPipelineLayout,
-                               VK_SHADER_STAGE_VERTEX_BIT,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                                0,
                                sizeof(NativeDrawPushConstants),
                                &pushConstants);
@@ -5175,7 +5264,13 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                             &shadowDescriptorSet,
                             0,
                             nullptr);
-    bool sceneAdditivePipelineBound = false;
+    enum class ScenePipelineMode {
+        Opaque,
+        Transparent,
+        Additive,
+    };
+    ScenePipelineMode scenePipelineMode = ScenePipelineMode::Opaque;
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline);
     VkDescriptorSet lastBoundTextureSet = VK_NULL_HANDLE;
     for (const std::size_t drawIndex : sortedDrawIndices) {
         const NativeSceneDraw& draw = sceneData.draws[drawIndex];
@@ -5192,13 +5287,18 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
             continue;
         }
 
-        if (scenePipelineAdditive != VK_NULL_HANDLE) {
-            if (draw.additiveBlend != sceneAdditivePipelineBound) {
-                vkCmdBindPipeline(commandBuffer,
-                                  VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                  draw.additiveBlend ? scenePipelineAdditive : scenePipeline);
-                sceneAdditivePipelineBound = draw.additiveBlend;
+        const ScenePipelineMode neededPipelineMode = draw.additiveBlend
+            ? ScenePipelineMode::Additive
+            : (draw.transparent ? ScenePipelineMode::Transparent : ScenePipelineMode::Opaque);
+        if (neededPipelineMode != scenePipelineMode) {
+            VkPipeline boundPipeline = scenePipeline;
+            if (neededPipelineMode == ScenePipelineMode::Transparent && scenePipelineTransparent != VK_NULL_HANDLE) {
+                boundPipeline = scenePipelineTransparent;
+            } else if (neededPipelineMode == ScenePipelineMode::Additive && scenePipelineAdditive != VK_NULL_HANDLE) {
+                boundPipeline = scenePipelineAdditive;
             }
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, boundPipeline);
+            scenePipelineMode = neededPipelineMode;
         }
 
         VkDescriptorSet textureSet = textureCache.descriptorFor(scene, draw, sceneData.textureRoot);
@@ -5242,6 +5342,7 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
         pushConstants.emissiveColor[1] = draw.emissiveColor[1];
         pushConstants.emissiveColor[2] = draw.emissiveColor[2];
         pushConstants.qualityTier = static_cast<float>(sceneData.renderQualityTier);
+        pushConstants.alphaCutoff = draw.alphaCutoff;
         vkCmdPushConstants(commandBuffer,
                            pipelineLayout,
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -5435,31 +5536,49 @@ bool RunVulkanNativeSceneLoop(const int width,
             throw std::runtime_error("RunVulkanNativeSceneLoop requires a frame callback.");
         }
 
-        ScopedWindowClass windowClass(&NativePreviewWindowProc);
         WindowState windowState{};
         windowState.messageUserData = options.messageUserData;
         windowState.onWin32Message = options.onWin32Message;
 
-        RECT rect{0, 0, std::max(width, 1), std::max(height, 1)};
-        AdjustWindowRect(&rect, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, FALSE);
-        HWND hwnd = CreateWindowExW(
-            0,
-            windowClass.className,
-            Widen(options.windowTitle).c_str(),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            rect.right - rect.left,
-            rect.bottom - rect.top,
-            nullptr,
-            nullptr,
-            windowClass.instance,
-            &windowState);
-        if (hwnd == nullptr) {
-            throw std::runtime_error("CreateWindowExW failed for Vulkan native scene preview window.");
+        const HWND existingClientHwnd = static_cast<HWND>(options.clientHwnd);
+        const bool usingExistingClient = existingClientHwnd != nullptr;
+        const HWND parentHwnd = static_cast<HWND>(options.parentHwnd);
+        const bool embedded = parentHwnd != nullptr || usingExistingClient;
+        std::unique_ptr<ScopedWindowClass> ownedWindowClass{};
+        const HINSTANCE surfaceInstance = GetModuleHandleW(nullptr);
+        HWND hwnd = existingClientHwnd;
+        if (!usingExistingClient) {
+            ownedWindowClass = std::make_unique<ScopedWindowClass>(&NativePreviewWindowProc);
+            const DWORD windowStyle = embedded
+                ? (WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN)
+                : (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE);
+            RECT rect{0, 0, std::max(width, 1), std::max(height, 1)};
+            if (!embedded) {
+                AdjustWindowRect(&rect, windowStyle, FALSE);
+            }
+            hwnd = CreateWindowExW(
+                embedded ? WS_EX_NOPARENTNOTIFY : 0,
+                ownedWindowClass->className,
+                Widen(options.windowTitle).c_str(),
+                windowStyle,
+                embedded ? 0 : CW_USEDEFAULT,
+                embedded ? 0 : CW_USEDEFAULT,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+                parentHwnd,
+                nullptr,
+                ownedWindowClass->instance,
+                &windowState);
+            if (hwnd == nullptr) {
+                throw std::runtime_error("CreateWindowExW failed for Vulkan native scene preview window.");
+            }
         }
+        windowState.hwnd = hwnd;
         if (options.outClientHwnd != nullptr) {
             *static_cast<HWND*>(options.outClientHwnd) = hwnd;
+        }
+        if (!usingExistingClient && options.onClientHwndCreated) {
+            options.onClientHwndCreated(hwnd);
         }
 
         const std::array<const char*, 2> extensions = {
@@ -5488,7 +5607,7 @@ bool RunVulkanNativeSceneLoop(const int width,
 
         const VkWin32SurfaceCreateInfoKHR surfaceInfo{
             .sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
-            .hinstance = windowClass.instance,
+            .hinstance = surfaceInstance,
             .hwnd = hwnd,
         };
         VkSurfaceKHR surface = VK_NULL_HANDLE;
@@ -5531,6 +5650,7 @@ bool RunVulkanNativeSceneLoop(const int width,
 
         VkPhysicalDeviceProperties physicalDeviceProperties{};
         vkGetPhysicalDeviceProperties(selection.physicalDevice, &physicalDeviceProperties);
+        ri::core::LogInfo(std::string("Vulkan device: ") + physicalDeviceProperties.deviceName);
         const float maxSamplerAnisotropy =
             std::min(16.0f, std::max(1.0f, physicalDeviceProperties.limits.maxSamplerAnisotropy));
 
@@ -5540,28 +5660,66 @@ bool RunVulkanNativeSceneLoop(const int width,
         vkGetDeviceQueue(device, selection.presentQueueFamily, 0, &presentQueue);
 
         VkSurfaceCapabilitiesKHR capabilities{};
-        ExpectVk(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(selection.physicalDevice, surface, &capabilities),
-                 "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
-
         std::uint32_t formatCount = 0;
-        ExpectVk(vkGetPhysicalDeviceSurfaceFormatsKHR(selection.physicalDevice, surface, &formatCount, nullptr),
-                 "vkGetPhysicalDeviceSurfaceFormatsKHR(count)");
-        std::vector<VkSurfaceFormatKHR> formats(formatCount);
-        ExpectVk(vkGetPhysicalDeviceSurfaceFormatsKHR(selection.physicalDevice, surface, &formatCount, formats.data()),
-                 "vkGetPhysicalDeviceSurfaceFormatsKHR(list)");
+        std::vector<VkSurfaceFormatKHR> formats{};
+        std::uint32_t presentModeCount = 0;
+        std::vector<VkPresentModeKHR> presentModes{};
+        const int surfaceQueryAttempts = usingExistingClient ? 20 : 1;
+        bool surfaceQueryOk = false;
+        for (int attempt = 0; attempt < surfaceQueryAttempts; ++attempt) {
+            const VkResult capabilitiesResult =
+                vkGetPhysicalDeviceSurfaceCapabilitiesKHR(selection.physicalDevice, surface, &capabilities);
+            if (capabilitiesResult == VK_ERROR_SURFACE_LOST_KHR || capabilitiesResult == VK_ERROR_OUT_OF_DATE_KHR) {
+                Sleep(25);
+                continue;
+            }
+            ExpectVk(capabilitiesResult, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+
+            const VkResult formatCountResult =
+                vkGetPhysicalDeviceSurfaceFormatsKHR(selection.physicalDevice, surface, &formatCount, nullptr);
+            if (formatCountResult == VK_ERROR_SURFACE_LOST_KHR || formatCountResult == VK_ERROR_OUT_OF_DATE_KHR) {
+                Sleep(25);
+                continue;
+            }
+            ExpectVk(formatCountResult, "vkGetPhysicalDeviceSurfaceFormatsKHR(count)");
+            formats.assign(formatCount, {});
+            if (formatCount > 0U) {
+                const VkResult formatListResult = vkGetPhysicalDeviceSurfaceFormatsKHR(
+                    selection.physicalDevice, surface, &formatCount, formats.data());
+                if (formatListResult == VK_ERROR_SURFACE_LOST_KHR || formatListResult == VK_ERROR_OUT_OF_DATE_KHR) {
+                    Sleep(25);
+                    continue;
+                }
+                ExpectVk(formatListResult, "vkGetPhysicalDeviceSurfaceFormatsKHR(list)");
+            }
+
+            const VkResult presentModeCountResult =
+                vkGetPhysicalDeviceSurfacePresentModesKHR(selection.physicalDevice, surface, &presentModeCount, nullptr);
+            if (presentModeCountResult == VK_ERROR_SURFACE_LOST_KHR || presentModeCountResult == VK_ERROR_OUT_OF_DATE_KHR) {
+                Sleep(25);
+                continue;
+            }
+            ExpectVk(presentModeCountResult, "vkGetPhysicalDeviceSurfacePresentModesKHR(count)");
+            presentModes.assign(presentModeCount, {});
+            if (presentModeCount > 0U) {
+                const VkResult presentModeListResult = vkGetPhysicalDeviceSurfacePresentModesKHR(
+                    selection.physicalDevice, surface, &presentModeCount, presentModes.data());
+                if (presentModeListResult == VK_ERROR_SURFACE_LOST_KHR || presentModeListResult == VK_ERROR_OUT_OF_DATE_KHR) {
+                    Sleep(25);
+                    continue;
+                }
+                ExpectVk(presentModeListResult, "vkGetPhysicalDeviceSurfacePresentModesKHR(list)");
+            }
+            surfaceQueryOk = true;
+            break;
+        }
+        if (!surfaceQueryOk) {
+            throw std::runtime_error("Vulkan surface did not stabilize for swapchain creation.");
+        }
         if (formats.empty()) {
             throw std::runtime_error("No Vulkan surface formats were available.");
         }
         const VkSurfaceFormatKHR surfaceFormat = ChooseSurfaceFormat(formats);
-
-        std::uint32_t presentModeCount = 0;
-        ExpectVk(vkGetPhysicalDeviceSurfacePresentModesKHR(selection.physicalDevice, surface, &presentModeCount, nullptr),
-                 "vkGetPhysicalDeviceSurfacePresentModesKHR(count)");
-        std::vector<VkPresentModeKHR> presentModes(presentModeCount);
-        if (presentModeCount > 0U) {
-            ExpectVk(vkGetPhysicalDeviceSurfacePresentModesKHR(selection.physicalDevice, surface, &presentModeCount, presentModes.data()),
-                     "vkGetPhysicalDeviceSurfacePresentModesKHR(list)");
-        }
         const VkPresentModeKHR presentMode = ChoosePresentMode(presentModes, options.presentModePreference);
         ri::core::LogInfo(std::string("Vulkan present mode: ") + PresentModeName(presentMode));
 
@@ -5894,6 +6052,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         VkShaderModule compositeVertShader = VK_NULL_HANDLE;
         VkShaderModule compositeFragShader = VK_NULL_HANDLE;
         VkPipeline pipelineHdrScene = VK_NULL_HANDLE;
+        VkPipeline pipelineHdrSceneTransparent = VK_NULL_HANDLE;
         VkPipeline pipelineHdrSceneAdditive = VK_NULL_HANDLE;
         VkPipeline skyPipelineHdr = VK_NULL_HANDLE;
         VkPipeline compositePipeline = VK_NULL_HANDLE;
@@ -6223,9 +6382,9 @@ bool RunVulkanNativeSceneLoop(const int width,
         ExpectVk(vkCreatePipelineLayout(device, &skyPipelineLayoutInfo, nullptr, &skyPipelineLayout),
                  "vkCreatePipelineLayout(sky)");
 
-        const std::array<VkDescriptorSetLayout, 1> shadowPipelineSetLayouts = {cameraSetLayout};
+        const std::array<VkDescriptorSetLayout, 2> shadowPipelineSetLayouts = {cameraSetLayout, textureSetLayout};
         const VkPushConstantRange shadowPushConstantRange{
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
             .offset = 0,
             .size = sizeof(NativeDrawPushConstants),
         };
@@ -6246,6 +6405,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         const VkShaderModule skyVertShader = CreateShaderModule(device, shaderDir / "NativeSkybox.vert.spv");
         const VkShaderModule skyFragShader = CreateShaderModule(device, shaderDir / "NativeSkybox.frag.spv");
         const VkShaderModule shadowVertShader = CreateShaderModule(device, shaderDir / "NativeShadowDepth.vert.spv");
+        const VkShaderModule shadowFragShader = CreateShaderModule(device, shaderDir / "NativeShadowDepth.frag.spv");
         if (enableHybridHdr) {
             compositeVertShader = CreateShaderModule(device, shaderDir / "NativeHybridComposite.vert.spv");
             compositeFragShader = CreateShaderModule(device, shaderDir / "NativeHybridComposite.frag.spv");
@@ -6325,7 +6485,12 @@ bool RunVulkanNativeSceneLoop(const int width,
             .depthWriteEnable = VK_TRUE,
             .depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
         };
-        const VkPipelineColorBlendAttachmentState blendAttachment{
+        const VkPipelineColorBlendAttachmentState blendAttachmentOpaque{
+            .blendEnable = VK_FALSE,
+            .colorWriteMask =
+                VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+        };
+        const VkPipelineColorBlendAttachmentState blendAttachmentTransparent{
             .blendEnable = VK_TRUE,
             .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
             .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
@@ -6341,15 +6506,25 @@ bool RunVulkanNativeSceneLoop(const int width,
             .colorWriteMask =
                 VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
         };
-        const std::array<VkPipelineColorBlendAttachmentState, 3> sceneBlendAttachments = {
-            blendAttachment,
+        const std::array<VkPipelineColorBlendAttachmentState, 3> sceneBlendAttachmentsOpaque = {
+            blendAttachmentOpaque,
             gbufferBlendAttachment,
             gbufferBlendAttachment,
         };
-        const VkPipelineColorBlendStateCreateInfo colorBlendInfo{
+        const std::array<VkPipelineColorBlendAttachmentState, 3> sceneBlendAttachmentsTransparent = {
+            blendAttachmentTransparent,
+            gbufferBlendAttachment,
+            gbufferBlendAttachment,
+        };
+        const VkPipelineColorBlendStateCreateInfo colorBlendInfoOpaque{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-            .attachmentCount = static_cast<std::uint32_t>(sceneBlendAttachments.size()),
-            .pAttachments = sceneBlendAttachments.data(),
+            .attachmentCount = static_cast<std::uint32_t>(sceneBlendAttachmentsOpaque.size()),
+            .pAttachments = sceneBlendAttachmentsOpaque.data(),
+        };
+        const VkPipelineColorBlendStateCreateInfo colorBlendInfoTransparent{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+            .attachmentCount = static_cast<std::uint32_t>(sceneBlendAttachmentsTransparent.size()),
+            .pAttachments = sceneBlendAttachmentsTransparent.data(),
         };
         const std::array<VkDynamicState, 2> dynamicStates = {
             VK_DYNAMIC_STATE_VIEWPORT,
@@ -6370,7 +6545,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             .pRasterizationState = &rasterizationInfo,
             .pMultisampleState = &multisampleInfo,
             .pDepthStencilState = &depthStencilInfo,
-            .pColorBlendState = &colorBlendInfo,
+            .pColorBlendState = &colorBlendInfoOpaque,
             .pDynamicState = &dynamicStateInfo,
             .layout = pipelineLayout,
             .renderPass = renderPass,
@@ -6379,6 +6554,15 @@ bool RunVulkanNativeSceneLoop(const int width,
         VkPipeline pipeline = VK_NULL_HANDLE;
         ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineInfo, nullptr, &pipeline),
                  "vkCreateGraphicsPipelines");
+
+        VkGraphicsPipelineCreateInfo pipelineTransparentInfo = pipelineInfo;
+        pipelineTransparentInfo.pColorBlendState = &colorBlendInfoTransparent;
+        VkPipelineDepthStencilStateCreateInfo depthStencilTransparentInfo = depthStencilInfo;
+        depthStencilTransparentInfo.depthWriteEnable = VK_FALSE;
+        pipelineTransparentInfo.pDepthStencilState = &depthStencilTransparentInfo;
+        VkPipeline pipelineTransparent = VK_NULL_HANDLE;
+        ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineTransparentInfo, nullptr, &pipelineTransparent),
+                 "vkCreateGraphicsPipelines(scene-transparent)");
 
         VkPipelineDepthStencilStateCreateInfo depthStencilAdditiveInfo = depthStencilInfo;
         depthStencilAdditiveInfo.depthWriteEnable = VK_FALSE;
@@ -6481,6 +6665,11 @@ bool RunVulkanNativeSceneLoop(const int width,
             ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &hdrPipelineInfo, nullptr, &pipelineHdrScene),
                      "vkCreateGraphicsPipelines(hdr-scene)");
 
+            VkGraphicsPipelineCreateInfo hdrTransparentInfo = pipelineTransparentInfo;
+            hdrTransparentInfo.renderPass = hdrSceneRenderPass;
+            ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &hdrTransparentInfo, nullptr, &pipelineHdrSceneTransparent),
+                     "vkCreateGraphicsPipelines(hdr-scene-transparent)");
+
             VkGraphicsPipelineCreateInfo hdrAdditiveInfo = pipelineAdditiveInfo;
             hdrAdditiveInfo.renderPass = hdrSceneRenderPass;
             ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &hdrAdditiveInfo, nullptr, &pipelineHdrSceneAdditive),
@@ -6581,6 +6770,13 @@ bool RunVulkanNativeSceneLoop(const int width,
             .module = shadowVertShader,
             .pName = "main",
         };
+        const VkPipelineShaderStageCreateInfo shadowFragStage{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .module = shadowFragShader,
+            .pName = "main",
+        };
+        const std::array<VkPipelineShaderStageCreateInfo, 2> shadowShaderStages = {shadowVertStage, shadowFragStage};
         const VkPipelineRasterizationStateCreateInfo shadowRasterizationInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
             .polygonMode = VK_POLYGON_MODE_FILL,
@@ -6613,8 +6809,8 @@ bool RunVulkanNativeSceneLoop(const int width,
         };
         const VkGraphicsPipelineCreateInfo shadowPipelineInfo{
             .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-            .stageCount = 1,
-            .pStages = &shadowVertStage,
+            .stageCount = static_cast<std::uint32_t>(shadowShaderStages.size()),
+            .pStages = shadowShaderStages.data(),
             .pVertexInputState = &vertexInputInfo,
             .pInputAssemblyState = &inputAssemblyInfo,
             .pViewportState = &viewportStateInfo,
@@ -6645,7 +6841,7 @@ bool RunVulkanNativeSceneLoop(const int width,
                                    "vkMapMemory(uniform)");
 
         std::unordered_map<int, CachedGpuMesh> meshCache{};
-        const ri::scene::Scene* cachedScene = nullptr;
+        const void* cachedSceneIdentity = nullptr;
 
         const VkDescriptorPoolSize cameraPoolSize{
             .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -7057,17 +7253,25 @@ bool RunVulkanNativeSceneLoop(const int width,
         }
         std::vector<VkFence> imageInFlight(commandBuffers.size(), VK_NULL_HANDLE);
         std::uint32_t currentFrame = 0U;
+        std::uint64_t lastFrameSequence = 0;
+        bool hasPresentedFrame = false;
 
-        ShowWindow(hwnd, SW_SHOW);
-        UpdateWindow(hwnd);
+        if (!usingExistingClient) {
+            ShowWindow(hwnd, SW_SHOW);
+            UpdateWindow(hwnd);
+        }
 
         while (windowState.running) {
-            MSG message{};
-            while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE) != 0) {
-                TranslateMessage(&message);
-                DispatchMessageW(&message);
-            }
-            if (!windowState.running) {
+            if (!usingExistingClient) {
+                MSG message{};
+                while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE) != 0) {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+                if (!windowState.running) {
+                    break;
+                }
+            } else if (!IsWindow(hwnd)) {
                 break;
             }
 
@@ -7075,6 +7279,10 @@ bool RunVulkanNativeSceneLoop(const int width,
             std::string frameError;
             if (!buildFrame(frame, &frameError)) {
                 throw std::runtime_error(frameError.empty() ? "Native Vulkan frame callback failed." : frameError);
+            }
+            if (hasPresentedFrame && frame.frameSequence == lastFrameSequence) {
+                Sleep(33);
+                continue;
             }
             if (options.shaderPresentation.loaded) {
                 ri::render::ApplyShaderConfig(frame.postProcess, options.shaderPresentation);
@@ -7098,9 +7306,11 @@ bool RunVulkanNativeSceneLoop(const int width,
             if (sceneData.scene == nullptr) {
                 throw std::runtime_error("Native Vulkan scene data did not include a scene pointer.");
             }
-            if (cachedScene != sceneData.scene) {
+            const void* sceneIdentity =
+                frame.sceneCacheIdentity != nullptr ? frame.sceneCacheIdentity : sceneData.scene;
+            if (cachedSceneIdentity != sceneIdentity) {
                 ClearGpuMeshCache(device, meshCache);
-                cachedScene = sceneData.scene;
+                cachedSceneIdentity = sceneIdentity;
                 textureCache.warmForScene(*sceneData.scene, sceneData.draws, sceneData.textureRoot);
             }
             for (const NativeSceneDraw& draw : sceneData.draws) {
@@ -7601,6 +7811,7 @@ bool RunVulkanNativeSceneLoop(const int width,
                 VK_NULL_HANDLE,
                 &imageIndex);
             if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
+                Sleep(16);
                 continue;
             }
             ExpectVk(acquireResult, "vkAcquireNextImageKHR");
@@ -7626,6 +7837,7 @@ bool RunVulkanNativeSceneLoop(const int width,
                                      skyTextureSet,
                                      skyMesh,
                                      enableHybridHdr ? pipelineHdrScene : pipeline,
+                                     enableHybridHdr ? pipelineHdrSceneTransparent : pipelineTransparent,
                                      enableHybridHdr ? pipelineHdrSceneAdditive : pipelineAdditive,
                                      pipelineLayout,
                                      cameraDescriptorSet,
@@ -7674,9 +7886,16 @@ bool RunVulkanNativeSceneLoop(const int width,
                 .pImageIndices = &imageIndex,
             };
             const VkResult presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
-            if (presentResult != VK_SUCCESS && presentResult != VK_SUBOPTIMAL_KHR) {
+            if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
+                Sleep(16);
+                currentFrame = (currentFrame + 1U) % kFramesInFlight;
+                continue;
+            }
+            if (presentResult != VK_SUCCESS) {
                 ExpectVk(presentResult, "vkQueuePresentKHR");
             }
+            lastFrameSequence = frame.frameSequence;
+            hasPresentedFrame = true;
             currentFrame = (currentFrame + 1U) % kFramesInFlight;
         }
 
@@ -7704,6 +7923,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         DestroyBuffer(device, uniformBuffer);
         DestroyBuffer(device, skyUniformBuffer);
         vkDestroyPipeline(device, shadowPipeline, nullptr);
+        vkDestroyShaderModule(device, shadowFragShader, nullptr);
         vkDestroyShaderModule(device, shadowVertShader, nullptr);
         vkDestroyPipelineLayout(device, shadowPipelineLayout, nullptr);
         vkDestroyFramebuffer(device, shadowFramebuffer, nullptr);
@@ -7727,6 +7947,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             vkDestroyPipeline(device, compositePipeline, nullptr);
             vkDestroyPipeline(device, skyPipelineHdr, nullptr);
             vkDestroyPipeline(device, pipelineHdrSceneAdditive, nullptr);
+            vkDestroyPipeline(device, pipelineHdrSceneTransparent, nullptr);
             vkDestroyPipeline(device, pipelineHdrScene, nullptr);
             vkDestroyShaderModule(device, compositeFragShader, nullptr);
             vkDestroyShaderModule(device, compositeVertShader, nullptr);
@@ -7750,6 +7971,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         vkDestroyShaderModule(device, skyVertShader, nullptr);
         vkDestroyPipelineLayout(device, skyPipelineLayout, nullptr);
         vkDestroyPipeline(device, pipelineAdditive, nullptr);
+        vkDestroyPipeline(device, pipelineTransparent, nullptr);
         vkDestroyPipeline(device, pipeline, nullptr);
         vkDestroyShaderModule(device, fragShader, nullptr);
         vkDestroyShaderModule(device, vertShader, nullptr);

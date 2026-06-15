@@ -104,7 +104,7 @@ struct ProceduralTerrainOptions {
     Transform transform{};
     std::string materialName = "terrain-material";
     ShadingModel shadingModel = ShadingModel::Lit;
-    MaterialStyle materialStyle = MaterialStyle::Layered;
+    MaterialStyle materialStyle = MaterialStyle::Standard;
     MaterialWorkflow materialWorkflow = MaterialWorkflow::MetalRough;
     ri::math::Vec3 baseColor{0.44f, 0.49f, 0.40f};
     std::string baseColorTexture{};
@@ -121,6 +121,7 @@ struct ProceduralTerrainOptions {
     float heightFrequency = 0.026f;
     float detailAmplitude = 0.95f;
     float detailFrequency = 0.11f;
+    float roughness = 0.88f;
 };
 
 [[nodiscard]] Mesh MakeUvSphereMesh(const std::string& name);

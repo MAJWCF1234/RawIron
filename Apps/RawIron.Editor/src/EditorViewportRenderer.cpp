@@ -2,8 +2,12 @@
 
 #include "EditorRenderer.h"
 #include "EditorUiTheme.h"
+#include "RawIron/Render/PreviewTexture.h"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
+#include <filesystem>
 
 namespace ri::editor {
 
@@ -18,22 +22,229 @@ void StrokeLine(HDC dc, LONG x1, LONG y1, LONG x2, LONG y2, COLORREF color, int 
     DeleteObject(pen);
 }
 
+void FillEllipse(HDC dc, const RECT& rect, const COLORREF color) {
+    HBRUSH brush = CreateSolidBrush(color);
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, brush));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, GetStockObject(NULL_PEN)));
+    Ellipse(dc, rect.left, rect.top, rect.right, rect.bottom);
+    SelectObject(dc, oldPen);
+    SelectObject(dc, oldBrush);
+    DeleteObject(brush);
+}
+
+bool PointInEllipse(const RECT& rect, const POINT& point) {
+    const float rx = static_cast<float>(rect.right - rect.left) * 0.5f;
+    const float ry = static_cast<float>(rect.bottom - rect.top) * 0.5f;
+    if (rx <= 0.0f || ry <= 0.0f) {
+        return false;
+    }
+    const float cx = static_cast<float>(rect.left) + rx;
+    const float cy = static_cast<float>(rect.top) + ry;
+    const float dx = (static_cast<float>(point.x) - cx) / rx;
+    const float dy = (static_cast<float>(point.y) - cy) / ry;
+    return (dx * dx) + (dy * dy) <= 1.0f;
+}
+
+RECT MakeRect(const LONG left, const LONG top, const LONG width, const LONG height) {
+    return RECT{left, top, left + width, top + height};
+}
+
+POINT CenterOf(const RECT& rect) {
+    return POINT{(rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2};
+}
+
+RECT RectFromCenter(const POINT& center, const LONG width, const LONG height) {
+    return RECT{center.x - width / 2, center.y - height / 2, center.x - width / 2 + width, center.y - height / 2 + height};
+}
+
+struct CameraRailSpriteSet {
+    ri::render::software::RgbaImage orbitPad{};
+    ri::render::software::RgbaImage orbitPadGlow{};
+    ri::render::software::RgbaImage orbitNub{};
+    ri::render::software::RgbaImage orbitNubGlow{};
+    ri::render::software::RgbaImage dpadBase{};
+    ri::render::software::RgbaImage dpadNub{};
+    ri::render::software::RgbaImage dpadGlow{};
+    ri::render::software::RgbaImage dpadSmallGlow{};
+    ri::render::software::RgbaImage dpadNorthGlow{};
+    ri::render::software::RgbaImage dpadSouthGlow{};
+    ri::render::software::RgbaImage dpadEastGlow{};
+    ri::render::software::RgbaImage dpadWestGlow{};
+    ri::render::software::RgbaImage depthPad{};
+    ri::render::software::RgbaImage depthPadGlow{};
+    ri::render::software::RgbaImage depthNub{};
+    ri::render::software::RgbaImage depthNubGlow{};
+    ri::render::software::RgbaImage homeButton{};
+    ri::render::software::RgbaImage homeButtonGlow{};
+    ri::render::software::RgbaImage frameSelectionButton{};
+    ri::render::software::RgbaImage frameSelectionButtonGlow{};
+    ri::render::software::RgbaImage frameAllButton{};
+    ri::render::software::RgbaImage frameAllButtonGlow{};
+    ri::render::software::RgbaImage resolutionScaleButton{};
+    ri::render::software::RgbaImage resolutionScaleButtonGlow{};
+    bool loaded = false;
+    std::uint32_t resolvedAssetCount = 0;
+};
+
+CameraRailSpriteSet& CameraRailSprites() {
+    static CameraRailSpriteSet sprites{};
+    if (sprites.loaded) {
+        return sprites;
+    }
+    const std::filesystem::path root = "O:/RawIron/Assets/UI/mobile-controls-1.0/Sprites";
+    CameraRailSpriteSet& spriteRef = sprites;
+    const auto load = [&spriteRef](ri::render::software::RgbaImage& image, const std::filesystem::path& path) {
+        image = ri::render::software::LoadRgbaImageFile(path);
+        if (image.Valid()) {
+            ++spriteRef.resolvedAssetCount;
+        }
+    };
+    load(sprites.orbitPad, root / "Style A/Default/joystick_circle_pad_a.png");
+    load(sprites.orbitNub, root / "Style A/Default/joystick_circle_nub_a.png");
+    load(sprites.orbitPadGlow, root / "Highlights A/Default/joystick_circle_pad_highlight.png");
+    load(sprites.orbitNubGlow, root / "Highlights A/Default/joystick_circle_nub_highlight.png");
+    load(sprites.dpadBase, root / "Style A/Default/dpad.png");
+    load(sprites.dpadNub, root / "Style A/Default/joystick_hexagon_nub_b.png");
+    load(sprites.dpadGlow, root / "Highlights A/Default/dpad_highlight.png");
+    load(sprites.dpadSmallGlow, root / "Highlights A/Default/dpad_small_highlight.png");
+    load(sprites.dpadNorthGlow, root / "Highlights A/Default/dpad_element_north_highlight.png");
+    load(sprites.dpadSouthGlow, root / "Highlights A/Default/dpad_element_south_highlight.png");
+    load(sprites.dpadEastGlow, root / "Highlights A/Default/dpad_element_east_highlight.png");
+    load(sprites.dpadWestGlow, root / "Highlights A/Default/dpad_element_west_highlight.png");
+    load(sprites.depthPad, root / "Style A/Default/joystick_square_pad_a.png");
+    load(sprites.depthPadGlow, root / "Highlights A/Default/joystick_square_pad_highlight.png");
+    load(sprites.depthNub, root / "Style A/Default/joystick_square_nub_a.png");
+    load(sprites.depthNubGlow, root / "Highlights A/Default/joystick_square_nub_highlight.png");
+    load(sprites.homeButton, root / "Style A/Default/button_circle.png");
+    load(sprites.homeButtonGlow, root / "Highlights A/Default/button_circle_highlight.png");
+    load(sprites.frameSelectionButton, root / "Style A/Default/button_diamond.png");
+    load(sprites.frameSelectionButtonGlow, root / "Highlights A/Default/button_diamond_highlight.png");
+    load(sprites.frameAllButton, root / "Style A/Default/button_hexagon.png");
+    load(sprites.frameAllButtonGlow, root / "Highlights A/Default/button_hexagon_highlight.png");
+    load(sprites.resolutionScaleButton, root / "Style A/Default/button_square.png");
+    load(sprites.resolutionScaleButtonGlow, root / "Highlights A/Default/button_square_highlight.png");
+    sprites.loaded = true;
+    return sprites;
+}
+
 } // namespace
 
 AuthoringToolbarRects ComputeAuthoringToolbarRects(const RECT& toolStrip) {
-    constexpr LONG kAuthoringBlockWidth = 656;
+    return ComputeEditorToolbarLayout(toolStrip).authoring;
+}
+
+EditorToolbarLayout ComputeEditorToolbarLayout(const RECT& toolStrip) {
+    const LONG width = toolStrip.right - toolStrip.left;
+    const bool compact = width < 1600;
     const LONG rowTop = toolStrip.top + 8;
     const LONG rowBot = toolStrip.bottom - 8;
-    const LONG x0 = std::max(toolStrip.left + 806L, toolStrip.right - 12 - kAuthoringBlockWidth);
-    AuthoringToolbarRects rects{};
-    rects.addCube = {x0, rowTop, x0 + 80, rowBot};
-    rects.addPlane = {x0 + 86, rowTop, x0 + 166, rowBot};
-    rects.addTrigger = {x0 + 172, rowTop, x0 + 268, rowBot};
-    rects.addLight = {x0 + 274, rowTop, x0 + 350, rowBot};
-    rects.duplicate = {x0 + 356, rowTop, x0 + 432, rowBot};
-    rects.exportCsv = {x0 + 438, rowTop, x0 + 518, rowBot};
-    rects.play = {x0 + 524, rowTop, x0 + 656, rowBot};
-    return rects;
+    EditorToolbarLayout layout{};
+    layout.compact = compact;
+
+    if (compact) {
+        layout.select = {toolStrip.left + 58, rowTop, toolStrip.left + 96, rowBot};
+        layout.create = {toolStrip.left + 100, rowTop, toolStrip.left + 138, rowBot};
+        layout.camera = {toolStrip.left + 142, rowTop, toolStrip.left + 188, rowBot};
+        layout.tacticalGroup = {toolStrip.left + 196, rowTop - 3, toolStrip.left + 632, rowBot + 3};
+        layout.translate = {toolStrip.left + 204, rowTop, toolStrip.left + 240, rowBot};
+        layout.rotate = {toolStrip.left + 244, rowTop, toolStrip.left + 280, rowBot};
+        layout.scale = {toolStrip.left + 284, rowTop, toolStrip.left + 320, rowBot};
+        layout.axisX = {toolStrip.left + 328, rowTop, toolStrip.left + 360, rowBot};
+        layout.axisY = {toolStrip.left + 364, rowTop, toolStrip.left + 396, rowBot};
+        layout.axisZ = {toolStrip.left + 400, rowTop, toolStrip.left + 432, rowBot};
+        layout.snapToggle = {toolStrip.left + 440, rowTop, toolStrip.left + 488, rowBot};
+        layout.snapStepDown = {toolStrip.left + 492, rowTop, toolStrip.left + 520, rowBot};
+        layout.snapStepUp = {toolStrip.left + 524, rowTop, toolStrip.left + 552, rowBot};
+        layout.resolutionScale = {toolStrip.left + 560, rowTop, toolStrip.left + 624, rowBot};
+
+        constexpr LONG kFoundryWidth = 428;
+        layout.foundryGroup = {toolStrip.right - 12 - kFoundryWidth, rowTop - 3, toolStrip.right - 12, rowBot + 3};
+        const LONG x0 = layout.foundryGroup.left + 8;
+        layout.authoring.addCube = {x0, rowTop, x0 + 48, rowBot};
+        layout.authoring.addPlane = {x0 + 52, rowTop, x0 + 100, rowBot};
+        layout.authoring.addTrigger = {x0 + 104, rowTop, x0 + 158, rowBot};
+        layout.authoring.addLight = {x0 + 162, rowTop, x0 + 210, rowBot};
+        layout.authoring.duplicate = {x0 + 214, rowTop, x0 + 264, rowBot};
+        layout.authoring.exportCsv = {x0 + 268, rowTop, x0 + 324, rowBot};
+        layout.authoring.play = {x0 + 328, rowTop, layout.foundryGroup.right - 8, rowBot};
+        return layout;
+    }
+
+    layout.select = {toolStrip.left + 78, rowTop, toolStrip.left + 130, rowBot};
+    layout.create = {toolStrip.left + 134, rowTop, toolStrip.left + 188, rowBot};
+    layout.camera = {toolStrip.left + 194, rowTop, toolStrip.left + 248, rowBot};
+    layout.tacticalGroup = {toolStrip.left + 254, rowTop - 3, toolStrip.left + 874, rowBot + 3};
+    layout.translate = {toolStrip.left + 326, rowTop, toolStrip.left + 396, rowBot};
+    layout.rotate = {toolStrip.left + 400, rowTop, toolStrip.left + 468, rowBot};
+    layout.scale = {toolStrip.left + 472, rowTop, toolStrip.left + 538, rowBot};
+    layout.axisX = {toolStrip.left + 546, rowTop, toolStrip.left + 584, rowBot};
+    layout.axisY = {toolStrip.left + 588, rowTop, toolStrip.left + 626, rowBot};
+    layout.axisZ = {toolStrip.left + 630, rowTop, toolStrip.left + 668, rowBot};
+    layout.snapToggle = {toolStrip.left + 676, rowTop, toolStrip.left + 750, rowBot};
+    layout.snapStepDown = {toolStrip.left + 754, rowTop, toolStrip.left + 786, rowBot};
+    layout.snapStepUp = {toolStrip.left + 790, rowTop, toolStrip.left + 822, rowBot};
+    layout.resolutionScale = {toolStrip.left + 830, rowTop, toolStrip.left + 866, rowBot};
+
+    constexpr LONG kFoundryWidth = 664;
+    layout.foundryGroup = {toolStrip.right - 12 - kFoundryWidth, rowTop - 3, toolStrip.right - 12, rowBot + 3};
+    const LONG x0 = layout.foundryGroup.left + 78;
+    layout.authoring.addCube = {x0, rowTop, x0 + 80, rowBot};
+    layout.authoring.addPlane = {x0 + 86, rowTop, x0 + 166, rowBot};
+    layout.authoring.addTrigger = {x0 + 172, rowTop, x0 + 268, rowBot};
+    layout.authoring.addLight = {x0 + 274, rowTop, x0 + 350, rowBot};
+    layout.authoring.duplicate = {x0 + 356, rowTop, x0 + 432, rowBot};
+    layout.authoring.exportCsv = {x0 + 438, rowTop, x0 + 518, rowBot};
+    layout.authoring.play = {x0 + 524, rowTop, layout.foundryGroup.right - 8, rowBot};
+    return layout;
+}
+
+CameraRailLayout ComputeCameraRailLayout(const RECT& railRect) {
+    CameraRailLayout layout{};
+    layout.panel = railRect;
+    if (railRect.right <= railRect.left || railRect.bottom <= railRect.top) {
+        return layout;
+    }
+
+    const LONG width = railRect.right - railRect.left;
+    const LONG height = railRect.bottom - railRect.top;
+    const LONG centerX = railRect.left + width / 2;
+    const LONG topMargin = 12;
+    const LONG gap = 14;
+    const LONG sideButtonSize = std::max(24L, std::min(width / 4, 32L));
+    const LONG sideInset = 6;
+    const LONG orbitSize = std::max(56L, std::min(width - 10L, 84L));
+    const LONG panSize = std::max(52L, std::min(width - 18L, 74L));
+    const LONG depthWidth = std::max(34L, std::min(width - 40L, 48L));
+    const LONG depthHeight = std::max(68L, std::min(height - orbitSize - panSize - gap * 2 - topMargin - 8L, 96L));
+    layout.trackballBounds = MakeRect(centerX - orbitSize / 2, railRect.top + topMargin, orbitSize, orbitSize);
+    layout.panCrossBounds = MakeRect(centerX - panSize / 2, layout.trackballBounds.bottom + gap, panSize, panSize);
+    layout.depthCrossBounds = MakeRect(centerX - depthWidth / 2, layout.panCrossBounds.bottom + gap, depthWidth, depthHeight);
+    layout.trackballCenter = CenterOf(layout.trackballBounds);
+    layout.panCenter = CenterOf(layout.panCrossBounds);
+    layout.depthCenter = CenterOf(layout.depthCrossBounds);
+    layout.orbitRadius = std::max(12L, orbitSize / 2 - 16L);
+    layout.panRadius = std::max(12L, panSize / 2 - 12L);
+    layout.depthHalfWidth = std::max(10L, depthWidth / 2 - 6L);
+    layout.depthHalfHeight = std::max(14L, depthHeight / 2 - 12L);
+    layout.homeButtonBounds = RectFromCenter(POINT{railRect.left + sideInset + sideButtonSize / 2, layout.trackballCenter.y},
+                                             sideButtonSize,
+                                             sideButtonSize);
+    layout.frameSelectionButtonBounds =
+        RectFromCenter(POINT{railRect.left + sideInset + sideButtonSize / 2, layout.panCenter.y},
+                       sideButtonSize,
+                       sideButtonSize);
+    layout.frameAllButtonBounds =
+        RectFromCenter(POINT{railRect.right - sideInset - sideButtonSize / 2, layout.trackballCenter.y},
+                       sideButtonSize,
+                       sideButtonSize);
+    layout.resolutionScaleButtonBounds =
+        RectFromCenter(POINT{railRect.right - sideInset - sideButtonSize / 2, layout.depthCenter.y},
+                       sideButtonSize,
+                       sideButtonSize);
+    layout.trackballNubBounds = RectFromCenter(layout.trackballCenter, orbitSize / 2, orbitSize / 2);
+    layout.panNubBounds = RectFromCenter(layout.panCenter, std::max(18L, panSize / 3), std::max(18L, panSize / 3));
+    layout.depthNubBounds = RectFromCenter(layout.depthCenter, depthWidth - 6, std::max(18L, depthWidth - 6));
+    return layout;
 }
 
 TopChromeRects ComputeTopChromeRects(const RECT& topBar) {
@@ -48,6 +259,86 @@ TopChromeRects ComputeTopChromeRects(const RECT& topBar) {
     rects.save = {right - 512, rowTop, right - 412, rowBot};
     rects.newGame = {right - 624, rowTop, right - 518, rowBot};
     return rects;
+}
+
+std::optional<RECT> ComputeToolStripStatusRect(
+    const RECT& toolStrip,
+    const EditorToolbarLayout& layout) {
+    if (layout.compact) {
+        return std::nullopt;
+    }
+    const LONG left = layout.tacticalGroup.right + 10;
+    const LONG right = layout.foundryGroup.left - 10;
+    if (right - left < 240) {
+        return std::nullopt;
+    }
+    return RECT{left, toolStrip.top + 8, right, toolStrip.bottom - 8};
+}
+
+std::string EditorToolbarTooltipAtPoint(const RECT& toolStrip, const POINT& point) {
+    const EditorToolbarLayout layout = ComputeEditorToolbarLayout(toolStrip);
+    const auto hit = [&point](const RECT& rect) { return PtInRect(&rect, point) != FALSE; };
+    if (hit(layout.select)) return "Select tool";
+    if (hit(layout.create)) return "Create / stamp tool";
+    if (hit(layout.camera)) return "Camera navigation";
+    if (hit(layout.translate)) return "Translate (T)";
+    if (hit(layout.rotate)) return "Rotate (R)";
+    if (hit(layout.scale)) return "Scale (S)";
+    if (hit(layout.axisX)) return "Constrain to X";
+    if (hit(layout.axisY)) return "Constrain to Y";
+    if (hit(layout.axisZ)) return "Constrain to Z";
+    if (hit(layout.snapToggle)) return "Toggle grid snapping";
+    if (hit(layout.snapStepDown)) return "Decrease grid step";
+    if (hit(layout.snapStepUp)) return "Increase grid step";
+    if (hit(layout.resolutionScale)) return "Toggle half-resolution viewport while camera moves";
+    if (hit(layout.authoring.addCube)) return "Foundry: create cube";
+    if (hit(layout.authoring.addPlane)) return "Foundry: create plane";
+    if (hit(layout.authoring.addTrigger)) return "Foundry: create trigger";
+    if (hit(layout.authoring.addLight)) return "Foundry: create light";
+    if (hit(layout.authoring.duplicate)) return "Duplicate selection";
+    if (hit(layout.authoring.exportCsv)) return "Export assembly CSV";
+    if (hit(layout.authoring.play)) return "Playtest";
+    return {};
+}
+
+CameraRailHit HitTestCameraRail(const RECT& railRect, const POINT& point) {
+    const CameraRailLayout layout = ComputeCameraRailLayout(railRect);
+    if (PtInRect(&layout.homeButtonBounds, point) != FALSE) return CameraRailHit::HomeButton;
+    if (PtInRect(&layout.frameSelectionButtonBounds, point) != FALSE) return CameraRailHit::FrameSelectionButton;
+    if (PtInRect(&layout.frameAllButtonBounds, point) != FALSE) return CameraRailHit::FrameAllButton;
+    if (PtInRect(&layout.resolutionScaleButtonBounds, point) != FALSE) return CameraRailHit::ResolutionScaleButton;
+    if (PointInEllipse(layout.trackballBounds, point)) return CameraRailHit::Trackball;
+    if (PtInRect(&layout.panCrossBounds, point) != FALSE) return CameraRailHit::PanCross;
+    if (PtInRect(&layout.depthCrossBounds, point) != FALSE) return CameraRailHit::DepthCross;
+    return CameraRailHit::None;
+}
+
+CameraRailSpriteDiagnostics GetCameraRailSpriteDiagnostics() {
+    const CameraRailSpriteSet& sprites = CameraRailSprites();
+    return CameraRailSpriteDiagnostics{
+        .ready = sprites.orbitPad.Valid()
+            && sprites.orbitNub.Valid()
+            && sprites.orbitPadGlow.Valid()
+            && sprites.orbitNubGlow.Valid()
+            && sprites.dpadBase.Valid()
+            && sprites.dpadNub.Valid()
+            && sprites.dpadNorthGlow.Valid()
+            && sprites.dpadSouthGlow.Valid()
+            && sprites.dpadEastGlow.Valid()
+            && sprites.dpadWestGlow.Valid()
+            && sprites.depthPad.Valid()
+            && sprites.depthNub.Valid()
+            && sprites.depthNubGlow.Valid()
+            && sprites.homeButton.Valid()
+            && sprites.homeButtonGlow.Valid()
+            && sprites.frameSelectionButton.Valid()
+            && sprites.frameSelectionButtonGlow.Valid()
+            && sprites.frameAllButton.Valid()
+            && sprites.frameAllButtonGlow.Valid()
+            && sprites.resolutionScaleButton.Valid()
+            && sprites.resolutionScaleButtonGlow.Valid(),
+        .resolvedAssetCount = sprites.resolvedAssetCount,
+    };
 }
 
 bool HitTestViewportCreateMenu(const RECT& viewportInner, const POINT& point) {
@@ -177,51 +468,72 @@ void RenderEditorToolStrip(HDC dc,
     const int savedDc = SaveDC(dc);
     IntersectClipRect(dc, toolStrip.left, toolStrip.top, toolStrip.right, toolStrip.bottom);
     EditorRenderer::DrawTextLine(dc,
-                                 RECT{toolStrip.left + 12, toolStrip.top + 8, toolStrip.left + 72, toolStrip.bottom - 8},
-                                 "Transform",
+                                 RECT{toolStrip.left + 12, toolStrip.top + 8, toolStrip.left + 68, toolStrip.bottom - 8},
+                                 "TOOLS",
                                  EditorUiTheme::kTextOnDark,
                                  theme.headerFont,
                                  DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    const auto toolBtn = [&](const RECT& rect, const std::string& label, bool active) {
-        EditorRenderer::DrawToolbarButton(dc, rect, label, active, theme.smallFont, EditorToolbarStyle::Dark);
+    const EditorToolbarLayout layout = ComputeEditorToolbarLayout(toolStrip);
+    EditorRenderer::DrawPanelFrame(
+        dc,
+        layout.tacticalGroup,
+        EditorUiTheme::kToolStripFill,
+        EditorUiTheme::kToolStripHi,
+        EditorUiTheme::kToolStripShadow);
+    EditorRenderer::DrawPanelFrame(
+        dc,
+        layout.foundryGroup,
+        EditorUiTheme::kToolStripFill,
+        EditorUiTheme::kCopper,
+        EditorUiTheme::kToolStripShadow);
+    if (!layout.compact) {
+        EditorRenderer::DrawTextLine(
+            dc,
+            RECT{layout.tacticalGroup.left + 8, toolStrip.top + 8, layout.translate.left - 6, toolStrip.bottom - 8},
+            "TACTICAL",
+            EditorUiTheme::kTextMuted,
+            theme.monoFont != nullptr ? theme.monoFont : theme.smallFont,
+            DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        EditorRenderer::DrawTextLine(
+            dc,
+            RECT{layout.foundryGroup.left + 8, toolStrip.top + 8, layout.authoring.addCube.left - 6, toolStrip.bottom - 8},
+            "FOUNDRY",
+            EditorUiTheme::kCopper,
+            theme.monoFont != nullptr ? theme.monoFont : theme.smallFont,
+            DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    }
+    const auto toolBtn = [&](const RECT& rect,
+                             const std::string& label,
+                             const bool active,
+                             const EditorToolbarStyle style = EditorToolbarStyle::Dark) {
+        EditorRenderer::DrawToolbarButton(dc, rect, label, active, theme.smallFont, style);
     };
-    toolBtn(RECT{toolStrip.left + 78, toolStrip.top + 8, toolStrip.left + 130, toolStrip.bottom - 8},
-            "Select",
-            model.toolMode == EditorToolMode::Select);
-    toolBtn(RECT{toolStrip.left + 134, toolStrip.top + 8, toolStrip.left + 188, toolStrip.bottom - 8},
-            "Create",
-            model.toolMode == EditorToolMode::Create);
-    toolBtn(RECT{toolStrip.left + 194, toolStrip.top + 8, toolStrip.left + 248, toolStrip.bottom - 8},
-            "Camera",
-            model.toolMode == EditorToolMode::Camera);
-    toolBtn(RECT{toolStrip.left + 254, toolStrip.top + 8, toolStrip.left + 328, toolStrip.bottom - 8},
-            "Move",
-            model.editModeLabel == "Move");
-    toolBtn(RECT{toolStrip.left + 334, toolStrip.top + 8, toolStrip.left + 402, toolStrip.bottom - 8},
-            "Rotate",
-            model.editModeLabel == "Rotate");
-    toolBtn(RECT{toolStrip.left + 408, toolStrip.top + 8, toolStrip.left + 476, toolStrip.bottom - 8},
-            "Scale",
-            model.editModeLabel == "Scale");
-    toolBtn(RECT{toolStrip.left + 482, toolStrip.top + 8, toolStrip.left + 528, toolStrip.bottom - 8}, "X", model.axisLabel == "X");
-    toolBtn(RECT{toolStrip.left + 534, toolStrip.top + 8, toolStrip.left + 580, toolStrip.bottom - 8}, "Y", model.axisLabel == "Y");
-    toolBtn(RECT{toolStrip.left + 586, toolStrip.top + 8, toolStrip.left + 632, toolStrip.bottom - 8}, "Z", model.axisLabel == "Z");
-    toolBtn(RECT{toolStrip.left + 638, toolStrip.top + 8, toolStrip.left + 716, toolStrip.bottom - 8},
-            std::string("Snap ") + (model.gridSnapEnabled ? "On" : "Off"),
+    toolBtn(layout.select, layout.compact ? "Q" : "Select", model.toolMode == EditorToolMode::Select);
+    toolBtn(layout.create, layout.compact ? "C" : "Create", model.toolMode == EditorToolMode::Create);
+    toolBtn(layout.camera, layout.compact ? "CAM" : "Camera", model.toolMode == EditorToolMode::Camera);
+    toolBtn(layout.translate, layout.compact ? "T" : "Move", model.editModeLabel == "Move");
+    toolBtn(layout.rotate, layout.compact ? "R" : "Rotate", model.editModeLabel == "Rotate");
+    toolBtn(layout.scale, layout.compact ? "S" : "Scale", model.editModeLabel == "Scale");
+    toolBtn(layout.axisX, "X", model.axisLabel == "X");
+    toolBtn(layout.axisY, "Y", model.axisLabel == "Y");
+    toolBtn(layout.axisZ, "Z", model.axisLabel == "Z");
+    toolBtn(layout.snapToggle,
+            layout.compact ? "#" : std::string("Snap ") + (model.gridSnapEnabled ? "On" : "Off"),
             model.gridSnapEnabled);
-    toolBtn(RECT{toolStrip.left + 722, toolStrip.top + 8, toolStrip.left + 754, toolStrip.bottom - 8}, "-", false);
-    toolBtn(RECT{toolStrip.left + 758, toolStrip.top + 8, toolStrip.left + 790, toolStrip.bottom - 8}, "+", false);
+    toolBtn(layout.snapStepDown, "-", false);
+    toolBtn(layout.snapStepUp, "+", false);
+    toolBtn(layout.resolutionScale,
+            layout.compact ? "1/2" : (model.resolutionScalingEnabled ? "1/2" : "1:1"),
+            model.resolutionScalingEnabled);
 
-    const AuthoringToolbarRects authoringPaint = ComputeAuthoringToolbarRects(toolStrip);
-    toolBtn(authoringPaint.addCube, "+ Cube", false);
-    toolBtn(authoringPaint.addPlane, "+ Plane", false);
-    toolBtn(authoringPaint.addTrigger, "+ Trigger", false);
-    toolBtn(authoringPaint.addLight, "+ Light", false);
-    toolBtn(authoringPaint.duplicate, "Duplicate", false);
-    toolBtn(authoringPaint.exportCsv, "Export", false);
-    toolBtn(authoringPaint.play, "Play", false);
-    const LONG statusLeft =
-        std::min(toolStrip.left + 1010L, std::max(authoringPaint.play.right + 12L, toolStrip.left + 806L));
+    const AuthoringToolbarRects& authoringPaint = layout.authoring;
+    toolBtn(authoringPaint.addCube, layout.compact ? "CB" : "+ Cube", false, EditorToolbarStyle::Creator);
+    toolBtn(authoringPaint.addPlane, layout.compact ? "PL" : "+ Plane", false, EditorToolbarStyle::Creator);
+    toolBtn(authoringPaint.addTrigger, layout.compact ? "TRG" : "+ Trigger", false, EditorToolbarStyle::Creator);
+    toolBtn(authoringPaint.addLight, layout.compact ? "LGT" : "+ Light", false, EditorToolbarStyle::Creator);
+    toolBtn(authoringPaint.duplicate, layout.compact ? "DUP" : "Duplicate", false);
+    toolBtn(authoringPaint.exportCsv, layout.compact ? "EXP" : "Export", false);
+    toolBtn(authoringPaint.play, layout.compact ? "RUN" : "Play", false);
     std::string modeLine = "Mode ";
     switch (model.toolMode) {
         case EditorToolMode::Select:
@@ -237,16 +549,172 @@ void RenderEditorToolStrip(HDC dc,
             modeLine += "Camera";
             break;
     }
+    if (const std::optional<RECT> statusRect = ComputeToolStripStatusRect(toolStrip, layout)) {
+        EditorRenderer::DrawTextLine(
+            dc,
+            *statusRect,
+            modeLine + "  |  Step " + model.editStepLabel + "  |  Undo " + std::to_string(model.undoDepth) +
+                "  |  Grid " + model.gridSnapLabel + "  |  Authored " + std::to_string(model.authoredCount) +
+                "  |  Triggers " + std::to_string(model.triggerCount),
+            EditorUiTheme::kTextMuted,
+            theme.monoFont != nullptr ? theme.monoFont : theme.smallFont,
+            DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+    }
+    RestoreDC(dc, savedDc);
+}
+
+void RenderEditorToolbarTooltip(
+    HDC dc,
+    const RECT& toolStrip,
+    const POINT& point,
+    const EditorViewportTheme& theme) {
+    if (!ComputeEditorToolbarLayout(toolStrip).compact) {
+        return;
+    }
+    const std::string tooltip = EditorToolbarTooltipAtPoint(toolStrip, point);
+    if (tooltip.empty()) {
+        return;
+    }
+    constexpr LONG kTooltipWidth = 230;
+    constexpr LONG kTooltipHeight = 24;
+    const LONG left = std::clamp(
+        point.x + 12L,
+        toolStrip.left + 4L,
+        std::max(toolStrip.left + 4L, toolStrip.right - kTooltipWidth - 4L));
+    const RECT tooltipRect{left, toolStrip.bottom + 3, left + kTooltipWidth, toolStrip.bottom + 3 + kTooltipHeight};
+    EditorRenderer::DrawPanelFrame(
+        dc,
+        tooltipRect,
+        EditorUiTheme::kTooltipFill,
+        EditorUiTheme::kCopper,
+        EditorUiTheme::kWellShadow);
     EditorRenderer::DrawTextLine(
         dc,
-        RECT{statusLeft, toolStrip.top + 8, toolStrip.right - 12, toolStrip.bottom - 8},
-        modeLine + "  |  Step " + model.editStepLabel + "  |  Undo " + std::to_string(model.undoDepth) +
-            "  |  Grid " + model.gridSnapLabel + "  |  Authored " + std::to_string(model.authoredCount) +
-            "  |  Triggers " + std::to_string(model.triggerCount),
-        EditorUiTheme::kTextMuted,
-        theme.smallFont,
-        DT_RIGHT | DT_SINGLELINE | DT_VCENTER);
-    RestoreDC(dc, savedDc);
+        RECT{tooltipRect.left + 7, tooltipRect.top + 3, tooltipRect.right - 7, tooltipRect.bottom - 3},
+        tooltip,
+        EditorUiTheme::kTextOnPanel,
+        theme.monoFont != nullptr ? theme.monoFont : theme.smallFont,
+        DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+}
+
+void RenderEditorCameraRail(
+    HDC dc,
+    const RECT& railRect,
+    const EditorViewportTheme& theme,
+    const CameraRailVisualModel& model) {
+    if (railRect.right <= railRect.left || railRect.bottom <= railRect.top) {
+        return;
+    }
+    const CameraRailSpriteSet& sprites = CameraRailSprites();
+    const CameraRailLayout layout = ComputeCameraRailLayout(railRect);
+    const HFONT microFont = theme.monoFont != nullptr ? theme.monoFont : theme.smallFont;
+
+    if (!GetCameraRailSpriteDiagnostics().ready) {
+        EditorRenderer::DrawTextLine(dc,
+                                     railRect,
+                                     "Nav sprites missing",
+                                     EditorUiTheme::kTextStatusGold,
+                                     theme.monoFont != nullptr ? theme.monoFont : theme.smallFont,
+                                     DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        return;
+    }
+
+    const auto drawMicroLabel = [&](const RECT& rect, const std::string& label) {
+        EditorRenderer::DrawTextLine(dc,
+                                     RECT{rect.left - 8, rect.top - 12, rect.right + 8, rect.top},
+                                     label,
+                                     EditorUiTheme::kTextMuted,
+                                     microFont,
+                                     DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+    };
+    const auto drawSpriteButton = [&](const RECT& rect,
+                                      const ri::render::software::RgbaImage& base,
+                                      const ri::render::software::RgbaImage& glow,
+                                      const std::string& label,
+                                      const bool active) {
+        EditorRenderer::BlitRgbaImage(dc, rect, base);
+        if (active) {
+            EditorRenderer::BlitRgbaImage(dc, rect, glow, 235);
+        }
+        EditorRenderer::DrawTextLine(dc,
+                                     RECT{rect.left + 1, rect.top + 1, rect.right - 1, rect.bottom - 1},
+                                     label,
+                                     EditorUiTheme::kTextOnPanel,
+                                     microFont,
+                                     DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+    };
+
+    drawMicroLabel(layout.trackballBounds, "ORB");
+    EditorRenderer::BlitRgbaImage(dc, layout.trackballBounds, sprites.orbitPad);
+    if (model.orbitActive) {
+        EditorRenderer::BlitRgbaImage(dc, layout.trackballBounds, sprites.orbitPadGlow, 235);
+    }
+    const POINT orbitNubCenter{
+        layout.trackballCenter.x + static_cast<LONG>(std::lround(model.orbitOffsetX)),
+        layout.trackballCenter.y + static_cast<LONG>(std::lround(model.orbitOffsetY))};
+    const RECT orbitNubRect = RectFromCenter(orbitNubCenter,
+                                             layout.trackballNubBounds.right - layout.trackballNubBounds.left,
+                                             layout.trackballNubBounds.bottom - layout.trackballNubBounds.top);
+    EditorRenderer::BlitRgbaImage(dc, orbitNubRect, sprites.orbitNub);
+    if (model.orbitActive) {
+        EditorRenderer::BlitRgbaImage(dc, orbitNubRect, sprites.orbitNubGlow, 240);
+    }
+
+    drawMicroLabel(layout.panCrossBounds, "PAN");
+    EditorRenderer::BlitRgbaImage(dc, layout.panCrossBounds, sprites.dpadBase);
+    if (model.panActive) {
+        EditorRenderer::BlitRgbaImage(dc, layout.panCrossBounds, sprites.dpadGlow, 180);
+        const float absX = std::abs(model.panOffsetX);
+        const float absY = std::abs(model.panOffsetY);
+        if (absY >= absX && model.panOffsetY < -10.0f) {
+            EditorRenderer::BlitRgbaImage(dc, layout.panCrossBounds, sprites.dpadNorthGlow, 255);
+        }
+        if (absY >= absX && model.panOffsetY > 10.0f) {
+            EditorRenderer::BlitRgbaImage(dc, layout.panCrossBounds, sprites.dpadSouthGlow, 255);
+        }
+        if (absX >= absY && model.panOffsetX > 10.0f) {
+            EditorRenderer::BlitRgbaImage(dc, layout.panCrossBounds, sprites.dpadEastGlow, 255);
+        }
+        if (absX >= absY && model.panOffsetX < -10.0f) {
+            EditorRenderer::BlitRgbaImage(dc, layout.panCrossBounds, sprites.dpadWestGlow, 255);
+        }
+    }
+    const POINT panNubCenter{
+        layout.panCenter.x + static_cast<LONG>(std::lround(model.panOffsetX)),
+        layout.panCenter.y + static_cast<LONG>(std::lround(model.panOffsetY))};
+    const RECT panNubRect = RectFromCenter(panNubCenter,
+                                           layout.panNubBounds.right - layout.panNubBounds.left,
+                                           layout.panNubBounds.bottom - layout.panNubBounds.top);
+    EditorRenderer::BlitRgbaImage(dc, panNubRect, sprites.dpadNub);
+
+    drawMicroLabel(layout.depthCrossBounds, "ZOOM");
+    EditorRenderer::BlitRgbaImage(dc, layout.depthCrossBounds, sprites.depthPad);
+    if (model.depthActive) {
+        EditorRenderer::BlitRgbaImage(dc, layout.depthCrossBounds, sprites.depthPadGlow, 210);
+    }
+    const POINT depthNubCenter{
+        layout.depthCenter.x + static_cast<LONG>(std::lround(model.depthOffsetX)),
+        layout.depthCenter.y + static_cast<LONG>(std::lround(model.depthOffsetY))};
+    const RECT depthNubRect = RectFromCenter(depthNubCenter,
+                                             layout.depthNubBounds.right - layout.depthNubBounds.left,
+                                             layout.depthNubBounds.bottom - layout.depthNubBounds.top);
+    EditorRenderer::BlitRgbaImage(dc, depthNubRect, sprites.depthNub);
+    if (model.depthActive) {
+        EditorRenderer::BlitRgbaImage(dc, depthNubRect, sprites.depthNubGlow, 240);
+    }
+
+    drawSpriteButton(layout.homeButtonBounds, sprites.homeButton, sprites.homeButtonGlow, "HM", false);
+    drawSpriteButton(layout.frameSelectionButtonBounds,
+                     sprites.frameSelectionButton,
+                     sprites.frameSelectionButtonGlow,
+                     "SEL",
+                     false);
+    drawSpriteButton(layout.frameAllButtonBounds, sprites.frameAllButton, sprites.frameAllButtonGlow, "ALL", false);
+    drawSpriteButton(layout.resolutionScaleButtonBounds,
+                     sprites.resolutionScaleButton,
+                     sprites.resolutionScaleButtonGlow,
+                     model.resolutionScalingEnabled ? "1/2" : "1:1",
+                     model.resolutionScalingEnabled);
 }
 
 void RenderEditorFramePanels(HDC dc,
@@ -284,23 +752,24 @@ void RenderEditorStatusBar(HDC dc,
                            const RECT& statusBar,
                            const EditorViewportStatusModel& model,
                            const EditorViewportTheme& theme) {
+    HFONT statusFont = theme.monoFont != nullptr ? theme.monoFont : theme.smallFont;
     EditorRenderer::DrawTextLine(dc,
                                  RECT{statusBar.left + 12, statusBar.top + 8, statusBar.right - 12, statusBar.top + 28},
                                  model.consoleLine,
                                  EditorUiTheme::kTextOnPanel,
-                                 theme.smallFont,
+                                 statusFont,
                                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
     EditorRenderer::DrawTextLine(dc,
                                  RECT{statusBar.left + 12, statusBar.top + 30, statusBar.right - 12, statusBar.top + 50},
                                  model.controlsLine,
                                  EditorUiTheme::kTextOnPanelMuted,
-                                 theme.smallFont,
+                                 statusFont,
                                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
     EditorRenderer::DrawTextLine(dc,
                                  RECT{statusBar.left + 12, statusBar.top + 50, statusBar.right - 12, statusBar.bottom - 8},
                                  model.stateLine,
                                  EditorUiTheme::kTextStatusGold,
-                                 theme.smallFont,
+                                 statusFont,
                                  DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
 }
 
@@ -470,7 +939,26 @@ void RenderEditorViewportBlock(HDC dc,
     drawCameraAndMeta();
 }
 
-void PresentEditorFrame(HDC windowDc, HDC backBufferDc, const int width, const int height, const RECT* excludedClientRect) {
+void PresentEditorFrame(HDC windowDc,
+                        HDC backBufferDc,
+                        const int width,
+                        const int height,
+                        const RECT* excludedClientRect,
+                        const RECT* blitRect) {
+    RECT copyRect{0, 0, width, height};
+    if (blitRect != nullptr) {
+        copyRect = *blitRect;
+        copyRect.left = std::max(0L, copyRect.left);
+        copyRect.top = std::max(0L, copyRect.top);
+        copyRect.right = std::min(static_cast<LONG>(width), copyRect.right);
+        copyRect.bottom = std::min(static_cast<LONG>(height), copyRect.bottom);
+    }
+    const int copyWidth = std::max(0, static_cast<int>(copyRect.right - copyRect.left));
+    const int copyHeight = std::max(0, static_cast<int>(copyRect.bottom - copyRect.top));
+    if (copyWidth <= 0 || copyHeight <= 0) {
+        return;
+    }
+
     const int savedWindowDc = SaveDC(windowDc);
     if (excludedClientRect != nullptr) {
         ExcludeClipRect(windowDc,
@@ -479,7 +967,15 @@ void PresentEditorFrame(HDC windowDc, HDC backBufferDc, const int width, const i
                         excludedClientRect->right,
                         excludedClientRect->bottom);
     }
-    BitBlt(windowDc, 0, 0, width, height, backBufferDc, 0, 0, SRCCOPY);
+    BitBlt(windowDc,
+           copyRect.left,
+           copyRect.top,
+           copyWidth,
+           copyHeight,
+           backBufferDc,
+           copyRect.left,
+           copyRect.top,
+           SRCCOPY);
     RestoreDC(windowDc, savedWindowDc);
 }
 #endif

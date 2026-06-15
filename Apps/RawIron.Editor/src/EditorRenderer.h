@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EditorUiTheme.h"
+#include "RawIron/Render/PreviewTexture.h"
 #include "RawIron/Render/SoftwarePreview.h"
 
 #include <string>
@@ -19,6 +20,15 @@
 namespace ri::editor {
 
 #if defined(_WIN32)
+struct SoftwareImageBlitCache {
+    HBITMAP bitmap = nullptr;
+    HDC memoryDc = nullptr;
+    HGDIOBJ defaultBitmap = nullptr;
+    int width = 0;
+    int height = 0;
+    std::uint64_t sourceGeneration = 0;
+};
+
 class EditorRenderer {
 public:
     [[nodiscard]] static std::wstring Utf8ToWide(std::string_view utf8);
@@ -45,7 +55,17 @@ public:
                                 bool collapsed = false,
                                 RECT* collapseToggleRectOut = nullptr);
     [[nodiscard]] static RECT InsetRect(const RECT& rect, int amount);
+    static void BlitRgbaImage(HDC dc,
+                              const RECT& target,
+                              const ri::render::software::RgbaImage& image,
+                              unsigned char opacity = 255);
     static void BlitSoftwareImage(HDC dc, const RECT& target, const ri::render::software::SoftwareImage& image);
+    static void ReleaseSoftwareImageBlitCache(SoftwareImageBlitCache& cache);
+    static void BlitSoftwareImageCached(HDC dc,
+                                          const RECT& target,
+                                          const ri::render::software::SoftwareImage& image,
+                                          SoftwareImageBlitCache& cache,
+                                          std::uint64_t sourceGeneration);
 };
 #endif
 

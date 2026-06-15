@@ -722,18 +722,22 @@ void RasterizeTriangleProjected(SoftwareImage& image,
                 v = (w0 * screenA.uv.y * invZa + w1 * screenB.uv.y * invZb + w2 * screenC.uv.y * invZc) / wInvZ;
             }
 
+            const bool texturedSample = texture != nullptr && texture->Valid();
             TextureSample sample{};
-            if (texture != nullptr && texture->Valid()) {
+            if (texturedSample) {
                 const bool samplePoint = options.pointSampleTextures
                     || (options.adaptiveTextureSampling && depth >= options.adaptivePointSampleStartDepth);
                 sample = SampleTextureRepeat(*texture, material, options, u, v, samplePoint);
             }
-            const ri::math::Vec3 shaded = MultiplyColor(modulate, sample.color);
+            ri::math::Vec3 shaded = MultiplyColor(modulate, sample.color);
+            if (material.albedoAlphaIsSmoothness && texturedSample) {
+                const float smoothness = std::clamp(sample.alpha, 0.0f, 1.0f);
+                shaded = ClampColor(shaded * (0.90f + 0.10f * smoothness));
+            }
             const float fogFactor = ComputeScenePreviewFogFactor(options, depth);
             const ri::math::Vec3 fogTint = ResolveScenePreviewFogTint(options, fogFactor);
             ri::math::Vec3 out = ClampColor(shaded + material.emissiveColor);
             out = ClampColor(ri::math::Lerp(out, fogTint, fogFactor * fogFactor * options.fogStrength));
-            const bool texturedSample = texture != nullptr && texture->Valid();
             if (options.orderedDither && !texturedSample) {
                 const float nudge = DitherNudge(x, y);
                 constexpr float step = 1.0f / 255.0f;

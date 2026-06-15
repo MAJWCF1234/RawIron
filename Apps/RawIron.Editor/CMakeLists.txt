@@ -21,6 +21,7 @@ add_executable(RawIron.Editor
   src/EditorRenderer.cpp
   src/EditorSceneController.cpp
   src/EditorViewportRenderer.cpp
+  src/EditorVulkanViewport.cpp
   src/EditorWorkspace.cpp
   src/main.cpp
 )
@@ -34,6 +35,7 @@ target_link_libraries(RawIron.Editor
     RawIron::Editor.BundledGames
     RawIron::EditorPreview
     RawIron::RenderSoftware
+    RawIron::RenderVulkan
     RawIron::Runtime
     RawIron::SceneUtilities
     RawIron::UI
@@ -46,6 +48,7 @@ if (WIN32)
       shell32
       user32
       gdi32
+      msimg32
   )
 endif()
 
@@ -56,6 +59,19 @@ rawiron_stage_runtime_dlls(RawIron.Editor)
 rawiron_bundle_engine_textures(RawIron.Editor)
 
 if (RAWIRON_BUILD_TESTS)
+  add_executable(EditorViewportPerformanceSmoke
+    src/EditorViewportRenderer.cpp
+    src/EditorRenderer.cpp
+    ${CMAKE_SOURCE_DIR}/Tests/EditorViewportPerformanceSmoke.cpp
+  )
+  target_include_directories(EditorViewportPerformanceSmoke PRIVATE ${CMAKE_SOURCE_DIR})
+  target_link_libraries(EditorViewportPerformanceSmoke PRIVATE RawIron::RenderSoftware)
+  if (WIN32)
+    target_link_libraries(EditorViewportPerformanceSmoke PRIVATE gdi32 user32 msimg32)
+  endif()
+  target_compile_features(EditorViewportPerformanceSmoke PRIVATE cxx_std_20)
+  add_test(NAME RawIron.Editor.ViewportPerformanceSmoke COMMAND EditorViewportPerformanceSmoke)
+
   add_executable(EditorPluginManagerSmoke
     src/EditorPluginManager.cpp
     ${CMAKE_SOURCE_DIR}/Tests/EditorPluginManagerSmoke.cpp

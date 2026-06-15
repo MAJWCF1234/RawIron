@@ -359,8 +359,8 @@ void main() {
     }
 
     float norm = max(weightSum, 0.35);
-    float aoStrength = mix(0.34, 0.48, qualityTier * 0.5);
-    float ao = mix(1.0, clamp(1.0 - (aoAccum / norm), 0.42, 1.0), aoStrength) * materialAo;
+    float aoStrength = mix(0.28, 0.40, qualityTier * 0.5);
+    float ao = mix(1.0, clamp(1.0 - (aoAccum / norm), 0.58, 1.0), aoStrength) * materialAo;
 
     vec3 center = linearHdr;
     vec2 blurOffsets[4] = vec2[4](
@@ -380,6 +380,7 @@ void main() {
     blurCross /= max(blurWeightSum, 1e-4);
     float glossyCue = clamp((1.0 - roughness) * (0.25 + metallic * 0.75), 0.0, 1.0);
     float highlightMask = clamp(max(max(center.r, center.g), center.b) - 0.38, 0.0, 1.0);
+    highlightMask = min(highlightMask, 0.55);
     float hybridGlow = materialFlags >= 2.0 ? 0.10 : 0.0;
     float diffuseBounceStrength = (1.0 - metallic) * (1.0 - roughness * 0.35);
     vec3 pseudoBounce = mix(center, blurCross, 0.58) * highlightMask * diffuseBounceStrength * (0.042 + hybridGlow);
@@ -407,18 +408,11 @@ void main() {
             uv, centerNormal, roughness, metallic, centerDepth, texel, qualityTier, ssrHitConfidence);
     }
     float ssrStrength = mix(0.05, 0.24, qualityTier * 0.5) * glossyCue * (0.55 + metallic * 0.35);
-    vec3 fogNear = max(cameraData.sweetFxTonemapFogColorDefog.xyz, vec3(0.02));
-    vec3 fogFar = max(vec3(
-        cameraData.sweetFxTonemapStrengthPad.z,
-        cameraData.sweetFxTonemapStrengthPad.w,
-        cameraData.sweetFxComparePack.w), vec3(0.0));
-    if (length(fogFar) < 0.02) {
-        fogFar = fogNear;
-    }
-    fogNear = mix(fogNear, fogFar, 0.35);
+    // Near fog tint only — do not pre-mix fog_far here (distance fog handles far tint in the forward pass).
+    vec3 envTint = max(cameraData.sweetFxTonemapFogColorDefog.xyz, vec3(0.02));
     vec3 ambientBoost = cameraData.presentationExtra.yzw;
     vec3 envFallback = EnvironmentReflectionFallback(
-        centerNormal, viewWs, roughness, glossyCue, fogNear, ambientBoost);
+        centerNormal, viewWs, roughness, glossyCue, envTint, ambientBoost);
     float fallbackWeight = (1.0 - ssrHitConfidence) * mix(0.18, 0.42, qualityTier * 0.5);
     vec3 reflectionRadiance =
         screenSpaceReflection * ssrStrength + envFallback * fallbackWeight + pseudoReflection;
@@ -430,5 +424,14 @@ void main() {
     ceilingBounce *= shadowPreserve;
     emissiveBleed *= mix(0.72, 1.0, shadowPreserve);
 
-    fragColor = vec4((center * ao * contactDarken) + pseudoBounce + reflectionRadiance + emissiveBleed + ceilingBounce, 1.0);
+    float aoDarken = clamp(ao * contactDarken, 0.62, 1.0);
+    vec3 baseRadiance = center * aoDarken;
+    vec3 addedRadiance = pseudoBounce + reflectionRadiance + emissiveBleed + ceilingBounce;
+    float centerLuma = dot(center, vec3(0.2126, 0.7152, 0.0722));
+    float addedCap = max(centerLuma * 1.8, 0.12);
+    float addedLuma = dot(addedRadiance, vec3(0.2126, 0.7152, 0.0722));
+    if (addedLuma > addedCap) {
+        addedRadiance *= (addedCap / max(addedLuma, 1e-4));
+    }
+    fragColor = vec4(baseRadiance + addedRadiance, 1.0);
 }

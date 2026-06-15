@@ -34,6 +34,7 @@ enum class EditorToolbarHit {
     SnapToggle,
     SnapStepDown,
     SnapStepUp,
+    ResolutionScale,
     AddCube,
     AddPlane,
     AddTrigger,
@@ -159,6 +160,7 @@ struct EditorToolbarDispatchCallbacks {
     std::function<void()> onSnapToggle;
     std::function<void()> onSnapStepDown;
     std::function<void()> onSnapStepUp;
+    std::function<void()> onResolutionScaleToggle;
     std::function<void()> onAddCube;
     std::function<void()> onAddPlane;
     std::function<void()> onAddTrigger;

@@ -1,0 +1,56 @@
+{
+  "sourceProject": "Forest Scene Assets",
+  "exporter": "export_botd_unity_yaml_meshes.py",
+  "exports": [
+    {
+      "label": "Conifer Bare LOD0",
+      "kind": "mesh-asset-yaml",
+      "source": "O:/RawIron/Assets/Source/Forest Scene Assets/UnityOnly/Assets/Conifers [BOTD]/Sources/Meshes/Conifer Bare LOD0.asset",
+      "obj": "O:/RawIron/Games/WildernessRuins/Assets/Generated/ForestScene/Meshes/Conifer_Bare_LOD0.obj"
+    },
+    {
+      "label": "Conifer Bare LOD1",
+      "kind": "mesh-asset-yaml",
+      "source": "O:/RawIron/Assets/Source/Forest Scene Assets/UnityOnly/Assets/Conifers [BOTD]/Sources/Meshes/Conifer Bare LOD1.asset",
+      "obj": "O:/RawIron/Games/WildernessRuins/Assets/Generated/ForestScene/Meshes/Conifer_Bare_LOD1.obj"
+    },
+    {
+      "label": "Conifer Medium LOD0",
+      "kind": "mesh-asset-yaml",
+      "source": "O:/RawIron/Assets/Source/Forest Scene Assets/UnityOnly/Assets/Conifers [BOTD]/Sources/Meshes/Conifer Medium LOD0.asset",
+      "obj": "O:/RawIron/Games/WildernessRuins/Assets/Generated/ForestScene/Meshes/Conifer_Medium_LOD0.obj"
+    },
+    {
+      "label": "Conifer Medium LOD1",
+      "kind": "mesh-asset-yaml",
+      "source": "O:/RawIron/Assets/Source/Forest Scene Assets/UnityOnly/Assets/Conifers [BOTD]/Sources/Meshes/Conifer Medium LOD1.asset",
+      "obj": "O:/RawIron/Games/WildernessRuins/Assets/Generated/ForestScene/Meshes/Conifer_Medium_LOD1.obj"
+    },
+    {
+      "label": "Conifer Small LOD0",
+      "kind": "mesh-asset-yaml",
+      "source": "O:/RawIron/Assets/Source/Forest Scene Assets/UnityOnly/Assets/Conifers [BOTD]/Sources/Meshes/Conifer Small LOD0.asset",
+      "obj": "O:/RawIron/Games/WildernessRuins/Assets/Generated/ForestScene/Meshes/Conifer_Small_LOD0.obj"
+    },
+    {
+      "label": "Conifer Small LOD1",
+      "kind": "mesh-asset-yaml",
+      "source": "O:/RawIron/Assets/Source/Forest Scene Assets/UnityOnly/Assets/Conifers [BOTD]/Sources/Meshes/Conifer Small LOD1.asset",
+      "obj": "O:/RawIron/Games/WildernessRuins/Assets/Generated/ForestScene/Meshes/Conifer_Small_LOD1.obj"
+    },
+    {
+      "label": "Conifer Tall LOD0",
+      "kind": "mesh-asset-yaml",
+      "source": "O:/RawIron/Assets/Source/Forest Scene Assets/UnityOnly/Assets/Conifers [BOTD]/Sources/Meshes/Conifer Tall LOD0.asset",
+      "obj": "O:/RawIron/Games/WildernessRuins/Assets/Generated/ForestScene/Meshes/Conifer_Tall_LOD0.obj"
+    },
+    {
+      "label": "Conifer Tall LOD1",
+      "kind": "mesh-asset-yaml",
+      "source": "O:/RawIron/Assets/Source/Forest Scene Assets/UnityOnly/Assets/Conifers [BOTD]/Sources/Meshes/Conifer Tall LOD1.asset",
+      "obj": "O:/RawIron/Games/WildernessRuins/Assets/Generated/ForestScene/Meshes/Conifer_Tall_LOD1.obj"
+    }
+  ],
+  "textures": [],
+  "pngPreviews": []
+}

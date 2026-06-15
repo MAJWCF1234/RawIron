@@ -22,7 +22,8 @@ void RegisterEditorPreviewScene(std::string_view previewSceneId, EditorPreviewHo
 
 void AnimateEditorWorkspaceScene(std::string_view editorPreviewScene,
                                  ri::scene::StarterScene& starterScene,
-                                 double elapsedSeconds);
+                                 double elapsedSeconds,
+                                 bool editorOrbitAuthoritative = true);
 
 void ConfigureEditorViewportForPreview(std::string_view editorPreviewScene,
                                        ri::render::software::ScenePreviewOptions& options,

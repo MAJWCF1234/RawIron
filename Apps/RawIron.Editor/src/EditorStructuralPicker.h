@@ -103,20 +103,23 @@ class StructuralThumbnailCache {
 public:
     [[nodiscard]] bool Has(AuthoringCatalogSection section, std::size_t presetIndex) const;
     [[nodiscard]] const ri::render::software::SoftwareImage& Get(AuthoringCatalogSection section, std::size_t presetIndex);
+    void PrecacheAll(const std::filesystem::path& textureRoot, bool force = false);
     void Prewarm(AuthoringCatalogSection section, std::size_t presetIndex, const std::filesystem::path& textureRoot);
     void PrewarmVisible(AuthoringCatalogSection section,
                         const std::vector<std::size_t>& presetIndices,
                         const std::filesystem::path& textureRoot,
                         int budget = 6);
     void Clear();
+    void ClearPersistent();
 
 private:
     std::vector<ri::render::software::SoftwareImage> structuralImages_{};
     std::vector<bool> structuralReady_{};
     std::vector<ri::render::software::SoftwareImage> volumeImages_{};
-    std::vector<bool> volumeReady_{};
+    std::vector<bool> volumeReady_{}; 
     std::vector<ri::render::software::SoftwareImage> logicImages_{};
     std::vector<bool> logicReady_{};
+    std::string textureFingerprint_{};
     void Ensure(AuthoringCatalogSection section, std::size_t presetIndex, const std::filesystem::path& textureRoot);
 };
 

@@ -31,32 +31,22 @@ EditorToolbarHit HitTestEditorToolbar(const RECT& toolStrip, const POINT& point)
         return PtInRect(&rect, point) != FALSE;
     };
 
-    const RECT selectButton{toolStrip.left + 78, toolStrip.top + 8, toolStrip.left + 130, toolStrip.bottom - 8};
-    const RECT createButton{toolStrip.left + 134, toolStrip.top + 8, toolStrip.left + 188, toolStrip.bottom - 8};
-    const RECT cameraButton{toolStrip.left + 194, toolStrip.top + 8, toolStrip.left + 248, toolStrip.bottom - 8};
-    const RECT translateButton{toolStrip.left + 254, toolStrip.top + 8, toolStrip.left + 328, toolStrip.bottom - 8};
-    const RECT rotateButton{toolStrip.left + 334, toolStrip.top + 8, toolStrip.left + 402, toolStrip.bottom - 8};
-    const RECT scaleButton{toolStrip.left + 408, toolStrip.top + 8, toolStrip.left + 476, toolStrip.bottom - 8};
-    const RECT axisXButton{toolStrip.left + 482, toolStrip.top + 8, toolStrip.left + 528, toolStrip.bottom - 8};
-    const RECT axisYButton{toolStrip.left + 534, toolStrip.top + 8, toolStrip.left + 580, toolStrip.bottom - 8};
-    const RECT axisZButton{toolStrip.left + 586, toolStrip.top + 8, toolStrip.left + 632, toolStrip.bottom - 8};
-    const RECT snapToggleButton{toolStrip.left + 638, toolStrip.top + 8, toolStrip.left + 716, toolStrip.bottom - 8};
-    const RECT snapStepDownButton{toolStrip.left + 722, toolStrip.top + 8, toolStrip.left + 754, toolStrip.bottom - 8};
-    const RECT snapStepUpButton{toolStrip.left + 758, toolStrip.top + 8, toolStrip.left + 790, toolStrip.bottom - 8};
-    const AuthoringToolbarRects authoringTools = ComputeAuthoringToolbarRects(toolStrip);
+    const EditorToolbarLayout layout = ComputeEditorToolbarLayout(toolStrip);
+    const AuthoringToolbarRects& authoringTools = layout.authoring;
 
-    if (hitRect(selectButton)) return EditorToolbarHit::Select;
-    if (hitRect(createButton)) return EditorToolbarHit::Create;
-    if (hitRect(cameraButton)) return EditorToolbarHit::Camera;
-    if (hitRect(translateButton)) return EditorToolbarHit::Translate;
-    if (hitRect(rotateButton)) return EditorToolbarHit::Rotate;
-    if (hitRect(scaleButton)) return EditorToolbarHit::Scale;
-    if (hitRect(axisXButton)) return EditorToolbarHit::AxisX;
-    if (hitRect(axisYButton)) return EditorToolbarHit::AxisY;
-    if (hitRect(axisZButton)) return EditorToolbarHit::AxisZ;
-    if (hitRect(snapToggleButton)) return EditorToolbarHit::SnapToggle;
-    if (hitRect(snapStepDownButton)) return EditorToolbarHit::SnapStepDown;
-    if (hitRect(snapStepUpButton)) return EditorToolbarHit::SnapStepUp;
+    if (hitRect(layout.select)) return EditorToolbarHit::Select;
+    if (hitRect(layout.create)) return EditorToolbarHit::Create;
+    if (hitRect(layout.camera)) return EditorToolbarHit::Camera;
+    if (hitRect(layout.translate)) return EditorToolbarHit::Translate;
+    if (hitRect(layout.rotate)) return EditorToolbarHit::Rotate;
+    if (hitRect(layout.scale)) return EditorToolbarHit::Scale;
+    if (hitRect(layout.axisX)) return EditorToolbarHit::AxisX;
+    if (hitRect(layout.axisY)) return EditorToolbarHit::AxisY;
+    if (hitRect(layout.axisZ)) return EditorToolbarHit::AxisZ;
+    if (hitRect(layout.snapToggle)) return EditorToolbarHit::SnapToggle;
+    if (hitRect(layout.snapStepDown)) return EditorToolbarHit::SnapStepDown;
+    if (hitRect(layout.snapStepUp)) return EditorToolbarHit::SnapStepUp;
+    if (hitRect(layout.resolutionScale)) return EditorToolbarHit::ResolutionScale;
     if (hitRect(authoringTools.addCube)) return EditorToolbarHit::AddCube;
     if (hitRect(authoringTools.addPlane)) return EditorToolbarHit::AddPlane;
     if (hitRect(authoringTools.addTrigger)) return EditorToolbarHit::AddTrigger;
@@ -335,6 +325,9 @@ bool DispatchEditorToolbarClick(const RECT& toolStrip,
             return true;
         case EditorToolbarHit::SnapStepUp:
             if (callbacks.onSnapStepUp) callbacks.onSnapStepUp();
+            return true;
+        case EditorToolbarHit::ResolutionScale:
+            if (callbacks.onResolutionScaleToggle) callbacks.onResolutionScaleToggle();
             return true;
         case EditorToolbarHit::AddCube:
             if (callbacks.onAddCube) callbacks.onAddCube();

@@ -88,6 +88,8 @@ struct Material {
     std::string detailTexture{};
     /// UVs were baked into mesh texcoords in world tile units; `textureTiling` is {1,1}.
     bool bakedWorldTileUv = false;
+    /// Unity BOTD-style albedo maps pack smoothness in alpha (not opacity).
+    bool albedoAlphaIsSmoothness = false;
 };
 
 struct Mesh {

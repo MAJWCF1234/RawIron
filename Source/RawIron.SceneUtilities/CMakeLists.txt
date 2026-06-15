@@ -22,6 +22,7 @@ add_library(RawIron.SceneUtilities
   src/Animation.cpp
   src/AnimationLibraryHydration.cpp
   src/FbxLoader.cpp
+  src/UfbxMeshImport.cpp
   src/GltfLoader.cpp
   src/Helpers.cpp
   src/HumanoidAnimationProfiles.cpp

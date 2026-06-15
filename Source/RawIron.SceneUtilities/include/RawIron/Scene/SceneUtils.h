@@ -41,6 +41,8 @@ std::vector<int> CollectCameraConfinementVolumeNodes(const Scene& scene);
     const ri::math::Vec3& worldPoint);
 std::string DescribeNodePath(const Scene& scene, int nodeHandle);
 std::optional<WorldBounds> ComputeNodeWorldBounds(const Scene& scene, int nodeHandle, bool includeChildren = true);
+/// Lifts \p nodeHandle so the lowest mesh point in its subtree rests on \p targetGroundY.
+void SnapNodeMeshBaseToGround(Scene& scene, int nodeHandle, float targetGroundY);
 /// Tight world AABB for this node's attached mesh only (ignores child nodes). Empty if the node has no mesh / no bounds.
 [[nodiscard]] std::optional<ri::spatial::Aabb> TryComputeMeshNodeWorldAabb(const Scene& scene, int nodeHandle);
 std::optional<WorldBounds> ComputeCombinedWorldBounds(const Scene& scene,

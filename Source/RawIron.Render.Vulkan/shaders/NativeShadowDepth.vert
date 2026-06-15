@@ -1,6 +1,9 @@
 #version 450
 
 layout(location = 0) in vec3 inPosition;
+layout(location = 2) in vec2 inUv;
+
+layout(location = 0) out vec2 texCoord;
 
 layout(std140, set = 0, binding = 0) uniform CameraData {
     mat4 viewProjection;
@@ -214,9 +217,11 @@ layout(push_constant) uniform DrawData {
     layout(offset = 108) float roughness;
     layout(offset = 112) vec3 emissiveColor;
     layout(offset = 124) float qualityTier;
+    layout(offset = 128) float alphaCutoff;
 } drawData;
 
 void main() {
     vec4 wp = drawData.model * vec4(inPosition, 1.0);
     gl_Position = cameraData.lightViewProjection * wp;
+    texCoord = inUv;
 }

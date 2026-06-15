@@ -64,6 +64,20 @@ std::optional<std::vector<ri::math::Vec3>> GetPrimitiveCorners(const Mesh& mesh)
     return std::nullopt;
 }
 
+void AppendCustomMeshWorldBounds(const Scene& scene,
+                                 int nodeHandle,
+                                 const Mesh& mesh,
+                                 WorldBounds& bounds,
+                                 bool& hasBounds) {
+    if (mesh.positions.empty()) {
+        return;
+    }
+    const ri::math::Mat4 world = scene.ComputeWorldMatrix(nodeHandle);
+    for (const ri::math::Vec3& corner : mesh.positions) {
+        ExpandBounds(bounds, hasBounds, ri::math::TransformPoint(world, corner));
+    }
+}
+
 void AppendNodeWorldBounds(const Scene& scene,
                            int nodeHandle,
                            bool includeChildren,
@@ -76,7 +90,10 @@ void AppendNodeWorldBounds(const Scene& scene,
     const Node& node = scene.GetNode(nodeHandle);
     if (node.mesh != kInvalidHandle) {
         const Mesh& mesh = scene.GetMesh(node.mesh);
-        if (const std::optional<std::vector<ri::math::Vec3>> corners = GetPrimitiveCorners(mesh); corners.has_value()) {
+        if (mesh.primitive == PrimitiveType::Custom) {
+            AppendCustomMeshWorldBounds(scene, nodeHandle, mesh, bounds, hasBounds);
+        } else if (const std::optional<std::vector<ri::math::Vec3>> corners = GetPrimitiveCorners(mesh);
+                   corners.has_value()) {
             const ri::math::Mat4 world = scene.ComputeWorldMatrix(nodeHandle);
             for (const ri::math::Vec3& corner : *corners) {
                 ExpandBounds(bounds, hasBounds, ri::math::TransformPoint(world, corner));
@@ -359,6 +376,13 @@ std::optional<WorldBounds> ComputeNodeWorldBounds(const Scene& scene, int nodeHa
         return std::nullopt;
     }
     return bounds;
+}
+
+void SnapNodeMeshBaseToGround(Scene& scene, const int nodeHandle, const float targetGroundY) {
+    if (const std::optional<WorldBounds> bounds = ComputeNodeWorldBounds(scene, nodeHandle, true)) {
+        const float deltaY = targetGroundY - bounds->min.y;
+        scene.GetNode(nodeHandle).localTransform.position.y += deltaY;
+    }
 }
 
 std::optional<ri::spatial::Aabb> TryComputeMeshNodeWorldAabb(const Scene& scene, const int nodeHandle) {

@@ -4,6 +4,8 @@
 #include "RawIron/Content/ScriptScalars.h"
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Scene/ModelLoader.h"
+#include "RawIron/Scene/SceneSubtreeHelpers.h"
+#include "RawIron/Scene/SceneUtils.h"
 
 #include <algorithm>
 #include <array>
@@ -11,9 +13,11 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace ri::games::forestruins {
@@ -345,7 +349,9 @@ struct ForestSceneLayout {
     const fs::path legacyBotdRoot = legacyPackRoot / "Conifers [BOTD]";
     const fs::path sortedBotdRoot = sortedTexturesRoot / "Assets" / "Conifers [BOTD]";
     layout.botdRoot = PreferExistingPath(sortedBotdRoot, legacyBotdRoot);
-    layout.botdBillboardsRoot = layout.botdRoot / "Sources" / "Billboards";
+    layout.botdBillboardsRoot = PreferExistingPath(
+        sortedPackRoot / "UnityOnly" / "Assets" / "Conifers [BOTD]" / "Sources" / "Billboards",
+        layout.botdRoot / "Sources" / "Billboards");
     layout.botdMeshesRoot = PreferExistingPath(
         sortedPackRoot / "UnityOnly" / "Assets" / "Conifers [BOTD]" / "Sources" / "Meshes",
         layout.botdRoot / "Sources" / "Meshes");
@@ -403,8 +409,9 @@ struct BotdBillboardVariant {
             .label = folderName,
             .albedoPath = entry.path(),
         };
-        for (const fs::directory_entry& sibling : fs::directory_iterator(folderPath, ec)) {
-            if (ec || !sibling.is_regular_file()) {
+        std::error_code siblingEc{};
+        for (const fs::directory_entry& sibling : fs::directory_iterator(folderPath, siblingEc)) {
+            if (siblingEc || !sibling.is_regular_file()) {
                 continue;
             }
             const std::string siblingLower = ToLowerAscii(sibling.path().filename().string());
@@ -518,6 +525,9 @@ struct BotdBillboardVariant {
         }
         const std::string stemLower = ToLowerAscii(entry.path().stem().string());
         if (stemLower.find("conifer") == std::string::npos) {
+            continue;
+        }
+        if (stemLower.find("lod1") != std::string::npos) {
             continue;
         }
         meshes.push_back(entry.path());
@@ -715,6 +725,8 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     const std::vector<fs::path> exportedConiferMeshes = DiscoverExportedConiferMeshes(forest.exportedMeshesRoot);
     const bool useBotdForestTrees = !botdTreeVariants.empty();
     const bool useExportedConiferMeshes = !exportedConiferMeshes.empty();
+    const int botdVerticalBillboardMesh =
+        useBotdForestTrees ? scene.AddMesh(MakeVerticalBillboardMesh(0.0f, 1.0f)) : ri::scene::kInvalidHandle;
     const bool editorWorkspaceScene = sceneName.find("EditorWorkspace") != std::string_view::npos;
     const ri::content::ScriptScalarMap gameplay = ri::content::LoadScriptScalars(gameRoot / "scripts" / "gameplay.riscript");
 
@@ -794,7 +806,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     if (fs::exists(forest.groundNormal)) {
         terrain.normalTexture = ToAbsoluteAssetPath(forest.groundNormal);
     }
-    terrain.textureTiling = ri::math::Vec2{168.0f, 168.0f};
+    terrain.textureTiling = ri::math::Vec2{36.0f, 36.0f};
     terrain.resolutionX = 96;
     terrain.resolutionZ = 96;
     if (editorWorkspaceScene) {
@@ -819,6 +831,21 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
             + (detail * terrain.detailAmplitude);
     };
 
+    auto resolveImportedModelUniformScale = [](const fs::path& sourcePath) -> float {
+        if (PathContainsAscii(sourcePath, "forest scene")) {
+            return 0.055f;
+        }
+        if (PathContainsAscii(sourcePath, "generated/forestscene")) {
+            return 1.0f;
+        }
+        if (PathContainsAscii(sourcePath, "post apocalypse")) {
+            return 0.018f;
+        }
+        return 0.025f;
+    };
+
+    SceneModelTemplateRegistry scatterModelTemplates{};
+
     auto addImported = [&](const std::string& nodeName,
                            const fs::path& sourcePath,
                            const ri::math::Vec3& position,
@@ -827,28 +854,26 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
         if (!fs::exists(sourcePath)) {
             return;
         }
-        std::string importError;
-        float importScale = 0.025f;
-        if (PathContainsAscii(sourcePath, "forest scene")) {
-            importScale = 0.055f;
-        } else if (PathContainsAscii(sourcePath, "generated/forestscene")) {
-            importScale = 0.055f;
-        } else if (PathContainsAscii(sourcePath, "post apocalypse")) {
-            importScale = 0.018f;
-        }
+        const float importScale = resolveImportedModelUniformScale(sourcePath);
         const ri::math::Vec3 calibratedScale = scale * importScale;
-        (void)AddModelNode(scene,
-                           ImportedModelOptions{
-                               .sourcePath = sourcePath,
-                               .nodeName = nodeName,
-                               .parent = world.handles.root,
-                               .transform = Transform{
-                                   .position = position,
-                                   .rotationDegrees = rotation,
-                                   .scale = calibratedScale,
-                               },
-                           },
-                           &importError);
+        std::string importError;
+        (void)InstantiateSceneModelTemplate(
+            scene,
+            scatterModelTemplates,
+            sourcePath,
+            world.handles.root,
+            nodeName,
+            Transform{
+                .position = position,
+                .rotationDegrees = rotation,
+                .scale = calibratedScale,
+            },
+            position.y,
+            ImportedModelOptions{
+                .sourcePath = sourcePath,
+                .nodeName = "Template_" + sourcePath.stem().string(),
+            },
+            &importError);
     };
 
     auto groundPoint = [&](const float x, const float z) {
@@ -1198,51 +1223,84 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
             trunk.transform.scale = {treeWidth * 0.07f, treeHeight * 0.48f, treeWidth * 0.07f};
             (void)AddPrimitiveNode(scene, trunk);
         }
-        const int planeCount = 2;
-        for (int planeIndex = 0; planeIndex < planeCount; ++planeIndex) {
-            PrimitiveNodeOptions billboard{};
-            billboard.nodeName = nodeName + "_Billboard_" + std::to_string(planeIndex + 1);
-            billboard.parent = world.handles.root;
-            billboard.primitive = PrimitiveType::Plane;
-            billboard.materialName = "conifer-billboard";
-            billboard.shadingModel = ShadingModel::Lit;
-            billboard.baseColor = ri::math::Vec3{1.0f, 1.0f, 1.0f};
-            billboard.baseColorTexture = ToAbsoluteAssetPath(variant.albedoPath);
-            if (!variant.normalPath.empty() && fs::exists(variant.normalPath)) {
-                billboard.normalTexture = ToAbsoluteAssetPath(variant.normalPath);
-            }
-            billboard.textureTiling = ri::math::Vec2{1.0f, 1.0f};
-            billboard.alphaCutoff = alphaCutoff;
-            billboard.doubleSided = true;
-            billboard.roughness = 0.96f;
-            billboard.metallic = 0.0f;
-            billboard.emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f};
-            // Plane primitive is centered on XZ; after a 90deg X rotation the local -Z corner sits one half-height above the node origin.
-            billboard.transform.position =
-                ri::math::Vec3{root.x, root.y - (treeHeight * 0.5f), root.z};
-            billboard.transform.rotationDegrees =
-                ri::math::Vec3{90.0f, yawBase + (static_cast<float>(planeIndex) * (180.0f / planeCount)), 0.0f};
-            billboard.transform.scale = ri::math::Vec3{treeWidth, 1.0f, treeHeight};
-            (void)AddPrimitiveNode(scene, billboard);
+        if (botdVerticalBillboardMesh == ri::scene::kInvalidHandle) {
+            return;
         }
+        Material billboardMaterial{
+            .name = "conifer-billboard-" + variant.label,
+            .shadingModel = ShadingModel::Lit,
+            .baseColor = ri::math::Vec3{1.0f, 1.0f, 1.0f},
+            .baseColorTexture = ToAbsoluteAssetPath(variant.albedoPath),
+            .roughness = 0.96f,
+            .alphaCutoff = alphaCutoff,
+            .doubleSided = true,
+        };
+        if (!variant.normalPath.empty() && fs::exists(variant.normalPath)) {
+            billboardMaterial.normalTexture = ToAbsoluteAssetPath(variant.normalPath);
+        }
+        const int billboardMaterialHandle = scene.AddMaterial(billboardMaterial);
+        const auto addCrossedBillboard = [&](const std::string& planeName,
+                                             const float yawOffset,
+                                             const float widthScale) {
+            const int node = scene.CreateNode(planeName, world.handles.root);
+            scene.GetNode(node).localTransform = Transform{
+                .position = root,
+                .rotationDegrees = ri::math::Vec3{0.0f, yawBase + yawOffset, 0.0f},
+                .scale = ri::math::Vec3{treeWidth * widthScale, treeHeight, 1.0f},
+            };
+            scene.AttachMesh(node, botdVerticalBillboardMesh, billboardMaterialHandle);
+        };
+        addCrossedBillboard(nodeName + "_Billboard_1", 0.0f, 1.0f);
+        addCrossedBillboard(nodeName + "_Billboard_2", 90.0f, 0.92f);
     };
+
+    std::unordered_map<std::string, int> exportedConiferTemplates;
+    const int coniferTemplateParent = scene.CreateNode("ConiferMeshTemplates", world.handles.root);
+    scene.GetNode(coniferTemplateParent).localTransform.position = ri::math::Vec3{0.0f, -2000.0f, 0.0f};
 
     auto addForestConiferTree = [&](const ri::math::Vec3& root,
                                     const float targetHeight,
                                     const float yawDegrees,
                                     const int variantIndex,
-                                    const std::string& nodePrefix,
-                                    const bool preferMesh = false) {
-        if (useExportedConiferMeshes && preferMesh) {
+                                    const std::string& nodePrefix) {
+        if (useExportedConiferMeshes) {
             const fs::path& meshPath =
                 exportedConiferMeshes[static_cast<std::size_t>(std::abs(variantIndex))
                                       % exportedConiferMeshes.size()];
-            const float meshScale = std::clamp(targetHeight / 9.0f, 0.45f, 2.2f);
-            addImported(nodePrefix + "_Mesh",
-                        meshPath,
-                        root,
-                        ri::math::Vec3{0.0f, yawDegrees, 0.0f},
-                        ri::math::Vec3{meshScale, meshScale, meshScale});
+            const std::string meshKey = meshPath.lexically_normal().generic_string();
+            int templateRoot = kInvalidHandle;
+            const auto cachedTemplate = exportedConiferTemplates.find(meshKey);
+            if (cachedTemplate != exportedConiferTemplates.end()) {
+                templateRoot = cachedTemplate->second;
+            } else {
+                std::string importError;
+                templateRoot = AddModelNode(scene,
+                                            ImportedModelOptions{
+                                                .sourcePath = meshPath,
+                                                .nodeName = "ConiferTemplate_" + meshPath.stem().string(),
+                                                .parent = coniferTemplateParent,
+                                                .transform = Transform{},
+                                                .snapMeshBaseToGround = false,
+                                            },
+                                            &importError);
+                if (templateRoot != kInvalidHandle) {
+                    exportedConiferTemplates.emplace(meshKey, templateRoot);
+                }
+            }
+            if (templateRoot == kInvalidHandle) {
+                return;
+            }
+            const float meshScale = std::clamp(targetHeight / 24.0f, 0.35f, 2.4f);
+            const Transform placement{
+                .position = root,
+                .rotationDegrees = ri::math::Vec3{0.0f, yawDegrees, 0.0f},
+                .scale = ri::math::Vec3{meshScale, meshScale, meshScale},
+            };
+            const int instanceRoot = CloneSceneSubtree(
+                scene, templateRoot, world.handles.root, nodePrefix + "_Mesh", placement);
+            if (instanceRoot != kInvalidHandle) {
+                SnapNodeMeshBaseToGround(scene, instanceRoot, root.y);
+            }
             return;
         }
         if (useBotdForestTrees) {
@@ -1274,7 +1332,8 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     const int rockCount = ri::content::ScriptScalarOrIntClamped(gameplay, "scatter_rock_count", 28, 8, 300);
     const int bushCount = ri::content::ScriptScalarOrIntClamped(gameplay, "scatter_bush_count", 40, 8, 500);
     const int treeCount = ri::content::ScriptScalarOrIntClamped(gameplay, "scatter_tree_count", 90, 0, 1200);
-    const bool generateTrees = ri::content::ScriptScalarOrBool(gameplay, "scatter_tree_proxies", true)
+    const bool generateTrees = useExportedConiferMeshes
+        || ri::content::ScriptScalarOrBool(gameplay, "scatter_tree_proxies", true)
         || ri::content::ScriptScalarOrBool(gameplay, "scatter_tree_billboards", true);
 
     DeterministicRng rng{};
@@ -1367,7 +1426,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
 
     const int roadSegmentCount = sourcePackReady ? 10 : 27;
     const int roadCrackCount = sourcePackReady ? 6 : 42;
-    const int floorShadowPatchCount = sourcePackReady ? 0 : 76;
+    const int floorShadowPatchCount = (sourcePackReady || useExportedConiferMeshes) ? 0 : 76;
     const int roadEdgeStoneCount = sourcePackReady ? 8 : 34;
     const int heroRubbleCount = sourcePackReady ? 5 : 18;
 
@@ -1499,7 +1558,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
         heroImport("HeroBusStop_ClaimedByMoss", postApocRoot / "Bus_Stop_Rural" / "MS_Bus_Stop_Rural.fbx",
                    -11.5f, 43.0f, {0.0f, 18.0f, 0.0f}, {4.4f, 4.4f, 4.4f}, 5.6f, 4.2f);
         heroImport("HeroRoadEndsSign", postApocRoot / "Sign_Public_Road_Ends" / "MS_Sign_Public_Road_Ends.fbx",
-                   5.8f, 53.2f, {0.0f, -16.0f, 0.0f}, {3.3f, 3.3f, 3.3f}, 1.1f, 2.8f);
+                   5.8f, 53.2f, {180.0f, -16.0f, 0.0f}, {3.3f, 3.3f, 3.3f}, 1.1f, 2.8f);
         heroImport("HeroLightPoleLean", postApocRoot / "Pole_Light_Rural" / "MS_Pole_Light_Rural.fbx",
                    -7.8f, 31.2f, {0.0f, 38.0f, -7.0f}, {3.5f, 3.5f, 3.5f}, 1.2f, 5.2f);
         heroImport("HeroFireplaceTowerBack", postApocRoot / "Fireplace_Tower" / "MS_Fireplace_Tower.fbx",
@@ -1533,8 +1592,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                              9.8f + static_cast<float>((i * 17) % 9) * 0.72f,
                              static_cast<float>((i * 29) % 360),
                              i,
-                             "PathConifer_" + std::to_string(i + 1),
-                             useExportedConiferMeshes && (i % 5 == 0));
+                             "PathConifer_" + std::to_string(i + 1));
     }
 
     for (int i = 0; i < pathTallTreeCount; ++i) {
@@ -1546,8 +1604,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                              11.6f + static_cast<float>((i * 19) % 5) * 0.9f,
                              static_cast<float>((i * 43) % 360),
                              i + 1,
-                             "PathConiferTall_" + std::to_string(i + 1),
-                             useExportedConiferMeshes);
+                             "PathConiferTall_" + std::to_string(i + 1));
     }
 
     for (int i = 0; i < pathSmallTreeCount; ++i) {
@@ -1559,8 +1616,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                              2.8f + static_cast<float>((i * 7) % 5) * 0.46f,
                              static_cast<float>((i * 47) % 360),
                              i + 2,
-                             "PathConiferSmall_" + std::to_string(i + 1),
-                             false);
+                             "PathConiferSmall_" + std::to_string(i + 1));
     }
 
     for (int i = 0; i < 18; ++i) {
@@ -1586,8 +1642,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                                  rng.NextRange(7.2f, 15.5f),
                                  yawBase,
                                  rng.NextIndex(static_cast<int>(botdTreeVariants.empty() ? 4 : botdTreeVariants.size())),
-                                 "ScatterConifer_" + std::to_string(i + 1),
-                                 false);
+                                 "ScatterConifer_" + std::to_string(i + 1));
         }
     }
 
@@ -1611,6 +1666,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     const fs::path engineTexturesRoot = workspaceRoot / "Assets" / "Textures";
     AbsolutizeMaterialTexturePaths(scene);
     ApplyForestRuinsShowcaseMaterials(scene, engineTexturesRoot);
+    AbsolutizeMaterialTexturePaths(scene);
 
     return world;
 }

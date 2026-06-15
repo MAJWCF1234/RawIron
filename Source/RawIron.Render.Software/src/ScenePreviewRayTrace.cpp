@@ -785,6 +785,18 @@ const RgbaImage* ResolveNormalTexture(TextureCache& cache,
     return inserted.first->second.Valid() ? &inserted.first->second : nullptr;
 }
 
+[[nodiscard]] std::size_t WrapTexturePixelIndex(const RgbaImage& texture, int x, int y) {
+    int sx = x % texture.width;
+    int sy = y % texture.height;
+    if (sx < 0) {
+        sx += texture.width;
+    }
+    if (sy < 0) {
+        sy += texture.height;
+    }
+    return (static_cast<std::size_t>(sy) * static_cast<std::size_t>(texture.width) + static_cast<std::size_t>(sx)) * 4U;
+}
+
 ri::math::Vec3 SampleTexture(const RgbaImage* texture, const ri::math::Vec2& uv) {
     if (texture == nullptr || !texture->Valid()) {
         return ri::math::Vec3{1.0f, 1.0f, 1.0f};
@@ -793,21 +805,33 @@ ri::math::Vec3 SampleTexture(const RgbaImage* texture, const ri::math::Vec2& uv)
     float v = uv.y - std::floor(uv.y);
     const int x = static_cast<int>(std::floor(u * static_cast<float>(texture->width - 1) + 0.5f));
     const int y = static_cast<int>(std::floor(v * static_cast<float>(texture->height - 1) + 0.5f));
-    int sx = x % texture->width;
-    int sy = y % texture->height;
-    if (sx < 0) {
-        sx += texture->width;
-    }
-    if (sy < 0) {
-        sy += texture->height;
-    }
-    const std::size_t offset =
-        (static_cast<std::size_t>(sy) * static_cast<std::size_t>(texture->width) + static_cast<std::size_t>(sx)) * 4U;
+    const std::size_t offset = WrapTexturePixelIndex(*texture, x, y);
     return ri::math::Vec3{
         static_cast<float>(texture->rgba[offset + 0U]) / 255.0f,
         static_cast<float>(texture->rgba[offset + 1U]) / 255.0f,
         static_cast<float>(texture->rgba[offset + 2U]) / 255.0f,
     };
+}
+
+float SampleTextureAlpha(const RgbaImage* texture, const ri::math::Vec2& uv) {
+    if (texture == nullptr || !texture->Valid()) {
+        return 1.0f;
+    }
+    float u = uv.x - std::floor(uv.x);
+    float v = uv.y - std::floor(uv.y);
+    const int x = static_cast<int>(std::floor(u * static_cast<float>(texture->width - 1) + 0.5f));
+    const int y = static_cast<int>(std::floor(v * static_cast<float>(texture->height - 1) + 0.5f));
+    const std::size_t offset = WrapTexturePixelIndex(*texture, x, y);
+    return static_cast<float>(texture->rgba[offset + 3U]) / 255.0f;
+}
+
+float ResolveMaterialRoughness(const ri::scene::Material& material, const RgbaImage* texture, const ri::math::Vec2& uv) {
+    float roughness = std::clamp(material.roughness, 0.04f, 1.0f);
+    if (material.albedoAlphaIsSmoothness && texture != nullptr) {
+        const float smoothness = std::clamp(SampleTextureAlpha(texture, uv), 0.0f, 1.0f);
+        roughness = std::clamp(material.roughness * 0.08f + (1.0f - smoothness) * 0.92f, 0.04f, 1.0f);
+    }
+    return roughness;
 }
 
 ri::math::Vec3 SampleTangentSpaceNormal(const RgbaImage* texture, const ri::math::Vec2& uv) {
@@ -959,6 +983,7 @@ ri::math::Vec3 ShadeHit(const ri::scene::Scene& scene,
     const RgbaImage* texture = textureRoot.empty() ? nullptr
                                                    : ResolveTexture(textureCache, textureRoot, options, material);
     const ri::math::Vec3 albedo = MultiplyColor(material.baseColor, SampleTexture(texture, surfaceUv));
+    const float roughness = ResolveMaterialRoughness(material, texture, surfaceUv);
 
     if (material.shadingModel == ri::scene::ShadingModel::Unlit) {
         return ClampColor(albedo + material.emissiveColor);
@@ -1025,9 +1050,9 @@ ri::math::Vec3 ShadeHit(const ri::scene::Scene& scene,
         color = color + MultiplyColor(albedo, light.color * (diffuse * visibility));
 
         const ri::math::Vec3 halfVector = ri::math::Normalize(toLight + viewDirection);
-        const float specPower = std::lerp(96.0f, 12.0f, material.roughness);
+        const float specPower = std::lerp(96.0f, 12.0f, roughness);
         const float specular = std::pow(std::max(0.0f, ri::math::Dot(normal, halfVector)), specPower)
-            * attenuation * (1.0f - material.roughness) * 0.35f;
+            * attenuation * (1.0f - roughness) * 0.35f;
         color = color + (light.color * (specular * visibility));
     }
 
@@ -1041,7 +1066,6 @@ ri::math::Vec3 ShadeHit(const ri::scene::Scene& scene,
     if (options.rayTracingReflections && depth < options.rayTracingMaxBounces) {
         const float fresnel = Clamp01(0.04f + (1.0f - 0.04f) * std::pow(1.0f - std::max(0.0f, ri::math::Dot(normal, viewDirection)), 5.0f));
         const float metallic = std::clamp(material.metallic, 0.0f, 1.0f);
-        const float roughness = std::clamp(material.roughness, 0.0f, 1.0f);
         const float reflectWeight =
             (metallic * fresnel) + ((1.0f - metallic) * fresnel * 0.16f * (1.0f - roughness));
         if (reflectWeight > 0.02f) {

@@ -2,6 +2,8 @@
 
 #include "RawIron/Scene/FbxLoader.h"
 #include "RawIron/Scene/GltfLoader.h"
+#include "RawIron/Scene/SceneUtils.h"
+#include "RawIron/Scene/UfbxMeshImport.h"
 
 #include <ufbx.h>
 
@@ -343,6 +345,11 @@ int AddModelNode(Scene& scene, const ImportedModelOptions& options, std::string*
                                                  .nodeName = options.nodeName,
                                                  .parent = options.parent,
                                                  .transform = options.transform,
+                                                 .materialName = options.materialName.empty()
+                                                     ? "ModelMaterial"
+                                                     : options.materialName,
+                                                 .existingMaterial = options.existingMaterial,
+                                                 .snapMeshBaseToGround = options.snapMeshBaseToGround,
                                              },
                                              &backendError);
                 break;
@@ -366,6 +373,7 @@ int AddModelNode(Scene& scene, const ImportedModelOptions& options, std::string*
                                              .wrapperNodeName = options.nodeName,
                                              .parent = options.parent,
                                              .transform = options.transform,
+                                             .snapMeshBaseToGround = options.snapMeshBaseToGround,
                                          },
                                          &backendError);
                 break;
@@ -413,29 +421,33 @@ int AddModelNode(Scene& scene, const ImportedModelOptions& options, std::string*
 
 int AddWavefrontObjNode(Scene& scene, const ModelNodeOptions& options, std::string* error) {
     std::string localError;
-    const std::optional<Mesh> mesh = LoadWavefrontObjMesh(options.sourcePath, localError);
-    if (!mesh.has_value()) {
+    const int rootHandle = ImportUfbxSceneFile(
+        scene,
+        options.sourcePath,
+        UfbxSceneImportOptions{
+            .parent = options.parent,
+            .wrapperNodeName = options.nodeName,
+            .fileFormat = UfbxSceneImportOptions::FileFormat::Obj,
+        },
+        localError);
+    if (rootHandle == kInvalidHandle) {
         if (error != nullptr) {
             *error = localError;
         }
         return kInvalidHandle;
     }
 
-    const int material = scene.AddMaterial(Material{
-        .name = options.materialName,
-        .shadingModel = options.shadingModel,
-        .baseColor = options.baseColor,
-        .transparent = options.transparent,
-    });
-    const int meshHandle = scene.AddMesh(*mesh);
-    const int node = scene.CreateNode(options.nodeName, options.parent);
-    scene.GetNode(node).localTransform = options.transform;
-    scene.AttachMesh(node, meshHandle, material);
+    scene.GetNode(rootHandle).localTransform =
+        CombineTransforms(options.transform, scene.GetNode(rootHandle).localTransform);
+
+    if (options.snapMeshBaseToGround) {
+        SnapNodeMeshBaseToGround(scene, rootHandle, options.transform.position.y);
+    }
 
     if (error != nullptr) {
         error->clear();
     }
-    return node;
+    return rootHandle;
 }
 
 int AddGltfModelNode(Scene& scene, const GltfModelOptions& options, std::string* error) {
@@ -481,6 +493,9 @@ int AddFbxModelNode(Scene& scene, const FbxModelOptions& options, std::string* e
     }
 
     scene.GetNode(rootHandle).localTransform = CombineTransforms(options.transform, scene.GetNode(rootHandle).localTransform);
+    if (options.snapMeshBaseToGround) {
+        SnapNodeMeshBaseToGround(scene, rootHandle, options.transform.position.y);
+    }
     if (error != nullptr) {
         error->clear();
     }

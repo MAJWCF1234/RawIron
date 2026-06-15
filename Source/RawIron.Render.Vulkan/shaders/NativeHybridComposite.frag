@@ -403,10 +403,14 @@ void main() {
     float casContrastAdaptation = clamp(cameraData.presentationTuning.y, 0.0, 1.0);
     hdr = ApplyCasSharpen(sampleUv, texel, hdr, casAmount, casContrastAdaptation);
 
+    // Hybrid HDR radiance already includes renderTuning.x exposure in NativeScenePreview.frag.
+    const bool hybridHdrRadiance = cameraData.postProcessSecondary.w > 0.5;
     float exposure = max(cameraData.renderTuning.x, 0.01);
     float contrast = max(cameraData.renderTuning.y, 0.01);
     float saturation = max(cameraData.renderTuning.z, 0.01);
-    hdr *= exposure;
+    if (!hybridHdrRadiance) {
+        hdr *= exposure;
+    }
 
     float bloomStrength = clamp(cameraData.presentationTuning.z, 0.0, 1.0);
     float bloomThreshold = max(cameraData.presentationTuning.w, 0.0);

@@ -3,7 +3,9 @@
 #include "EditorUiTheme.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 
 #if defined(_WIN32)
@@ -29,6 +31,26 @@ struct AuthoringToolbarRects {
     RECT play{};
 };
 
+struct EditorToolbarLayout {
+    bool compact = false;
+    RECT select{};
+    RECT create{};
+    RECT camera{};
+    RECT tacticalGroup{};
+    RECT translate{};
+    RECT rotate{};
+    RECT scale{};
+    RECT axisX{};
+    RECT axisY{};
+    RECT axisZ{};
+    RECT snapToggle{};
+    RECT snapStepDown{};
+    RECT snapStepUp{};
+    RECT resolutionScale{};
+    RECT foundryGroup{};
+    AuthoringToolbarRects authoring{};
+};
+
 struct TopChromeRects {
     RECT newGame{};
     RECT save{};
@@ -43,6 +65,7 @@ struct EditorViewportTheme {
     HFONT headerFont = nullptr;
     HFONT bodyFont = nullptr;
     HFONT smallFont = nullptr;
+    HFONT monoFont = nullptr;
 };
 
 struct EditorViewportChromeModel {
@@ -64,6 +87,7 @@ struct EditorViewportToolStripModel {
     std::size_t undoDepth = 0;
     std::size_t authoredCount = 0;
     std::size_t triggerCount = 0;
+    bool resolutionScalingEnabled = true;
 };
 
 struct EditorViewportStatusModel {
@@ -84,6 +108,58 @@ struct EditorViewportBlockModel {
     std::string cameraSummaryLine;
 };
 
+enum class CameraRailHit {
+    None,
+    Trackball,
+    TrackballCenter,
+    PanCross,
+    PanCenter,
+    DepthCross,
+    HomeButton,
+    FrameSelectionButton,
+    FrameAllButton,
+    ResolutionScaleButton,
+};
+
+struct CameraRailLayout {
+    RECT panel{};
+    RECT trackballBounds{};
+    RECT panCrossBounds{};
+    RECT depthCrossBounds{};
+    RECT homeButtonBounds{};
+    RECT frameSelectionButtonBounds{};
+    RECT frameAllButtonBounds{};
+    RECT resolutionScaleButtonBounds{};
+    RECT trackballNubBounds{};
+    RECT panNubBounds{};
+    RECT depthNubBounds{};
+    POINT trackballCenter{};
+    POINT panCenter{};
+    POINT depthCenter{};
+    LONG orbitRadius = 0;
+    LONG panRadius = 0;
+    LONG depthHalfWidth = 0;
+    LONG depthHalfHeight = 0;
+};
+
+struct CameraRailVisualModel {
+    float orbitOffsetX = 0.0f;
+    float orbitOffsetY = 0.0f;
+    float panOffsetX = 0.0f;
+    float panOffsetY = 0.0f;
+    float depthOffsetX = 0.0f;
+    float depthOffsetY = 0.0f;
+    bool orbitActive = false;
+    bool panActive = false;
+    bool depthActive = false;
+    bool resolutionScalingEnabled = true;
+};
+
+struct CameraRailSpriteDiagnostics {
+    bool ready = false;
+    std::uint32_t resolvedAssetCount = 0;
+};
+
 struct EditorViewportWorldBarHit {
     bool hitAtmosphereCycle = false;
 };
@@ -102,7 +178,15 @@ struct EditorViewportBlockCallbacks {
 };
 
 [[nodiscard]] AuthoringToolbarRects ComputeAuthoringToolbarRects(const RECT& toolStrip);
+[[nodiscard]] EditorToolbarLayout ComputeEditorToolbarLayout(const RECT& toolStrip);
+[[nodiscard]] CameraRailLayout ComputeCameraRailLayout(const RECT& railRect);
 [[nodiscard]] TopChromeRects ComputeTopChromeRects(const RECT& topBar);
+[[nodiscard]] std::optional<RECT> ComputeToolStripStatusRect(
+    const RECT& toolStrip,
+    const EditorToolbarLayout& layout);
+[[nodiscard]] std::string EditorToolbarTooltipAtPoint(const RECT& toolStrip, const POINT& point);
+[[nodiscard]] CameraRailHit HitTestCameraRail(const RECT& railRect, const POINT& point);
+[[nodiscard]] CameraRailSpriteDiagnostics GetCameraRailSpriteDiagnostics();
 [[nodiscard]] bool HitTestViewportCreateMenu(const RECT& viewportInner, const POINT& point);
 [[nodiscard]] bool HitTestViewportHelpMenu(const RECT& viewportInner, const POINT& point);
 
@@ -115,6 +199,14 @@ void RenderEditorToolStrip(HDC dc,
                            const RECT& toolStrip,
                            const EditorViewportToolStripModel& model,
                            const EditorViewportTheme& theme);
+void RenderEditorToolbarTooltip(HDC dc,
+                                const RECT& toolStrip,
+                                const POINT& point,
+                                const EditorViewportTheme& theme);
+void RenderEditorCameraRail(HDC dc,
+                            const RECT& railRect,
+                            const EditorViewportTheme& theme,
+                            const CameraRailVisualModel& model);
 void RenderEditorFramePanels(HDC dc,
                              const RECT& hierarchy,
                              const RECT& viewport,
@@ -131,7 +223,12 @@ void RenderEditorViewportBlock(HDC dc,
                                const EditorViewportBlockModel& model,
                                const EditorViewportTheme& theme,
                                const EditorViewportBlockCallbacks& callbacks);
-void PresentEditorFrame(HDC windowDc, HDC backBufferDc, int width, int height, const RECT* excludedClientRect);
+void PresentEditorFrame(HDC windowDc,
+                        HDC backBufferDc,
+                        int width,
+                        int height,
+                        const RECT* excludedClientRect,
+                        const RECT* blitRect = nullptr);
 #endif
 
 } // namespace ri::editor

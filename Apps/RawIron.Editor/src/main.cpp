@@ -25,6 +25,8 @@
 #include "EditorResourceTextEditor.h"
 #include "EditorSceneController.h"
 #include "EditorViewportRenderer.h"
+#include "EditorViewportPerformance.h"
+#include "EditorVulkanViewport.h"
 #include "EditorWorkspace.h"
 #include "EditorCreatorPalette.h"
 #include "EditorHelpDialog.h"
@@ -1066,7 +1068,8 @@ public:
     }
 
     [[nodiscard]] bool OnFrame(const ri::core::FrameContext& frame) override {
-        ri::editor::AnimateEditorWorkspaceScene(sceneConfig_.editorPreviewScene, starterScene_, frame.elapsedSeconds);
+        ri::editor::AnimateEditorWorkspaceScene(
+            sceneConfig_.editorPreviewScene, starterScene_, frame.elapsedSeconds, true);
 
         if (frame.frameIndex == 0 || logEveryFrame_) {
             const ri::scene::Scene& scene = starterScene_.scene;
@@ -1781,7 +1784,8 @@ public:
           statsOverlayVisible_(commandLine.HasFlag("--stats-overlay")),
           statsOverlayState_(true),
           autoOrbitPreview_(commandLine.HasFlag("--auto-orbit")),
-          viewportRayTracePreview_(commandLine.HasFlag("--viewport-ray-trace")) {
+          viewportRayTracePreview_(commandLine.HasFlag("--viewport-ray-trace")),
+          viewportGpuAllowed_(commandLine.HasFlag("--gpu-viewport")) {
         ri::editor::RegisterBundledGameEditorPreviews();
         starterScene_ = ri::editor::BuildEditorWorkspaceScene(
             sceneConfig_.editorPreviewScene,
@@ -1806,6 +1810,9 @@ public:
         } else {
             lastIoStatus_ += "  (Ctrl+Shift+R: ray-traced viewport preview)";
         }
+        if (viewportGpuAllowed_) {
+            lastIoStatus_ += "  (--gpu-viewport: experimental Vulkan viewport enabled)";
+        }
         RefreshWorkspaceGamesAndResources();
         RebuildFilteredHierarchyOrder();
         EnsureEditorTrashFolder();
@@ -1828,6 +1835,7 @@ public:
             logicLayer_.EnsureGameColliderTrace(sceneConfig_.gameManifest->rootPath);
         }
         ri::editor::BindAuthoringLogicCatalog(&logicLayer_);
+        // Catalog thumbnails load lazily via PrewarmVisible during paint.
         RefreshPluginStoreState();
         if (!fs::exists(ResolveSceneStatePath(), loadEc) && !fs::exists(ResolveAuthoredSceneStatePath(), loadEc)) {
             (void)logicLayer_.Load(
@@ -1862,8 +1870,8 @@ public:
             WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            1520,
-            900,
+            ri::editor::DefaultEditorStartupWidth(),
+            ri::editor::DefaultEditorStartupHeight(),
             nullptr,
             nullptr,
             instance,
@@ -1872,11 +1880,15 @@ public:
             return 1;
         }
 
-        titleFont_ = CreateUiFont(-20, FW_BOLD, L"Segoe UI");
-        headerFont_ = CreateUiFont(-15, FW_SEMIBOLD, L"Segoe UI");
+        titleFont_ = CreateUiFont(-20, FW_BOLD, L"Bahnschrift SemiBold");
+        headerFont_ = CreateUiFont(-15, FW_SEMIBOLD, L"Bahnschrift SemiBold");
         bodyFont_ = CreateUiFont(-14, FW_SEMIBOLD, L"Segoe UI");
         smallFont_ = CreateUiFont(-12, FW_NORMAL, L"Segoe UI");
+        monoFont_ = CreateUiFont(-12, FW_NORMAL, L"Consolas");
 
+        if (viewportGpuAllowed_) {
+            StartVulkanViewport();
+        }
         SetTimer(hwnd_, 1, 33, nullptr);
         lastTick_ = std::chrono::steady_clock::now();
 
@@ -1886,10 +1898,13 @@ public:
             DispatchMessageW(&message);
         }
 
+        vulkanViewport_.Stop();
+        DestroyEditorBackBuffer();
         DeleteObject(titleFont_);
         DeleteObject(headerFont_);
         DeleteObject(bodyFont_);
         DeleteObject(smallFont_);
+        DeleteObject(monoFont_);
         return static_cast<int>(message.wParam);
     }
 
@@ -1906,8 +1921,11 @@ private:
     };
     enum class CameraDragMode {
         None,
-        Orbit,
-        Pan,
+        ViewOrbit,
+        ViewPan,
+        RailTrackball,
+        RailPan,
+        RailDepth,
     };
     enum class InspectorPanel {
         Node,
@@ -1940,13 +1958,23 @@ enum class UiWorkbenchTextEditTarget {
     struct EditorLayout {
         RECT toolStrip{};
         RECT hierarchy{};
+        RECT cameraRail{};
         RECT hierarchyInner{};
+        RECT cameraRailInner{};
         RECT viewport{};
         RECT inspector{};
         RECT viewportInner{};
         RECT inspectorInner{};
         RECT hierarchySplitter{};
         RECT inspectorSplitter{};
+    };
+    struct RailPadState {
+        float offsetX = 0.0f;
+        float offsetY = 0.0f;
+        float springStartX = 0.0f;
+        float springStartY = 0.0f;
+        bool springing = false;
+        std::chrono::steady_clock::time_point springStart{};
     };
     struct TransformEditAction {
         std::size_t nodeIndex = 0;
@@ -2039,7 +2067,29 @@ enum class UiWorkbenchTextEditTarget {
                 break;
             }
             case WM_SIZE:
-                self->ClearViewportPreviewCache();
+                self->DestroyEditorBackBuffer();
+                self->MarkViewportPreviewDirty();
+                self->viewportRestartPending_ = self->viewportGpuEnabled_;
+                self->lastViewportResizeSteady_ = std::chrono::steady_clock::now();
+                InvalidateRect(hwnd, nullptr, FALSE);
+                break;
+            case WM_MOVE:
+                if (self->viewportGpuEnabled_) {
+                    self->MarkViewportPreviewDirty();
+                    self->InvalidateViewportAndRail();
+                }
+                break;
+            case WM_ENTERSIZEMOVE:
+                self->liveWindowMoveSize_ = true;
+                self->MarkViewportPreviewDirty();
+                InvalidateRect(hwnd, nullptr, FALSE);
+                break;
+            case WM_EXITSIZEMOVE:
+                self->liveWindowMoveSize_ = false;
+                self->MarkViewportPreviewDirty();
+                self->viewportRestartPending_ = self->viewportGpuEnabled_;
+                self->lastViewportResizeSteady_ =
+                    std::chrono::steady_clock::now() - std::chrono::milliseconds(250);
                 InvalidateRect(hwnd, nullptr, FALSE);
                 break;
             case WM_GETMINMAXINFO: {
@@ -2075,72 +2125,147 @@ enum class UiWorkbenchTextEditTarget {
         const std::chrono::duration<double> delta = now - lastTick_;
         lastTick_ = now;
         elapsedSeconds_ += delta.count();
+        const bool windowMinimized = IsIconic(hwnd_) != FALSE;
+        if (windowMinimized) {
+            AdaptEditorTimerInterval();
+            return;
+        }
         statsOverlayState_.RecordFrameDeltaSeconds(delta.count());
         statsOverlayState_.SetAttached(true);
         statsOverlayState_.SetVisible(statsOverlayVisible_);
-        ri::editor::AnimateEditorWorkspaceScene(sceneConfig_.editorPreviewScene, starterScene_, elapsedSeconds_);
-        if (!logicLayer_.PlacedNodes().empty()) {
-            logicLayer_.TickSenseProbes(editorOrbitState_.target);
-            logicLayer_.ApplyCircuitProbeColors(starterScene_.scene);
+        const ri::editor::ViewportCameraState previousCamera = SnapshotViewportCameraState();
+        if (ri::editor::ShouldRunEditorPreviewAnimation(windowMinimized)) {
+            ri::editor::AnimateEditorWorkspaceScene(
+                sceneConfig_.editorPreviewScene, starterScene_, elapsedSeconds_, true);
+        }
+        const bool logicLivePreview = ri::editor::ShouldRunLogicLivePreview(
+            logicLayer_.IsCreatorLayerVisible(),
+            inspectorPanel_ == InspectorPanel::Gameplay,
+            authoringCatalogExpanded_
+                && authoringCatalogSection_ == ri::editor::AuthoringCatalogSection::Logic);
+        if (logicLivePreview && !logicLayer_.PlacedNodes().empty()) {
+            const bool forceLogicTick = cameraDragMode_ != CameraDragMode::None || autoOrbitPreview_;
+            if (ri::editor::ShouldTickLogicPreview(logicPreviewFrameCounter_++, forceLogicTick)) {
+                logicLayer_.TickSenseProbes(editorOrbitState_.target);
+                logicLayer_.ApplyCircuitProbeColors(starterScene_.scene);
+            }
+        } else {
+            logicPreviewFrameCounter_ = 0;
         }
         if (!autoOrbitPreview_) {
             ApplyEditorOrbitToScene();
         } else {
-            editorOrbitState_ = starterScene_.handles.orbitCamera.orbit;
+            editorOrbitState_.yawDegrees =
+                ri::editor::AdvanceAutoOrbitYaw(editorOrbitState_.yawDegrees, delta.count());
+            ApplyEditorOrbitToScene();
         }
+        UpdateCameraRailSpringStates(now);
+        ApplyCameraRailVelocity(delta.count());
+        const bool cameraChanged =
+            ri::editor::HasCameraStateChanged(previousCamera, SnapshotViewportCameraState());
+        const bool viewportInteractiveMotion = ri::editor::IsViewportInteractiveMotion(
+            cameraChanged,
+            cameraDragMode_ != CameraDragMode::None,
+            autoOrbitPreview_,
+            IsCameraRailAnimating());
+        viewportPreviewDirty_ = viewportPreviewDirty_ || cameraChanged;
         const EditorLayout layout = ComputeLayout();
         UpdateCameraPlotRect(layout.viewportInner);
+        if (viewportGpuEnabled_) {
+            vulkanViewport_.SetBounds(cameraPlotRect_);
+        }
         if (sceneConfig_.gameManifest.has_value()
             && ri::render::software::DidGamePreviewScriptsChange(sceneConfig_.gameManifest->rootPath,
                                                                  gamePreviewScriptTimestamps_)) {
             ClearViewportPreviewCache();
             lastIoStatus_ = "Rendering/postprocess scripts changed — viewport atmosphere reloaded.";
         }
-        RebuildViewportPreviewBitmap();
+        if (viewportRestartPending_ && viewportGpuEnabled_ && !vulkanViewport_.RestartInFlight()
+            && now - lastViewportResizeSteady_ >= std::chrono::milliseconds(120)) {
+            RestartVulkanViewport();
+            viewportRestartPending_ = false;
+        }
+        bool viewportRendered = false;
+        if (viewportGpuEnabled_ && vulkanViewport_.Running()) {
+            vulkanViewport_.SetVisible(true);
+            PublishVulkanViewportFrame(cameraPlotRect_, viewportInteractiveMotion);
+            viewportPreviewDirty_ = false;
+        } else {
+            if (viewportGpuEnabled_) {
+                vulkanViewport_.SetVisible(false);
+            }
+            if (viewportGpuEnabled_ && !vulkanViewport_.RestartInFlight()) {
+                const std::string error = vulkanViewport_.LastError();
+                const bool recoverableSurfaceIssue =
+                    error.find("surface") != std::string::npos || error.find("swapchain") != std::string::npos
+                    || error.find("VK_ERROR_OUT_OF_DATE_KHR") != std::string::npos;
+                if (recoverableSurfaceIssue) {
+                    viewportRestartPending_ = true;
+                    lastViewportResizeSteady_ = now;
+                    lastIoStatus_ = "Viewport: recovering Vulkan surface; CPU fallback active.";
+                } else {
+                    viewportGpuEnabled_ = false;
+                    lastIoStatus_ = "Viewport: Vulkan stopped; CPU fallback active."
+                        + (error.empty() ? std::string{} : " " + error);
+                }
+            }
+            const ri::editor::ViewportRenderPolicy renderPolicy{
+                .plotWidth = static_cast<int>(cameraPlotRect_.right - cameraPlotRect_.left),
+                .plotHeight = static_cast<int>(cameraPlotRect_.bottom - cameraPlotRect_.top),
+                .cameraMoving = viewportInteractiveMotion,
+                .resolutionScalingEnabled = viewportResolutionScalingEnabled_,
+                .previewDirty = viewportPreviewDirty_,
+            };
+            if (ri::editor::ShouldRenderViewportPreview(renderPolicy)) {
+                RebuildViewportPreviewBitmap();
+                viewportRendered = true;
+            }
+        }
         AdaptEditorTimerInterval();
         MaybeAutosaveState();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        if (IsCameraRailAnimating()) {
+            InvalidateRect(hwnd_, &layout.cameraRail, FALSE);
+        }
+        if (viewportRendered) {
+            InvalidateRect(hwnd_, &cameraPlotRect_, FALSE);
+        }
+        if (liveWindowMoveSize_) {
+            InvalidateViewportAndRail();
+        }
     }
 
     void ClearViewportPreviewCache() {
         viewportPreviewCache_ = {};
         viewportPreviewScratch_ = {};
         viewportPreviewReady_ = false;
+        ++viewportPreviewBlitGeneration_;
+        ri::editor::EditorRenderer::ReleaseSoftwareImageBlitCache(viewportPreviewBlitCache_);
+        MarkViewportPreviewDirty();
+    }
+
+    void MarkViewportPreviewDirty() {
+        viewportPreviewDirty_ = true;
+        viewportSceneSnapshotDirty_ = true;
     }
 
     void AdaptEditorTimerInterval() {
-        const UINT intervalMs =
-            (cameraDragMode_ != CameraDragMode::None || autoOrbitPreview_) ? 16U
-            : (lastViewportPreviewMs_ > 45.0 ? 66U : (lastViewportPreviewMs_ > 22.0 ? 50U : 33U));
+        const bool viewportInteractiveMotion = ri::editor::IsViewportInteractiveMotion(
+            false,
+            cameraDragMode_ != CameraDragMode::None,
+            autoOrbitPreview_,
+            IsCameraRailAnimating());
+        const UINT intervalMs = ri::editor::ComputeViewportTimerIntervalMs(
+            viewportInteractiveMotion,
+            lastViewportPreviewMs_);
         SetTimer(hwnd_, 1, intervalMs, nullptr);
     }
 
-    void RebuildViewportPreviewBitmap() {
-        if (starterScene_.handles.orbitCamera.cameraNode == ri::scene::kInvalidHandle) {
-            viewportPreviewReady_ = false;
-            return;
-        }
-        if (cameraPlotRect_.right <= cameraPlotRect_.left + 8
-            || cameraPlotRect_.bottom <= cameraPlotRect_.top + 8) {
-            viewportPreviewReady_ = false;
-            return;
-        }
-
-        const int plotWidth = std::max(1, static_cast<int>(cameraPlotRect_.right - cameraPlotRect_.left));
-        const int plotHeight = std::max(1, static_cast<int>(cameraPlotRect_.bottom - cameraPlotRect_.top));
-
-        constexpr int kMaxInteractivePreviewDim = 480;
-        float scale = 1.0f;
-        if (plotWidth > kMaxInteractivePreviewDim || plotHeight > kMaxInteractivePreviewDim) {
-            scale = std::min(static_cast<float>(kMaxInteractivePreviewDim) / static_cast<float>(plotWidth),
-                             static_cast<float>(kMaxInteractivePreviewDim) / static_cast<float>(plotHeight));
-        }
-        const int renderWidth = std::max(64, static_cast<int>(static_cast<float>(plotWidth) * scale));
-        const int renderHeight = std::max(64, static_cast<int>(static_cast<float>(plotHeight) * scale));
-
+    [[nodiscard]] ri::render::software::ScenePreviewOptions BuildViewportPreviewOptions(
+        const int width,
+        const int height) const {
         ri::render::software::ScenePreviewOptions options{};
-        options.width = renderWidth;
-        options.height = renderHeight;
+        options.width = width;
+        options.height = height;
 
         std::filesystem::path editorExe{};
         wchar_t moduleWide[MAX_PATH]{};
@@ -2159,11 +2284,103 @@ enum class UiWorkbenchTextEditTarget {
             starterScene_.handles.axes.yAxis,
             starterScene_.handles.axes.zAxis,
         };
-
         ri::editor::ConfigureEditorViewportForPreview(
             sceneConfig_.editorPreviewScene,
             options,
             sceneConfig_.gameManifest.has_value() ? &sceneConfig_.gameManifest->rootPath : nullptr);
+        return options;
+    }
+
+    void PublishVulkanViewportFrame(const RECT& cameraRect, const bool viewportInteractiveMotion) {
+        if (!viewportGpuEnabled_ || !vulkanViewport_.Running()) {
+            return;
+        }
+        const bool needsPublish = viewportSceneSnapshotDirty_ || viewportInteractiveMotion;
+        vulkanViewport_.SetBounds(cameraRect);
+        if (!needsPublish) {
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        const auto publishInterval =
+            viewportInteractiveMotion ? std::chrono::milliseconds(11) : std::chrono::milliseconds(33);
+        if (lastVulkanViewportPublish_.time_since_epoch().count() != 0
+            && now - lastVulkanViewportPublish_ < publishInterval) {
+            return;
+        }
+        const int width = std::max(64L, cameraRect.right - cameraRect.left);
+        const int height = std::max(64L, cameraRect.bottom - cameraRect.top);
+        ri::render::software::ScenePreviewOptions options = BuildViewportPreviewOptions(width, height);
+        vulkanViewport_.Publish(starterScene_.scene,
+                                starterScene_.handles.orbitCamera.cameraNode,
+                                options,
+                                elapsedSeconds_,
+                                viewportSceneSnapshotDirty_);
+        lastVulkanViewportPublish_ = now;
+        viewportSceneSnapshotDirty_ = false;
+    }
+
+    void StartVulkanViewport() {
+        const EditorLayout layout = ComputeLayout();
+        UpdateCameraPlotRect(layout.viewportInner);
+        if (cameraPlotRect_.right <= cameraPlotRect_.left || cameraPlotRect_.bottom <= cameraPlotRect_.top) {
+            return;
+        }
+        const int width = std::max(64L, cameraPlotRect_.right - cameraPlotRect_.left);
+        const int height = std::max(64L, cameraPlotRect_.bottom - cameraPlotRect_.top);
+        vulkanViewport_.Publish(starterScene_.scene,
+                                starterScene_.handles.orbitCamera.cameraNode,
+                                BuildViewportPreviewOptions(width, height),
+                                elapsedSeconds_,
+                                true);
+        viewportGpuEnabled_ = vulkanViewport_.Start(hwnd_, cameraPlotRect_);
+        if (viewportGpuEnabled_) {
+            lastIoStatus_ = "Viewport: native Vulkan GPU renderer active.";
+        } else {
+            lastIoStatus_ = "Viewport: Vulkan unavailable; CPU software fallback active. "
+                + vulkanViewport_.LastError();
+        }
+    }
+
+    void RestartVulkanViewport() {
+        if (!viewportGpuEnabled_) {
+            return;
+        }
+        const EditorLayout layout = ComputeLayout();
+        UpdateCameraPlotRect(layout.viewportInner);
+        viewportSceneSnapshotDirty_ = true;
+        vulkanViewport_.RestartAsync(hwnd_, cameraPlotRect_);
+    }
+
+    void RebuildViewportPreviewBitmap() {
+        if (starterScene_.handles.orbitCamera.cameraNode == ri::scene::kInvalidHandle) {
+            viewportPreviewReady_ = false;
+            return;
+        }
+        if (cameraPlotRect_.right <= cameraPlotRect_.left + 8
+            || cameraPlotRect_.bottom <= cameraPlotRect_.top + 8) {
+            viewportPreviewReady_ = false;
+            return;
+        }
+
+        const int plotWidth = std::max(1, static_cast<int>(cameraPlotRect_.right - cameraPlotRect_.left));
+        const int plotHeight = std::max(1, static_cast<int>(cameraPlotRect_.bottom - cameraPlotRect_.top));
+        const bool viewportInteractiveMotion = ri::editor::IsViewportInteractiveMotion(
+            false,
+            cameraDragMode_ != CameraDragMode::None,
+            autoOrbitPreview_,
+            IsCameraRailAnimating());
+        const ri::editor::ViewportRenderSize renderSize =
+            ri::editor::ComputeViewportRenderSize(ri::editor::ViewportRenderPolicy{
+                .plotWidth = plotWidth,
+                .plotHeight = plotHeight,
+                .cameraMoving = viewportInteractiveMotion,
+                .resolutionScalingEnabled = viewportResolutionScalingEnabled_,
+                .previewDirty = viewportPreviewDirty_,
+            });
+        const int renderWidth = renderSize.width;
+        const int renderHeight = renderSize.height;
+
+        ri::render::software::ScenePreviewOptions options = BuildViewportPreviewOptions(renderWidth, renderHeight);
         if (viewportRayTracePreview_) {
             options.renderer = ri::render::software::ScenePreviewRenderer::RayTrace;
             options.rayTracingResolutionScale = 0.68f;
@@ -2172,6 +2389,8 @@ enum class UiWorkbenchTextEditTarget {
             options.rayTracingReflections = true;
         } else {
             options.renderer = ri::render::software::ScenePreviewRenderer::Raster;
+            options.pointSampleTextures = viewportInteractiveMotion;
+            options.adaptiveTextureSampling = true;
             // Keep perspective-correct UVs on hall-scale quads; lowSpecMode enables affine mapping
             // which warps large floors/walls in the editor viewport.
             options.affineTextureMapping = false;
@@ -2185,22 +2404,38 @@ enum class UiWorkbenchTextEditTarget {
                                                       options,
                                                       viewportPreviewScratch_,
                                                       &viewportPreviewCache_);
-        if (toolMode_ == ri::editor::EditorToolMode::Create) {
-            if (const std::optional<ri::math::Vec3> ghostCenter = ResolveCreateModeGhostCenter();
-                ghostCenter.has_value() && !viewportPreviewCache_.depthBuffer.empty()) {
-                ri::render::software::DrawWireBoxOverlayIntoScenePreview(
-                    viewportPreviewScratch_,
-                    viewportPreviewCache_.depthBuffer,
-                    starterScene_.scene,
-                    starterScene_.handles.orbitCamera.cameraNode,
-                    options,
-                    *ghostCenter,
-                    ResolveCreateModeGhostHalfExtents());
-            }
-        }
+        lastViewportRenderWidth_ = renderWidth;
+        lastViewportRenderHeight_ = renderHeight;
         lastViewportPreviewMs_ =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - renderStart).count();
         viewportPreviewReady_ = !viewportPreviewScratch_.pixels.empty();
+        ++viewportPreviewBlitGeneration_;
+        viewportPreviewDirty_ = false;
+    }
+
+    [[nodiscard]] ri::editor::ViewportCameraState SnapshotViewportCameraState() const {
+        if (starterScene_.handles.orbitCamera.cameraNode != ri::scene::kInvalidHandle) {
+            const ri::scene::Node& cameraNode =
+                starterScene_.scene.GetNode(starterScene_.handles.orbitCamera.cameraNode);
+            const ri::math::Vec3 position =
+                starterScene_.scene.ComputeWorldPosition(starterScene_.handles.orbitCamera.cameraNode);
+            return {
+                .targetX = position.x,
+                .targetY = position.y,
+                .targetZ = position.z,
+                .distance = cameraNode.localTransform.rotationDegrees.x,
+                .yawDegrees = cameraNode.localTransform.rotationDegrees.y,
+                .pitchDegrees = cameraNode.localTransform.rotationDegrees.z,
+            };
+        }
+        return {
+            .targetX = editorOrbitState_.target.x,
+            .targetY = editorOrbitState_.target.y,
+            .targetZ = editorOrbitState_.target.z,
+            .distance = editorOrbitState_.distance,
+            .yawDegrees = editorOrbitState_.yawDegrees,
+            .pitchDegrees = editorOrbitState_.pitchDegrees,
+        };
     }
 
     void ApplyEditorOrbitToScene() {
@@ -2230,18 +2465,243 @@ enum class UiWorkbenchTextEditTarget {
             editorOrbitState_.target + right * (-static_cast<float>(dx) * scale) + up * (static_cast<float>(dy) * scale);
     }
 
-    void ApplyCameraDragDelta(const int dx, const int dy) {
-        if (cameraDragMode_ == CameraDragMode::Orbit) {
-            editorOrbitState_.yawDegrees += static_cast<float>(dx) * 0.38f;
-            editorOrbitState_.pitchDegrees -= static_cast<float>(dy) * 0.38f;
-        } else if (cameraDragMode_ == CameraDragMode::Pan) {
-            PanEditorOrbitCamera(dx, dy);
+    [[nodiscard]] bool IsRailDragMode() const {
+        return cameraDragMode_ == CameraDragMode::RailTrackball
+            || cameraDragMode_ == CameraDragMode::RailPan
+            || cameraDragMode_ == CameraDragMode::RailDepth;
+    }
+
+    [[nodiscard]] bool IsViewDragMode() const {
+        return cameraDragMode_ == CameraDragMode::ViewOrbit || cameraDragMode_ == CameraDragMode::ViewPan;
+    }
+
+    [[nodiscard]] bool IsCameraRailAnimating() const {
+        return IsRailDragMode()
+            || orbitRailPad_.springing
+            || panRailPad_.springing
+            || depthRailPad_.springing
+            || std::abs(orbitRailPad_.offsetX) > 0.01f
+            || std::abs(orbitRailPad_.offsetY) > 0.01f
+            || std::abs(panRailPad_.offsetX) > 0.01f
+            || std::abs(panRailPad_.offsetY) > 0.01f
+            || std::abs(depthRailPad_.offsetX) > 0.01f
+            || std::abs(depthRailPad_.offsetY) > 0.01f;
+    }
+
+    [[nodiscard]] static float ApplyRailDeadzone(const float value) {
+        constexpr float kDeadzone = 4.0f;
+        if (std::abs(value) <= kDeadzone) {
+            return 0.0f;
+        }
+        return value - (value > 0.0f ? kDeadzone : -kDeadzone);
+    }
+
+    void UpdateRailPadSpring(RailPadState& state, const std::chrono::steady_clock::time_point now) {
+        if (!state.springing) {
+            return;
+        }
+        ri::editor::AdvanceRailPadSpring(state, std::chrono::duration<double>(now - state.springStart).count());
+    }
+
+    void UpdateCameraRailSpringStates(const std::chrono::steady_clock::time_point now) {
+        UpdateRailPadSpring(orbitRailPad_, now);
+        UpdateRailPadSpring(panRailPad_, now);
+        UpdateRailPadSpring(depthRailPad_, now);
+    }
+
+    void ApplyCameraRailVelocity(const double deltaSeconds) {
+        if (cameraDragMode_ == CameraDragMode::RailTrackball
+            || cameraDragMode_ == CameraDragMode::RailPan
+            || cameraDragMode_ == CameraDragMode::RailDepth) {
+            return;
+        }
+        const float frameScale = static_cast<float>(std::clamp(deltaSeconds * 60.0, 0.2, 2.0));
+        const float orbitX = ApplyRailDeadzone(orbitRailPad_.offsetX);
+        const float orbitY = ApplyRailDeadzone(orbitRailPad_.offsetY);
+        const float panX = ApplyRailDeadzone(panRailPad_.offsetX);
+        const float panY = ApplyRailDeadzone(panRailPad_.offsetY);
+        const float depthX = ApplyRailDeadzone(depthRailPad_.offsetX);
+        const float depthY = ApplyRailDeadzone(depthRailPad_.offsetY);
+        if (orbitX == 0.0f && orbitY == 0.0f
+            && panX == 0.0f && panY == 0.0f
+            && depthX == 0.0f && depthY == 0.0f) {
+            return;
+        }
+
+        if (orbitX != 0.0f || orbitY != 0.0f) {
+            editorOrbitState_.yawDegrees += orbitX * 0.090f * frameScale;
+            editorOrbitState_.pitchDegrees -= orbitY * 0.090f * frameScale;
+            lastIoStatus_ = "View rig: orbit.";
+        }
+        if (panX != 0.0f || panY != 0.0f) {
+            PanEditorOrbitCamera(static_cast<int>(std::lround(panX * 0.95f * frameScale)),
+                                 static_cast<int>(std::lround(panY * 0.95f * frameScale)));
+            lastIoStatus_ = "View rig: pan.";
+        }
+        if (depthX != 0.0f || depthY != 0.0f) {
+            editorOrbitState_.distance *= std::exp(depthY * 0.00145f * frameScale);
+            PanEditorOrbitCamera(static_cast<int>(std::lround(depthX * 0.50f * frameScale)), 0);
+            lastIoStatus_ = depthY < 0.0f ? "View rig: zoom in." : "View rig: zoom out.";
+        }
+        ApplyEditorOrbitToScene();
+        viewportPreviewDirty_ = true;
+    }
+
+    void ApplyDirectCameraRailDrag(const int dx, const int dy) {
+        if (cameraDragMode_ == CameraDragMode::RailTrackball) {
+            editorOrbitState_.yawDegrees += static_cast<float>(dx) * 0.70f;
+            editorOrbitState_.pitchDegrees -= static_cast<float>(dy) * 0.70f;
+            lastIoStatus_ = "View rig: orbit.";
+        } else if (cameraDragMode_ == CameraDragMode::RailPan) {
+            PanEditorOrbitCamera(static_cast<int>(std::lround(static_cast<float>(dx) * 1.6f)),
+                                 static_cast<int>(std::lround(static_cast<float>(dy) * 1.6f)));
+            lastIoStatus_ = "View rig: pan.";
+        } else if (cameraDragMode_ == CameraDragMode::RailDepth) {
+            editorOrbitState_.distance *= std::exp(static_cast<float>(dy) * 0.0105f);
+            PanEditorOrbitCamera(static_cast<int>(std::lround(static_cast<float>(dx) * 0.95f)), 0);
+            lastIoStatus_ = dy < 0 ? "View rig: zoom in." : (dy > 0 ? "View rig: zoom out." : "View rig: truck.");
         } else {
             return;
         }
         ApplyEditorOrbitToScene();
-        RebuildViewportPreviewBitmap();
+        viewportPreviewDirty_ = true;
+    }
+
+    void UpdateCameraRailPadFromPoint(const POINT& point, const RECT& railRect) {
+        const ri::editor::CameraRailLayout layout = ri::editor::ComputeCameraRailLayout(railRect);
+        auto clampCircle = [](const float dx, const float dy, const float radius) {
+            const float length = std::sqrt((dx * dx) + (dy * dy));
+            if (length <= radius || length <= 0.001f) {
+                return std::pair<float, float>{dx, dy};
+            }
+            const float scale = radius / length;
+            return std::pair<float, float>{dx * scale, dy * scale};
+        };
+        if (cameraDragMode_ == CameraDragMode::RailTrackball) {
+            const auto [x, y] = clampCircle(static_cast<float>(point.x - layout.trackballCenter.x),
+                                            static_cast<float>(point.y - layout.trackballCenter.y),
+                                            static_cast<float>(layout.orbitRadius));
+            orbitRailPad_.offsetX = x;
+            orbitRailPad_.offsetY = y;
+            orbitRailPad_.springing = false;
+        } else if (cameraDragMode_ == CameraDragMode::RailPan) {
+            const float dx = static_cast<float>(point.x - layout.panCenter.x);
+            const float dy = static_cast<float>(point.y - layout.panCenter.y);
+            if (std::abs(dx) >= std::abs(dy)) {
+                panRailPad_.offsetX = std::clamp(dx,
+                                                 -static_cast<float>(layout.panRadius),
+                                                 static_cast<float>(layout.panRadius));
+                panRailPad_.offsetY = 0.0f;
+            } else {
+                panRailPad_.offsetX = 0.0f;
+                panRailPad_.offsetY = std::clamp(dy,
+                                                 -static_cast<float>(layout.panRadius),
+                                                 static_cast<float>(layout.panRadius));
+            }
+            panRailPad_.springing = false;
+        } else if (cameraDragMode_ == CameraDragMode::RailDepth) {
+            depthRailPad_.offsetX = std::clamp(static_cast<float>(point.x - layout.depthCenter.x),
+                                               -static_cast<float>(layout.depthHalfWidth),
+                                               static_cast<float>(layout.depthHalfWidth));
+            depthRailPad_.offsetY = std::clamp(static_cast<float>(point.y - layout.depthCenter.y),
+                                               -static_cast<float>(layout.depthHalfHeight),
+                                               static_cast<float>(layout.depthHalfHeight));
+            depthRailPad_.springing = false;
+        }
+    }
+
+    void ApplyCameraDragDelta(const int dx, const int dy) {
+        if (cameraDragMode_ == CameraDragMode::ViewOrbit) {
+            editorOrbitState_.yawDegrees += static_cast<float>(dx) * 0.38f;
+            editorOrbitState_.pitchDegrees -= static_cast<float>(dy) * 0.38f;
+        } else if (cameraDragMode_ == CameraDragMode::ViewPan) {
+            PanEditorOrbitCamera(dx, dy);
+        } else if (IsRailDragMode()) {
+            (void)dx;
+            (void)dy;
+            return;
+        } else {
+            return;
+        }
+        ApplyEditorOrbitToScene();
+        viewportPreviewDirty_ = true;
         AdaptEditorTimerInterval();
+    }
+
+    [[nodiscard]] bool CameraRailInteractionBlocked() {
+        if (autoOrbitPreview_) {
+            lastIoStatus_ = "Camera rail disabled while auto-orbit preview is running.";
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return true;
+        }
+        return false;
+    }
+
+    void ResetViewportCameraHome() {
+        if (CameraRailInteractionBlocked()) {
+            return;
+        }
+        editorOrbitState_ = starterScene_.handles.orbitCamera.orbit;
+        ApplyEditorOrbitToScene();
+        ClearViewportPreviewCache();
+        lastIoStatus_ = "Camera rail: reset to home view.";
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    [[nodiscard]] bool TryBeginCameraRailDrag(const POINT& point, const RECT& railRect) {
+        if (CameraRailInteractionBlocked()) {
+            return false;
+        }
+        const ri::editor::CameraRailHit hit = ri::editor::HitTestCameraRail(railRect, point);
+        if (hit == ri::editor::CameraRailHit::None) {
+            return false;
+        }
+        switch (hit) {
+            case ri::editor::CameraRailHit::HomeButton:
+                ResetViewportCameraHome();
+                return true;
+            case ri::editor::CameraRailHit::FrameSelectionButton:
+                TryFrameSelection();
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return true;
+            case ri::editor::CameraRailHit::FrameAllButton:
+                TryFrameAllRenderables();
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return true;
+            case ri::editor::CameraRailHit::ResolutionScaleButton:
+                viewportResolutionScalingEnabled_ = !viewportResolutionScalingEnabled_;
+                viewportPreviewDirty_ = true;
+                lastIoStatus_ = viewportResolutionScalingEnabled_
+                    ? "Viewport motion scaling: 1/2 resolution while moving."
+                    : "Viewport motion scaling: full resolution.";
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return true;
+            case ri::editor::CameraRailHit::Trackball:
+                cameraDragMode_ = CameraDragMode::RailTrackball;
+                orbitRailPad_.springing = false;
+                break;
+            case ri::editor::CameraRailHit::PanCross:
+                cameraDragMode_ = CameraDragMode::RailPan;
+                panRailPad_.springing = false;
+                break;
+            case ri::editor::CameraRailHit::DepthCross:
+                cameraDragMode_ = CameraDragMode::RailDepth;
+                depthRailPad_.springing = false;
+                break;
+            case ri::editor::CameraRailHit::TrackballCenter:
+            case ri::editor::CameraRailHit::PanCenter:
+            case ri::editor::CameraRailHit::None:
+                return false;
+        }
+        lastDragX_ = point.x;
+        lastDragY_ = point.y;
+        lastRailInputSteady_ = std::chrono::steady_clock::now();
+        UpdateCameraRailPadFromPoint(point, railRect);
+        SetCapture(hwnd_);
+        viewportPreviewDirty_ = true;
+        AdaptEditorTimerInterval();
+        InvalidateViewportAndRail();
+        return true;
     }
 
     [[nodiscard]] bool IsKeyDown(const int virtualKey) const {
@@ -2260,7 +2720,7 @@ enum class UiWorkbenchTextEditTarget {
         lastDragX_ = point.x;
         lastDragY_ = point.y;
         SetCapture(hwnd_);
-        lastIoStatus_ = mode == CameraDragMode::Pan ? "Camera: panning (release to stop)."
+        lastIoStatus_ = mode == CameraDragMode::ViewPan ? "Camera: panning (release to stop)."
                                                     : "Camera: orbiting (release to stop).";
         InvalidateRect(hwnd_, nullptr, FALSE);
         return true;
@@ -2270,10 +2730,22 @@ enum class UiWorkbenchTextEditTarget {
         if (cameraDragMode_ == CameraDragMode::None) {
             return;
         }
+        if (cameraDragMode_ == CameraDragMode::RailTrackball) {
+            ri::editor::BeginRailPadSpring(orbitRailPad_);
+            orbitRailPad_.springStart = std::chrono::steady_clock::now();
+        } else if (cameraDragMode_ == CameraDragMode::RailPan) {
+            ri::editor::BeginRailPadSpring(panRailPad_);
+            panRailPad_.springStart = std::chrono::steady_clock::now();
+        } else if (cameraDragMode_ == CameraDragMode::RailDepth) {
+            ri::editor::BeginRailPadSpring(depthRailPad_);
+            depthRailPad_.springStart = std::chrono::steady_clock::now();
+        }
         cameraDragMode_ = CameraDragMode::None;
+        viewportPreviewDirty_ = true;
         if (GetCapture() == hwnd_) {
             ReleaseCapture();
         }
+        InvalidateViewportAndRail();
     }
 
     void TryFrameSelection() {
@@ -2300,12 +2772,15 @@ enum class UiWorkbenchTextEditTarget {
     }
 
     [[nodiscard]] bool UpdateInteractiveCursor(const int x, const int y) {
-        if (cameraDragMode_ == CameraDragMode::Pan) {
+        if (cameraDragMode_ == CameraDragMode::ViewPan) {
             SetCursor(LoadCursor(nullptr, IDC_SIZEALL));
             return true;
         }
-        if (cameraDragMode_ == CameraDragMode::Orbit) {
+        if (cameraDragMode_ == CameraDragMode::ViewOrbit) {
             SetCursor(LoadCursor(nullptr, IDC_HAND));
+            return true;
+        }
+        if (IsRailDragMode()) {
             return true;
         }
         if (draggingHierarchySplitter_ || draggingInspectorSplitter_) {
@@ -2911,7 +3386,6 @@ enum class UiWorkbenchTextEditTarget {
             ri::render::software::SnapshotGamePreviewScriptTimestamps(sceneConfig_.gameManifest->rootPath,
                                                                       gamePreviewScriptTimestamps_);
             ClearViewportPreviewCache();
-            RebuildViewportPreviewBitmap();
         }
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
@@ -4220,7 +4694,6 @@ enum class UiWorkbenchTextEditTarget {
                                                                           gamePreviewScriptTimestamps_);
             }
             ClearViewportPreviewCache();
-            RebuildViewportPreviewBitmap();
             lastIoStatus_ += " (viewport atmosphere reloaded).";
         }
         return true;
@@ -4402,6 +4875,19 @@ enum class UiWorkbenchTextEditTarget {
         }
     }
 
+    void InvalidateViewportAndRail() {
+        const EditorLayout layout = ComputeLayout();
+        if (layout.cameraRail.right > layout.cameraRail.left) {
+            InvalidateRect(hwnd_, &layout.cameraRail, FALSE);
+        }
+        UpdateCameraPlotRect(layout.viewportInner);
+        if (cameraPlotRect_.right > cameraPlotRect_.left && cameraPlotRect_.bottom > cameraPlotRect_.top) {
+            InvalidateRect(hwnd_, &cameraPlotRect_, FALSE);
+        } else {
+            InvalidateRect(hwnd_, &layout.viewport, FALSE);
+        }
+    }
+
     [[nodiscard]] std::vector<int> HierarchyDrawOrder() const {
         if (!filteredHierarchyOrder_.empty() || !resourceSearchQuery_.empty()) {
             return filteredHierarchyOrder_;
@@ -4442,10 +4928,10 @@ enum class UiWorkbenchTextEditTarget {
                 const float factor = std::exp(-steps * 0.14f);
                 editorOrbitState_.distance *= factor;
                 ApplyEditorOrbitToScene();
-                RebuildViewportPreviewBitmap();
+                viewportPreviewDirty_ = true;
                 lastIoStatus_ = "Camera: zoom.";
             }
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            InvalidateViewportAndRail();
             return true;
         }
         if (PtInRect(&layout.hierarchyInner, point) == FALSE) {
@@ -5484,7 +5970,6 @@ enum class UiWorkbenchTextEditTarget {
                 creatorAtmospherePreset_ = CycleCreatorAtmosphere(creatorAtmospherePreset_);
                 ApplyCreatorAtmosphere(creatorAtmospherePreset_);
                 ClearViewportPreviewCache();
-                RebuildViewportPreviewBitmap();
                 lastIoStatus_ = "Sky preset: " + AtmospherePresetLabel(creatorAtmospherePreset_) + " (click Sky bar to cycle).";
                 InvalidateRect(hwnd_, nullptr, FALSE);
                 return 0;
@@ -5492,6 +5977,10 @@ enum class UiWorkbenchTextEditTarget {
         }
 
         if (TryHandleAuthoringCatalogClick(point, layout.viewportInner)) {
+            return 0;
+        }
+
+        if (TryBeginCameraRailDrag(point, layout.cameraRailInner)) {
             return 0;
         }
 
@@ -5545,6 +6034,14 @@ enum class UiWorkbenchTextEditTarget {
                     .onSnapStepUp = [this]() {
                         CycleGridSnapStep(1);
                         lastIoStatus_ = "Grid step: " + GridSnapLabel() + ".";
+                        InvalidateRect(hwnd_, nullptr, FALSE);
+                    },
+                    .onResolutionScaleToggle = [this]() {
+                        viewportResolutionScalingEnabled_ = !viewportResolutionScalingEnabled_;
+                        viewportPreviewDirty_ = true;
+                        lastIoStatus_ = viewportResolutionScalingEnabled_
+                            ? "Viewport motion scaling: 1/2 resolution while moving."
+                            : "Viewport motion scaling: full resolution.";
                         InvalidateRect(hwnd_, nullptr, FALSE);
                     },
                     .onAddCube = [this]() {
@@ -5753,7 +6250,7 @@ enum class UiWorkbenchTextEditTarget {
                     return 0;
                 }
             }
-            if (TryBeginCameraDrag(point, shiftHeld ? CameraDragMode::Pan : CameraDragMode::Orbit)) {
+            if (TryBeginCameraDrag(point, shiftHeld ? CameraDragMode::ViewPan : CameraDragMode::ViewOrbit)) {
                 return 0;
             }
         }
@@ -5814,7 +6311,7 @@ enum class UiWorkbenchTextEditTarget {
         POINT point{x, y};
         const EditorLayout layout = ComputeLayout();
         UpdateCameraPlotRect(layout.viewportInner);
-        if (TryBeginCameraDrag(point, CameraDragMode::Orbit)) {
+        if (TryBeginCameraDrag(point, CameraDragMode::ViewOrbit)) {
             return 0;
         }
         return 0;
@@ -5834,7 +6331,7 @@ enum class UiWorkbenchTextEditTarget {
         POINT point{x, y};
         const EditorLayout layout = ComputeLayout();
         UpdateCameraPlotRect(layout.viewportInner);
-        if (TryBeginCameraDrag(point, CameraDragMode::Pan)) {
+        if (TryBeginCameraDrag(point, CameraDragMode::ViewPan)) {
             return 0;
         }
         return 0;
@@ -5873,7 +6370,7 @@ enum class UiWorkbenchTextEditTarget {
         if (draggingHierarchySplitter_ && (flags & MK_LBUTTON) != 0) {
             RECT client{};
             GetClientRect(hwnd_, &client);
-            const int minLeft = 240;
+            const int minLeft = 124;
             const int maxLeft = std::max(minLeft, static_cast<int>(client.right) - 620);
             hierarchyPanelWidth_ = std::clamp(x - 10, minLeft, maxLeft);
             InvalidateRect(hwnd_, nullptr, FALSE);
@@ -5893,30 +6390,57 @@ enum class UiWorkbenchTextEditTarget {
             const bool middleHeld = (flags & MK_MBUTTON) != 0;
             const bool rightHeld = (flags & MK_RBUTTON) != 0;
             const bool dragButtonHeld =
-                (cameraDragMode_ == CameraDragMode::Orbit && (leftHeld || middleHeld))
-                || (cameraDragMode_ == CameraDragMode::Pan && (leftHeld || rightHeld));
+                (cameraDragMode_ == CameraDragMode::ViewOrbit && (leftHeld || middleHeld))
+                || (cameraDragMode_ == CameraDragMode::ViewPan && (leftHeld || rightHeld))
+                || IsRailDragMode();
             if (dragButtonHeld) {
                 const int dx = x - lastDragX_;
                 const int dy = y - lastDragY_;
                 lastDragX_ = x;
                 lastDragY_ = y;
+                if (IsRailDragMode()) {
+                    const EditorLayout layout = ComputeLayout();
+                    UpdateCameraRailPadFromPoint(POINT{x, y}, layout.cameraRailInner);
+                    lastRailInputSteady_ = std::chrono::steady_clock::now();
+                    ApplyDirectCameraRailDrag(dx, dy);
+                    viewportPreviewDirty_ = true;
+                }
                 ApplyCameraDragDelta(dx, dy);
-                InvalidateRect(hwnd_, nullptr, FALSE);
+                InvalidateViewportAndRail();
             }
         } else {
             (void)UpdateInteractiveCursor(x, y);
             lastMouseClientPos_ = POINT{x, y};
             hasLastMouseClientPos_ = true;
+            const EditorLayout layout = ComputeLayout();
+            const std::string toolbarTooltip =
+                ri::editor::EditorToolbarTooltipAtPoint(layout.toolStrip, lastMouseClientPos_);
+            if (toolbarTooltip != hoveredToolbarTooltip_) {
+                hoveredToolbarTooltip_ = toolbarTooltip;
+                RECT tooltipDirty = layout.toolStrip;
+                tooltipDirty.bottom += 32;
+                InvalidateRect(hwnd_, &tooltipDirty, FALSE);
+            }
             if (toolMode_ == ri::editor::EditorToolMode::Create && HitCameraPlot(lastMouseClientPos_)) {
-                createModePlacementPoint_ = ri::render::software::PickPlacementPointInCameraView(
-                    CameraViewRectFrom(cameraPlotRect_),
-                    x,
-                    y,
-                    starterScene_.scene,
-                    starterScene_.handles.orbitCamera.cameraNode);
-                InvalidateRect(hwnd_, nullptr, FALSE);
-            } else {
+                const std::optional<ri::math::Vec3> nextPlacement =
+                    ri::render::software::PickPlacementPointInCameraView(
+                        CameraViewRectFrom(cameraPlotRect_),
+                        x,
+                        y,
+                        starterScene_.scene,
+                        starterScene_.handles.orbitCamera.cameraNode);
+                const bool placementChanged = createModePlacementPoint_.has_value() != nextPlacement.has_value()
+                    || (createModePlacementPoint_.has_value() && nextPlacement.has_value()
+                        && (std::abs(createModePlacementPoint_->x - nextPlacement->x) > 0.04f
+                            || std::abs(createModePlacementPoint_->y - nextPlacement->y) > 0.04f
+                            || std::abs(createModePlacementPoint_->z - nextPlacement->z) > 0.04f));
+                createModePlacementPoint_ = nextPlacement;
+                if (placementChanged) {
+                    InvalidateViewportAndRail();
+                }
+            } else if (createModePlacementPoint_.has_value()) {
                 createModePlacementPoint_.reset();
+                InvalidateViewportAndRail();
             }
         }
         return 0;
@@ -5977,9 +6501,23 @@ enum class UiWorkbenchTextEditTarget {
     }
 
     void OnCaptureLost() {
+        if (cameraDragMode_ == CameraDragMode::RailTrackball) {
+            ri::editor::BeginRailPadSpring(orbitRailPad_);
+            orbitRailPad_.springStart = std::chrono::steady_clock::now();
+            viewportPreviewDirty_ = true;
+        } else if (cameraDragMode_ == CameraDragMode::RailPan) {
+            ri::editor::BeginRailPadSpring(panRailPad_);
+            panRailPad_.springStart = std::chrono::steady_clock::now();
+            viewportPreviewDirty_ = true;
+        } else if (cameraDragMode_ == CameraDragMode::RailDepth) {
+            ri::editor::BeginRailPadSpring(depthRailPad_);
+            depthRailPad_.springStart = std::chrono::steady_clock::now();
+            viewportPreviewDirty_ = true;
+        }
         cameraDragMode_ = CameraDragMode::None;
         draggingHierarchySplitter_ = false;
         draggingInspectorSplitter_ = false;
+        InvalidateViewportAndRail();
     }
 
     [[nodiscard]] bool TryRawIronOrthoSelectAt(int x, int y, const EditorLayout& layout) {
@@ -6917,6 +7455,7 @@ enum class UiWorkbenchTextEditTarget {
         }
         redoStack_.clear();
         autosavePending_ = true;
+        viewportSceneSnapshotDirty_ = true;
     }
 
     void RecordSceneGraphEdit(const ri::scene::Scene& beforeScene, const std::size_t beforeSelectedNode) {
@@ -7219,6 +7758,7 @@ enum class UiWorkbenchTextEditTarget {
             break;
         }
         autosavePending_ = true;
+        viewportSceneSnapshotDirty_ = true;
         lastIoStatus_ = "Material updated for " + node.name + ".";
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
@@ -7236,6 +7776,7 @@ enum class UiWorkbenchTextEditTarget {
         ri::scene::Light& light = starterScene_.scene.GetLight(node.light);
         light.intensity = std::clamp(light.intensity + direction * 0.15f, 0.05f, 8.0f);
         autosavePending_ = true;
+        viewportSceneSnapshotDirty_ = true;
         lastIoStatus_ = "Light intensity updated for " + node.name + ".";
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
@@ -7389,6 +7930,7 @@ enum class UiWorkbenchTextEditTarget {
             node.localTransform = transformAction.before;
             selectedNode_ = transformAction.nodeIndex;
             redoStack_.push_back(action);
+            viewportSceneSnapshotDirty_ = true;
             return true;
         }
 
@@ -7397,6 +7939,7 @@ enum class UiWorkbenchTextEditTarget {
         selectedNode_ = sceneAction.beforeSelectedNode;
         RebindEditorTrashFolderAfterSceneReplace();
         redoStack_.push_back(action);
+        viewportSceneSnapshotDirty_ = true;
         return true;
     }
 
@@ -7416,6 +7959,7 @@ enum class UiWorkbenchTextEditTarget {
             node.localTransform = transformAction.after;
             selectedNode_ = transformAction.nodeIndex;
             undoStack_.push_back(action);
+            viewportSceneSnapshotDirty_ = true;
             return true;
         }
 
@@ -7424,6 +7968,7 @@ enum class UiWorkbenchTextEditTarget {
         selectedNode_ = sceneAction.afterSelectedNode;
         RebindEditorTrashFolderAfterSceneReplace();
         undoStack_.push_back(action);
+        viewportSceneSnapshotDirty_ = true;
         return true;
     }
 
@@ -7631,7 +8176,7 @@ enum class UiWorkbenchTextEditTarget {
         EditorLayout layout{};
         const int clientRight = static_cast<int>(client.right);
         constexpr int kMinViewportWidth = 160;
-        constexpr int kMinLeftWidth = 220;
+        constexpr int kMinLeftWidth = 124;
         constexpr int kMinRightWidth = 260;
         constexpr int kCollapsedPanelRailWidth = 36;
         constexpr int kOuterMargin = 20;
@@ -7644,7 +8189,8 @@ enum class UiWorkbenchTextEditTarget {
             ? kCollapsedPanelRailWidth
             : std::clamp(inspectorPanelWidth_, kMinRightWidth, std::max(kMinRightWidth, clientRight - kOuterMargin));
         const int maxCombined =
-            std::max(kMinLeftWidth + kMinRightWidth, clientRight - kOuterMargin - kRegionGutter - kMinViewportWidth);
+            std::max(kMinLeftWidth + kMinRightWidth,
+                     clientRight - kOuterMargin - (kRegionGutter * 2) - kMinViewportWidth);
         if (leftWidth + rightWidth > maxCombined) {
             const int excess = leftWidth + rightWidth - maxCombined;
             const int leftShrink = std::min(excess, leftWidth - kMinLeftWidth);
@@ -7653,17 +8199,38 @@ enum class UiWorkbenchTextEditTarget {
         }
 
         layout.toolStrip = RECT{10, 66, client.right - 10, 106};
-        layout.hierarchy = RECT{10, 116, 10 + leftWidth, client.bottom - 92};
+        const RECT leftColumn = RECT{10, 116, 10 + leftWidth, client.bottom - 92};
+        if (leftPanelCollapsed_) {
+            layout.hierarchy = leftColumn;
+        } else {
+            constexpr int kLeftPanelSplitGap = 10;
+            constexpr int kMinCameraRailHeight = 300;
+            const int leftColumnHeight = leftColumn.bottom - leftColumn.top;
+            const int preferredHierarchyHeight = std::max(196, (leftColumnHeight * 42) / 100);
+            const int hierarchyHeight = std::clamp(
+                preferredHierarchyHeight,
+                196,
+                std::max(196, leftColumnHeight - kMinCameraRailHeight - kLeftPanelSplitGap));
+            layout.hierarchy = RECT{leftColumn.left, leftColumn.top, leftColumn.right, leftColumn.top + hierarchyHeight};
+            if (inspectorPanel_ != InspectorPanel::UiWorkbench) {
+                layout.cameraRail = RECT{
+                    leftColumn.left,
+                    layout.hierarchy.bottom + kLeftPanelSplitGap,
+                    leftColumn.right,
+                    leftColumn.bottom};
+            }
+        }
         layout.inspector = RECT{clientRight - 10 - rightWidth, 116, clientRight - 10, client.bottom - 92};
-        int viewportLeft = layout.hierarchy.right + 10;
+        const int viewportLeft = leftColumn.right + 10;
         int viewportRight = layout.inspector.left - 10;
         if (viewportRight < viewportLeft + kMinViewportWidth) {
             viewportRight = viewportLeft + kMinViewportWidth;
         }
         layout.viewport = RECT{viewportLeft, 116, viewportRight, client.bottom - 92};
-        layout.hierarchySplitter = RECT{layout.hierarchy.right + 2, 116, layout.hierarchy.right + 8, client.bottom - 92};
+        layout.hierarchySplitter = RECT{leftColumn.right + 2, 116, leftColumn.right + 8, client.bottom - 92};
         layout.inspectorSplitter = RECT{layout.inspector.left - 8, 116, layout.inspector.left - 2, client.bottom - 92};
         layout.hierarchyInner = RECT{layout.hierarchy.left + 8, layout.hierarchy.top + 36, layout.hierarchy.right - 8, layout.hierarchy.bottom - 8};
+        layout.cameraRailInner = RECT{layout.cameraRail.left + 6, layout.cameraRail.top + 6, layout.cameraRail.right - 6, layout.cameraRail.bottom - 6};
         layout.viewportInner = RECT{layout.viewport.left + 8, layout.viewport.top + 36, layout.viewport.right - 8, layout.viewport.bottom - 8};
         layout.inspectorInner = RECT{layout.inspector.left + 8, layout.inspector.top + 36, layout.inspector.right - 8, layout.inspector.bottom - 8};
         return layout;
@@ -7691,14 +8258,14 @@ enum class UiWorkbenchTextEditTarget {
     [[nodiscard]] bool TryHandlePanelCollapseClick(const POINT& point) {
         if (PtInRect(&leftPanelCollapseToggleRect_, point) != FALSE) {
             leftPanelCollapsed_ = !leftPanelCollapsed_;
-            ClearViewportPreviewCache();
+            MarkViewportPreviewDirty();
             lastIoStatus_ = leftPanelCollapsed_ ? "Left panel collapsed (Ctrl+[)." : "Left panel expanded.";
             InvalidateRect(hwnd_, nullptr, FALSE);
             return true;
         }
         if (PtInRect(&rightPanelCollapseToggleRect_, point) != FALSE) {
             rightPanelCollapsed_ = !rightPanelCollapsed_;
-            ClearViewportPreviewCache();
+            MarkViewportPreviewDirty();
             lastIoStatus_ = rightPanelCollapsed_ ? "Right panel collapsed (Ctrl+])." : "Right panel expanded.";
             InvalidateRect(hwnd_, nullptr, FALSE);
             return true;
@@ -7707,18 +8274,52 @@ enum class UiWorkbenchTextEditTarget {
     }
 
     void DrawViewportPreview(HDC dc, const RECT& targetRect) {
+        if (viewportGpuEnabled_ && vulkanViewport_.Running()) {
+            FillRectColor(dc, targetRect, RGB(10, 12, 15));
+            return;
+        }
         if (starterScene_.handles.orbitCamera.cameraNode == ri::scene::kInvalidHandle) {
             FillRectColor(dc, targetRect, RGB(32, 36, 42));
             return;
-        }
-        if (!viewportPreviewReady_) {
-            RebuildViewportPreviewBitmap();
         }
         if (!viewportPreviewReady_ || viewportPreviewScratch_.pixels.empty()) {
             FillRectColor(dc, targetRect, RGB(32, 36, 42));
             return;
         }
-        ri::editor::EditorRenderer::BlitSoftwareImage(dc, targetRect, viewportPreviewScratch_);
+
+        const bool compositeGhost = ri::editor::ShouldCompositeCreateModeGhost(
+            toolMode_ == ri::editor::EditorToolMode::Create,
+            createModePlacementPoint_.has_value(),
+            !viewportPreviewCache_.depthBuffer.empty());
+        if (compositeGhost) {
+            if (viewportPreviewDisplayScratch_.width != viewportPreviewScratch_.width
+                || viewportPreviewDisplayScratch_.height != viewportPreviewScratch_.height
+                || viewportPreviewDisplayScratch_.pixels.size() != viewportPreviewScratch_.pixels.size()) {
+                viewportPreviewDisplayScratch_.width = viewportPreviewScratch_.width;
+                viewportPreviewDisplayScratch_.height = viewportPreviewScratch_.height;
+                viewportPreviewDisplayScratch_.pixels = viewportPreviewScratch_.pixels;
+            } else {
+                viewportPreviewDisplayScratch_.pixels = viewportPreviewScratch_.pixels;
+            }
+            ri::render::software::ScenePreviewOptions options =
+                BuildViewportPreviewOptions(lastViewportRenderWidth_, lastViewportRenderHeight_);
+            if (const std::optional<ri::math::Vec3> ghostCenter = ResolveCreateModeGhostCenter();
+                ghostCenter.has_value()) {
+                ri::render::software::DrawWireBoxOverlayIntoScenePreview(
+                    viewportPreviewDisplayScratch_,
+                    viewportPreviewCache_.depthBuffer,
+                    starterScene_.scene,
+                    starterScene_.handles.orbitCamera.cameraNode,
+                    options,
+                    *ghostCenter,
+                    ResolveCreateModeGhostHalfExtents());
+            }
+            ri::editor::EditorRenderer::BlitSoftwareImage(dc, targetRect, viewportPreviewDisplayScratch_);
+            return;
+        }
+
+        ri::editor::EditorRenderer::BlitSoftwareImageCached(
+            dc, targetRect, viewportPreviewScratch_, viewportPreviewBlitCache_, viewportPreviewBlitGeneration_);
     }
 
     [[nodiscard]] ri::world::RuntimeStatsOverlaySnapshot BuildRuntimeStatsOverlaySnapshot() const {
@@ -7809,6 +8410,7 @@ enum class UiWorkbenchTextEditTarget {
                 .headerFont = headerFont_,
                 .bodyFont = bodyFont_,
                 .smallFont = smallFont_,
+                .monoFont = monoFont_,
             },
             ri::editor::EditorViewportBlockCallbacks{
                 .drawViewportPreview = [this, dc](const RECT& rect) {
@@ -8034,9 +8636,11 @@ enum class UiWorkbenchTextEditTarget {
         const int width = std::max(1L, client.right - client.left);
         const int height = std::max(1L, client.bottom - client.top);
 
-        HDC dc = CreateCompatibleDC(windowDc);
-        HBITMAP backBuffer = CreateCompatibleBitmap(windowDc, width, height);
-        HGDIOBJ oldBitmap = SelectObject(dc, backBuffer);
+        if (!EnsureEditorBackBuffer(windowDc, width, height)) {
+            EndPaint(hwnd_, &paint);
+            return;
+        }
+        HDC dc = backBufferDc_;
 
         FillRectColor(dc, client, ri::editor::EditorUiTheme::kWindowBg);
 
@@ -8046,6 +8650,7 @@ enum class UiWorkbenchTextEditTarget {
             .headerFont = headerFont_,
             .bodyFont = bodyFont_,
             .smallFont = smallFont_,
+            .monoFont = monoFont_,
         };
         ri::editor::RenderEditorTopChrome(
             dc,
@@ -8076,10 +8681,12 @@ enum class UiWorkbenchTextEditTarget {
                 .undoDepth = undoStack_.size(),
                 .authoredCount = CountAuthoredNodes(),
                 .triggerCount = CountTriggerNodes(),
+                .resolutionScalingEnabled = viewportResolutionScalingEnabled_,
             },
             viewportTheme);
 
         RECT hierarchy = layout.hierarchy;
+        RECT cameraRail = layout.cameraRail;
         RECT viewport = layout.viewport;
         RECT inspector = layout.inspector;
         RECT statusBar{10, client.bottom - 82, client.right - 10, client.bottom - 10};
@@ -8091,6 +8698,13 @@ enum class UiWorkbenchTextEditTarget {
             layout.hierarchySplitter,
             layout.inspectorSplitter,
             statusBar);
+        if (cameraRail.right > cameraRail.left) {
+            EditorRenderer::DrawPanelFrame(dc,
+                                           cameraRail,
+                                           ri::editor::EditorUiTheme::kPanelRaisedFill,
+                                           ri::editor::EditorUiTheme::kPanelRaisedHi,
+                                           ri::editor::EditorUiTheme::kPanelRaisedShadow);
+        }
 
         const std::string leftPanelMeta =
             leftPanelMode_ == LeftPanelMode::Scene
@@ -8124,8 +8738,18 @@ enum class UiWorkbenchTextEditTarget {
                         true,
                         rightPanelCollapsed_,
                         &rightPanelCollapseToggleRect_);
+        if (cameraRail.right > cameraRail.left) {
+            DrawPanelHeader(dc,
+                            cameraRail,
+                            "View Rig",
+                            "orbit  |  pan  |  zoom",
+                            false,
+                            false,
+                            nullptr);
+        }
 
         RECT hierarchyInner = layout.hierarchyInner;
+        RECT cameraRailInner = layout.cameraRailInner;
         RECT viewportInner = layout.viewportInner;
         RECT inspectorInner = layout.inspectorInner;
         const auto& nodes = starterScene_.scene.Nodes();
@@ -8145,6 +8769,13 @@ enum class UiWorkbenchTextEditTarget {
                        ri::editor::EditorUiTheme::kWellFill,
                        ri::editor::EditorUiTheme::kWellHi,
                        ri::editor::EditorUiTheme::kWellShadow);
+        if (cameraRail.right > cameraRail.left) {
+            DrawInsetFrame(dc,
+                           cameraRailInner,
+                           ri::editor::EditorUiTheme::kWellFill,
+                           ri::editor::EditorUiTheme::kWellHi,
+                           ri::editor::EditorUiTheme::kWellShadow);
+        }
 
         const int leftPanelClip = SaveDC(dc);
         IntersectClipRect(dc, hierarchyInner.left, hierarchyInner.top, hierarchyInner.right, hierarchyInner.bottom);
@@ -8445,7 +9076,7 @@ enum class UiWorkbenchTextEditTarget {
                          ri::editor::EditorToolbarStyle::Light);
         DrawToolbarButton(dc,
                          inspectorTabs.gameplayTab,
-                         "Gameplay",
+                         "Game",
                          inspectorPanel_ == InspectorPanel::Gameplay,
                          ri::editor::EditorToolbarStyle::Light);
         DrawToolbarButton(dc,
@@ -8460,7 +9091,7 @@ enum class UiWorkbenchTextEditTarget {
                          ri::editor::EditorToolbarStyle::Light);
         DrawToolbarButton(dc,
                          inspectorTabs.uiWorkbenchTab,
-                         "UI / VN",
+                         "UI/VN",
                          inspectorPanel_ == InspectorPanel::UiWorkbench,
                          ri::editor::EditorToolbarStyle::Light);
 
@@ -8734,6 +9365,25 @@ enum class UiWorkbenchTextEditTarget {
                          DT_LEFT | DT_WORDBREAK);
         }
 
+        if (cameraRail.right > cameraRail.left) {
+            ri::editor::RenderEditorCameraRail(
+                dc,
+                cameraRailInner,
+                viewportTheme,
+                ri::editor::CameraRailVisualModel{
+                    .orbitOffsetX = orbitRailPad_.offsetX,
+                    .orbitOffsetY = orbitRailPad_.offsetY,
+                    .panOffsetX = panRailPad_.offsetX,
+                    .panOffsetY = panRailPad_.offsetY,
+                    .depthOffsetX = depthRailPad_.offsetX,
+                    .depthOffsetY = depthRailPad_.offsetY,
+                    .orbitActive = cameraDragMode_ == CameraDragMode::RailTrackball,
+                    .panActive = cameraDragMode_ == CameraDragMode::RailPan,
+                    .depthActive = cameraDragMode_ == CameraDragMode::RailDepth,
+                    .resolutionScalingEnabled = viewportResolutionScalingEnabled_,
+                });
+        }
+
         if (inspectorPanel_ == InspectorPanel::UiWorkbench) {
             DrawUiWorkbenchViewport(dc, viewportInner);
         } else {
@@ -8797,6 +9447,7 @@ enum class UiWorkbenchTextEditTarget {
                 .headerFont = headerFont_,
                 .bodyFont = bodyFont_,
                 .smallFont = smallFont_,
+                .monoFont = monoFont_,
             });
 
         EnsureResourceTextEditorCreated();
@@ -8818,18 +9469,68 @@ enum class UiWorkbenchTextEditTarget {
             excludedClientRectPtr = &excludedClientRect;
         }
 #endif
-        ri::editor::PresentEditorFrame(windowDc, dc, width, height, excludedClientRectPtr);
-        SelectObject(dc, oldBitmap);
-        DeleteObject(backBuffer);
-        DeleteDC(dc);
+        if (hasLastMouseClientPos_) {
+            ri::editor::RenderEditorToolbarTooltip(dc, toolStrip, lastMouseClientPos_, viewportTheme);
+        }
+        ri::editor::PresentEditorFrame(windowDc, dc, width, height, excludedClientRectPtr, &paint.rcPaint);
         EndPaint(hwnd_, &paint);
     }
 
+    bool EnsureEditorBackBuffer(HDC windowDc, const int width, const int height) {
+        if (backBufferDc_ == nullptr) {
+            backBufferDc_ = CreateCompatibleDC(windowDc);
+            if (backBufferDc_ == nullptr) {
+                return false;
+            }
+        }
+        if (!ri::editor::NeedsEditorBackBufferResize(backBufferWidth_, backBufferHeight_, width, height)
+            && backBufferBitmap_ != nullptr) {
+            return true;
+        }
+        if (backBufferBitmap_ != nullptr) {
+            SelectObject(backBufferDc_, backBufferDefaultBitmap_);
+            DeleteObject(backBufferBitmap_);
+            backBufferBitmap_ = nullptr;
+        }
+        backBufferBitmap_ = CreateCompatibleBitmap(windowDc, width, height);
+        if (backBufferBitmap_ == nullptr) {
+            backBufferWidth_ = 0;
+            backBufferHeight_ = 0;
+            return false;
+        }
+        backBufferDefaultBitmap_ = SelectObject(backBufferDc_, backBufferBitmap_);
+        backBufferWidth_ = width;
+        backBufferHeight_ = height;
+        return true;
+    }
+
+    void DestroyEditorBackBuffer() {
+        ri::editor::EditorRenderer::ReleaseSoftwareImageBlitCache(viewportPreviewBlitCache_);
+        if (backBufferDc_ != nullptr && backBufferBitmap_ != nullptr) {
+            SelectObject(backBufferDc_, backBufferDefaultBitmap_);
+            DeleteObject(backBufferBitmap_);
+        }
+        if (backBufferDc_ != nullptr) {
+            DeleteDC(backBufferDc_);
+        }
+        backBufferDc_ = nullptr;
+        backBufferBitmap_ = nullptr;
+        backBufferDefaultBitmap_ = nullptr;
+        backBufferWidth_ = 0;
+        backBufferHeight_ = 0;
+    }
+
     HWND hwnd_ = nullptr;
+    HDC backBufferDc_ = nullptr;
+    HBITMAP backBufferBitmap_ = nullptr;
+    HGDIOBJ backBufferDefaultBitmap_ = nullptr;
+    int backBufferWidth_ = 0;
+    int backBufferHeight_ = 0;
     HFONT titleFont_ = nullptr;
     HFONT headerFont_ = nullptr;
     HFONT bodyFont_ = nullptr;
     HFONT smallFont_ = nullptr;
+    HFONT monoFont_ = nullptr;
     bool logEveryFrame_ = false;
     bool dumpScene_ = false;
     EditorSceneConfig sceneConfig_{};
@@ -8853,6 +9554,9 @@ enum class UiWorkbenchTextEditTarget {
     double elapsedSeconds_ = 0.0;
     std::chrono::steady_clock::time_point lastTick_{};
     std::chrono::steady_clock::time_point lastAutosaveSteady_{};
+    std::chrono::steady_clock::time_point lastVulkanViewportPublish_{};
+    std::chrono::steady_clock::time_point lastRailInputSteady_{};
+    std::chrono::steady_clock::time_point lastViewportResizeSteady_{};
     double lastAutosaveStatusSeconds_ = -999.0;
     bool autosavePending_ = false;
     ri::scene::StarterScene starterScene_{};
@@ -8864,23 +9568,41 @@ enum class UiWorkbenchTextEditTarget {
     ri::scene::OrbitCameraState editorOrbitState_{};
     bool autoOrbitPreview_ = false;
     bool viewportRayTracePreview_ = false;
+    bool viewportGpuAllowed_ = false;
+    bool viewportResolutionScalingEnabled_ = true;
+    bool viewportGpuEnabled_ = false;
+    ri::editor::EditorVulkanViewport vulkanViewport_{};
     bool viewportPreviewReady_ = false;
     double lastViewportPreviewMs_ = 0.0;
+    bool viewportPreviewDirty_ = true;
+    bool viewportSceneSnapshotDirty_ = true;
+    bool viewportRestartPending_ = false;
+    bool liveWindowMoveSize_ = false;
     ri::render::software::ScenePreviewCache viewportPreviewCache_{};
     ri::render::software::SoftwareImage viewportPreviewScratch_{};
+    ri::render::software::SoftwareImage viewportPreviewDisplayScratch_{};
+    int lastViewportRenderWidth_ = 0;
+    int lastViewportRenderHeight_ = 0;
+    ri::editor::SoftwareImageBlitCache viewportPreviewBlitCache_{};
+    std::uint64_t viewportPreviewBlitGeneration_ = 0;
+    std::uint32_t logicPreviewFrameCounter_ = 0;
     bool full3DViewport_ = false;
     ri::editor::EditorToolMode toolMode_ = ri::editor::EditorToolMode::Select;
     static constexpr int kViewportWorldBarHeight_ = 28;
     POINT lastMouseClientPos_{};
     bool hasLastMouseClientPos_ = false;
+    std::string hoveredToolbarTooltip_;
     std::optional<ri::math::Vec3> createModePlacementPoint_{};
     CameraDragMode cameraDragMode_ = CameraDragMode::None;
+    RailPadState orbitRailPad_{};
+    RailPadState panRailPad_{};
+    RailPadState depthRailPad_{};
     bool draggingHierarchySplitter_ = false;
     bool draggingInspectorSplitter_ = false;
     int lastDragX_ = 0;
     int lastDragY_ = 0;
     RECT cameraPlotRect_{};
-    int hierarchyPanelWidth_ = 272;
+    int hierarchyPanelWidth_ = ri::editor::DefaultHierarchyPanelWidth();
     int inspectorPanelWidth_ = 320;
     bool leftPanelCollapsed_ = false;
     bool rightPanelCollapsed_ = false;

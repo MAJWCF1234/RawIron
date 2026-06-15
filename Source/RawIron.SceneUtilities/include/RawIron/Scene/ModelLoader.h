@@ -15,6 +15,10 @@ struct ModelNodeOptions {
     int parent = kInvalidHandle;
     Transform transform{};
     std::string materialName = "ModelMaterial";
+    /// When not invalid, the imported mesh reuses this material instead of creating a new one.
+    int existingMaterial = kInvalidHandle;
+    /// After import, shift the wrapper so mesh bounds sit on `transform.position.y`.
+    bool snapMeshBaseToGround = false;
     ShadingModel shadingModel = ShadingModel::Lit;
     ri::math::Vec3 baseColor{0.72f, 0.76f, 0.84f};
     bool transparent = false;
@@ -35,6 +39,12 @@ struct ImportedModelOptions {
     std::string nodeName = "ImportedModel";
     int parent = kInvalidHandle;
     Transform transform{};
+    /// When non-empty, OBJ imports use this material name instead of the default `ModelMaterial`.
+    std::string materialName{};
+    /// When not invalid, OBJ imports attach this existing material instead of creating a new one.
+    int existingMaterial = kInvalidHandle;
+    /// Shift imported hierarchy so the lowest mesh point rests on `transform.position.y`.
+    bool snapMeshBaseToGround = false;
     ModelImportBackend backend = ModelImportBackend::Auto;
     /// Optional backend attempts after the primary backend fails. Duplicate entries are ignored.
     std::vector<ModelImportBackend> fallbackBackends{};
@@ -72,6 +82,7 @@ struct FbxModelOptions {
     std::string wrapperNodeName = "FbxModel";
     int parent = kInvalidHandle;
     Transform transform{};
+    bool snapMeshBaseToGround = false;
 };
 
 /// Loads `.fbx` under a named wrapper; applies `transform` to the wrapper node.

@@ -232,6 +232,7 @@ layout(push_constant) uniform DrawData {
     layout(offset = 108) float roughness;
     layout(offset = 112) vec3 emissiveColor;
     layout(offset = 124) float qualityTier;
+    layout(offset = 128) float alphaCutoff;
 } drawData;
 
 const float kPi = 3.14159265359;
@@ -244,6 +245,7 @@ const int kMaterialStyleMetalLookup = 1 << 10;
 const int kMaterialHasNormalMap = 1 << 11;
 const int kMaterialHasOrmMap = 1 << 12;
 const int kMaterialWorldTileUv = 1 << 13;
+const int kMaterialAlbedoAlphaSmoothness = 1 << 14;
 
 float Hash11(float p);
 float Hash21(vec2 p);
@@ -575,10 +577,12 @@ void main() {
     bool specGlossWorkflow = (drawData.litShadingModel & kMaterialWorkflowSpecGloss) != 0;
     bool hasNormalMap = (drawData.litShadingModel & kMaterialHasNormalMap) != 0;
     bool hasOrmMap = (drawData.litShadingModel & kMaterialHasOrmMap) != 0;
+    bool albedoAlphaIsSmoothness = (drawData.litShadingModel & kMaterialAlbedoAlphaSmoothness) != 0;
+    float roughness = drawData.roughness;
     vec3 albedo = inColor.rgb;
     float sampledAlpha = 1.0;
     vec3 emissiveTexel = vec3(0.0);
-    vec3 ormTexel = vec3(1.0, drawData.roughness, drawData.metallic);
+    vec3 ormTexel = vec3(1.0, roughness, drawData.metallic);
     vec3 metalLookupColor = vec3(1.0);
     float metalLookupAo = 1.0;
     if (drawData.useTexture != 0) {
@@ -615,11 +619,21 @@ void main() {
             vec2 uvDy = dFdy(uv);
             vec4 texel = textureGrad(albedoTex, uv, uvDx, uvDy);
             albedo *= texel.rgb;
-            sampledAlpha = texel.a * textureGrad(opacityTex, uv, uvDx, uvDy).r;
+            if (albedoAlphaIsSmoothness) {
+                roughness = clamp(1.0 - texel.a, 0.04, 1.0);
+                sampledAlpha = 1.0;
+            } else {
+                sampledAlpha = texel.a * textureGrad(opacityTex, uv, uvDx, uvDy).r;
+            }
         } else {
             vec4 texel = texture(albedoTex, uv);
             albedo *= texel.rgb;
-            sampledAlpha = texel.a * texture(opacityTex, uv).r;
+            if (albedoAlphaIsSmoothness) {
+                roughness = clamp(1.0 - texel.a, 0.04, 1.0);
+                sampledAlpha = 1.0;
+            } else {
+                sampledAlpha = texel.a * texture(opacityTex, uv).r;
+            }
         }
         if (layeredStyle || mixedMediaStyle || crystalStyle) {
             if (!stableWorldFloor && !largePlanarSurface) {
@@ -663,12 +677,13 @@ void main() {
     }
     albedo = clamp(albedo, 0.0, 1.0);
     bool alphaCutout = (drawData.litShadingModel & 2) != 0;
-    float outputAlpha = inColor.a * sampledAlpha;
+    float outputAlpha = drawData.color.a * sampledAlpha;
     if (alphaCutout) {
-        float cutoff = inColor.a;
-        if (sampledAlpha < cutoff) {
+        if (sampledAlpha < drawData.alphaCutoff) {
             discard;
         }
+        outputAlpha = 1.0;
+    } else if (drawData.color.a >= 0.999) {
         outputAlpha = 1.0;
     }
     float materialFlags =
@@ -704,7 +719,7 @@ void main() {
             if (retroStyle) {
                 linearUnlit = ApplyRetroStyle(linearUnlit, postUv01, cameraData.postProcessSecondary.z);
             }
-            fragNormalRoughness = vec4(normal * 0.5 + 0.5, clamp(drawData.roughness, 0.04, 1.0));
+            fragNormalRoughness = vec4(normal * 0.5 + 0.5, clamp(roughness, 0.04, 1.0));
             fragMaterial = vec4(clamp(drawData.metallic, 0.0, 1.0), 1.0, emissiveMask, materialFlags);
             fragColor = vec4(linearUnlit, outputAlpha);
             return;
@@ -733,7 +748,6 @@ void main() {
     vec3 lightColor = cameraData.directionalLightColorIntensity.rgb * sunDimmer;
     vec3 specColor = vec3(0.04);
     float ao = 1.0;
-    float roughness = drawData.roughness;
     float metallic = drawData.metallic;
     if (metalLookupStyle) {
         specColor = metalLookupColor;
@@ -785,20 +799,31 @@ void main() {
     vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
     bool foliageCard = (drawData.litShadingModel & 16) != 0;
     float shadow = ComputeShadowFactor(geomNormal, lightDir, worldPositionWs);
+    float ambientShadowWeight = hybridHdrRadiance ? mix(0.68, 1.0, shadow) : mix(0.20, 1.0, shadow);
+    float hemiShadowWeight = hybridHdrRadiance ? mix(0.58, 1.0, shadow) : mix(0.28, 1.0, shadow);
     float diffuseWrapFloor = foliageCard ? 0.14 : (layeredStyle ? mix(0.16, 0.24, tier * 0.5) : 0.14);
     float diffuseTerm = mix(max(nDotL, diffuseWrapFloor), nDotL, foliageCard ? 0.35 : (layeredStyle ? 0.62 : 0.75));
     vec3 diffuse = (kD * albedo / kPi) * diffuseTerm;
     vec3 direct = (diffuse + (specular * max(nDotL, 0.0))) * lightColor * (foliageCard ? 1.02 : (metalLookupStyle ? 0.95 : 1.38)) * shadow;
     vec3 ambientBoost = cameraData.presentationExtra.yzw;
     vec3 ambient = albedo * (vec3(0.08, 0.085, 0.09) + ambientBoost * 0.10) * (1.0 - metallic * 0.35);
-    ambient *= mix(0.20, 1.0, shadow);
-    if (tier >= 1.0) {
+    if (hybridHdrRadiance) {
+        ambient *= ambientShadowWeight;
+        ambient += albedo * (vec3(0.03, 0.034, 0.028) + ambientBoost * 0.06) * (1.0 - metallic * 0.35) * (1.0 - shadow);
+    } else {
+        ambient *= ambientShadowWeight;
+    }
+    if (tier >= 1.0 || hybridHdrRadiance) {
         float hemi = normal.y * 0.5 + 0.5;
         float roughStone = smoothstep(0.86, 0.98, roughness) * (1.0 - metallic);
         vec3 fogAmbientNear = max(cameraData.sweetFxTonemapFogColorDefog.xyz, vec3(0.02));
         vec3 sky = mix(fogAmbientNear * 0.62, fogAmbientNear * 0.88 + ambientBoost * 0.10, roughStone);
         vec3 ground = fogAmbientNear * 0.34 + ambientBoost * 0.04;
-        ambient += albedo * mix(ground, sky, hemi) * (foliageCard ? 0.12 : mix(0.10, 0.058, roughStone)) * mix(0.28, 1.0, shadow);
+        float hemiStrength = foliageCard ? 0.12 : mix(0.10, 0.058, roughStone);
+        if (hybridHdrRadiance) {
+            hemiStrength = max(hemiStrength, foliageCard ? 0.14 : 0.11);
+        }
+        ambient += albedo * mix(ground, sky, hemi) * hemiStrength * hemiShadowWeight;
     }
     if (metalLookupStyle) {
         ambient *= 0.72;
@@ -867,7 +892,8 @@ void main() {
     float localLightScale = hybridHdrRadiance ? mix(1.0, 1.22, tier * 0.5) : 1.0;
     litRgb += (localDiffuse + localSpec) * localColor * localNdotL * localAtten * localLightScale
         * mix(0.22, 1.0, shadow) * (foliageCard ? 0.72 : 1.0);
-    litRgb = max(litRgb, albedo * (foliageCard ? 0.06 : 0.012));
+    float minLitAlbedo = foliageCard ? 0.06 : (hybridHdrRadiance ? 0.038 : 0.012);
+    litRgb = max(litRgb, albedo * minLitAlbedo);
     if (mixedMediaStyle) {
         litRgb = mix(litRgb, ApplyRetroStyle(litRgb, postUv01, cameraData.postProcessSecondary.z), 0.18);
     }

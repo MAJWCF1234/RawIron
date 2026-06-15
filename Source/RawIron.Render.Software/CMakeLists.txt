@@ -26,3 +26,7 @@ target_link_libraries(RawIron.Render.Software
 )
 
 target_compile_features(RawIron.Render.Software PUBLIC cxx_std_20)
+
+if (WIN32)
+  target_link_libraries(RawIron.Render.Software PRIVATE windowscodecs ole32)
+endif()

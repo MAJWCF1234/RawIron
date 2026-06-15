@@ -128,7 +128,7 @@ Mesh MakeProceduralTerrainMesh(const ProceduralTerrainOptions& options, const st
             const float worldX = (vx - 0.5f) * sizeX;
             const float height = sampleHeight(worldX, worldZ);
             mesh.positions.push_back(ri::math::Vec3{worldX, height, worldZ});
-            mesh.texCoords.push_back(ri::math::Vec2{vx * options.textureTiling.x, vz * options.textureTiling.y});
+            mesh.texCoords.push_back(ri::math::Vec2{vx, vz});
         }
     }
 
@@ -247,7 +247,7 @@ int AddProceduralTerrainNode(Scene& scene, const ProceduralTerrainOptions& optio
         .textureTiling = options.textureTiling,
         .emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f},
         .metallic = 0.0f,
-        .roughness = 1.0f,
+        .roughness = options.roughness,
         .opacity = 1.0f,
         .alphaCutoff = 1.0f,
         .doubleSided = false,

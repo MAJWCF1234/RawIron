@@ -224,6 +224,7 @@ layout(push_constant) uniform DrawData {
     layout(offset = 108) float roughness;
     layout(offset = 112) vec3 emissiveColor;
     layout(offset = 124) float qualityTier;
+    layout(offset = 128) float alphaCutoff;
 } drawData;
 
 void main() {

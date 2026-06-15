@@ -36,12 +36,16 @@ ri::scene::StarterScene BuildEditorWorkspaceScene(const std::string_view editorP
 
 void AnimateEditorWorkspaceScene(const std::string_view editorPreviewScene,
                                  ri::scene::StarterScene& starterScene,
-                                 const double elapsedSeconds) {
+                                 const double elapsedSeconds,
+                                 const bool editorOrbitAuthoritative) {
     if (const EditorPreviewHooks* h = Lookup(editorPreviewScene); h != nullptr && h->animate != nullptr) {
         h->animate(starterScene, elapsedSeconds);
         return;
     }
-    ri::scene::AnimateStarterScene(starterScene, elapsedSeconds);
+    ri::scene::AnimateStarterSceneProps(starterScene, elapsedSeconds);
+    if (!editorOrbitAuthoritative) {
+        ri::scene::AnimateStarterSceneOrbitPreview(starterScene, elapsedSeconds);
+    }
 }
 
 void ConfigureEditorViewportForPreview(const std::string_view editorPreviewScene,

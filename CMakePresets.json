@@ -5,6 +5,7 @@
     "minor": 24,
     "patch": 0
   },
+  "defaultConfigurePreset": "dev-msvc",
   "configurePresets": [
     {
       "name": "dev-base",
