@@ -201,6 +201,10 @@ int main() {
         || metrics.channelCounts.physicsMesh != 2
         || metrics.channelCounts.queryMesh != 2
         || metrics.channelCounts.informationLayer != 3
+        || metrics.queryPurposeCounts.raycast != 2
+        || metrics.queryPurposeCounts.trace != 1
+        || metrics.queryPurposeCounts.placement != 1
+        || metrics.queryPurposeCounts.interaction != 1
         || metrics.boxQueries != 9
         || metrics.rayQueries != 4
         || metrics.boxCandidatesScanned == 0

@@ -86,6 +86,13 @@ struct SemanticStructuralPartitionChannelCounts {
     std::size_t informationLayer = 0;
 };
 
+struct SemanticStructuralPartitionQueryPurposeCounts {
+    std::size_t raycast = 0;
+    std::size_t trace = 0;
+    std::size_t placement = 0;
+    std::size_t interaction = 0;
+};
+
 struct SemanticStructuralPartitionMetrics {
     std::size_t entryCount = 0;
     std::size_t regionCount = 0;
@@ -97,6 +104,7 @@ struct SemanticStructuralPartitionMetrics {
     SemanticStructuralPartitionOperationCounts operationCounts{};
     SemanticStructuralPartitionRebuildScopeCounts rebuildScopeCounts{};
     SemanticStructuralPartitionChannelCounts channelCounts{};
+    SemanticStructuralPartitionQueryPurposeCounts queryPurposeCounts{};
 };
 
 class SemanticStructuralPartition {

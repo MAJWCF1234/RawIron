@@ -117,6 +117,22 @@ void IncrementChannelCounts(SemanticStructuralPartitionChannelCounts& counts,
     }
 }
 
+void IncrementQueryPurposeCounts(SemanticStructuralPartitionQueryPurposeCounts& counts,
+                                 const StructuralBrushMetadata& metadata) {
+    if (StructuralBrushSupportsQueryPurpose(metadata, StructuralBrushQueryPurpose::Raycast)) {
+        ++counts.raycast;
+    }
+    if (StructuralBrushSupportsQueryPurpose(metadata, StructuralBrushQueryPurpose::Trace)) {
+        ++counts.trace;
+    }
+    if (StructuralBrushSupportsQueryPurpose(metadata, StructuralBrushQueryPurpose::Placement)) {
+        ++counts.placement;
+    }
+    if (StructuralBrushSupportsQueryPurpose(metadata, StructuralBrushQueryPurpose::Interaction)) {
+        ++counts.interaction;
+    }
+}
+
 } // namespace
 
 void SemanticStructuralPartition::Rebuild(std::vector<SemanticStructuralPartitionEntry> entries,
@@ -271,6 +287,7 @@ void SemanticStructuralPartition::RebuildSideTables() {
         IncrementOperationCount(metrics_.operationCounts, entry.metadata.operation);
         IncrementRebuildScopeCount(metrics_.rebuildScopeCounts, entry.metadata.rebuildScope);
         IncrementChannelCounts(metrics_.channelCounts, entry.metadata);
+        IncrementQueryPurposeCounts(metrics_.queryPurposeCounts, entry.metadata);
     }
     metrics_.regionCount = regions.size();
 }
