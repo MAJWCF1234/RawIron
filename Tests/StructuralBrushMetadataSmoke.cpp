@@ -22,6 +22,16 @@ int main() {
     options.metadata.visibility = ri::scene::StructuralBrushVisibilityPolicy::Occluder;
     options.metadata.navigation = ri::scene::StructuralBrushNavigationPolicy::Blocker;
     options.metadata.rebuildScope = ri::scene::StructuralBrushRebuildScope::Local;
+    options.metadata.visualMesh.meshId = "wall_a_visual";
+    options.metadata.visualMesh.materialSetId = "atrium_concrete";
+    options.metadata.physicsMesh.meshId = "wall_a_physics";
+    options.metadata.physicsMesh.physicalMaterial = "concrete_heavy";
+    options.metadata.physicsMesh.rigidBodyShape = "static_hull";
+    options.metadata.queryMesh.meshId = "wall_a_query";
+    options.metadata.queryMesh.raycastShape = "coarse_box";
+    options.metadata.informationLayer.semanticGraphId = "ssg.atrium.wall_a";
+    options.metadata.informationLayer.gameplayMeaning = "cover_wall";
+    options.metadata.informationLayer.relations.push_back("supports:atrium_ceiling");
 
     const int node = ri::scene::AddStructuralBrushNode(scene, options);
     if (node == ri::scene::kInvalidHandle) {
@@ -35,7 +45,18 @@ int main() {
         || metadata.collision != ri::scene::StructuralBrushCollisionPolicy::Player
         || metadata.visibility != ri::scene::StructuralBrushVisibilityPolicy::Occluder
         || metadata.navigation != ri::scene::StructuralBrushNavigationPolicy::Blocker
-        || metadata.rebuildScope != ri::scene::StructuralBrushRebuildScope::Local) {
+        || metadata.rebuildScope != ri::scene::StructuralBrushRebuildScope::Local
+        || metadata.visualMesh.meshId != "wall_a_visual"
+        || metadata.visualMesh.materialSetId != "atrium_concrete"
+        || metadata.physicsMesh.meshId != "wall_a_physics"
+        || metadata.physicsMesh.physicalMaterial != "concrete_heavy"
+        || metadata.physicsMesh.rigidBodyShape != "static_hull"
+        || metadata.queryMesh.meshId != "wall_a_query"
+        || metadata.queryMesh.raycastShape != "coarse_box"
+        || metadata.informationLayer.semanticGraphId != "ssg.atrium.wall_a"
+        || metadata.informationLayer.gameplayMeaning != "cover_wall"
+        || metadata.informationLayer.relations.size() != 1
+        || metadata.informationLayer.relations[0] != "supports:atrium_ceiling") {
         return EXIT_FAILURE;
     }
 

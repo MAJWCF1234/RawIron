@@ -1036,3 +1036,45 @@ Expected: all three SceneUtilities smoke tests pass.
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
 git commit -m "feat: cache semantic structural partitions"
 ```
+
+## Task 21: Add M/P/Q/I Structural Brush Channels
+
+**Files:**
+- Modify: `Source/RawIron.Core/include/RawIron/Scene/Components.h`
+- Modify: `Tests/StructuralBrushMetadataSmoke.cpp`
+- Modify: `docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md`
+
+- [x] **Step 1: Extend the metadata smoke test with M/P/Q/I channel ownership**
+
+The test verifies structural brush metadata preserves visual M-mesh ids/material sets, physics P-mesh ids/material/rigid-body shape, query Q-mesh ids/raycast shape, and information I-layer semantic graph/relation/gameplay meaning.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target StructuralBrushMetadataSmoke
+```
+
+Expected: build fails because the metadata channel fields do not exist yet.
+
+- [x] **Step 3: Add the metadata channel structs**
+
+Add explicit visual mesh, physics mesh, query mesh, and information layer substructures to `StructuralBrushMetadata`.
+
+- [x] **Step 4: Run focused verification**
+
+Run:
+
+```powershell
+ctest --test-dir build\semantic-metadata -R "RawIron.SceneUtilities.(StructuralBrushMetadataSmoke|SemanticStructuralPartitionSmoke|SceneSubtreeCollidersSmoke)" --output-on-failure
+```
+
+Expected: all three SceneUtilities smoke tests pass.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.Core/include/RawIron/Scene/Components.h Tests/StructuralBrushMetadataSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: add structural brush mesh channels"
+```

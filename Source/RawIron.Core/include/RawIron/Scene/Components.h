@@ -92,6 +92,39 @@ enum class StructuralBrushRebuildScope {
     Manual,
 };
 
+struct StructuralBrushVisualMeshInfo {
+    std::string meshId{};
+    std::string materialSetId{};
+    std::string uvSetId{};
+    bool renderable = true;
+};
+
+struct StructuralBrushPhysicsMeshInfo {
+    std::string meshId{};
+    std::string rigidBodyShape{};
+    std::string simulationShape{};
+    std::string physicalMaterial{};
+    bool participatesInSimulation = true;
+};
+
+struct StructuralBrushQueryMeshInfo {
+    std::string meshId{};
+    std::string raycastShape{};
+    std::string placementShape{};
+    std::string interactionShape{};
+    bool raycastable = true;
+    bool traceable = true;
+    bool placeable = true;
+    bool interactable = true;
+};
+
+struct StructuralBrushInformationLayer {
+    std::string semanticGraphId{};
+    std::string gameplayMeaning{};
+    std::vector<std::string> relations{};
+    bool reportable = true;
+};
+
 struct StructuralBrushMetadata {
     std::string brushId{};
     std::string region{};
@@ -101,6 +134,10 @@ struct StructuralBrushMetadata {
     StructuralBrushVisibilityPolicy visibility = StructuralBrushVisibilityPolicy::Ignored;
     StructuralBrushNavigationPolicy navigation = StructuralBrushNavigationPolicy::Ignored;
     StructuralBrushRebuildScope rebuildScope = StructuralBrushRebuildScope::Local;
+    StructuralBrushVisualMeshInfo visualMesh{};
+    StructuralBrushPhysicsMeshInfo physicsMesh{};
+    StructuralBrushQueryMeshInfo queryMesh{};
+    StructuralBrushInformationLayer informationLayer{};
 };
 
 enum class ProjectionType {
