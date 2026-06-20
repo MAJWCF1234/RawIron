@@ -62,7 +62,41 @@ int main() {
 
     if (ri::scene::ToString(metadata.role) != "wall"
         || ri::scene::ToString(metadata.collision) != "player"
-        || ri::scene::ToString(metadata.visibility) != "occluder") {
+        || ri::scene::ToString(metadata.visibility) != "occluder"
+        || ri::scene::ToString(ri::scene::StructuralBrushChannel::VisualMesh) != "visual_mesh"
+        || ri::scene::ToString(ri::scene::StructuralBrushChannel::PhysicsMesh) != "physics_mesh"
+        || ri::scene::ToString(ri::scene::StructuralBrushChannel::QueryMesh) != "query_mesh"
+        || ri::scene::ToString(ri::scene::StructuralBrushChannel::InformationLayer) != "information_layer") {
+        return EXIT_FAILURE;
+    }
+
+    ri::scene::StructuralBrushMetadata channelMetadata = metadata;
+    if (!ri::scene::StructuralBrushParticipatesInChannel(channelMetadata,
+                                                         ri::scene::StructuralBrushChannel::VisualMesh)
+        || !ri::scene::StructuralBrushParticipatesInChannel(channelMetadata,
+                                                            ri::scene::StructuralBrushChannel::PhysicsMesh)
+        || !ri::scene::StructuralBrushParticipatesInChannel(channelMetadata,
+                                                            ri::scene::StructuralBrushChannel::QueryMesh)
+        || !ri::scene::StructuralBrushParticipatesInChannel(
+            channelMetadata, ri::scene::StructuralBrushChannel::InformationLayer)) {
+        return EXIT_FAILURE;
+    }
+
+    channelMetadata.visualMesh.renderable = false;
+    channelMetadata.physicsMesh.participatesInSimulation = false;
+    channelMetadata.queryMesh.raycastable = false;
+    channelMetadata.queryMesh.traceable = false;
+    channelMetadata.queryMesh.placeable = false;
+    channelMetadata.queryMesh.interactable = false;
+    channelMetadata.informationLayer.reportable = false;
+    if (ri::scene::StructuralBrushParticipatesInChannel(channelMetadata,
+                                                        ri::scene::StructuralBrushChannel::VisualMesh)
+        || ri::scene::StructuralBrushParticipatesInChannel(channelMetadata,
+                                                           ri::scene::StructuralBrushChannel::PhysicsMesh)
+        || ri::scene::StructuralBrushParticipatesInChannel(channelMetadata,
+                                                           ri::scene::StructuralBrushChannel::QueryMesh)
+        || ri::scene::StructuralBrushParticipatesInChannel(
+            channelMetadata, ri::scene::StructuralBrushChannel::InformationLayer)) {
         return EXIT_FAILURE;
     }
 

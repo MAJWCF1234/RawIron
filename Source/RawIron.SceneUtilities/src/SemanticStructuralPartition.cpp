@@ -11,9 +11,6 @@
 namespace ri::scene {
 namespace {
 
-[[nodiscard]] bool ParticipatesInChannel(const StructuralBrushMetadata& metadata,
-                                         StructuralBrushChannel channel);
-
 void IncrementRoleCount(SemanticStructuralPartitionRoleCounts& counts,
                         const StructuralBrushSemanticRole role) {
     switch (role) {
@@ -106,34 +103,18 @@ void IncrementRebuildScopeCount(SemanticStructuralPartitionRebuildScopeCounts& c
 
 void IncrementChannelCounts(SemanticStructuralPartitionChannelCounts& counts,
                             const StructuralBrushMetadata& metadata) {
-    if (ParticipatesInChannel(metadata, StructuralBrushChannel::VisualMesh)) {
+    if (StructuralBrushParticipatesInChannel(metadata, StructuralBrushChannel::VisualMesh)) {
         ++counts.visualMesh;
     }
-    if (ParticipatesInChannel(metadata, StructuralBrushChannel::PhysicsMesh)) {
+    if (StructuralBrushParticipatesInChannel(metadata, StructuralBrushChannel::PhysicsMesh)) {
         ++counts.physicsMesh;
     }
-    if (ParticipatesInChannel(metadata, StructuralBrushChannel::QueryMesh)) {
+    if (StructuralBrushParticipatesInChannel(metadata, StructuralBrushChannel::QueryMesh)) {
         ++counts.queryMesh;
     }
-    if (ParticipatesInChannel(metadata, StructuralBrushChannel::InformationLayer)) {
+    if (StructuralBrushParticipatesInChannel(metadata, StructuralBrushChannel::InformationLayer)) {
         ++counts.informationLayer;
     }
-}
-
-[[nodiscard]] bool ParticipatesInChannel(const StructuralBrushMetadata& metadata,
-                                         const StructuralBrushChannel channel) {
-    switch (channel) {
-        case StructuralBrushChannel::VisualMesh:
-            return metadata.visualMesh.renderable;
-        case StructuralBrushChannel::PhysicsMesh:
-            return metadata.physicsMesh.participatesInSimulation;
-        case StructuralBrushChannel::QueryMesh:
-            return metadata.queryMesh.raycastable || metadata.queryMesh.traceable
-                || metadata.queryMesh.placeable || metadata.queryMesh.interactable;
-        case StructuralBrushChannel::InformationLayer:
-            return metadata.informationLayer.reportable;
-    }
-    return true;
 }
 
 } // namespace
@@ -236,7 +217,8 @@ void SemanticStructuralPartition::ResetMetrics() noexcept {
 
 bool SemanticStructuralPartition::MatchesQuery(const SemanticStructuralPartitionEntry& entry,
                                                const SemanticStructuralPartitionQuery& query) const {
-    if (query.channel.has_value() && !ParticipatesInChannel(entry.metadata, *query.channel)) {
+    if (query.channel.has_value()
+        && !StructuralBrushParticipatesInChannel(entry.metadata, *query.channel)) {
         return false;
     }
     if (query.operation.has_value() && entry.metadata.operation != *query.operation) {

@@ -1208,3 +1208,47 @@ Expected: all three SceneUtilities smoke tests pass.
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
 git commit -m "feat: expose semantic partition channel metrics"
 ```
+
+## Task 25: Promote Structural Brush Channel Rules to Core
+
+**Files:**
+- Modify: `Source/RawIron.Core/include/RawIron/Scene/Components.h`
+- Modify: `Source/RawIron.Core/src/Scene.cpp`
+- Modify: `Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp`
+- Modify: `Tests/StructuralBrushMetadataSmoke.cpp`
+- Modify: `docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md`
+
+- [x] **Step 1: Extend metadata smoke coverage with channel helpers**
+
+The test verifies M/P/Q/I channel string names and the shared channel participation predicate, including disabled visual, physics, query, and information layers.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target StructuralBrushMetadataSmoke
+```
+
+Expected: build fails because `ToString(StructuralBrushChannel)` and `StructuralBrushParticipatesInChannel` are not exposed from core.
+
+- [x] **Step 3: Expose the core helper**
+
+Add `ToString(StructuralBrushChannel)` and `StructuralBrushParticipatesInChannel(...)` to core scene components, then refactor the semantic partition to reuse the shared predicate.
+
+- [x] **Step 4: Run focused verification**
+
+Run:
+
+```powershell
+ctest --test-dir build\semantic-metadata -R "RawIron.SceneUtilities.(StructuralBrushMetadataSmoke|SemanticStructuralPartitionSmoke|SceneSubtreeCollidersSmoke)" --output-on-failure
+```
+
+Expected: all three SceneUtilities smoke tests pass.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.Core/include/RawIron/Scene/Components.h Source/RawIron.Core/src/Scene.cpp Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/StructuralBrushMetadataSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: expose structural brush channel helpers"
+```

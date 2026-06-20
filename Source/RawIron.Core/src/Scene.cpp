@@ -180,6 +180,36 @@ std::string ToString(StructuralBrushRebuildScope scope) {
     return "unknown";
 }
 
+std::string ToString(StructuralBrushChannel channel) {
+    switch (channel) {
+        case StructuralBrushChannel::VisualMesh:
+            return "visual_mesh";
+        case StructuralBrushChannel::PhysicsMesh:
+            return "physics_mesh";
+        case StructuralBrushChannel::QueryMesh:
+            return "query_mesh";
+        case StructuralBrushChannel::InformationLayer:
+            return "information_layer";
+    }
+    return "unknown";
+}
+
+bool StructuralBrushParticipatesInChannel(const StructuralBrushMetadata& metadata,
+                                          const StructuralBrushChannel channel) {
+    switch (channel) {
+        case StructuralBrushChannel::VisualMesh:
+            return metadata.visualMesh.renderable;
+        case StructuralBrushChannel::PhysicsMesh:
+            return metadata.physicsMesh.participatesInSimulation;
+        case StructuralBrushChannel::QueryMesh:
+            return metadata.queryMesh.raycastable || metadata.queryMesh.traceable
+                || metadata.queryMesh.placeable || metadata.queryMesh.interactable;
+        case StructuralBrushChannel::InformationLayer:
+            return metadata.informationLayer.reportable;
+    }
+    return false;
+}
+
 std::string ToString(ProjectionType projectionType) {
     switch (projectionType) {
         case ProjectionType::Perspective:

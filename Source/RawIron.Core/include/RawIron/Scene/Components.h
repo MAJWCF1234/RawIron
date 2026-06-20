@@ -284,9 +284,13 @@ std::string ToString(StructuralBrushCollisionPolicy policy);
 std::string ToString(StructuralBrushVisibilityPolicy policy);
 std::string ToString(StructuralBrushNavigationPolicy policy);
 std::string ToString(StructuralBrushRebuildScope scope);
+std::string ToString(StructuralBrushChannel channel);
 std::string ToString(ProjectionType projectionType);
 std::string ToString(LightType lightType);
 std::string ToString(CameraConfinementBehavior behavior);
 std::string ToString(CameraConfinementPurpose purpose);
+
+bool StructuralBrushParticipatesInChannel(const StructuralBrushMetadata& metadata,
+                                          StructuralBrushChannel channel);
 
 } // namespace ri::scene
