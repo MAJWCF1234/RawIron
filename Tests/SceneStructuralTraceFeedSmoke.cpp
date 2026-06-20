@@ -95,7 +95,9 @@ int main() {
     if (feedResult.metrics.colliderCount != 1
         || feedResult.metrics.staticColliderCount != 1
         || feedResult.metrics.structuralStaticColliderCount != 1
-        || feedResult.metrics.dynamicColliderCount != 0) {
+        || feedResult.metrics.dynamicColliderCount != 0
+        || feedResult.metrics.sourceStructuralBrushCount != 3
+        || feedResult.metrics.filteredStructuralBrushCount != 2) {
         return EXIT_FAILURE;
     }
 

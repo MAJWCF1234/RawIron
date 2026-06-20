@@ -1,6 +1,7 @@
 #include "RawIron/Scene/SceneStructuralTraceFeed.h"
 
 #include "RawIron/Scene/SceneSubtreeColliders.h"
+#include "RawIron/Scene/SceneUtils.h"
 #include "RawIron/Scene/TraceMeshRefinement.h"
 
 #include <utility>
@@ -8,10 +9,26 @@
 namespace ri::scene {
 namespace {
 
+[[nodiscard]] std::size_t CountStructuralBrushesInSubtree(const Scene& scene,
+                                                          const int rootNodeHandle) {
+    std::size_t count = 0;
+    for (const int nodeHandle : CollectNodeSubtree(scene, rootNodeHandle, true)) {
+        if (!scene.GetNode(nodeHandle).structuralBrush.brushId.empty()) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 [[nodiscard]] StructuralTraceSceneFeedMetrics ComputeStructuralTraceSceneFeedMetrics(
-    const std::vector<ri::trace::TraceCollider>& colliders) {
+    const std::vector<ri::trace::TraceCollider>& colliders,
+    const std::size_t sourceStructuralBrushCount) {
     StructuralTraceSceneFeedMetrics metrics{};
+    metrics.sourceStructuralBrushCount = sourceStructuralBrushCount;
     metrics.colliderCount = colliders.size();
+    if (metrics.sourceStructuralBrushCount > metrics.colliderCount) {
+        metrics.filteredStructuralBrushCount = metrics.sourceStructuralBrushCount - metrics.colliderCount;
+    }
     for (const ri::trace::TraceCollider& collider : colliders) {
         if (!collider.dynamic) {
             ++metrics.staticColliderCount;
@@ -106,7 +123,9 @@ StructuralTraceSceneFeedResult BuildStructuralTraceSceneFeedForSubtree(
     std::vector<ri::trace::TraceCollider> colliders =
         BuildStructuralTraceCollidersForSubtree(scene, rootNodeHandle, options);
     StructuralTraceSceneFeedResult result{};
-    result.metrics = ComputeStructuralTraceSceneFeedMetrics(colliders);
+    result.metrics = ComputeStructuralTraceSceneFeedMetrics(
+        colliders,
+        CountStructuralBrushesInSubtree(scene, rootNodeHandle));
     result.traceScene = ri::trace::TraceScene(std::move(colliders), indexOptions);
     return result;
 }
