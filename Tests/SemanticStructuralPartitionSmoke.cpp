@@ -316,19 +316,29 @@ int main() {
     if (sceneFloor == ri::scene::kInvalidHandle) {
         return EXIT_FAILURE;
     }
-    const ri::scene::SemanticStructuralPartition& staleCache = cache.GetOrRebuild(scene);
-    if (cache.RebuildCount() != 1
-        || staleCache.Metrics().entryCount != 1) {
+    const ri::scene::SemanticStructuralPartition& autoRebuiltCache = cache.GetOrRebuild(scene);
+    if (cache.RebuildCount() != 2
+        || cache.IsDirty()
+        || autoRebuiltCache.Metrics().entryCount != 2
+        || autoRebuiltCache.QueryBox({{2.0f, -0.2f, 1.0f}, {4.0f, 0.2f, 3.0f}},
+                                     {.role = ri::scene::StructuralBrushSemanticRole::Floor}).size() != 1) {
+        return EXIT_FAILURE;
+    }
+
+    scene.GetNode(sceneWall).structuralBrush.region = "scene_region_b";
+    const ri::scene::SemanticStructuralPartition& retaggedCache = cache.GetOrRebuild(scene);
+    if (cache.RebuildCount() != 3
+        || cache.IsDirty()
+        || retaggedCache.QueryBox({{2.5f, 1.0f, -0.25f}, {3.5f, 2.0f, 0.25f}},
+                                  {.region = "scene_region_b"}).size() != 1) {
         return EXIT_FAILURE;
     }
 
     cache.Invalidate();
     const ri::scene::SemanticStructuralPartition& rebuiltCache = cache.GetOrRebuild(scene);
-    if (cache.RebuildCount() != 2
+    if (cache.RebuildCount() != 4
         || cache.IsDirty()
-        || rebuiltCache.Metrics().entryCount != 2
-        || rebuiltCache.QueryBox({{2.0f, -0.2f, 1.0f}, {4.0f, 0.2f, 3.0f}},
-                                 {.role = ri::scene::StructuralBrushSemanticRole::Floor}).size() != 1) {
+        || rebuiltCache.Metrics().entryCount != 2) {
         return EXIT_FAILURE;
     }
 

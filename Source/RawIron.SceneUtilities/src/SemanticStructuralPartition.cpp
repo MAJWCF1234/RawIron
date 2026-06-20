@@ -4,12 +4,51 @@
 #include "RawIron/Scene/SceneUtils.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <optional>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 
 namespace ri::scene {
 namespace {
+
+constexpr std::uint64_t kSemanticPartitionFnvOffset = 14695981039346656037ull;
+constexpr std::uint64_t kSemanticPartitionFnvPrime = 1099511628211ull;
+
+void HashByte(std::uint64_t& hash, const unsigned char value) {
+    hash ^= static_cast<std::uint64_t>(value);
+    hash *= kSemanticPartitionFnvPrime;
+}
+
+void HashUint(std::uint64_t& hash, std::uint64_t value) {
+    for (int i = 0; i < 8; ++i) {
+        HashByte(hash, static_cast<unsigned char>(value & 0xffU));
+        value >>= 8U;
+    }
+}
+
+void HashString(std::uint64_t& hash, const std::string_view value) {
+    for (const unsigned char c : value) {
+        HashByte(hash, c);
+    }
+    HashByte(hash, 0xffU);
+}
+
+[[nodiscard]] std::uint64_t ComputeSemanticStructuralSceneSignature(const Scene& scene) {
+    std::uint64_t hash = kSemanticPartitionFnvOffset;
+    HashUint(hash, static_cast<std::uint64_t>(scene.NodeCount()));
+    for (int handle = 0; handle < static_cast<int>(scene.NodeCount()); ++handle) {
+        const Node& node = scene.GetNode(handle);
+        if (node.structuralBrush.brushId.empty()) {
+            continue;
+        }
+        HashUint(hash, static_cast<std::uint64_t>(handle));
+        HashString(hash, node.name);
+        HashUint(hash, StructuralBrushMetadataSignature(node.structuralBrush));
+    }
+    return hash;
+}
 
 void IncrementRoleCount(SemanticStructuralPartitionRoleCounts& counts,
                         const StructuralBrushSemanticRole role) {
@@ -295,8 +334,10 @@ void SemanticStructuralPartition::RebuildSideTables() {
 const SemanticStructuralPartition& SemanticStructuralPartitionCache::GetOrRebuild(
     const Scene& scene,
     ri::spatial::SpatialIndexOptions indexOptions) {
-    if (dirty_) {
+    const std::uint64_t sceneSignature = ComputeSemanticStructuralSceneSignature(scene);
+    if (dirty_ || sceneSignature != sceneSignature_) {
         partition_ = BuildSemanticStructuralPartition(scene, indexOptions);
+        sceneSignature_ = sceneSignature;
         dirty_ = false;
         ++rebuildCount_;
     }

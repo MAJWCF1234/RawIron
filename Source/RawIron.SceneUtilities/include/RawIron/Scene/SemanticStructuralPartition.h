@@ -6,6 +6,7 @@
 #include "RawIron/Spatial/SpatialIndex.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -154,6 +155,7 @@ private:
     SemanticStructuralPartition partition_{};
     bool dirty_ = true;
     std::size_t rebuildCount_ = 0;
+    std::uint64_t sceneSignature_ = 0;
 };
 
 [[nodiscard]] std::vector<SemanticStructuralPartitionEntry> BuildSemanticStructuralPartitionEntries(

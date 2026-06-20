@@ -35,6 +35,7 @@ The first foundation is in place:
 - Structural trace feed builds filtered `TraceCollider` lists and ready-to-query `TraceScene` instances.
 - Trace feed metrics report source brush count, emitted collider count, filtered count, filter reasons, and efficiency ratios.
 - Structural brush metadata exposes a deterministic signature for cache invalidation and cheap change detection.
+- Semantic structural partition cache uses structural scene signatures to auto-refresh after brush metadata edits.
 - Liminal Hall has semantic structural smoke coverage for authored structural rows.
 
 ## Developer Fulfillment Workflow
@@ -75,7 +76,7 @@ Exit criteria:
 
 - Keep `BspSpatialIndex` as the first broad-phase implementation, but wrap it behind partition-specific builders.
 - Add per-region subpartitions for large authored areas.
-- Add dirty-region rebuild tracking for changed brushes.
+- Add dirty-region rebuild tracking for geometry and dependency edits.
 - Add candidate-count diagnostics comparing unfiltered BSP queries with semantic-filtered queries.
 - Add configurable split policy experiments only after candidate metrics justify them.
 
