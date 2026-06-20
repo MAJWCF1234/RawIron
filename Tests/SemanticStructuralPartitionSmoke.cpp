@@ -296,12 +296,14 @@ int main() {
     ri::scene::SemanticStructuralPartitionCache cache;
     const ri::scene::SemanticStructuralPartition& cachedInitial = cache.GetOrRebuild(scene);
     if (cache.RebuildCount() != 1
+        || cache.ReuseCount() != 0
         || cache.IsDirty()
         || cachedInitial.Metrics().entryCount != 1) {
         return EXIT_FAILURE;
     }
     const ri::scene::SemanticStructuralPartition& cachedReused = cache.GetOrRebuild(scene);
     if (cache.RebuildCount() != 1
+        || cache.ReuseCount() != 1
         || cachedReused.Metrics().entryCount != 1) {
         return EXIT_FAILURE;
     }
@@ -311,6 +313,7 @@ int main() {
     }
     const ri::scene::SemanticStructuralPartition& nonStructuralReuse = cache.GetOrRebuild(scene);
     if (cache.RebuildCount() != 1
+        || cache.ReuseCount() != 2
         || nonStructuralReuse.Metrics().entryCount != 1) {
         return EXIT_FAILURE;
     }
@@ -327,6 +330,7 @@ int main() {
     }
     const ri::scene::SemanticStructuralPartition& autoRebuiltCache = cache.GetOrRebuild(scene);
     if (cache.RebuildCount() != 2
+        || cache.ReuseCount() != 2
         || cache.IsDirty()
         || autoRebuiltCache.Metrics().entryCount != 2
         || autoRebuiltCache.QueryBox({{2.0f, -0.2f, 1.0f}, {4.0f, 0.2f, 3.0f}},
@@ -337,6 +341,7 @@ int main() {
     scene.GetNode(sceneWall).structuralBrush.region = "scene_region_b";
     const ri::scene::SemanticStructuralPartition& retaggedCache = cache.GetOrRebuild(scene);
     if (cache.RebuildCount() != 3
+        || cache.ReuseCount() != 2
         || cache.IsDirty()
         || retaggedCache.QueryBox({{2.5f, 1.0f, -0.25f}, {3.5f, 2.0f, 0.25f}},
                                   {.region = "scene_region_b"}).size() != 1) {
@@ -346,6 +351,7 @@ int main() {
     cache.Invalidate();
     const ri::scene::SemanticStructuralPartition& rebuiltCache = cache.GetOrRebuild(scene);
     if (cache.RebuildCount() != 4
+        || cache.ReuseCount() != 2
         || cache.IsDirty()
         || rebuiltCache.Metrics().entryCount != 2) {
         return EXIT_FAILURE;

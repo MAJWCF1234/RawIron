@@ -342,6 +342,8 @@ const SemanticStructuralPartition& SemanticStructuralPartitionCache::GetOrRebuil
         sceneSignature_ = sceneSignature;
         dirty_ = false;
         ++rebuildCount_;
+    } else {
+        ++reuseCount_;
     }
     return partition_;
 }
@@ -356,6 +358,10 @@ bool SemanticStructuralPartitionCache::IsDirty() const noexcept {
 
 std::size_t SemanticStructuralPartitionCache::RebuildCount() const noexcept {
     return rebuildCount_;
+}
+
+std::size_t SemanticStructuralPartitionCache::ReuseCount() const noexcept {
+    return reuseCount_;
 }
 
 std::vector<SemanticStructuralPartitionEntry> BuildSemanticStructuralPartitionEntries(const Scene& scene) {

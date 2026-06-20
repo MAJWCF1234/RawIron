@@ -150,11 +150,13 @@ public:
     void Invalidate() noexcept;
     [[nodiscard]] bool IsDirty() const noexcept;
     [[nodiscard]] std::size_t RebuildCount() const noexcept;
+    [[nodiscard]] std::size_t ReuseCount() const noexcept;
 
 private:
     SemanticStructuralPartition partition_{};
     bool dirty_ = true;
     std::size_t rebuildCount_ = 0;
+    std::size_t reuseCount_ = 0;
     std::uint64_t sceneSignature_ = 0;
 };
 
