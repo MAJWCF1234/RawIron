@@ -67,7 +67,7 @@ git commit -m "feat: report structural trace feed filtering"
 **Files:**
 - No source files.
 
-- [ ] **Step 1: Verify focused smoke suite**
+- [x] **Step 1: Verify focused smoke suite**
 
 Run:
 
