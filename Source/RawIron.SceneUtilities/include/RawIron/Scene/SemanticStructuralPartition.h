@@ -25,6 +25,7 @@ struct SemanticStructuralPartitionEntry {
 
 struct SemanticStructuralPartitionQuery {
     std::optional<StructuralBrushChannel> channel{};
+    std::optional<StructuralBrushQueryPurpose> queryPurpose{};
     std::optional<StructuralBrushOperation> operation{};
     std::optional<StructuralBrushSemanticRole> role{};
     std::optional<StructuralBrushCollisionPolicy> collision{};

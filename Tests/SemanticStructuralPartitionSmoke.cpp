@@ -18,6 +18,9 @@ int main() {
     wall.visualMesh.renderable = true;
     wall.physicsMesh.participatesInSimulation = true;
     wall.queryMesh.raycastable = true;
+    wall.queryMesh.traceable = true;
+    wall.queryMesh.placeable = false;
+    wall.queryMesh.interactable = false;
     wall.informationLayer.reportable = true;
 
     ri::scene::StructuralBrushMetadata floor{};
@@ -29,6 +32,9 @@ int main() {
     floor.rebuildScope = ri::scene::StructuralBrushRebuildScope::Manual;
     floor.physicsMesh.participatesInSimulation = false;
     floor.queryMesh.raycastable = true;
+    floor.queryMesh.traceable = false;
+    floor.queryMesh.placeable = true;
+    floor.queryMesh.interactable = true;
     floor.informationLayer.reportable = true;
 
     ri::scene::StructuralBrushMetadata farWall = wall;
@@ -110,6 +116,24 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    const auto tracePurposeHits = partition.QueryBox(
+        {{-2.0f, -0.2f, -2.0f}, {2.0f, 0.2f, 2.0f}},
+        {.queryPurpose = ri::scene::StructuralBrushQueryPurpose::Trace});
+    if (tracePurposeHits.size() != 1
+        || tracePurposeHits[0].entry == nullptr
+        || tracePurposeHits[0].entry->metadata.brushId != "wall_a") {
+        return EXIT_FAILURE;
+    }
+
+    const auto placementPurposeHits = partition.QueryBox(
+        {{-2.0f, -0.2f, -2.0f}, {2.0f, 0.2f, 2.0f}},
+        {.queryPurpose = ri::scene::StructuralBrushQueryPurpose::Placement});
+    if (placementPurposeHits.size() != 1
+        || placementPurposeHits[0].entry == nullptr
+        || placementPurposeHits[0].entry->metadata.brushId != "floor_a") {
+        return EXIT_FAILURE;
+    }
+
     const auto informationChannelHits = partition.QueryBox(
         {{-2.0f, -0.2f, -2.0f}, {2.0f, 3.2f, 5.2f}},
         {.channel = ri::scene::StructuralBrushChannel::InformationLayer});
@@ -177,7 +201,7 @@ int main() {
         || metrics.channelCounts.physicsMesh != 2
         || metrics.channelCounts.queryMesh != 2
         || metrics.channelCounts.informationLayer != 3
-        || metrics.boxQueries != 7
+        || metrics.boxQueries != 9
         || metrics.rayQueries != 4
         || metrics.boxCandidatesScanned == 0
         || metrics.rayCandidatesScanned == 0) {

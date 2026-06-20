@@ -221,6 +221,10 @@ bool SemanticStructuralPartition::MatchesQuery(const SemanticStructuralPartition
         && !StructuralBrushParticipatesInChannel(entry.metadata, *query.channel)) {
         return false;
     }
+    if (query.queryPurpose.has_value()
+        && !StructuralBrushSupportsQueryPurpose(entry.metadata, *query.queryPurpose)) {
+        return false;
+    }
     if (query.operation.has_value() && entry.metadata.operation != *query.operation) {
         return false;
     }
