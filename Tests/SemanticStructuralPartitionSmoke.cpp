@@ -69,13 +69,24 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    const auto nearestWallHit = partition.QueryNearestRay(
+        {0.0f, 1.5f, -3.0f},
+        {0.0f, 0.0f, 1.0f},
+        10.0f,
+        {.visibility = ri::scene::StructuralBrushVisibilityPolicy::Occluder});
+    if (!nearestWallHit.has_value()
+        || nearestWallHit->entry == nullptr
+        || nearestWallHit->entry->metadata.brushId != "wall_a") {
+        return EXIT_FAILURE;
+    }
+
     const ri::scene::SemanticStructuralPartitionMetrics metrics = partition.Metrics();
     if (metrics.entryCount != 3
         || metrics.regionCount != 1
         || metrics.roleCounts.floor != 1
         || metrics.roleCounts.wall != 2
         || metrics.boxQueries != 2
-        || metrics.rayQueries != 1
+        || metrics.rayQueries != 2
         || metrics.boxCandidatesScanned == 0
         || metrics.rayCandidatesScanned == 0) {
         return EXIT_FAILURE;

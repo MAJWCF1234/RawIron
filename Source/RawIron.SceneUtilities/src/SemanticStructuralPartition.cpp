@@ -119,6 +119,18 @@ std::vector<SemanticStructuralPartitionHit> SemanticStructuralPartition::QueryRa
     return hits;
 }
 
+std::optional<SemanticStructuralPartitionHit> SemanticStructuralPartition::QueryNearestRay(
+    const ri::math::Vec3& origin,
+    const ri::math::Vec3& direction,
+    const float far,
+    const SemanticStructuralPartitionQuery& query) const {
+    std::vector<SemanticStructuralPartitionHit> hits = QueryRay(origin, direction, far, query);
+    if (hits.empty()) {
+        return std::nullopt;
+    }
+    return hits.front();
+}
+
 const SemanticStructuralPartitionEntry* SemanticStructuralPartition::FindEntry(const std::string_view id) const {
     const auto found = entryIndexById_.find(std::string(id));
     if (found == entryIndexById_.end()) {

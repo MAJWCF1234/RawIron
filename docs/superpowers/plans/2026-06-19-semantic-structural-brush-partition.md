@@ -454,7 +454,7 @@ cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
 
 Expected: executable exits with code `0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
@@ -503,6 +503,50 @@ Expected: executable exits with code `0`.
 ```powershell
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
 git commit -m "feat: sort semantic structural ray hits"
+```
+
+## Task 9: Add Nearest Ray Hit Helper
+
+**Files:**
+- Modify: `Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h`
+- Modify: `Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp`
+- Modify: `Tests/SemanticStructuralPartitionSmoke.cpp`
+- Modify: `docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md`
+
+- [x] **Step 1: Extend the smoke test with nearest ray hit lookup**
+
+The test calls `QueryNearestRay(..., visibility=Occluder)` and verifies it returns the nearer wall brush.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+```
+
+Expected: build fails because `SemanticStructuralPartition::QueryNearestRay` does not exist.
+
+- [x] **Step 3: Add the helper**
+
+Add `QueryNearestRay` returning `std::optional<SemanticStructuralPartitionHit>`. Implement it by calling sorted `QueryRay` and returning the first hit when present.
+
+- [x] **Step 4: Run the test to verify it passes**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+.\build\semantic-metadata\Source\RawIron.SceneUtilities\SemanticStructuralPartitionSmoke.exe
+```
+
+Expected: executable exits with code `0`.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: add semantic structural nearest ray query"
 ```
 
 ## Self-Review Notes
