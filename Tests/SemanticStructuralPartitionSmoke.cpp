@@ -12,16 +12,22 @@ int main() {
     wall.brushId = "wall_a";
     wall.role = ri::scene::StructuralBrushSemanticRole::Wall;
     wall.region = "atrium";
+    wall.operation = ri::scene::StructuralBrushOperation::Solid;
     wall.visibility = ri::scene::StructuralBrushVisibilityPolicy::Occluder;
+    wall.rebuildScope = ri::scene::StructuralBrushRebuildScope::Region;
 
     ri::scene::StructuralBrushMetadata floor{};
     floor.brushId = "floor_a";
     floor.role = ri::scene::StructuralBrushSemanticRole::Floor;
     floor.region = "atrium";
+    floor.operation = ri::scene::StructuralBrushOperation::Stamp;
     floor.navigation = ri::scene::StructuralBrushNavigationPolicy::Walkable;
+    floor.rebuildScope = ri::scene::StructuralBrushRebuildScope::Manual;
 
     ri::scene::StructuralBrushMetadata farWall = wall;
     farWall.brushId = "wall_b";
+    farWall.operation = ri::scene::StructuralBrushOperation::Subtract;
+    farWall.rebuildScope = ri::scene::StructuralBrushRebuildScope::Global;
 
     partition.Rebuild({
         {
@@ -65,6 +71,26 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    const auto subtractiveHits = partition.QueryBox(
+        {{-2.0f, -0.2f, -2.0f}, {2.0f, 3.2f, 5.2f}},
+        {.operation = ri::scene::StructuralBrushOperation::Subtract});
+    if (subtractiveHits.size() != 1
+        || subtractiveHits[0].entry == nullptr
+        || subtractiveHits[0].entry->metadata.brushId != "wall_b") {
+        return EXIT_FAILURE;
+    }
+
+    const auto globalRebuildHits = partition.QueryRay(
+        {0.0f, 1.5f, -3.0f},
+        {0.0f, 0.0f, 1.0f},
+        10.0f,
+        {.rebuildScope = ri::scene::StructuralBrushRebuildScope::Global});
+    if (globalRebuildHits.size() != 1
+        || globalRebuildHits[0].entry == nullptr
+        || globalRebuildHits[0].entry->metadata.brushId != "wall_b") {
+        return EXIT_FAILURE;
+    }
+
     const auto wallRayHits = partition.QueryRay(
         {0.0f, 1.5f, -3.0f},
         {0.0f, 0.0f, 1.0f},
@@ -95,8 +121,8 @@ int main() {
         || metrics.regionCount != 1
         || metrics.roleCounts.floor != 1
         || metrics.roleCounts.wall != 2
-        || metrics.boxQueries != 3
-        || metrics.rayQueries != 2
+        || metrics.boxQueries != 4
+        || metrics.rayQueries != 3
         || metrics.boxCandidatesScanned == 0
         || metrics.rayCandidatesScanned == 0) {
         return EXIT_FAILURE;

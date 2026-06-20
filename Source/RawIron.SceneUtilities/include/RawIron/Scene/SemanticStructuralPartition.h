@@ -24,10 +24,12 @@ struct SemanticStructuralPartitionEntry {
 };
 
 struct SemanticStructuralPartitionQuery {
+    std::optional<StructuralBrushOperation> operation{};
     std::optional<StructuralBrushSemanticRole> role{};
     std::optional<StructuralBrushCollisionPolicy> collision{};
     std::optional<StructuralBrushVisibilityPolicy> visibility{};
     std::optional<StructuralBrushNavigationPolicy> navigation{};
+    std::optional<StructuralBrushRebuildScope> rebuildScope{};
     std::string_view brushId{};
     std::string_view region{};
 };

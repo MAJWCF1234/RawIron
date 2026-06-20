@@ -156,6 +156,9 @@ void SemanticStructuralPartition::ResetMetrics() noexcept {
 
 bool SemanticStructuralPartition::MatchesQuery(const SemanticStructuralPartitionEntry& entry,
                                                const SemanticStructuralPartitionQuery& query) const {
+    if (query.operation.has_value() && entry.metadata.operation != *query.operation) {
+        return false;
+    }
     if (query.role.has_value() && entry.metadata.role != *query.role) {
         return false;
     }
@@ -166,6 +169,9 @@ bool SemanticStructuralPartition::MatchesQuery(const SemanticStructuralPartition
         return false;
     }
     if (query.navigation.has_value() && entry.metadata.navigation != *query.navigation) {
+        return false;
+    }
+    if (query.rebuildScope.has_value() && entry.metadata.rebuildScope != *query.rebuildScope) {
         return false;
     }
     if (!query.brushId.empty() && entry.metadata.brushId != query.brushId) {
