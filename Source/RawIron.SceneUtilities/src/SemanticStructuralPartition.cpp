@@ -279,6 +279,24 @@ std::size_t SemanticStructuralPartition::MetadataSignatureBucketCount() const no
     return entryIndicesByMetadataSignature_.size();
 }
 
+std::vector<const SemanticStructuralPartitionEntry*> SemanticStructuralPartition::FindEntriesByRegion(
+    const std::string_view region) const {
+    std::vector<const SemanticStructuralPartitionEntry*> matches;
+    const auto found = entryIndicesByRegion_.find(std::string(region));
+    if (found == entryIndicesByRegion_.end()) {
+        return matches;
+    }
+    matches.reserve(found->second.size());
+    for (const std::size_t entryIndex : found->second) {
+        matches.push_back(&entries_[entryIndex]);
+    }
+    return matches;
+}
+
+std::size_t SemanticStructuralPartition::RegionBucketCount() const noexcept {
+    return entryIndicesByRegion_.size();
+}
+
 SemanticStructuralPartitionMetrics SemanticStructuralPartition::Metrics() const noexcept {
     SemanticStructuralPartitionMetrics metrics = metrics_;
     const ri::spatial::SpatialIndexMetrics indexMetrics = index_.Metrics();
@@ -335,6 +353,8 @@ void SemanticStructuralPartition::RebuildSideTables() {
     entryIndexById_.reserve(entries_.size());
     entryIndicesByMetadataSignature_.clear();
     entryIndicesByMetadataSignature_.reserve(entries_.size());
+    entryIndicesByRegion_.clear();
+    entryIndicesByRegion_.reserve(entries_.size());
     metrics_ = {};
     metrics_.entryCount = entries_.size();
 
@@ -347,6 +367,7 @@ void SemanticStructuralPartition::RebuildSideTables() {
         }
         if (!entry.metadata.region.empty()) {
             regions.insert(entry.metadata.region);
+            entryIndicesByRegion_[entry.metadata.region].push_back(index);
         }
         IncrementRoleCount(metrics_.roleCounts, entry.metadata.role);
         IncrementOperationCount(metrics_.operationCounts, entry.metadata.operation);

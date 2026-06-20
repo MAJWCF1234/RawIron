@@ -91,6 +91,13 @@ int main() {
         || floorHits[0].entry->metadata.navigation != ri::scene::StructuralBrushNavigationPolicy::Walkable) {
         return EXIT_FAILURE;
     }
+    const std::vector<const ri::scene::SemanticStructuralPartitionEntry*> atriumEntries =
+        partition.FindEntriesByRegion("atrium");
+    if (atriumEntries.size() != 3
+        || atriumEntries[0] == nullptr
+        || atriumEntries[0]->metadata.region != "atrium") {
+        return EXIT_FAILURE;
+    }
 
     const auto ownedWallHits = partition.QueryBox(
         {{-2.0f, -0.2f, -2.0f}, {2.0f, 3.2f, 5.2f}},
@@ -201,6 +208,7 @@ int main() {
     const ri::scene::SemanticStructuralPartitionMetrics metrics = partition.Metrics();
     if (metrics.entryCount != 3
         || metrics.regionCount != 1
+        || partition.RegionBucketCount() != 1
         || metrics.uniqueMetadataSignatureCount != 3
         || metrics.duplicateMetadataSignatureCount != 0
         || partition.MetadataSignatureBucketCount() != 3

@@ -31,6 +31,7 @@ The first foundation is in place:
 - Semantic structural partition wraps the existing BSP-style spatial index and adds semantic filtering.
 - Semantic structural partition entries carry compact metadata signatures for cheap diagnostics and cache comparisons.
 - Semantic structural partition keeps a compact metadata-signature lookup table for duplicate/diagnostic tooling.
+- Semantic structural partition keeps a region lookup table as a stepping stone toward per-region partitions and dirty-region rebuilds.
 - Partition queries support role, region, operation, rebuild scope, M/P/Q/I channel, and query purpose.
 - Partition metrics expose entry counts, metadata signature uniqueness, query counts, candidate scans, role counts, operation counts, rebuild counts, channel counts, and query-purpose counts.
 - Scene subtree collider generation can respect structural collision policy, Q-mesh participation, and query purpose.
