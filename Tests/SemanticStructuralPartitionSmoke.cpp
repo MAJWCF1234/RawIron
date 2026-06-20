@@ -1,4 +1,5 @@
 #include "RawIron/Scene/SemanticStructuralPartition.h"
+#include "RawIron/Scene/Raycast.h"
 #include "RawIron/Scene/Scene.h"
 #include "RawIron/Scene/StructuralBrush.h"
 
@@ -168,6 +169,17 @@ int main() {
     if (!builtNearest.has_value()
         || builtNearest->entry == nullptr
         || builtNearest->entry->nodeHandle != sceneWall) {
+        return EXIT_FAILURE;
+    }
+
+    const auto semanticPick = ri::scene::PickSemanticStructuralBrush(
+        scene,
+        {.origin = {3.0f, 1.5f, -3.0f}, .direction = {0.0f, 0.0f, 1.0f}},
+        6.0f,
+        {.brushId = "scene_wall"});
+    if (!semanticPick.has_value()
+        || semanticPick->entry.nodeHandle != sceneWall
+        || semanticPick->entry.metadata.role != ri::scene::StructuralBrushSemanticRole::Wall) {
         return EXIT_FAILURE;
     }
 

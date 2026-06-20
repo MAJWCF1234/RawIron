@@ -14,6 +14,8 @@
 
 namespace ri::scene {
 
+struct Ray;
+
 struct SemanticStructuralPartitionEntry {
     std::string id;
     int nodeHandle = kInvalidHandle;
@@ -32,6 +34,11 @@ struct SemanticStructuralPartitionQuery {
 
 struct SemanticStructuralPartitionHit {
     const SemanticStructuralPartitionEntry* entry = nullptr;
+    float distance = 0.0f;
+};
+
+struct SemanticStructuralPickHit {
+    SemanticStructuralPartitionEntry entry;
     float distance = 0.0f;
 };
 
@@ -99,6 +106,12 @@ private:
     const Scene& scene);
 [[nodiscard]] SemanticStructuralPartition BuildSemanticStructuralPartition(
     const Scene& scene,
+    ri::spatial::SpatialIndexOptions indexOptions = {});
+[[nodiscard]] std::optional<SemanticStructuralPickHit> PickSemanticStructuralBrush(
+    const Scene& scene,
+    const Ray& ray,
+    float far,
+    const SemanticStructuralPartitionQuery& query = {},
     ri::spatial::SpatialIndexOptions indexOptions = {});
 
 } // namespace ri::scene

@@ -730,3 +730,47 @@ git commit -m "feat: reset semantic structural partition metrics"
 - This plan covers the first implementation slice from the design spec: semantic fields, default-compatible CSV parsing, and ownership metadata on generated nodes.
 - It adds the first `SemanticStructuralPartition` wrapper after metadata exists, while deferring trace integration to a later slice.
 - Old CSV rows remain valid because new columns are optional and defaulted.
+
+## Task 14: Scene-Level Semantic Brush Picking Helper
+
+**Files:**
+- Modify: `Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h`
+- Modify: `Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp`
+- Modify: `Tests/SemanticStructuralPartitionSmoke.cpp`
+- Modify: `docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md`
+
+- [x] **Step 1: Extend the smoke test with scene semantic picking behavior**
+
+The test builds a scene structural brush, casts a scene ray through it, filters by brush id, and verifies the owning pick hit preserves the source node handle and semantic role without dangling partition pointers.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+```
+
+Expected: build fails because `PickSemanticStructuralBrush` does not exist.
+
+- [x] **Step 3: Add the helper**
+
+Add `PickSemanticStructuralBrush(scene, ray, far, query, indexOptions)` that builds the semantic structural partition from the scene and returns an owning copy of the nearest entry plus distance.
+
+- [x] **Step 4: Run the test to verify it passes**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+.\build\semantic-metadata\Source\RawIron.SceneUtilities\SemanticStructuralPartitionSmoke.exe
+```
+
+Expected: executable exits with code `0`.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: add semantic structural scene pick helper"
+```

@@ -1,5 +1,6 @@
 #include "RawIron/Scene/SemanticStructuralPartition.h"
 
+#include "RawIron/Scene/Raycast.h"
 #include "RawIron/Scene/SceneUtils.h"
 
 #include <algorithm>
@@ -223,6 +224,24 @@ SemanticStructuralPartition BuildSemanticStructuralPartition(const Scene& scene,
     SemanticStructuralPartition partition;
     partition.Rebuild(BuildSemanticStructuralPartitionEntries(scene), indexOptions);
     return partition;
+}
+
+std::optional<SemanticStructuralPickHit> PickSemanticStructuralBrush(
+    const Scene& scene,
+    const Ray& ray,
+    const float far,
+    const SemanticStructuralPartitionQuery& query,
+    ri::spatial::SpatialIndexOptions indexOptions) {
+    SemanticStructuralPartition partition = BuildSemanticStructuralPartition(scene, indexOptions);
+    const std::optional<SemanticStructuralPartitionHit> hit =
+        partition.QueryNearestRay(ray.origin, ray.direction, far, query);
+    if (!hit.has_value() || hit->entry == nullptr) {
+        return std::nullopt;
+    }
+    return SemanticStructuralPickHit{
+        .entry = *hit->entry,
+        .distance = hit->distance,
+    };
 }
 
 } // namespace ri::scene
