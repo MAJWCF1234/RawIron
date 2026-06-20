@@ -51,6 +51,10 @@ struct SemanticStructuralPartitionRoleCounts {
 struct SemanticStructuralPartitionMetrics {
     std::size_t entryCount = 0;
     std::size_t regionCount = 0;
+    std::size_t boxQueries = 0;
+    std::size_t rayQueries = 0;
+    std::size_t boxCandidatesScanned = 0;
+    std::size_t rayCandidatesScanned = 0;
     SemanticStructuralPartitionRoleCounts roleCounts{};
 };
 

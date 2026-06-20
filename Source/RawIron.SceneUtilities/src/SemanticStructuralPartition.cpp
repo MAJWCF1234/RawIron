@@ -115,7 +115,13 @@ const SemanticStructuralPartitionEntry* SemanticStructuralPartition::FindEntry(c
 }
 
 SemanticStructuralPartitionMetrics SemanticStructuralPartition::Metrics() const noexcept {
-    return metrics_;
+    SemanticStructuralPartitionMetrics metrics = metrics_;
+    const ri::spatial::SpatialIndexMetrics indexMetrics = index_.Metrics();
+    metrics.boxQueries = indexMetrics.boxQueries;
+    metrics.rayQueries = indexMetrics.rayQueries;
+    metrics.boxCandidatesScanned = indexMetrics.boxCandidatesScanned;
+    metrics.rayCandidatesScanned = indexMetrics.rayCandidatesScanned;
+    return metrics;
 }
 
 bool SemanticStructuralPartition::MatchesQuery(const SemanticStructuralPartitionEntry& entry,

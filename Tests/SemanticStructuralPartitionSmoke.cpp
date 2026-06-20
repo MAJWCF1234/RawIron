@@ -62,7 +62,11 @@ int main() {
     if (metrics.entryCount != 2
         || metrics.regionCount != 1
         || metrics.roleCounts.floor != 1
-        || metrics.roleCounts.wall != 1) {
+        || metrics.roleCounts.wall != 1
+        || metrics.boxQueries != 2
+        || metrics.rayQueries != 1
+        || metrics.boxCandidatesScanned == 0
+        || metrics.rayCandidatesScanned == 0) {
         return EXIT_FAILURE;
     }
 
