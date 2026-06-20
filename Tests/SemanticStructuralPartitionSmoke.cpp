@@ -15,6 +15,10 @@ int main() {
     wall.operation = ri::scene::StructuralBrushOperation::Solid;
     wall.visibility = ri::scene::StructuralBrushVisibilityPolicy::Occluder;
     wall.rebuildScope = ri::scene::StructuralBrushRebuildScope::Region;
+    wall.visualMesh.renderable = true;
+    wall.physicsMesh.participatesInSimulation = true;
+    wall.queryMesh.raycastable = true;
+    wall.informationLayer.reportable = true;
 
     ri::scene::StructuralBrushMetadata floor{};
     floor.brushId = "floor_a";
@@ -23,11 +27,19 @@ int main() {
     floor.operation = ri::scene::StructuralBrushOperation::Stamp;
     floor.navigation = ri::scene::StructuralBrushNavigationPolicy::Walkable;
     floor.rebuildScope = ri::scene::StructuralBrushRebuildScope::Manual;
+    floor.physicsMesh.participatesInSimulation = false;
+    floor.queryMesh.raycastable = true;
+    floor.informationLayer.reportable = true;
 
     ri::scene::StructuralBrushMetadata farWall = wall;
     farWall.brushId = "wall_b";
     farWall.operation = ri::scene::StructuralBrushOperation::Subtract;
     farWall.rebuildScope = ri::scene::StructuralBrushRebuildScope::Global;
+    farWall.visualMesh.renderable = false;
+    farWall.queryMesh.raycastable = false;
+    farWall.queryMesh.traceable = false;
+    farWall.queryMesh.placeable = false;
+    farWall.queryMesh.interactable = false;
 
     partition.Rebuild({
         {
@@ -68,6 +80,40 @@ int main() {
     if (ownedWallHits.size() != 1
         || ownedWallHits[0].entry == nullptr
         || ownedWallHits[0].entry->id != "far_wall_fragment") {
+        return EXIT_FAILURE;
+    }
+
+    const auto visualChannelHits = partition.QueryBox(
+        {{-2.0f, -0.2f, -2.0f}, {2.0f, 3.2f, 5.2f}},
+        {.channel = ri::scene::StructuralBrushChannel::VisualMesh});
+    if (visualChannelHits.size() != 2
+        || visualChannelHits[0].entry == nullptr
+        || visualChannelHits[1].entry == nullptr) {
+        return EXIT_FAILURE;
+    }
+
+    const auto physicsChannelHits = partition.QueryBox(
+        {{-2.0f, -0.2f, -2.0f}, {2.0f, 3.2f, 5.2f}},
+        {.channel = ri::scene::StructuralBrushChannel::PhysicsMesh});
+    if (physicsChannelHits.size() != 2) {
+        return EXIT_FAILURE;
+    }
+
+    const auto queryChannelHits = partition.QueryRay(
+        {0.0f, 1.5f, -3.0f},
+        {0.0f, 0.0f, 1.0f},
+        10.0f,
+        {.channel = ri::scene::StructuralBrushChannel::QueryMesh});
+    if (queryChannelHits.size() != 1
+        || queryChannelHits[0].entry == nullptr
+        || queryChannelHits[0].entry->metadata.brushId != "wall_a") {
+        return EXIT_FAILURE;
+    }
+
+    const auto informationChannelHits = partition.QueryBox(
+        {{-2.0f, -0.2f, -2.0f}, {2.0f, 3.2f, 5.2f}},
+        {.channel = ri::scene::StructuralBrushChannel::InformationLayer});
+    if (informationChannelHits.size() != 3) {
         return EXIT_FAILURE;
     }
 
@@ -127,8 +173,8 @@ int main() {
         || metrics.rebuildScopeCounts.region != 1
         || metrics.rebuildScopeCounts.global != 1
         || metrics.rebuildScopeCounts.manual != 1
-        || metrics.boxQueries != 4
-        || metrics.rayQueries != 3
+        || metrics.boxQueries != 7
+        || metrics.rayQueries != 4
         || metrics.boxCandidatesScanned == 0
         || metrics.rayCandidatesScanned == 0) {
         return EXIT_FAILURE;

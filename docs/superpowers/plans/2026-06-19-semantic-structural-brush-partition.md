@@ -1121,3 +1121,47 @@ Expected: all three SceneUtilities smoke tests pass.
 git add Source/RawIron.SceneUtilities/src/StructuralBrush.cpp Tests/StructuralBrushMetadataSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
 git commit -m "feat: default structural brush mesh channels"
 ```
+
+## Task 23: Route Semantic BSP Queries by M/P/Q/I Channel
+
+**Files:**
+- Modify: `Source/RawIron.Core/include/RawIron/Scene/Components.h`
+- Modify: `Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h`
+- Modify: `Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp`
+- Modify: `Tests/SemanticStructuralPartitionSmoke.cpp`
+- Modify: `docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md`
+
+- [x] **Step 1: Extend the semantic partition smoke test with channel queries**
+
+The test marks entries as renderable/non-renderable, simulation/non-simulation, raycastable/non-raycastable, and reportable, then verifies visual, physics, query, and information channel queries return the right structural candidates.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+```
+
+Expected: build fails because `StructuralBrushChannel` and the query `channel` field do not exist.
+
+- [x] **Step 3: Add channel query routing**
+
+Add a `StructuralBrushChannel` enum and optional `channel` selector on `SemanticStructuralPartitionQuery`, then route candidates using M/P/Q/I enable flags.
+
+- [x] **Step 4: Run focused verification**
+
+Run:
+
+```powershell
+ctest --test-dir build\semantic-metadata -R "RawIron.SceneUtilities.(StructuralBrushMetadataSmoke|SemanticStructuralPartitionSmoke|SceneSubtreeCollidersSmoke)" --output-on-failure
+```
+
+Expected: all three SceneUtilities smoke tests pass.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.Core/include/RawIron/Scene/Components.h Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: route semantic partition queries by mesh channel"
+```

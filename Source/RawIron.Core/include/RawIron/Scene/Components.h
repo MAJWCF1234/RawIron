@@ -92,6 +92,13 @@ enum class StructuralBrushRebuildScope {
     Manual,
 };
 
+enum class StructuralBrushChannel {
+    VisualMesh,
+    PhysicsMesh,
+    QueryMesh,
+    InformationLayer,
+};
+
 struct StructuralBrushVisualMeshInfo {
     std::string meshId{};
     std::string materialSetId{};

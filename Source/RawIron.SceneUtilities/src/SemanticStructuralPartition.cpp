@@ -101,6 +101,22 @@ void IncrementRebuildScopeCount(SemanticStructuralPartitionRebuildScopeCounts& c
     }
 }
 
+[[nodiscard]] bool ParticipatesInChannel(const StructuralBrushMetadata& metadata,
+                                         const StructuralBrushChannel channel) {
+    switch (channel) {
+        case StructuralBrushChannel::VisualMesh:
+            return metadata.visualMesh.renderable;
+        case StructuralBrushChannel::PhysicsMesh:
+            return metadata.physicsMesh.participatesInSimulation;
+        case StructuralBrushChannel::QueryMesh:
+            return metadata.queryMesh.raycastable || metadata.queryMesh.traceable
+                || metadata.queryMesh.placeable || metadata.queryMesh.interactable;
+        case StructuralBrushChannel::InformationLayer:
+            return metadata.informationLayer.reportable;
+    }
+    return true;
+}
+
 } // namespace
 
 void SemanticStructuralPartition::Rebuild(std::vector<SemanticStructuralPartitionEntry> entries,
@@ -201,6 +217,9 @@ void SemanticStructuralPartition::ResetMetrics() noexcept {
 
 bool SemanticStructuralPartition::MatchesQuery(const SemanticStructuralPartitionEntry& entry,
                                                const SemanticStructuralPartitionQuery& query) const {
+    if (query.channel.has_value() && !ParticipatesInChannel(entry.metadata, *query.channel)) {
+        return false;
+    }
     if (query.operation.has_value() && entry.metadata.operation != *query.operation) {
         return false;
     }
