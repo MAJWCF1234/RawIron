@@ -90,7 +90,7 @@ git commit -m "feat: add structural trace collider feed"
 **Files:**
 - No source files.
 
-- [ ] **Step 1: Verify focused smoke suite**
+- [x] **Step 1: Verify focused smoke suite**
 
 Run:
 
