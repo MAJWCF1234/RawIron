@@ -37,16 +37,18 @@ void HashString(std::uint64_t& hash, const std::string_view value) {
 
 [[nodiscard]] std::uint64_t ComputeSemanticStructuralSceneSignature(const Scene& scene) {
     std::uint64_t hash = kSemanticPartitionFnvOffset;
-    HashUint(hash, static_cast<std::uint64_t>(scene.NodeCount()));
+    std::uint64_t structuralNodeCount = 0;
     for (int handle = 0; handle < static_cast<int>(scene.NodeCount()); ++handle) {
         const Node& node = scene.GetNode(handle);
         if (node.structuralBrush.brushId.empty()) {
             continue;
         }
+        ++structuralNodeCount;
         HashUint(hash, static_cast<std::uint64_t>(handle));
         HashString(hash, node.name);
         HashUint(hash, StructuralBrushMetadataSignature(node.structuralBrush));
     }
+    HashUint(hash, structuralNodeCount);
     return hash;
 }
 

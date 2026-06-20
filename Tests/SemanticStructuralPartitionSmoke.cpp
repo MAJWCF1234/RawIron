@@ -305,6 +305,15 @@ int main() {
         || cachedReused.Metrics().entryCount != 1) {
         return EXIT_FAILURE;
     }
+    const int nonStructuralNode = scene.CreateNode("EditorOnlyMarker");
+    if (nonStructuralNode == ri::scene::kInvalidHandle) {
+        return EXIT_FAILURE;
+    }
+    const ri::scene::SemanticStructuralPartition& nonStructuralReuse = cache.GetOrRebuild(scene);
+    if (cache.RebuildCount() != 1
+        || nonStructuralReuse.Metrics().entryCount != 1) {
+        return EXIT_FAILURE;
+    }
 
     brush.nodeName = "SceneFloor";
     brush.transform.position = {3.0f, 0.0f, 2.0f};
