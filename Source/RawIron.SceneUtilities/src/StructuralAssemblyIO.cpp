@@ -77,6 +77,88 @@ MaterialWorkflow ParseMaterialWorkflowLoose(std::string_view token, MaterialWork
     return fallback;
 }
 
+StructuralBrushSemanticRole ParseStructuralBrushSemanticRoleLoose(std::string_view token,
+                                                                  StructuralBrushSemanticRole fallback) {
+    const std::string key = Lowercase(Trim(std::string(token)));
+    if (key == "wall") return StructuralBrushSemanticRole::Wall;
+    if (key == "floor") return StructuralBrushSemanticRole::Floor;
+    if (key == "ceiling") return StructuralBrushSemanticRole::Ceiling;
+    if (key == "pillar") return StructuralBrushSemanticRole::Pillar;
+    if (key == "stair" || key == "stairs") return StructuralBrushSemanticRole::Stair;
+    if (key == "portal") return StructuralBrushSemanticRole::Portal;
+    if (key == "trim") return StructuralBrushSemanticRole::Trim;
+    if (key == "cover") return StructuralBrushSemanticRole::Cover;
+    if (key == "water") return StructuralBrushSemanticRole::Water;
+    if (key == "trigger") return StructuralBrushSemanticRole::Trigger;
+    if (key == "decor" || key == "decoration") return StructuralBrushSemanticRole::Decor;
+    if (key == "volume") return StructuralBrushSemanticRole::Volume;
+    if (key == "structure" || key == "structural") return StructuralBrushSemanticRole::Structure;
+    return fallback;
+}
+
+StructuralBrushOperation ParseStructuralBrushOperationLoose(std::string_view token,
+                                                            StructuralBrushOperation fallback) {
+    const std::string key = Lowercase(Trim(std::string(token)));
+    if (key == "solid") return StructuralBrushOperation::Solid;
+    if (key == "subtract" || key == "subtractive") return StructuralBrushOperation::Subtract;
+    if (key == "intersect" || key == "intersection") return StructuralBrushOperation::Intersect;
+    if (key == "stamp") return StructuralBrushOperation::Stamp;
+    if (key == "merge") return StructuralBrushOperation::Merge;
+    if (key == "detail") return StructuralBrushOperation::Detail;
+    if (key == "unspecified") return StructuralBrushOperation::Unspecified;
+    return fallback;
+}
+
+StructuralBrushCollisionPolicy ParseStructuralBrushCollisionPolicyLoose(
+    std::string_view token,
+    StructuralBrushCollisionPolicy fallback) {
+    const std::string key = Lowercase(Trim(std::string(token)));
+    if (key == "solid") return StructuralBrushCollisionPolicy::Solid;
+    if (key == "none" || key == "ignored") return StructuralBrushCollisionPolicy::None;
+    if (key == "query") return StructuralBrushCollisionPolicy::Query;
+    if (key == "player") return StructuralBrushCollisionPolicy::Player;
+    if (key == "detail") return StructuralBrushCollisionPolicy::Detail;
+    if (key == "custom") return StructuralBrushCollisionPolicy::Custom;
+    return fallback;
+}
+
+StructuralBrushVisibilityPolicy ParseStructuralBrushVisibilityPolicyLoose(
+    std::string_view token,
+    StructuralBrushVisibilityPolicy fallback) {
+    const std::string key = Lowercase(Trim(std::string(token)));
+    if (key == "ignored" || key == "none") return StructuralBrushVisibilityPolicy::Ignored;
+    if (key == "occluder") return StructuralBrushVisibilityPolicy::Occluder;
+    if (key == "portal") return StructuralBrushVisibilityPolicy::Portal;
+    if (key == "anti_portal" || key == "antiportal" || key == "anti-portal") {
+        return StructuralBrushVisibilityPolicy::AntiPortal;
+    }
+    if (key == "transparent") return StructuralBrushVisibilityPolicy::Transparent;
+    return fallback;
+}
+
+StructuralBrushNavigationPolicy ParseStructuralBrushNavigationPolicyLoose(
+    std::string_view token,
+    StructuralBrushNavigationPolicy fallback) {
+    const std::string key = Lowercase(Trim(std::string(token)));
+    if (key == "ignored" || key == "none") return StructuralBrushNavigationPolicy::Ignored;
+    if (key == "walkable") return StructuralBrushNavigationPolicy::Walkable;
+    if (key == "blocker") return StructuralBrushNavigationPolicy::Blocker;
+    if (key == "jump") return StructuralBrushNavigationPolicy::Jump;
+    if (key == "cover") return StructuralBrushNavigationPolicy::Cover;
+    if (key == "ladder") return StructuralBrushNavigationPolicy::Ladder;
+    return fallback;
+}
+
+StructuralBrushRebuildScope ParseStructuralBrushRebuildScopeLoose(std::string_view token,
+                                                                  StructuralBrushRebuildScope fallback) {
+    const std::string key = Lowercase(Trim(std::string(token)));
+    if (key == "local") return StructuralBrushRebuildScope::Local;
+    if (key == "region") return StructuralBrushRebuildScope::Region;
+    if (key == "global") return StructuralBrushRebuildScope::Global;
+    if (key == "manual") return StructuralBrushRebuildScope::Manual;
+    return fallback;
+}
+
 ri::math::Vec3 ParseVec3(const std::vector<std::string>& tokens, std::size_t offset, const ri::math::Vec3& fallback) {
     if ((offset + 2U) >= tokens.size()) {
         return fallback;
@@ -166,6 +248,7 @@ StructuralAssemblySpawnResult SpawnStructuralAssemblyFromCsv(Scene& scene,
         brush.structuralType = structuralType;
         brush.shape = shape;
         brush.parent = options.parent;
+        brush.metadata.brushId = tokens[0];
         brush.transform.position = ParseVec3(tokens, 2U, {});
         brush.transform.scale = ParseVec3(tokens, 5U, ri::math::Vec3{1.0f, 1.0f, 1.0f});
         brush.baseColor = ParseVec3(tokens, 8U, ri::math::Vec3{0.62f, 0.66f, 0.72f});
@@ -215,6 +298,27 @@ StructuralAssemblySpawnResult SpawnStructuralAssemblyFromCsv(Scene& scene,
             if (ParseFloat(tokens[33], metallic)) {
                 brush.metallic = std::clamp(metallic, 0.0f, 1.0f);
             }
+        }
+        if (tokens.size() > 34U) {
+            brush.metadata.role = ParseStructuralBrushSemanticRoleLoose(tokens[34], brush.metadata.role);
+        }
+        if (tokens.size() > 35U && !tokens[35].empty() && tokens[35] != "-") {
+            brush.metadata.region = tokens[35];
+        }
+        if (tokens.size() > 36U) {
+            brush.metadata.operation = ParseStructuralBrushOperationLoose(tokens[36], brush.metadata.operation);
+        }
+        if (tokens.size() > 37U) {
+            brush.metadata.collision = ParseStructuralBrushCollisionPolicyLoose(tokens[37], brush.metadata.collision);
+        }
+        if (tokens.size() > 38U) {
+            brush.metadata.visibility = ParseStructuralBrushVisibilityPolicyLoose(tokens[38], brush.metadata.visibility);
+        }
+        if (tokens.size() > 39U) {
+            brush.metadata.navigation = ParseStructuralBrushNavigationPolicyLoose(tokens[39], brush.metadata.navigation);
+        }
+        if (tokens.size() > 40U) {
+            brush.metadata.rebuildScope = ParseStructuralBrushRebuildScopeLoose(tokens[40], brush.metadata.rebuildScope);
         }
         brush.materialName = options.materialNamePrefix + "_" + tokens[0];
 

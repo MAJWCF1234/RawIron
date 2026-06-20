@@ -117,7 +117,7 @@ cmake --build build --target StructuralBrushMetadataSmoke
 
 Expected: executable exits with code `0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add Source/RawIron.Core/include/RawIron/Scene/Components.h Source/RawIron.Core/include/RawIron/Scene/Scene.h Source/RawIron.Core/src/Scene.cpp Source/RawIron.SceneUtilities/include/RawIron/Scene/StructuralBrush.h Source/RawIron.SceneUtilities/src/StructuralBrush.cpp Source/RawIron.SceneUtilities/CMakeLists.txt Tests/StructuralBrushMetadataSmoke.cpp
@@ -130,7 +130,7 @@ git commit -m "feat: preserve structural brush metadata"
 - Modify: `Source/RawIron.SceneUtilities/src/StructuralAssemblyIO.cpp`
 - Modify: `Tests/StructuralBrushMetadataSmoke.cpp`
 
-- [ ] **Step 1: Extend the smoke test with CSV parsing behavior**
+- [x] **Step 1: Extend the smoke test with CSV parsing behavior**
 
 Add a temporary CSV row with existing columns plus optional semantic columns:
 
@@ -162,7 +162,7 @@ if (importedMetadata.brushId != "SemanticFloor"
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run:
 
@@ -173,11 +173,11 @@ cmake --build build --target StructuralBrushMetadataSmoke
 
 Expected: test fails because semantic CSV columns are ignored.
 
-- [ ] **Step 3: Add parsers for optional trailing columns**
+- [x] **Step 3: Add parsers for optional trailing columns**
 
 Add lowercase parsers in `StructuralAssemblyIO.cpp` for role, operation, collision, visibility, navigation, and rebuild scope. Use conservative defaults when a column is missing or unknown.
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run:
 
