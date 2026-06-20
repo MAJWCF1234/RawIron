@@ -121,6 +121,12 @@ int main() {
         || metrics.regionCount != 1
         || metrics.roleCounts.floor != 1
         || metrics.roleCounts.wall != 2
+        || metrics.operationCounts.solid != 1
+        || metrics.operationCounts.subtract != 1
+        || metrics.operationCounts.stamp != 1
+        || metrics.rebuildScopeCounts.region != 1
+        || metrics.rebuildScopeCounts.global != 1
+        || metrics.rebuildScopeCounts.manual != 1
         || metrics.boxQueries != 4
         || metrics.rayQueries != 3
         || metrics.boxCandidatesScanned == 0

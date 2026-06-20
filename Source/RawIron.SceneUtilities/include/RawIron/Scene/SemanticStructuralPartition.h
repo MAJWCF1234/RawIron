@@ -60,6 +60,23 @@ struct SemanticStructuralPartitionRoleCounts {
     std::size_t volume = 0;
 };
 
+struct SemanticStructuralPartitionOperationCounts {
+    std::size_t unspecified = 0;
+    std::size_t solid = 0;
+    std::size_t subtract = 0;
+    std::size_t intersect = 0;
+    std::size_t stamp = 0;
+    std::size_t merge = 0;
+    std::size_t detail = 0;
+};
+
+struct SemanticStructuralPartitionRebuildScopeCounts {
+    std::size_t local = 0;
+    std::size_t region = 0;
+    std::size_t global = 0;
+    std::size_t manual = 0;
+};
+
 struct SemanticStructuralPartitionMetrics {
     std::size_t entryCount = 0;
     std::size_t regionCount = 0;
@@ -68,6 +85,8 @@ struct SemanticStructuralPartitionMetrics {
     std::size_t boxCandidatesScanned = 0;
     std::size_t rayCandidatesScanned = 0;
     SemanticStructuralPartitionRoleCounts roleCounts{};
+    SemanticStructuralPartitionOperationCounts operationCounts{};
+    SemanticStructuralPartitionRebuildScopeCounts rebuildScopeCounts{};
 };
 
 class SemanticStructuralPartition {

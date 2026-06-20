@@ -56,6 +56,51 @@ void IncrementRoleCount(SemanticStructuralPartitionRoleCounts& counts,
     }
 }
 
+void IncrementOperationCount(SemanticStructuralPartitionOperationCounts& counts,
+                             const StructuralBrushOperation operation) {
+    switch (operation) {
+        case StructuralBrushOperation::Unspecified:
+            ++counts.unspecified;
+            return;
+        case StructuralBrushOperation::Solid:
+            ++counts.solid;
+            return;
+        case StructuralBrushOperation::Subtract:
+            ++counts.subtract;
+            return;
+        case StructuralBrushOperation::Intersect:
+            ++counts.intersect;
+            return;
+        case StructuralBrushOperation::Stamp:
+            ++counts.stamp;
+            return;
+        case StructuralBrushOperation::Merge:
+            ++counts.merge;
+            return;
+        case StructuralBrushOperation::Detail:
+            ++counts.detail;
+            return;
+    }
+}
+
+void IncrementRebuildScopeCount(SemanticStructuralPartitionRebuildScopeCounts& counts,
+                                const StructuralBrushRebuildScope rebuildScope) {
+    switch (rebuildScope) {
+        case StructuralBrushRebuildScope::Local:
+            ++counts.local;
+            return;
+        case StructuralBrushRebuildScope::Region:
+            ++counts.region;
+            return;
+        case StructuralBrushRebuildScope::Global:
+            ++counts.global;
+            return;
+        case StructuralBrushRebuildScope::Manual:
+            ++counts.manual;
+            return;
+    }
+}
+
 } // namespace
 
 void SemanticStructuralPartition::Rebuild(std::vector<SemanticStructuralPartitionEntry> entries,
@@ -199,6 +244,8 @@ void SemanticStructuralPartition::RebuildSideTables() {
             regions.insert(entry.metadata.region);
         }
         IncrementRoleCount(metrics_.roleCounts, entry.metadata.role);
+        IncrementOperationCount(metrics_.operationCounts, entry.metadata.operation);
+        IncrementRebuildScopeCount(metrics_.rebuildScopeCounts, entry.metadata.rebuildScope);
     }
     metrics_.regionCount = regions.size();
 }

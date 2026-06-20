@@ -818,3 +818,47 @@ Expected: executable exits with code `0`.
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
 git commit -m "feat: filter semantic structural queries by rebuild policy"
 ```
+
+## Task 16: Add Operation and Rebuild-Scope Metrics
+
+**Files:**
+- Modify: `Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h`
+- Modify: `Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp`
+- Modify: `Tests/SemanticStructuralPartitionSmoke.cpp`
+- Modify: `docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md`
+
+- [x] **Step 1: Extend the smoke test with operation and rebuild-scope metric assertions**
+
+The test verifies the partition reports solid, subtractive, stamped, regional, global, and manual brush counts from its semantic side tables.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+```
+
+Expected: build fails because `SemanticStructuralPartitionMetrics` has no operation or rebuild-scope count fields.
+
+- [x] **Step 3: Add the metrics**
+
+Add operation and rebuild-scope count structs to `SemanticStructuralPartitionMetrics` and populate them during side-table rebuild.
+
+- [x] **Step 4: Run the test to verify it passes**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+.\build\semantic-metadata\Source\RawIron.SceneUtilities\SemanticStructuralPartitionSmoke.exe
+```
+
+Expected: executable exits with code `0`.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: expose semantic structural rebuild metrics"
+```
