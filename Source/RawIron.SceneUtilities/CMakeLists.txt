@@ -46,6 +46,7 @@ add_library(RawIron.SceneUtilities
   src/SceneKit.cpp
   src/SceneStateIO.cpp
   src/SceneUtils.cpp
+  src/SemanticStructuralPartition.cpp
   src/SceneStructuralTraceFeed.cpp
   src/SceneSubtreeColliders.cpp
   src/SceneSubtreeHelpers.cpp
@@ -79,4 +80,8 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(StructuralBrushMetadataSmoke ${CMAKE_SOURCE_DIR}/Tests/StructuralBrushMetadataSmoke.cpp)
   target_link_libraries(StructuralBrushMetadataSmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.StructuralBrushMetadataSmoke COMMAND StructuralBrushMetadataSmoke)
+
+  add_executable(SemanticStructuralPartitionSmoke ${CMAKE_SOURCE_DIR}/Tests/SemanticStructuralPartitionSmoke.cpp)
+  target_link_libraries(SemanticStructuralPartitionSmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.SemanticStructuralPartitionSmoke COMMAND SemanticStructuralPartitionSmoke)
 endif()

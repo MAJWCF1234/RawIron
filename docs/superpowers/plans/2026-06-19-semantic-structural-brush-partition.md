@@ -195,8 +195,99 @@ git add Source/RawIron.SceneUtilities/src/StructuralAssemblyIO.cpp Tests/Structu
 git commit -m "feat: parse structural brush semantic csv metadata"
 ```
 
+## Task 3: Add Metadata-Aware Structural Partition Wrapper
+
+**Files:**
+- Create: `Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h`
+- Create: `Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp`
+- Modify: `Source/RawIron.SceneUtilities/CMakeLists.txt`
+- Create: `Tests/SemanticStructuralPartitionSmoke.cpp`
+
+- [x] **Step 1: Write the failing smoke test**
+
+```cpp
+#include "RawIron/Scene/SemanticStructuralPartition.h"
+
+#include <cstdlib>
+
+int main() {
+    ri::scene::SemanticStructuralPartition partition;
+
+    ri::scene::StructuralBrushMetadata wall{};
+    wall.brushId = "wall_a";
+    wall.role = ri::scene::StructuralBrushSemanticRole::Wall;
+    wall.region = "atrium";
+    wall.visibility = ri::scene::StructuralBrushVisibilityPolicy::Occluder;
+
+    ri::scene::StructuralBrushMetadata floor{};
+    floor.brushId = "floor_a";
+    floor.role = ri::scene::StructuralBrushSemanticRole::Floor;
+    floor.region = "atrium";
+    floor.navigation = ri::scene::StructuralBrushNavigationPolicy::Walkable;
+
+    partition.Rebuild({
+        {.id = "wall_fragment", .bounds = {{-1.0f, 0.0f, -1.0f}, {1.0f, 3.0f, 1.0f}}, .metadata = wall},
+        {.id = "floor_fragment", .bounds = {{-4.0f, -0.1f, -4.0f}, {4.0f, 0.1f, 4.0f}}, .metadata = floor},
+    });
+
+    const auto hits = partition.QueryBox({{-2.0f, -0.2f, -2.0f}, {2.0f, 0.2f, 2.0f}});
+    if (hits.size() != 2) {
+        return EXIT_FAILURE;
+    }
+
+    const auto floorHits = partition.QueryBox(
+        {{-2.0f, -0.2f, -2.0f}, {2.0f, 0.2f, 2.0f}},
+        {.role = ri::scene::StructuralBrushSemanticRole::Floor});
+    if (floorHits.size() != 1
+        || floorHits[0].entry == nullptr
+        || floorHits[0].entry->metadata.brushId != "floor_a"
+        || floorHits[0].entry->metadata.navigation != ri::scene::StructuralBrushNavigationPolicy::Walkable) {
+        return EXIT_FAILURE;
+    }
+
+    const ri::scene::SemanticStructuralPartitionMetrics metrics = partition.Metrics();
+    if (metrics.entryCount != 2 || metrics.regionCount != 1 || metrics.roleCounts.floor != 1 || metrics.roleCounts.wall != 1) {
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+}
+```
+
+- [x] **Step 2: Register and run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+```
+
+Expected: build fails because `SemanticStructuralPartition.h` does not exist.
+
+- [x] **Step 3: Add the partition wrapper**
+
+Create a `SemanticStructuralPartition` class that stores entries by id, builds a private `ri::spatial::BspSpatialIndex` from entry bounds, and returns metadata-bearing hits from box queries. Add metrics for entry count, region count, and role counts.
+
+- [x] **Step 4: Run the test to verify it passes**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+.\build\semantic-metadata\Source\RawIron.SceneUtilities\SemanticStructuralPartitionSmoke.exe
+```
+
+Expected: executable exits with code `0`.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Source/RawIron.SceneUtilities/CMakeLists.txt Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: add semantic structural partition wrapper"
+```
+
 ## Self-Review Notes
 
 - This plan covers the first implementation slice from the design spec: semantic fields, default-compatible CSV parsing, and ownership metadata on generated nodes.
-- It intentionally does not build `SemanticStructuralPartition` yet; that needs a separate slice after metadata exists.
+- It adds the first `SemanticStructuralPartition` wrapper after metadata exists, while deferring trace integration to a later slice.
 - Old CSV rows remain valid because new columns are optional and defaulted.
