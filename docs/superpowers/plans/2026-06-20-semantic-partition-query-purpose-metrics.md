@@ -80,7 +80,7 @@ git commit -m "feat: expose semantic partition query purpose metrics"
 **Files:**
 - No source files.
 
-- [ ] **Step 1: Verify focused smoke suite**
+- [x] **Step 1: Verify focused smoke suite**
 
 Run:
 
