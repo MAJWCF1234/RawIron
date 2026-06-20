@@ -101,6 +101,17 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    partition.ResetMetrics();
+    const ri::scene::SemanticStructuralPartitionMetrics resetMetrics = partition.Metrics();
+    if (resetMetrics.entryCount != 3
+        || resetMetrics.regionCount != 1
+        || resetMetrics.boxQueries != 0
+        || resetMetrics.rayQueries != 0
+        || resetMetrics.boxCandidatesScanned != 0
+        || resetMetrics.rayCandidatesScanned != 0) {
+        return EXIT_FAILURE;
+    }
+
     ri::scene::Scene scene{"SemanticPartitionSceneFeed"};
     const int root = scene.CreateNode("Root");
     ri::scene::StructuralBrushSpawnOptions brush{};

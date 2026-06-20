@@ -149,6 +149,10 @@ SemanticStructuralPartitionMetrics SemanticStructuralPartition::Metrics() const 
     return metrics;
 }
 
+void SemanticStructuralPartition::ResetMetrics() noexcept {
+    index_.ResetMetrics();
+}
+
 bool SemanticStructuralPartition::MatchesQuery(const SemanticStructuralPartitionEntry& entry,
                                                const SemanticStructuralPartitionQuery& query) const {
     if (query.role.has_value() && entry.metadata.role != *query.role) {

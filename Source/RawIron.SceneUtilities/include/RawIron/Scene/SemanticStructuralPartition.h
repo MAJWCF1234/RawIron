@@ -82,6 +82,7 @@ public:
 
     [[nodiscard]] const SemanticStructuralPartitionEntry* FindEntry(std::string_view id) const;
     [[nodiscard]] SemanticStructuralPartitionMetrics Metrics() const noexcept;
+    void ResetMetrics() noexcept;
 
 private:
     [[nodiscard]] bool MatchesQuery(const SemanticStructuralPartitionEntry& entry,

@@ -630,7 +630,7 @@ cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
 
 Expected: executable exits with code `0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
@@ -679,6 +679,50 @@ Expected: executable exits with code `0`.
 ```powershell
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
 git commit -m "feat: build semantic structural partition from scene"
+```
+
+## Task 13: Reset Semantic Partition Query Metrics
+
+**Files:**
+- Modify: `Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h`
+- Modify: `Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp`
+- Modify: `Tests/SemanticStructuralPartitionSmoke.cpp`
+- Modify: `docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md`
+
+- [x] **Step 1: Extend the smoke test with metrics reset behavior**
+
+The test runs several box/ray queries, verifies non-zero query metrics, calls `ResetMetrics()`, then verifies entry/region counts remain while query and candidate counters return to zero.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+```
+
+Expected: build fails because `SemanticStructuralPartition::ResetMetrics` does not exist.
+
+- [x] **Step 3: Add the reset method**
+
+Add `void ResetMetrics() noexcept` to `SemanticStructuralPartition` and implement it by calling `index_.ResetMetrics()`.
+
+- [x] **Step 4: Run the test to verify it passes**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+.\build\semantic-metadata\Source\RawIron.SceneUtilities\SemanticStructuralPartitionSmoke.exe
+```
+
+Expected: executable exits with code `0`.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: reset semantic structural partition metrics"
 ```
 
 ## Self-Review Notes
