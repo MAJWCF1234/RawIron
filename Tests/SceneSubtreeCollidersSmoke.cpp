@@ -109,5 +109,29 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    ri::scene::StructuralBrushMetadata& queryMetadata = scene.GetNode(query).structuralBrush;
+    queryMetadata.queryMesh.raycastable = false;
+    queryMetadata.queryMesh.traceable = false;
+    queryMetadata.queryMesh.placeable = false;
+    queryMetadata.queryMesh.interactable = false;
+
+    colliders.clear();
+    const std::size_t queryChannelAdded = ri::scene::AppendTraceCollidersForSubtree(
+        scene,
+        root,
+        {
+            .requireStructuralBrushQueryMeshChannel = true,
+        },
+        colliders);
+    if (queryChannelAdded != 4
+        || colliders.size() != 4
+        || !ContainsColliderId(colliders, "SolidBrush")
+        || !ContainsColliderId(colliders, "PlayerBrush")
+        || ContainsColliderId(colliders, "QueryOnlyBrush")
+        || !ContainsColliderId(colliders, "NoCollisionBrush")
+        || !ContainsColliderId(colliders, "DetailBrush")) {
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }

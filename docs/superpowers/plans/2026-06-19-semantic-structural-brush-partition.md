@@ -674,7 +674,7 @@ cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
 
 Expected: executable exits with code `0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
@@ -1251,4 +1251,47 @@ Expected: all three SceneUtilities smoke tests pass.
 ```powershell
 git add Source/RawIron.Core/include/RawIron/Scene/Components.h Source/RawIron.Core/src/Scene.cpp Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/StructuralBrushMetadataSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
 git commit -m "feat: expose structural brush channel helpers"
+```
+
+## Task 26: Gate Trace Collider Emission by Structural Q-Mesh
+
+**Files:**
+- Modify: `Source/RawIron.SceneUtilities/include/RawIron/Scene/SceneSubtreeColliders.h`
+- Modify: `Source/RawIron.SceneUtilities/src/SceneSubtreeColliders.cpp`
+- Modify: `Tests/SceneSubtreeCollidersSmoke.cpp`
+- Modify: `docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md`
+
+- [x] **Step 1: Extend subtree collider smoke coverage with Q-mesh filtering**
+
+The test disables every query capability on one structural brush, requests Q-mesh-gated trace collider generation, and verifies that brush is omitted while query-enabled structural brushes still emit trace colliders.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SceneSubtreeCollidersSmoke
+```
+
+Expected: build fails because `SubtreeColliderBuildOptions::requireStructuralBrushQueryMeshChannel` does not exist.
+
+- [x] **Step 3: Add Q-mesh-gated trace collider emission**
+
+Add an opt-in build option that skips structural brush trace colliders when their Q-mesh channel is disabled, using `StructuralBrushParticipatesInChannel(..., QueryMesh)`.
+
+- [x] **Step 4: Run focused verification**
+
+Run:
+
+```powershell
+ctest --test-dir build\semantic-metadata -R "RawIron.SceneUtilities.(StructuralBrushMetadataSmoke|SemanticStructuralPartitionSmoke|SceneSubtreeCollidersSmoke)" --output-on-failure
+```
+
+Expected: all three SceneUtilities smoke tests pass.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SceneSubtreeColliders.h Source/RawIron.SceneUtilities/src/SceneSubtreeColliders.cpp Tests/SceneSubtreeCollidersSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: gate trace colliders by structural query mesh"
 ```

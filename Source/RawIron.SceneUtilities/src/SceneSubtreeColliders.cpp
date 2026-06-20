@@ -70,6 +70,12 @@ std::size_t AppendTraceCollidersForSubtree(const Scene& scene,
             && !ShouldEmitBlockingColliderForStructuralBrush(node)) {
             continue;
         }
+        if (options.requireStructuralBrushQueryMeshChannel
+            && !node.structuralBrush.brushId.empty()
+            && !StructuralBrushParticipatesInChannel(node.structuralBrush,
+                                                     StructuralBrushChannel::QueryMesh)) {
+            continue;
+        }
         const std::optional<ri::spatial::Aabb> bounds = TryComputeMeshNodeWorldAabb(scene, nodeHandle);
         if (!bounds.has_value()) {
             if (options.skipNodesWithoutBounds) {

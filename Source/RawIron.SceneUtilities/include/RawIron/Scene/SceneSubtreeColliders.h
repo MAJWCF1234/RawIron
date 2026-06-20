@@ -20,6 +20,8 @@ struct SubtreeColliderBuildOptions {
     bool skipNodesWithoutBounds = true;
     /// When true, structural brush nodes marked `None`, `Query`, or `Detail` do not emit blocking trace colliders.
     bool respectStructuralBrushCollisionPolicy = false;
+    /// When true, structural brush nodes with a disabled Q-mesh channel do not emit trace colliders.
+    bool requireStructuralBrushQueryMeshChannel = false;
     /// When true, appends stable `structural.*` semantic tags to colliders generated from structural brushes.
     bool appendStructuralBrushSemanticTags = false;
     /// Extra tags copied onto each \ref ri::trace::TraceCollider::simulationTags (e.g. `subtree_batch`).
