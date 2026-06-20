@@ -99,6 +99,13 @@ enum class StructuralBrushChannel {
     InformationLayer,
 };
 
+enum class StructuralBrushQueryPurpose {
+    Raycast,
+    Trace,
+    Placement,
+    Interaction,
+};
+
 struct StructuralBrushVisualMeshInfo {
     std::string meshId{};
     std::string materialSetId{};
@@ -285,6 +292,7 @@ std::string ToString(StructuralBrushVisibilityPolicy policy);
 std::string ToString(StructuralBrushNavigationPolicy policy);
 std::string ToString(StructuralBrushRebuildScope scope);
 std::string ToString(StructuralBrushChannel channel);
+std::string ToString(StructuralBrushQueryPurpose purpose);
 std::string ToString(ProjectionType projectionType);
 std::string ToString(LightType lightType);
 std::string ToString(CameraConfinementBehavior behavior);
@@ -292,5 +300,7 @@ std::string ToString(CameraConfinementPurpose purpose);
 
 bool StructuralBrushParticipatesInChannel(const StructuralBrushMetadata& metadata,
                                           StructuralBrushChannel channel);
+bool StructuralBrushSupportsQueryPurpose(const StructuralBrushMetadata& metadata,
+                                         StructuralBrushQueryPurpose purpose);
 
 } // namespace ri::scene

@@ -66,7 +66,11 @@ int main() {
         || ri::scene::ToString(ri::scene::StructuralBrushChannel::VisualMesh) != "visual_mesh"
         || ri::scene::ToString(ri::scene::StructuralBrushChannel::PhysicsMesh) != "physics_mesh"
         || ri::scene::ToString(ri::scene::StructuralBrushChannel::QueryMesh) != "query_mesh"
-        || ri::scene::ToString(ri::scene::StructuralBrushChannel::InformationLayer) != "information_layer") {
+        || ri::scene::ToString(ri::scene::StructuralBrushChannel::InformationLayer) != "information_layer"
+        || ri::scene::ToString(ri::scene::StructuralBrushQueryPurpose::Raycast) != "raycast"
+        || ri::scene::ToString(ri::scene::StructuralBrushQueryPurpose::Trace) != "trace"
+        || ri::scene::ToString(ri::scene::StructuralBrushQueryPurpose::Placement) != "placement"
+        || ri::scene::ToString(ri::scene::StructuralBrushQueryPurpose::Interaction) != "interaction") {
         return EXIT_FAILURE;
     }
 
@@ -79,6 +83,17 @@ int main() {
                                                             ri::scene::StructuralBrushChannel::QueryMesh)
         || !ri::scene::StructuralBrushParticipatesInChannel(
             channelMetadata, ri::scene::StructuralBrushChannel::InformationLayer)) {
+        return EXIT_FAILURE;
+    }
+
+    if (!ri::scene::StructuralBrushSupportsQueryPurpose(channelMetadata,
+                                                        ri::scene::StructuralBrushQueryPurpose::Raycast)
+        || !ri::scene::StructuralBrushSupportsQueryPurpose(channelMetadata,
+                                                           ri::scene::StructuralBrushQueryPurpose::Trace)
+        || !ri::scene::StructuralBrushSupportsQueryPurpose(channelMetadata,
+                                                           ri::scene::StructuralBrushQueryPurpose::Placement)
+        || !ri::scene::StructuralBrushSupportsQueryPurpose(
+            channelMetadata, ri::scene::StructuralBrushQueryPurpose::Interaction)) {
         return EXIT_FAILURE;
     }
 
@@ -97,6 +112,17 @@ int main() {
                                                            ri::scene::StructuralBrushChannel::QueryMesh)
         || ri::scene::StructuralBrushParticipatesInChannel(
             channelMetadata, ri::scene::StructuralBrushChannel::InformationLayer)) {
+        return EXIT_FAILURE;
+    }
+
+    if (ri::scene::StructuralBrushSupportsQueryPurpose(channelMetadata,
+                                                       ri::scene::StructuralBrushQueryPurpose::Raycast)
+        || ri::scene::StructuralBrushSupportsQueryPurpose(channelMetadata,
+                                                          ri::scene::StructuralBrushQueryPurpose::Trace)
+        || ri::scene::StructuralBrushSupportsQueryPurpose(channelMetadata,
+                                                          ri::scene::StructuralBrushQueryPurpose::Placement)
+        || ri::scene::StructuralBrushSupportsQueryPurpose(
+            channelMetadata, ri::scene::StructuralBrushQueryPurpose::Interaction)) {
         return EXIT_FAILURE;
     }
 

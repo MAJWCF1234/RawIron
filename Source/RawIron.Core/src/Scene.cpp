@@ -194,6 +194,20 @@ std::string ToString(StructuralBrushChannel channel) {
     return "unknown";
 }
 
+std::string ToString(StructuralBrushQueryPurpose purpose) {
+    switch (purpose) {
+        case StructuralBrushQueryPurpose::Raycast:
+            return "raycast";
+        case StructuralBrushQueryPurpose::Trace:
+            return "trace";
+        case StructuralBrushQueryPurpose::Placement:
+            return "placement";
+        case StructuralBrushQueryPurpose::Interaction:
+            return "interaction";
+    }
+    return "unknown";
+}
+
 bool StructuralBrushParticipatesInChannel(const StructuralBrushMetadata& metadata,
                                           const StructuralBrushChannel channel) {
     switch (channel) {
@@ -206,6 +220,21 @@ bool StructuralBrushParticipatesInChannel(const StructuralBrushMetadata& metadat
                 || metadata.queryMesh.placeable || metadata.queryMesh.interactable;
         case StructuralBrushChannel::InformationLayer:
             return metadata.informationLayer.reportable;
+    }
+    return false;
+}
+
+bool StructuralBrushSupportsQueryPurpose(const StructuralBrushMetadata& metadata,
+                                         const StructuralBrushQueryPurpose purpose) {
+    switch (purpose) {
+        case StructuralBrushQueryPurpose::Raycast:
+            return metadata.queryMesh.raycastable;
+        case StructuralBrushQueryPurpose::Trace:
+            return metadata.queryMesh.traceable;
+        case StructuralBrushQueryPurpose::Placement:
+            return metadata.queryMesh.placeable;
+        case StructuralBrushQueryPurpose::Interaction:
+            return metadata.queryMesh.interactable;
     }
     return false;
 }
