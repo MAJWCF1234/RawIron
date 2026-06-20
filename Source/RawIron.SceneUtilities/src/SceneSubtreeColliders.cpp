@@ -40,6 +40,30 @@ void AppendStructuralBrushSemanticTags(const StructuralBrushMetadata& metadata,
     tags.push_back("structural.visibility:" + ToString(metadata.visibility));
     tags.push_back("structural.navigation:" + ToString(metadata.navigation));
     tags.push_back("structural.rebuild:" + ToString(metadata.rebuildScope));
+
+    constexpr StructuralBrushChannel channels[] = {
+        StructuralBrushChannel::VisualMesh,
+        StructuralBrushChannel::PhysicsMesh,
+        StructuralBrushChannel::QueryMesh,
+        StructuralBrushChannel::InformationLayer,
+    };
+    for (const StructuralBrushChannel channel : channels) {
+        if (StructuralBrushParticipatesInChannel(metadata, channel)) {
+            tags.push_back("structural.channel:" + ToString(channel));
+        }
+    }
+
+    constexpr StructuralBrushQueryPurpose queryPurposes[] = {
+        StructuralBrushQueryPurpose::Raycast,
+        StructuralBrushQueryPurpose::Trace,
+        StructuralBrushQueryPurpose::Placement,
+        StructuralBrushQueryPurpose::Interaction,
+    };
+    for (const StructuralBrushQueryPurpose queryPurpose : queryPurposes) {
+        if (StructuralBrushSupportsQueryPurpose(metadata, queryPurpose)) {
+            tags.push_back("structural.query_purpose:" + ToString(queryPurpose));
+        }
+    }
 }
 
 } // namespace

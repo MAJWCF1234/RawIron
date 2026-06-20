@@ -105,7 +105,15 @@ int main() {
         || !ContainsTag(*playerCollider, "structural.collision:player")
         || !ContainsTag(*playerCollider, "structural.visibility:occluder")
         || !ContainsTag(*playerCollider, "structural.navigation:blocker")
-        || !ContainsTag(*playerCollider, "structural.rebuild:region")) {
+        || !ContainsTag(*playerCollider, "structural.rebuild:region")
+        || !ContainsTag(*playerCollider, "structural.channel:visual_mesh")
+        || !ContainsTag(*playerCollider, "structural.channel:physics_mesh")
+        || !ContainsTag(*playerCollider, "structural.channel:query_mesh")
+        || !ContainsTag(*playerCollider, "structural.channel:information_layer")
+        || !ContainsTag(*playerCollider, "structural.query_purpose:raycast")
+        || !ContainsTag(*playerCollider, "structural.query_purpose:trace")
+        || !ContainsTag(*playerCollider, "structural.query_purpose:placement")
+        || !ContainsTag(*playerCollider, "structural.query_purpose:interaction")) {
         return EXIT_FAILURE;
     }
 
