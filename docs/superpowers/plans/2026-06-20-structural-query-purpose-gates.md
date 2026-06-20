@@ -143,7 +143,7 @@ git commit -m "feat: gate trace colliders by query purpose"
 **Files:**
 - No source files.
 
-- [ ] **Step 1: Verify the focused smoke suite**
+- [x] **Step 1: Verify the focused smoke suite**
 
 Run:
 
@@ -153,7 +153,7 @@ ctest --test-dir build\semantic-metadata -R "RawIron.SceneUtilities.(StructuralB
 
 Expected: all three tests pass.
 
-- [ ] **Step 2: Push main**
+- [x] **Step 2: Push main**
 
 Run:
 
