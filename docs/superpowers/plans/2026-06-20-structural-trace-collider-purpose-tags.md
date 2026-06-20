@@ -68,7 +68,7 @@ git commit -m "feat: tag structural trace colliders by query intent"
 **Files:**
 - No source files.
 
-- [ ] **Step 1: Verify focused smoke suite**
+- [x] **Step 1: Verify focused smoke suite**
 
 Run:
 
