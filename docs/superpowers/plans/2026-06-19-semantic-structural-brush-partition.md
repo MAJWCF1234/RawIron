@@ -906,3 +906,47 @@ Expected: all four tests pass.
 git add Games/LiminalHall/levels/assembly.structural.csv Games/LiminalHall/Runtime/CMakeLists.txt Tests/LiminalHallSemanticStructuralSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
 git commit -m "feat: annotate liminal hall structural semantics"
 ```
+
+## Task 18: Filter Scene Trace Colliders by Structural Collision Policy
+
+**Files:**
+- Modify: `Source/RawIron.SceneUtilities/include/RawIron/Scene/SceneSubtreeColliders.h`
+- Modify: `Source/RawIron.SceneUtilities/src/SceneSubtreeColliders.cpp`
+- Modify: `Source/RawIron.SceneUtilities/CMakeLists.txt`
+- Add: `Tests/SceneSubtreeCollidersSmoke.cpp`
+- Modify: `docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md`
+
+- [x] **Step 1: Add a smoke test for semantic trace-collider filtering**
+
+The test builds structural brushes with `Solid`, `Player`, `Query`, `None`, and `Detail` collision policies, then verifies opt-in subtree collider generation emits only blocking structural colliders.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SceneSubtreeCollidersSmoke
+```
+
+Expected: build fails because `SubtreeColliderBuildOptions` does not expose `respectStructuralBrushCollisionPolicy`.
+
+- [x] **Step 3: Add the filtering option**
+
+Add `respectStructuralBrushCollisionPolicy` to subtree collider options and skip structural brush nodes with `None`, `Query`, or `Detail` collision policy when enabled.
+
+- [x] **Step 4: Run focused verification**
+
+Run:
+
+```powershell
+ctest --test-dir build\semantic-metadata -R "RawIron.SceneUtilities.(StructuralBrushMetadataSmoke|SemanticStructuralPartitionSmoke|SceneSubtreeCollidersSmoke)" --output-on-failure
+```
+
+Expected: all three SceneUtilities smoke tests pass.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SceneSubtreeColliders.h Source/RawIron.SceneUtilities/src/SceneSubtreeColliders.cpp Source/RawIron.SceneUtilities/CMakeLists.txt Tests/SceneSubtreeCollidersSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: filter structural trace colliders by semantics"
+```

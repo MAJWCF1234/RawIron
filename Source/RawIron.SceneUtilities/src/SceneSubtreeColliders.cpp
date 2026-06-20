@@ -6,6 +6,26 @@
 #include <unordered_set>
 
 namespace ri::scene {
+namespace {
+
+[[nodiscard]] bool ShouldEmitBlockingColliderForStructuralBrush(const Node& node) {
+    if (node.structuralBrush.brushId.empty()) {
+        return true;
+    }
+    switch (node.structuralBrush.collision) {
+        case StructuralBrushCollisionPolicy::None:
+        case StructuralBrushCollisionPolicy::Query:
+        case StructuralBrushCollisionPolicy::Detail:
+            return false;
+        case StructuralBrushCollisionPolicy::Solid:
+        case StructuralBrushCollisionPolicy::Player:
+        case StructuralBrushCollisionPolicy::Custom:
+            return true;
+    }
+    return true;
+}
+
+} // namespace
 
 std::string MakeSubtreeColliderId(const Scene& scene, const int nodeHandle, const std::string_view idPrefix) {
     if (nodeHandle < 0 || static_cast<std::size_t>(nodeHandle) >= scene.NodeCount()) {
@@ -28,6 +48,11 @@ std::size_t AppendTraceCollidersForSubtree(const Scene& scene,
     const std::vector<int> subtree = CollectNodeSubtree(scene, rootNodeHandle, true);
     std::size_t added = 0U;
     for (const int nodeHandle : subtree) {
+        const Node& node = scene.GetNode(nodeHandle);
+        if (options.respectStructuralBrushCollisionPolicy
+            && !ShouldEmitBlockingColliderForStructuralBrush(node)) {
+            continue;
+        }
         const std::optional<ri::spatial::Aabb> bounds = TryComputeMeshNodeWorldAabb(scene, nodeHandle);
         if (!bounds.has_value()) {
             if (options.skipNodesWithoutBounds) {

@@ -84,4 +84,8 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(SemanticStructuralPartitionSmoke ${CMAKE_SOURCE_DIR}/Tests/SemanticStructuralPartitionSmoke.cpp)
   target_link_libraries(SemanticStructuralPartitionSmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.SemanticStructuralPartitionSmoke COMMAND SemanticStructuralPartitionSmoke)
+
+  add_executable(SceneSubtreeCollidersSmoke ${CMAKE_SOURCE_DIR}/Tests/SceneSubtreeCollidersSmoke.cpp)
+  target_link_libraries(SceneSubtreeCollidersSmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.SceneSubtreeCollidersSmoke COMMAND SceneSubtreeCollidersSmoke)
 endif()

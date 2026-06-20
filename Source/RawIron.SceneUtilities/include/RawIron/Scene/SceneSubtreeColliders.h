@@ -18,6 +18,8 @@ struct SubtreeColliderBuildOptions {
     bool dynamic = false;
     /// Skip nodes without an attached mesh / empty bounds.
     bool skipNodesWithoutBounds = true;
+    /// When true, structural brush nodes marked `None`, `Query`, or `Detail` do not emit blocking trace colliders.
+    bool respectStructuralBrushCollisionPolicy = false;
     /// Extra tags copied onto each \ref ri::trace::TraceCollider::simulationTags (e.g. `subtree_batch`).
     std::vector<std::string> extraSimulationTags{};
     std::uint32_t simulationFlagsOrMask = 0U;
