@@ -6,9 +6,22 @@
 #include "RawIron/Trace/MovementController.h"
 #include "RawIron/Trace/TraceScene.h"
 
+#include <cstddef>
 #include <vector>
 
 namespace ri::scene {
+
+struct StructuralTraceSceneFeedMetrics {
+    std::size_t colliderCount = 0;
+    std::size_t staticColliderCount = 0;
+    std::size_t structuralStaticColliderCount = 0;
+    std::size_t dynamicColliderCount = 0;
+};
+
+struct StructuralTraceSceneFeedResult {
+    ri::trace::TraceScene traceScene{};
+    StructuralTraceSceneFeedMetrics metrics{};
+};
 
 /// Defaults for movement / ballistics structural traces: structural, static, blocking,
 /// query-mesh-backed, trace-purpose only, with semantic tags for later routing/debugging.
@@ -27,6 +40,16 @@ namespace ri::scene {
     int rootNodeHandle,
     ri::spatial::SpatialIndexOptions indexOptions = {});
 [[nodiscard]] ri::trace::TraceScene BuildStructuralTraceSceneForSubtree(
+    const Scene& scene,
+    int rootNodeHandle,
+    const SubtreeColliderBuildOptions& options,
+    ri::spatial::SpatialIndexOptions indexOptions = {});
+
+[[nodiscard]] StructuralTraceSceneFeedResult BuildStructuralTraceSceneFeedForSubtree(
+    const Scene& scene,
+    int rootNodeHandle,
+    ri::spatial::SpatialIndexOptions indexOptions = {});
+[[nodiscard]] StructuralTraceSceneFeedResult BuildStructuralTraceSceneFeedForSubtree(
     const Scene& scene,
     int rootNodeHandle,
     const SubtreeColliderBuildOptions& options,

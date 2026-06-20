@@ -3,8 +3,27 @@
 #include "RawIron/Scene/SceneSubtreeColliders.h"
 #include "RawIron/Scene/TraceMeshRefinement.h"
 
+#include <utility>
+
 namespace ri::scene {
 namespace {
+
+[[nodiscard]] StructuralTraceSceneFeedMetrics ComputeStructuralTraceSceneFeedMetrics(
+    const std::vector<ri::trace::TraceCollider>& colliders) {
+    StructuralTraceSceneFeedMetrics metrics{};
+    metrics.colliderCount = colliders.size();
+    for (const ri::trace::TraceCollider& collider : colliders) {
+        if (!collider.dynamic) {
+            ++metrics.staticColliderCount;
+            if (collider.structural) {
+                ++metrics.structuralStaticColliderCount;
+            }
+        } else {
+            ++metrics.dynamicColliderCount;
+        }
+    }
+    return metrics;
+}
 
 [[nodiscard]] int FindNodeHandleByColliderName(const Scene& scene, const std::string_view colliderId) {
     if (colliderId.empty()) {
@@ -67,6 +86,29 @@ ri::trace::TraceScene BuildStructuralTraceSceneForSubtree(
     return ri::trace::TraceScene(
         BuildStructuralTraceCollidersForSubtree(scene, rootNodeHandle, options),
         indexOptions);
+}
+
+StructuralTraceSceneFeedResult BuildStructuralTraceSceneFeedForSubtree(
+    const Scene& scene,
+    const int rootNodeHandle,
+    ri::spatial::SpatialIndexOptions indexOptions) {
+    return BuildStructuralTraceSceneFeedForSubtree(scene,
+                                                  rootNodeHandle,
+                                                  MakeDefaultStructuralTraceColliderBuildOptions(),
+                                                  indexOptions);
+}
+
+StructuralTraceSceneFeedResult BuildStructuralTraceSceneFeedForSubtree(
+    const Scene& scene,
+    const int rootNodeHandle,
+    const SubtreeColliderBuildOptions& options,
+    ri::spatial::SpatialIndexOptions indexOptions) {
+    std::vector<ri::trace::TraceCollider> colliders =
+        BuildStructuralTraceCollidersForSubtree(scene, rootNodeHandle, options);
+    StructuralTraceSceneFeedResult result{};
+    result.metrics = ComputeStructuralTraceSceneFeedMetrics(colliders);
+    result.traceScene = ri::trace::TraceScene(std::move(colliders), indexOptions);
+    return result;
 }
 
 ri::trace::StructuralTraceRefiner MakeStructuralMeshTraceRefiner(const Scene& scene,

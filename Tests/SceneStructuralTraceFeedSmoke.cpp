@@ -90,5 +90,23 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    ri::scene::StructuralTraceSceneFeedResult feedResult =
+        ri::scene::BuildStructuralTraceSceneFeedForSubtree(scene, root);
+    if (feedResult.metrics.colliderCount != 1
+        || feedResult.metrics.staticColliderCount != 1
+        || feedResult.metrics.structuralStaticColliderCount != 1
+        || feedResult.metrics.dynamicColliderCount != 0) {
+        return EXIT_FAILURE;
+    }
+
+    const std::optional<ri::trace::TraceHit> feedHit = feedResult.traceScene.TraceRay(
+        {0.0f, 0.0f, -3.0f},
+        {0.0f, 0.0f, 1.0f},
+        10.0f,
+        traceOptions);
+    if (!feedHit.has_value() || feedHit->id != "TraceableWall") {
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }
