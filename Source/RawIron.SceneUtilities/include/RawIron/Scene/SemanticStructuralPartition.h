@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RawIron/Scene/Components.h"
+#include "RawIron/Scene/Scene.h"
 #include "RawIron/Spatial/Aabb.h"
 #include "RawIron/Spatial/SpatialIndex.h"
 
@@ -75,5 +76,8 @@ private:
     ri::spatial::BspSpatialIndex index_;
     SemanticStructuralPartitionMetrics metrics_{};
 };
+
+[[nodiscard]] std::vector<SemanticStructuralPartitionEntry> BuildSemanticStructuralPartitionEntries(
+    const Scene& scene);
 
 } // namespace ri::scene

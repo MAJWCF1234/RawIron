@@ -1,4 +1,6 @@
 #include "RawIron/Scene/SemanticStructuralPartition.h"
+#include "RawIron/Scene/Scene.h"
+#include "RawIron/Scene/StructuralBrush.h"
 
 #include <cstdlib>
 
@@ -50,6 +52,40 @@ int main() {
         || metrics.regionCount != 1
         || metrics.roleCounts.floor != 1
         || metrics.roleCounts.wall != 1) {
+        return EXIT_FAILURE;
+    }
+
+    ri::scene::Scene scene{"SemanticPartitionSceneFeed"};
+    const int root = scene.CreateNode("Root");
+    ri::scene::StructuralBrushSpawnOptions brush{};
+    brush.nodeName = "SceneWall";
+    brush.parent = root;
+    brush.structuralType = "box";
+    brush.transform.position = {3.0f, 1.5f, 0.0f};
+    brush.transform.scale = {2.0f, 3.0f, 1.0f};
+    brush.metadata.brushId = "scene_wall";
+    brush.metadata.role = ri::scene::StructuralBrushSemanticRole::Wall;
+    brush.metadata.region = "scene_region";
+    const int sceneWall = ri::scene::AddStructuralBrushNode(scene, brush);
+    if (sceneWall == ri::scene::kInvalidHandle) {
+        return EXIT_FAILURE;
+    }
+
+    const std::vector<ri::scene::SemanticStructuralPartitionEntry> sceneEntries =
+        ri::scene::BuildSemanticStructuralPartitionEntries(scene);
+    if (sceneEntries.size() != 1
+        || sceneEntries[0].id != "SceneWall"
+        || sceneEntries[0].metadata.brushId != "scene_wall"
+        || sceneEntries[0].metadata.role != ri::scene::StructuralBrushSemanticRole::Wall) {
+        return EXIT_FAILURE;
+    }
+
+    ri::scene::SemanticStructuralPartition scenePartition;
+    scenePartition.Rebuild(sceneEntries);
+    const auto sceneHits = scenePartition.QueryBox(
+        {{2.5f, 1.0f, -0.25f}, {3.5f, 2.0f, 0.25f}},
+        {.region = "scene_region"});
+    if (sceneHits.size() != 1 || sceneHits[0].entry->metadata.brushId != "scene_wall") {
         return EXIT_FAILURE;
     }
 

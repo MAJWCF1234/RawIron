@@ -188,7 +188,7 @@ cmake --build build --target StructuralBrushMetadataSmoke
 
 Expected: executable exits with code `0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add Source/RawIron.SceneUtilities/src/StructuralAssemblyIO.cpp Tests/StructuralBrushMetadataSmoke.cpp
@@ -284,6 +284,49 @@ Expected: executable exits with code `0`.
 ```powershell
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Source/RawIron.SceneUtilities/CMakeLists.txt Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
 git commit -m "feat: add semantic structural partition wrapper"
+```
+
+## Task 4: Build Partition Entries From Scene Brush Nodes
+
+**Files:**
+- Modify: `Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h`
+- Modify: `Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp`
+- Modify: `Tests/SemanticStructuralPartitionSmoke.cpp`
+
+- [x] **Step 1: Extend the smoke test with scene-fed entries**
+
+The test spawns a structural brush node with `brush.metadata.brushId = "scene_wall"`, calls `BuildSemanticStructuralPartitionEntries(scene)`, and verifies the resulting partition can query the entry by region.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+```
+
+Expected: build fails because `BuildSemanticStructuralPartitionEntries` is not defined.
+
+- [x] **Step 3: Add the scene-entry builder**
+
+`BuildSemanticStructuralPartitionEntries` scans scene nodes, skips nodes without `structuralBrush.brushId`, computes tight mesh world AABBs with `TryComputeMeshNodeWorldAabb`, and emits `SemanticStructuralPartitionEntry` values carrying node name, bounds, and metadata.
+
+- [x] **Step 4: Run the test to verify it passes**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+.\build\semantic-metadata\Source\RawIron.SceneUtilities\SemanticStructuralPartitionSmoke.exe
+```
+
+Expected: executable exits with code `0`.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: feed semantic partition from scene brushes"
 ```
 
 ## Self-Review Notes

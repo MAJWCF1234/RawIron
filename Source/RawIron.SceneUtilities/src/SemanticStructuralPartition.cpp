@@ -1,5 +1,8 @@
 #include "RawIron/Scene/SemanticStructuralPartition.h"
 
+#include "RawIron/Scene/SceneUtils.h"
+
+#include <optional>
 #include <unordered_set>
 #include <utility>
 
@@ -135,6 +138,27 @@ void SemanticStructuralPartition::RebuildSideTables() {
         IncrementRoleCount(metrics_.roleCounts, entry.metadata.role);
     }
     metrics_.regionCount = regions.size();
+}
+
+std::vector<SemanticStructuralPartitionEntry> BuildSemanticStructuralPartitionEntries(const Scene& scene) {
+    std::vector<SemanticStructuralPartitionEntry> entries;
+    entries.reserve(scene.NodeCount());
+    for (int handle = 0; handle < static_cast<int>(scene.NodeCount()); ++handle) {
+        const Node& node = scene.GetNode(handle);
+        if (node.structuralBrush.brushId.empty()) {
+            continue;
+        }
+        const std::optional<ri::spatial::Aabb> bounds = TryComputeMeshNodeWorldAabb(scene, handle);
+        if (!bounds.has_value()) {
+            continue;
+        }
+        entries.push_back(SemanticStructuralPartitionEntry{
+            .id = node.name,
+            .bounds = *bounds,
+            .metadata = node.structuralBrush,
+        });
+    }
+    return entries;
 }
 
 } // namespace ri::scene
