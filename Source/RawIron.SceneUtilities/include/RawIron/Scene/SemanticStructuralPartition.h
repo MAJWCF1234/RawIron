@@ -78,6 +78,13 @@ struct SemanticStructuralPartitionRebuildScopeCounts {
     std::size_t manual = 0;
 };
 
+struct SemanticStructuralPartitionChannelCounts {
+    std::size_t visualMesh = 0;
+    std::size_t physicsMesh = 0;
+    std::size_t queryMesh = 0;
+    std::size_t informationLayer = 0;
+};
+
 struct SemanticStructuralPartitionMetrics {
     std::size_t entryCount = 0;
     std::size_t regionCount = 0;
@@ -88,6 +95,7 @@ struct SemanticStructuralPartitionMetrics {
     SemanticStructuralPartitionRoleCounts roleCounts{};
     SemanticStructuralPartitionOperationCounts operationCounts{};
     SemanticStructuralPartitionRebuildScopeCounts rebuildScopeCounts{};
+    SemanticStructuralPartitionChannelCounts channelCounts{};
 };
 
 class SemanticStructuralPartition {

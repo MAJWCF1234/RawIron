@@ -173,6 +173,10 @@ int main() {
         || metrics.rebuildScopeCounts.region != 1
         || metrics.rebuildScopeCounts.global != 1
         || metrics.rebuildScopeCounts.manual != 1
+        || metrics.channelCounts.visualMesh != 2
+        || metrics.channelCounts.physicsMesh != 2
+        || metrics.channelCounts.queryMesh != 2
+        || metrics.channelCounts.informationLayer != 3
         || metrics.boxQueries != 7
         || metrics.rayQueries != 4
         || metrics.boxCandidatesScanned == 0

@@ -11,6 +11,9 @@
 namespace ri::scene {
 namespace {
 
+[[nodiscard]] bool ParticipatesInChannel(const StructuralBrushMetadata& metadata,
+                                         StructuralBrushChannel channel);
+
 void IncrementRoleCount(SemanticStructuralPartitionRoleCounts& counts,
                         const StructuralBrushSemanticRole role) {
     switch (role) {
@@ -98,6 +101,22 @@ void IncrementRebuildScopeCount(SemanticStructuralPartitionRebuildScopeCounts& c
         case StructuralBrushRebuildScope::Manual:
             ++counts.manual;
             return;
+    }
+}
+
+void IncrementChannelCounts(SemanticStructuralPartitionChannelCounts& counts,
+                            const StructuralBrushMetadata& metadata) {
+    if (ParticipatesInChannel(metadata, StructuralBrushChannel::VisualMesh)) {
+        ++counts.visualMesh;
+    }
+    if (ParticipatesInChannel(metadata, StructuralBrushChannel::PhysicsMesh)) {
+        ++counts.physicsMesh;
+    }
+    if (ParticipatesInChannel(metadata, StructuralBrushChannel::QueryMesh)) {
+        ++counts.queryMesh;
+    }
+    if (ParticipatesInChannel(metadata, StructuralBrushChannel::InformationLayer)) {
+        ++counts.informationLayer;
     }
 }
 
@@ -265,6 +284,7 @@ void SemanticStructuralPartition::RebuildSideTables() {
         IncrementRoleCount(metrics_.roleCounts, entry.metadata.role);
         IncrementOperationCount(metrics_.operationCounts, entry.metadata.operation);
         IncrementRebuildScopeCount(metrics_.rebuildScopeCounts, entry.metadata.rebuildScope);
+        IncrementChannelCounts(metrics_.channelCounts, entry.metadata);
     }
     metrics_.regionCount = regions.size();
 }

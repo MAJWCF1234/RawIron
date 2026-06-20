@@ -1165,3 +1165,46 @@ Expected: all three SceneUtilities smoke tests pass.
 git add Source/RawIron.Core/include/RawIron/Scene/Components.h Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
 git commit -m "feat: route semantic partition queries by mesh channel"
 ```
+
+## Task 24: Expose M/P/Q/I Channel Counts in Semantic BSP Metrics
+
+**Files:**
+- Modify: `Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h`
+- Modify: `Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp`
+- Modify: `Tests/SemanticStructuralPartitionSmoke.cpp`
+- Modify: `docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md`
+
+- [x] **Step 1: Extend semantic partition metrics test with channel counts**
+
+The test verifies the partition reports visual, physics, query, and information channel candidate counts from the same participation flags used by channel-filtered queries.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+```
+
+Expected: build fails because `SemanticStructuralPartitionMetrics::channelCounts` does not exist.
+
+- [x] **Step 3: Add channel counts**
+
+Add a channel-count struct to partition metrics and populate it during side-table rebuild using the M/P/Q/I participation flags.
+
+- [x] **Step 4: Run focused verification**
+
+Run:
+
+```powershell
+ctest --test-dir build\semantic-metadata -R "RawIron.SceneUtilities.(StructuralBrushMetadataSmoke|SemanticStructuralPartitionSmoke|SceneSubtreeCollidersSmoke)" --output-on-failure
+```
+
+Expected: all three SceneUtilities smoke tests pass.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: expose semantic partition channel metrics"
+```
