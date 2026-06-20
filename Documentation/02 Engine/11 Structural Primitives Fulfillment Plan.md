@@ -34,6 +34,7 @@ The first foundation is in place:
 - Scene subtree collider generation can respect structural collision policy, Q-mesh participation, and query purpose.
 - Structural trace feed builds filtered `TraceCollider` lists and ready-to-query `TraceScene` instances.
 - Trace feed metrics report source brush count, emitted collider count, filtered count, filter reasons, and efficiency ratios.
+- Structural brush metadata exposes a deterministic signature for cache invalidation and cheap change detection.
 - Liminal Hall has semantic structural smoke coverage for authored structural rows.
 
 ## Developer Fulfillment Workflow
@@ -61,7 +62,6 @@ Use a broader game-specific suite when editing Liminal Hall or other project dat
 ### Phase 1: Harden the Structural Primitive Contract
 
 - Add compact integer ids or handles for hot-path semantic fields so trace and partition queries do not repeatedly compare strings.
-- Add explicit version/signature data to structural brush metadata for cache invalidation.
 - Separate editor-only information fields from runtime-shippable metadata.
 - Add serialization tests for old CSV rows, semantic CSV rows, and future richer authored formats.
 

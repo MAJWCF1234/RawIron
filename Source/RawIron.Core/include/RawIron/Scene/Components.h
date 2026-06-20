@@ -3,6 +3,7 @@
 #include "RawIron/Math/Vec2.h"
 #include "RawIron/Math/Vec3.h"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -302,5 +303,6 @@ bool StructuralBrushParticipatesInChannel(const StructuralBrushMetadata& metadat
                                           StructuralBrushChannel channel);
 bool StructuralBrushSupportsQueryPurpose(const StructuralBrushMetadata& metadata,
                                          StructuralBrushQueryPurpose purpose);
+std::uint64_t StructuralBrushMetadataSignature(const StructuralBrushMetadata& metadata);
 
 } // namespace ri::scene

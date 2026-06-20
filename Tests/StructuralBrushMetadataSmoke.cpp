@@ -2,6 +2,7 @@
 #include "RawIron/Scene/StructuralAssemblyIO.h"
 #include "RawIron/Scene/StructuralBrush.h"
 
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -75,6 +76,28 @@ int main() {
     }
 
     ri::scene::StructuralBrushMetadata channelMetadata = metadata;
+    const std::uint64_t baseSignature = ri::scene::StructuralBrushMetadataSignature(channelMetadata);
+    if (baseSignature == 0
+        || baseSignature != ri::scene::StructuralBrushMetadataSignature(metadata)) {
+        return EXIT_FAILURE;
+    }
+
+    ri::scene::StructuralBrushMetadata changedSignatureMetadata = channelMetadata;
+    changedSignatureMetadata.region = "atrium_annex";
+    if (ri::scene::StructuralBrushMetadataSignature(changedSignatureMetadata) == baseSignature) {
+        return EXIT_FAILURE;
+    }
+    changedSignatureMetadata = channelMetadata;
+    changedSignatureMetadata.queryMesh.traceable = false;
+    if (ri::scene::StructuralBrushMetadataSignature(changedSignatureMetadata) == baseSignature) {
+        return EXIT_FAILURE;
+    }
+    changedSignatureMetadata = channelMetadata;
+    changedSignatureMetadata.informationLayer.relations.push_back("adjacent:atrium_portal");
+    if (ri::scene::StructuralBrushMetadataSignature(changedSignatureMetadata) == baseSignature) {
+        return EXIT_FAILURE;
+    }
+
     if (!ri::scene::StructuralBrushParticipatesInChannel(channelMetadata,
                                                          ri::scene::StructuralBrushChannel::VisualMesh)
         || !ri::scene::StructuralBrushParticipatesInChannel(channelMetadata,

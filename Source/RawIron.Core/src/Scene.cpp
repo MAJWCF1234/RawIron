@@ -1,6 +1,8 @@
 #include "RawIron/Scene/Scene.h"
 
+#include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace ri::scene {
 
@@ -8,6 +10,32 @@ namespace {
 
 std::string IndentForDepth(int depth) {
     return std::string(static_cast<std::size_t>(depth) * 2U, ' ');
+}
+
+constexpr std::uint64_t kStructuralBrushFnvOffset = 14695981039346656037ull;
+constexpr std::uint64_t kStructuralBrushFnvPrime = 1099511628211ull;
+
+void HashByte(std::uint64_t& hash, const unsigned char value) {
+    hash ^= static_cast<std::uint64_t>(value);
+    hash *= kStructuralBrushFnvPrime;
+}
+
+void HashString(std::uint64_t& hash, const std::string_view value) {
+    for (const unsigned char c : value) {
+        HashByte(hash, c);
+    }
+    HashByte(hash, 0xffU);
+}
+
+void HashUint(std::uint64_t& hash, std::uint64_t value) {
+    for (int i = 0; i < 8; ++i) {
+        HashByte(hash, static_cast<unsigned char>(value & 0xffU));
+        value >>= 8U;
+    }
+}
+
+void HashBool(std::uint64_t& hash, const bool value) {
+    HashByte(hash, value ? 1U : 0U);
 }
 
 } // namespace
@@ -237,6 +265,49 @@ bool StructuralBrushSupportsQueryPurpose(const StructuralBrushMetadata& metadata
             return metadata.queryMesh.interactable;
     }
     return false;
+}
+
+std::uint64_t StructuralBrushMetadataSignature(const StructuralBrushMetadata& metadata) {
+    std::uint64_t hash = kStructuralBrushFnvOffset;
+
+    HashString(hash, metadata.brushId);
+    HashString(hash, metadata.region);
+    HashUint(hash, static_cast<std::uint64_t>(metadata.operation));
+    HashUint(hash, static_cast<std::uint64_t>(metadata.role));
+    HashUint(hash, static_cast<std::uint64_t>(metadata.collision));
+    HashUint(hash, static_cast<std::uint64_t>(metadata.visibility));
+    HashUint(hash, static_cast<std::uint64_t>(metadata.navigation));
+    HashUint(hash, static_cast<std::uint64_t>(metadata.rebuildScope));
+
+    HashString(hash, metadata.visualMesh.meshId);
+    HashString(hash, metadata.visualMesh.materialSetId);
+    HashString(hash, metadata.visualMesh.uvSetId);
+    HashBool(hash, metadata.visualMesh.renderable);
+
+    HashString(hash, metadata.physicsMesh.meshId);
+    HashString(hash, metadata.physicsMesh.rigidBodyShape);
+    HashString(hash, metadata.physicsMesh.simulationShape);
+    HashString(hash, metadata.physicsMesh.physicalMaterial);
+    HashBool(hash, metadata.physicsMesh.participatesInSimulation);
+
+    HashString(hash, metadata.queryMesh.meshId);
+    HashString(hash, metadata.queryMesh.raycastShape);
+    HashString(hash, metadata.queryMesh.placementShape);
+    HashString(hash, metadata.queryMesh.interactionShape);
+    HashBool(hash, metadata.queryMesh.raycastable);
+    HashBool(hash, metadata.queryMesh.traceable);
+    HashBool(hash, metadata.queryMesh.placeable);
+    HashBool(hash, metadata.queryMesh.interactable);
+
+    HashString(hash, metadata.informationLayer.semanticGraphId);
+    HashString(hash, metadata.informationLayer.gameplayMeaning);
+    HashBool(hash, metadata.informationLayer.reportable);
+    HashUint(hash, static_cast<std::uint64_t>(metadata.informationLayer.relations.size()));
+    for (const std::string& relation : metadata.informationLayer.relations) {
+        HashString(hash, relation);
+    }
+
+    return hash;
 }
 
 std::string ToString(ProjectionType projectionType) {
