@@ -179,6 +179,9 @@ void IncrementQueryPurposeCounts(SemanticStructuralPartitionQueryPurposeCounts& 
 void SemanticStructuralPartition::Rebuild(std::vector<SemanticStructuralPartitionEntry> entries,
                                           ri::spatial::SpatialIndexOptions indexOptions) {
     entries_ = std::move(entries);
+    for (SemanticStructuralPartitionEntry& entry : entries_) {
+        entry.metadataSignature = StructuralBrushMetadataSignature(entry.metadata);
+    }
     RebuildSideTables();
 
     std::vector<ri::spatial::SpatialEntry> spatialEntries;
@@ -385,6 +388,7 @@ std::vector<SemanticStructuralPartitionEntry> BuildSemanticStructuralPartitionEn
             .nodeHandle = handle,
             .bounds = *bounds,
             .metadata = node.structuralBrush,
+            .metadataSignature = StructuralBrushMetadataSignature(node.structuralBrush),
         });
     }
     return entries;

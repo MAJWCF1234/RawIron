@@ -69,6 +69,11 @@ int main() {
     if (hits.size() != 2) {
         return EXIT_FAILURE;
     }
+    if (hits[0].entry == nullptr
+        || hits[0].entry->metadataSignature
+               != ri::scene::StructuralBrushMetadataSignature(hits[0].entry->metadata)) {
+        return EXIT_FAILURE;
+    }
 
     const auto floorHits = partition.QueryBox(
         {{-2.0f, -0.2f, -2.0f}, {2.0f, 0.2f, 2.0f}},
@@ -245,7 +250,10 @@ int main() {
         || sceneEntries[0].id != "SceneWall"
         || sceneEntries[0].nodeHandle != sceneWall
         || sceneEntries[0].metadata.brushId != "scene_wall"
-        || sceneEntries[0].metadata.role != ri::scene::StructuralBrushSemanticRole::Wall) {
+        || sceneEntries[0].metadata.role != ri::scene::StructuralBrushSemanticRole::Wall
+        || sceneEntries[0].metadataSignature == 0
+        || sceneEntries[0].metadataSignature
+               != ri::scene::StructuralBrushMetadataSignature(sceneEntries[0].metadata)) {
         return EXIT_FAILURE;
     }
 

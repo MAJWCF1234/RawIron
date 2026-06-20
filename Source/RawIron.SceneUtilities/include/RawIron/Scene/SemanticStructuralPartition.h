@@ -22,6 +22,7 @@ struct SemanticStructuralPartitionEntry {
     int nodeHandle = kInvalidHandle;
     ri::spatial::Aabb bounds;
     StructuralBrushMetadata metadata{};
+    std::uint64_t metadataSignature = 0;
 };
 
 struct SemanticStructuralPartitionQuery {
