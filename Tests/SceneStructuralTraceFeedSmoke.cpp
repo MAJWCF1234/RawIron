@@ -47,9 +47,13 @@ int main() {
     const int queryCollision = addBrush("QueryCollisionWall",
                                         {4.0f, 0.0f, 0.0f},
                                         ri::scene::StructuralBrushCollisionPolicy::Query);
+    const int disabledQuery = addBrush("DisabledQueryWall",
+                                       {6.0f, 0.0f, 0.0f},
+                                       ri::scene::StructuralBrushCollisionPolicy::Solid);
     if (traceable == ri::scene::kInvalidHandle
         || placementOnly == ri::scene::kInvalidHandle
-        || queryCollision == ri::scene::kInvalidHandle) {
+        || queryCollision == ri::scene::kInvalidHandle
+        || disabledQuery == ri::scene::kInvalidHandle) {
         return EXIT_FAILURE;
     }
 
@@ -58,6 +62,12 @@ int main() {
     placementMetadata.queryMesh.traceable = false;
     placementMetadata.queryMesh.placeable = true;
     placementMetadata.queryMesh.interactable = false;
+
+    ri::scene::StructuralBrushMetadata& disabledQueryMetadata = scene.GetNode(disabledQuery).structuralBrush;
+    disabledQueryMetadata.queryMesh.raycastable = false;
+    disabledQueryMetadata.queryMesh.traceable = false;
+    disabledQueryMetadata.queryMesh.placeable = false;
+    disabledQueryMetadata.queryMesh.interactable = false;
 
     const std::vector<ri::trace::TraceCollider> colliders =
         ri::scene::BuildStructuralTraceCollidersForSubtree(scene, root);
@@ -96,8 +106,11 @@ int main() {
         || feedResult.metrics.staticColliderCount != 1
         || feedResult.metrics.structuralStaticColliderCount != 1
         || feedResult.metrics.dynamicColliderCount != 0
-        || feedResult.metrics.sourceStructuralBrushCount != 3
-        || feedResult.metrics.filteredStructuralBrushCount != 2) {
+        || feedResult.metrics.sourceStructuralBrushCount != 4
+        || feedResult.metrics.filteredStructuralBrushCount != 3
+        || feedResult.metrics.collisionPolicyFilteredCount != 1
+        || feedResult.metrics.queryChannelFilteredCount != 1
+        || feedResult.metrics.queryPurposeFilteredCount != 1) {
         return EXIT_FAILURE;
     }
 

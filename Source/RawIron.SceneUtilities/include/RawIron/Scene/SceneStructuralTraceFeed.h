@@ -14,6 +14,9 @@ namespace ri::scene {
 struct StructuralTraceSceneFeedMetrics {
     std::size_t sourceStructuralBrushCount = 0;
     std::size_t filteredStructuralBrushCount = 0;
+    std::size_t collisionPolicyFilteredCount = 0;
+    std::size_t queryChannelFilteredCount = 0;
+    std::size_t queryPurposeFilteredCount = 0;
     std::size_t colliderCount = 0;
     std::size_t staticColliderCount = 0;
     std::size_t structuralStaticColliderCount = 0;
