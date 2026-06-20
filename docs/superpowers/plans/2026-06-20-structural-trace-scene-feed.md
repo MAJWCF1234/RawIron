@@ -79,7 +79,7 @@ git commit -m "feat: build trace scene from structural feed"
 **Files:**
 - No source files.
 
-- [ ] **Step 1: Verify focused smoke suite**
+- [x] **Step 1: Verify focused smoke suite**
 
 Run:
 
