@@ -61,6 +61,12 @@ void CountStructuralBrushFilterReasons(const Scene& scene,
     if (metrics.sourceStructuralBrushCount > metrics.colliderCount) {
         metrics.filteredStructuralBrushCount = metrics.sourceStructuralBrushCount - metrics.colliderCount;
     }
+    if (metrics.sourceStructuralBrushCount > 0) {
+        const float sourceCount = static_cast<float>(metrics.sourceStructuralBrushCount);
+        metrics.emittedStructuralBrushRatio = static_cast<float>(metrics.colliderCount) / sourceCount;
+        metrics.filteredStructuralBrushRatio =
+            static_cast<float>(metrics.filteredStructuralBrushCount) / sourceCount;
+    }
     for (const ri::trace::TraceCollider& collider : colliders) {
         if (!collider.dynamic) {
             ++metrics.staticColliderCount;

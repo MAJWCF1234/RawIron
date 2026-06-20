@@ -108,6 +108,8 @@ int main() {
         || feedResult.metrics.dynamicColliderCount != 0
         || feedResult.metrics.sourceStructuralBrushCount != 4
         || feedResult.metrics.filteredStructuralBrushCount != 3
+        || feedResult.metrics.emittedStructuralBrushRatio != 0.25f
+        || feedResult.metrics.filteredStructuralBrushRatio != 0.75f
         || feedResult.metrics.collisionPolicyFilteredCount != 1
         || feedResult.metrics.queryChannelFilteredCount != 1
         || feedResult.metrics.queryPurposeFilteredCount != 1) {
