@@ -1,5 +1,6 @@
 #include "RawIron/Scene/SceneStructuralTraceFeed.h"
 
+#include "RawIron/Scene/SceneSubtreeColliders.h"
 #include "RawIron/Scene/TraceMeshRefinement.h"
 
 namespace ri::scene {
@@ -18,6 +19,35 @@ namespace {
 }
 
 } // namespace
+
+SubtreeColliderBuildOptions MakeDefaultStructuralTraceColliderBuildOptions() {
+    SubtreeColliderBuildOptions options{};
+    options.structural = true;
+    options.dynamic = false;
+    options.respectStructuralBrushCollisionPolicy = true;
+    options.requireStructuralBrushQueryMeshChannel = true;
+    options.requiredStructuralBrushQueryPurpose = StructuralBrushQueryPurpose::Trace;
+    options.appendStructuralBrushSemanticTags = true;
+    return options;
+}
+
+std::vector<ri::trace::TraceCollider> BuildStructuralTraceCollidersForSubtree(
+    const Scene& scene,
+    const int rootNodeHandle) {
+    return BuildStructuralTraceCollidersForSubtree(scene,
+                                                  rootNodeHandle,
+                                                  MakeDefaultStructuralTraceColliderBuildOptions());
+}
+
+std::vector<ri::trace::TraceCollider> BuildStructuralTraceCollidersForSubtree(
+    const Scene& scene,
+    const int rootNodeHandle,
+    const SubtreeColliderBuildOptions& options) {
+    std::vector<ri::trace::TraceCollider> colliders;
+    const std::size_t added = AppendTraceCollidersForSubtree(scene, rootNodeHandle, options, colliders);
+    (void)added;
+    return colliders;
+}
 
 ri::trace::StructuralTraceRefiner MakeStructuralMeshTraceRefiner(const Scene& scene,
                                                                   const MeshTraceRefinementOptions& meshOptions) {

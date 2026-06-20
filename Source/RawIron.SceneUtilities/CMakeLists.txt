@@ -88,4 +88,8 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(SceneSubtreeCollidersSmoke ${CMAKE_SOURCE_DIR}/Tests/SceneSubtreeCollidersSmoke.cpp)
   target_link_libraries(SceneSubtreeCollidersSmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.SceneSubtreeCollidersSmoke COMMAND SceneSubtreeCollidersSmoke)
+
+  add_executable(SceneStructuralTraceFeedSmoke ${CMAKE_SOURCE_DIR}/Tests/SceneStructuralTraceFeedSmoke.cpp)
+  target_link_libraries(SceneStructuralTraceFeedSmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.SceneStructuralTraceFeedSmoke COMMAND SceneStructuralTraceFeedSmoke)
 endif()
