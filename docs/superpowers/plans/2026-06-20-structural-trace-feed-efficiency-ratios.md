@@ -60,7 +60,7 @@ ctest --test-dir build\semantic-metadata -R "RawIron.SceneUtilities.(StructuralB
 
 Expected: all four smoke tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SceneStructuralTraceFeed.h Source/RawIron.SceneUtilities/src/SceneStructuralTraceFeed.cpp Tests/SceneStructuralTraceFeedSmoke.cpp docs/superpowers/plans/2026-06-20-structural-trace-feed-efficiency-ratios.md
@@ -72,7 +72,7 @@ git commit -m "feat: report structural trace feed efficiency ratios"
 **Files:**
 - No source files.
 
-- [ ] **Step 1: Verify focused smoke suite**
+- [x] **Step 1: Verify focused smoke suite**
 
 Run:
 
