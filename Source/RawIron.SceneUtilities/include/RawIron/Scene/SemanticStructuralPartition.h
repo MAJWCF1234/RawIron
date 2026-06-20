@@ -96,5 +96,8 @@ private:
 
 [[nodiscard]] std::vector<SemanticStructuralPartitionEntry> BuildSemanticStructuralPartitionEntries(
     const Scene& scene);
+[[nodiscard]] SemanticStructuralPartition BuildSemanticStructuralPartition(
+    const Scene& scene,
+    ri::spatial::SpatialIndexOptions indexOptions = {});
 
 } // namespace ri::scene

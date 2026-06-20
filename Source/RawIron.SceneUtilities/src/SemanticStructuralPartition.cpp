@@ -214,4 +214,11 @@ std::vector<SemanticStructuralPartitionEntry> BuildSemanticStructuralPartitionEn
     return entries;
 }
 
+SemanticStructuralPartition BuildSemanticStructuralPartition(const Scene& scene,
+                                                            ri::spatial::SpatialIndexOptions indexOptions) {
+    SemanticStructuralPartition partition;
+    partition.Rebuild(BuildSemanticStructuralPartitionEntries(scene), indexOptions);
+    return partition;
+}
+
 } // namespace ri::scene

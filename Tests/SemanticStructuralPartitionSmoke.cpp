@@ -147,5 +147,18 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    ri::scene::SemanticStructuralPartition builtScenePartition =
+        ri::scene::BuildSemanticStructuralPartition(scene);
+    const auto builtNearest = builtScenePartition.QueryNearestRay(
+        {3.0f, 1.5f, -3.0f},
+        {0.0f, 0.0f, 1.0f},
+        6.0f,
+        {.brushId = "scene_wall"});
+    if (!builtNearest.has_value()
+        || builtNearest->entry == nullptr
+        || builtNearest->entry->nodeHandle != sceneWall) {
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }
