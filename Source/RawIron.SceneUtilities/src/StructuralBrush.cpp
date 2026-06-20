@@ -160,6 +160,45 @@ bool BakeWorldTileUvsInMesh(Mesh& mesh,
     return true;
 }
 
+void FillDefaultStructuralBrushMeshChannels(StructuralBrushMetadata& metadata,
+                                            const std::string& nodeName,
+                                            const std::string& meshName,
+                                            const std::string& materialName) {
+    if (metadata.visualMesh.meshId.empty()) {
+        metadata.visualMesh.meshId = meshName;
+    }
+    if (metadata.visualMesh.materialSetId.empty()) {
+        metadata.visualMesh.materialSetId = materialName;
+    }
+    if (metadata.physicsMesh.meshId.empty()) {
+        metadata.physicsMesh.meshId = nodeName + "_PMesh";
+    }
+    if (metadata.physicsMesh.rigidBodyShape.empty()) {
+        metadata.physicsMesh.rigidBodyShape = "structural_hull";
+    }
+    if (metadata.physicsMesh.simulationShape.empty()) {
+        metadata.physicsMesh.simulationShape = "structural_sim";
+    }
+    if (metadata.queryMesh.meshId.empty()) {
+        metadata.queryMesh.meshId = nodeName + "_QMesh";
+    }
+    if (metadata.queryMesh.raycastShape.empty()) {
+        metadata.queryMesh.raycastShape = "structural_query";
+    }
+    if (metadata.queryMesh.placementShape.empty()) {
+        metadata.queryMesh.placementShape = "structural_placement";
+    }
+    if (metadata.queryMesh.interactionShape.empty()) {
+        metadata.queryMesh.interactionShape = "structural_interaction";
+    }
+    if (metadata.informationLayer.semanticGraphId.empty()) {
+        metadata.informationLayer.semanticGraphId = "structural." + metadata.brushId;
+    }
+    if (metadata.informationLayer.gameplayMeaning.empty()) {
+        metadata.informationLayer.gameplayMeaning = ToString(metadata.role);
+    }
+}
+
 ri::structural::CompiledMesh BuildStructuralPrimitiveCompiledMesh(const StructuralBrushSpawnOptions& options) {
     const std::string typeKey = ri::structural::NormalizeStructuralPrimitiveTypeKey(options.structuralType);
     if (typeKey == "box") {
@@ -251,7 +290,8 @@ int AddStructuralBrushNode(Scene& scene, const StructuralBrushSpawnOptions& opti
         return kInvalidHandle;
     }
 
-    Mesh mesh = MeshFromStructuralCompiledMesh(compiled, options.nodeName + "_Mesh");
+    const std::string meshName = options.nodeName + "_Mesh";
+    Mesh mesh = MeshFromStructuralCompiledMesh(compiled, meshName);
 
     ri::math::Vec2 materialTiling = options.textureTiling;
     const bool bakedWorldTileUv =
@@ -293,6 +333,7 @@ int AddStructuralBrushNode(Scene& scene, const StructuralBrushSpawnOptions& opti
     if (metadata.brushId.empty()) {
         metadata.brushId = options.nodeName;
     }
+    FillDefaultStructuralBrushMeshChannels(metadata, options.nodeName, meshName, options.materialName);
     scene.GetNode(nodeHandle).structuralBrush = std::move(metadata);
     scene.AttachMesh(nodeHandle, meshHandle, materialHandle);
     return nodeHandle;

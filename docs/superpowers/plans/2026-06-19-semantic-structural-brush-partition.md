@@ -1078,3 +1078,46 @@ Expected: all three SceneUtilities smoke tests pass.
 git add Source/RawIron.Core/include/RawIron/Scene/Components.h Tests/StructuralBrushMetadataSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
 git commit -m "feat: add structural brush mesh channels"
 ```
+
+## Task 22: Default M/P/Q/I Channels on Spawned Structural Brushes
+
+**Files:**
+- Modify: `Source/RawIron.SceneUtilities/src/StructuralBrush.cpp`
+- Modify: `Tests/StructuralBrushMetadataSmoke.cpp`
+- Modify: `docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md`
+
+- [x] **Step 1: Extend the metadata smoke test with default M/P/Q/I channel ids**
+
+The test verifies default-spawned brushes automatically receive visual mesh, physics mesh, query mesh, and information-layer identifiers derived from their node/mesh/material identity.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target StructuralBrushMetadataSmoke
+.\build\semantic-metadata\Source\RawIron.SceneUtilities\StructuralBrushMetadataSmoke.exe
+```
+
+Expected: executable exits non-zero because default channel ids are still empty.
+
+- [x] **Step 3: Fill default M/P/Q/I channel ids during brush spawn**
+
+When `AddStructuralBrushNode` copies metadata, fill empty visual, physics, query, and information fields without overwriting explicit author-provided values.
+
+- [x] **Step 4: Run focused verification**
+
+Run:
+
+```powershell
+ctest --test-dir build\semantic-metadata -R "RawIron.SceneUtilities.(StructuralBrushMetadataSmoke|SemanticStructuralPartitionSmoke|SceneSubtreeCollidersSmoke)" --output-on-failure
+```
+
+Expected: all three SceneUtilities smoke tests pass.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.SceneUtilities/src/StructuralBrush.cpp Tests/StructuralBrushMetadataSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: default structural brush mesh channels"
+```

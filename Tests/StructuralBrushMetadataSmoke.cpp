@@ -78,7 +78,18 @@ int main() {
         scene.GetNode(defaultMetadataNode).structuralBrush;
     if (defaultMetadata.brushId != "DefaultOwnedBrush"
         || defaultMetadata.role != ri::scene::StructuralBrushSemanticRole::Structure
-        || defaultMetadata.collision != ri::scene::StructuralBrushCollisionPolicy::Solid) {
+        || defaultMetadata.collision != ri::scene::StructuralBrushCollisionPolicy::Solid
+        || defaultMetadata.visualMesh.meshId != "DefaultOwnedBrush_Mesh"
+        || defaultMetadata.visualMesh.materialSetId != "struct_primitive"
+        || defaultMetadata.physicsMesh.meshId != "DefaultOwnedBrush_PMesh"
+        || defaultMetadata.physicsMesh.rigidBodyShape != "structural_hull"
+        || defaultMetadata.physicsMesh.simulationShape != "structural_sim"
+        || defaultMetadata.queryMesh.meshId != "DefaultOwnedBrush_QMesh"
+        || defaultMetadata.queryMesh.raycastShape != "structural_query"
+        || defaultMetadata.queryMesh.placementShape != "structural_placement"
+        || defaultMetadata.queryMesh.interactionShape != "structural_interaction"
+        || defaultMetadata.informationLayer.semanticGraphId != "structural.DefaultOwnedBrush"
+        || defaultMetadata.informationLayer.gameplayMeaning != "structure") {
         return EXIT_FAILURE;
     }
 
