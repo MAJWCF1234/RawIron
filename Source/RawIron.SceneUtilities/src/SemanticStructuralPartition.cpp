@@ -264,12 +264,19 @@ const SemanticStructuralPartitionEntry* SemanticStructuralPartition::FindEntry(c
 std::vector<const SemanticStructuralPartitionEntry*> SemanticStructuralPartition::FindEntriesByMetadataSignature(
     const std::uint64_t metadataSignature) const {
     std::vector<const SemanticStructuralPartitionEntry*> matches;
-    for (const SemanticStructuralPartitionEntry& entry : entries_) {
-        if (entry.metadataSignature == metadataSignature) {
-            matches.push_back(&entry);
-        }
+    const auto found = entryIndicesByMetadataSignature_.find(metadataSignature);
+    if (found == entryIndicesByMetadataSignature_.end()) {
+        return matches;
+    }
+    matches.reserve(found->second.size());
+    for (const std::size_t entryIndex : found->second) {
+        matches.push_back(&entries_[entryIndex]);
     }
     return matches;
+}
+
+std::size_t SemanticStructuralPartition::MetadataSignatureBucketCount() const noexcept {
+    return entryIndicesByMetadataSignature_.size();
 }
 
 SemanticStructuralPartitionMetrics SemanticStructuralPartition::Metrics() const noexcept {
@@ -326,6 +333,8 @@ bool SemanticStructuralPartition::MatchesQuery(const SemanticStructuralPartition
 void SemanticStructuralPartition::RebuildSideTables() {
     entryIndexById_.clear();
     entryIndexById_.reserve(entries_.size());
+    entryIndicesByMetadataSignature_.clear();
+    entryIndicesByMetadataSignature_.reserve(entries_.size());
     metrics_ = {};
     metrics_.entryCount = entries_.size();
 
@@ -345,6 +354,7 @@ void SemanticStructuralPartition::RebuildSideTables() {
         IncrementChannelCounts(metrics_.channelCounts, entry.metadata);
         IncrementQueryPurposeCounts(metrics_.queryPurposeCounts, entry.metadata);
         metadataSignatures.insert(entry.metadataSignature);
+        entryIndicesByMetadataSignature_[entry.metadataSignature].push_back(index);
     }
     metrics_.regionCount = regions.size();
     metrics_.uniqueMetadataSignatureCount = metadataSignatures.size();

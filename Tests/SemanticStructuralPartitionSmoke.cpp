@@ -203,6 +203,7 @@ int main() {
         || metrics.regionCount != 1
         || metrics.uniqueMetadataSignatureCount != 3
         || metrics.duplicateMetadataSignatureCount != 0
+        || partition.MetadataSignatureBucketCount() != 3
         || metrics.roleCounts.floor != 1
         || metrics.roleCounts.wall != 2
         || metrics.operationCounts.solid != 1

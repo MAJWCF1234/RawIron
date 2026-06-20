@@ -133,6 +133,7 @@ public:
     [[nodiscard]] const SemanticStructuralPartitionEntry* FindEntry(std::string_view id) const;
     [[nodiscard]] std::vector<const SemanticStructuralPartitionEntry*> FindEntriesByMetadataSignature(
         std::uint64_t metadataSignature) const;
+    [[nodiscard]] std::size_t MetadataSignatureBucketCount() const noexcept;
     [[nodiscard]] SemanticStructuralPartitionMetrics Metrics() const noexcept;
     void ResetMetrics() noexcept;
 
@@ -143,6 +144,7 @@ private:
 
     std::vector<SemanticStructuralPartitionEntry> entries_;
     std::unordered_map<std::string, std::size_t> entryIndexById_;
+    std::unordered_map<std::uint64_t, std::vector<std::size_t>> entryIndicesByMetadataSignature_;
     ri::spatial::BspSpatialIndex index_;
     SemanticStructuralPartitionMetrics metrics_{};
 };
