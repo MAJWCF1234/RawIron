@@ -74,3 +74,9 @@ target_link_libraries(RawIron.SceneUtilities
 )
 
 target_compile_features(RawIron.SceneUtilities PUBLIC cxx_std_20)
+
+if (RAWIRON_BUILD_TESTS)
+  add_executable(StructuralBrushMetadataSmoke ${CMAKE_SOURCE_DIR}/Tests/StructuralBrushMetadataSmoke.cpp)
+  target_link_libraries(StructuralBrushMetadataSmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.StructuralBrushMetadataSmoke COMMAND StructuralBrushMetadataSmoke)
+endif()

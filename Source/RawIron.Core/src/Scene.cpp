@@ -62,6 +62,124 @@ std::string ToString(MaterialWorkflow materialWorkflow) {
     return "unknown";
 }
 
+std::string ToString(StructuralBrushOperation operation) {
+    switch (operation) {
+        case StructuralBrushOperation::Unspecified:
+            return "unspecified";
+        case StructuralBrushOperation::Solid:
+            return "solid";
+        case StructuralBrushOperation::Subtract:
+            return "subtract";
+        case StructuralBrushOperation::Intersect:
+            return "intersect";
+        case StructuralBrushOperation::Stamp:
+            return "stamp";
+        case StructuralBrushOperation::Merge:
+            return "merge";
+        case StructuralBrushOperation::Detail:
+            return "detail";
+    }
+    return "unknown";
+}
+
+std::string ToString(StructuralBrushSemanticRole role) {
+    switch (role) {
+        case StructuralBrushSemanticRole::Structure:
+            return "structure";
+        case StructuralBrushSemanticRole::Wall:
+            return "wall";
+        case StructuralBrushSemanticRole::Floor:
+            return "floor";
+        case StructuralBrushSemanticRole::Ceiling:
+            return "ceiling";
+        case StructuralBrushSemanticRole::Pillar:
+            return "pillar";
+        case StructuralBrushSemanticRole::Stair:
+            return "stair";
+        case StructuralBrushSemanticRole::Portal:
+            return "portal";
+        case StructuralBrushSemanticRole::Trim:
+            return "trim";
+        case StructuralBrushSemanticRole::Cover:
+            return "cover";
+        case StructuralBrushSemanticRole::Water:
+            return "water";
+        case StructuralBrushSemanticRole::Trigger:
+            return "trigger";
+        case StructuralBrushSemanticRole::Decor:
+            return "decor";
+        case StructuralBrushSemanticRole::Volume:
+            return "volume";
+    }
+    return "unknown";
+}
+
+std::string ToString(StructuralBrushCollisionPolicy policy) {
+    switch (policy) {
+        case StructuralBrushCollisionPolicy::Solid:
+            return "solid";
+        case StructuralBrushCollisionPolicy::None:
+            return "none";
+        case StructuralBrushCollisionPolicy::Query:
+            return "query";
+        case StructuralBrushCollisionPolicy::Player:
+            return "player";
+        case StructuralBrushCollisionPolicy::Detail:
+            return "detail";
+        case StructuralBrushCollisionPolicy::Custom:
+            return "custom";
+    }
+    return "unknown";
+}
+
+std::string ToString(StructuralBrushVisibilityPolicy policy) {
+    switch (policy) {
+        case StructuralBrushVisibilityPolicy::Ignored:
+            return "ignored";
+        case StructuralBrushVisibilityPolicy::Occluder:
+            return "occluder";
+        case StructuralBrushVisibilityPolicy::Portal:
+            return "portal";
+        case StructuralBrushVisibilityPolicy::AntiPortal:
+            return "anti_portal";
+        case StructuralBrushVisibilityPolicy::Transparent:
+            return "transparent";
+    }
+    return "unknown";
+}
+
+std::string ToString(StructuralBrushNavigationPolicy policy) {
+    switch (policy) {
+        case StructuralBrushNavigationPolicy::Ignored:
+            return "ignored";
+        case StructuralBrushNavigationPolicy::Walkable:
+            return "walkable";
+        case StructuralBrushNavigationPolicy::Blocker:
+            return "blocker";
+        case StructuralBrushNavigationPolicy::Jump:
+            return "jump";
+        case StructuralBrushNavigationPolicy::Cover:
+            return "cover";
+        case StructuralBrushNavigationPolicy::Ladder:
+            return "ladder";
+    }
+    return "unknown";
+}
+
+std::string ToString(StructuralBrushRebuildScope scope) {
+    switch (scope) {
+        case StructuralBrushRebuildScope::Local:
+            return "local";
+        case StructuralBrushRebuildScope::Region:
+            return "region";
+        case StructuralBrushRebuildScope::Global:
+            return "global";
+        case StructuralBrushRebuildScope::Manual:
+            return "manual";
+    }
+    return "unknown";
+}
+
 std::string ToString(ProjectionType projectionType) {
     switch (projectionType) {
         case ProjectionType::Perspective:

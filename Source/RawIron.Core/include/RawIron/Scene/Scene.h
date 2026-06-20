@@ -18,6 +18,7 @@ struct Node {
     std::string name;
     Transform localTransform{};
     int parent = kInvalidHandle;
+    StructuralBrushMetadata structuralBrush{};
     std::vector<int> children;
     int mesh = kInvalidHandle;
     int material = kInvalidHandle;

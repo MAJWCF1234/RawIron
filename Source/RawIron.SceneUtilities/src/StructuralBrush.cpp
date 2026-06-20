@@ -289,6 +289,7 @@ int AddStructuralBrushNode(Scene& scene, const StructuralBrushSpawnOptions& opti
     const int meshHandle = scene.AddMesh(std::move(mesh));
     const int nodeHandle = scene.CreateNode(options.nodeName, options.parent);
     scene.GetNode(nodeHandle).localTransform = options.transform;
+    scene.GetNode(nodeHandle).structuralBrush = options.metadata;
     scene.AttachMesh(nodeHandle, meshHandle, materialHandle);
     return nodeHandle;
 }

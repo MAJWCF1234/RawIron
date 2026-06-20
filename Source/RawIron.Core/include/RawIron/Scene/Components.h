@@ -33,6 +33,76 @@ enum class MaterialWorkflow {
     SpecGloss,
 };
 
+enum class StructuralBrushOperation {
+    Unspecified,
+    Solid,
+    Subtract,
+    Intersect,
+    Stamp,
+    Merge,
+    Detail,
+};
+
+enum class StructuralBrushSemanticRole {
+    Structure,
+    Wall,
+    Floor,
+    Ceiling,
+    Pillar,
+    Stair,
+    Portal,
+    Trim,
+    Cover,
+    Water,
+    Trigger,
+    Decor,
+    Volume,
+};
+
+enum class StructuralBrushCollisionPolicy {
+    Solid,
+    None,
+    Query,
+    Player,
+    Detail,
+    Custom,
+};
+
+enum class StructuralBrushVisibilityPolicy {
+    Ignored,
+    Occluder,
+    Portal,
+    AntiPortal,
+    Transparent,
+};
+
+enum class StructuralBrushNavigationPolicy {
+    Ignored,
+    Walkable,
+    Blocker,
+    Jump,
+    Cover,
+    Ladder,
+};
+
+enum class StructuralBrushRebuildScope {
+    Local,
+    Region,
+    Global,
+    Manual,
+};
+
+struct StructuralBrushMetadata {
+    std::string brushId{};
+    std::string region{};
+    StructuralBrushOperation operation = StructuralBrushOperation::Unspecified;
+    StructuralBrushSemanticRole role = StructuralBrushSemanticRole::Structure;
+    StructuralBrushCollisionPolicy collision = StructuralBrushCollisionPolicy::Solid;
+    StructuralBrushVisibilityPolicy visibility = StructuralBrushVisibilityPolicy::Ignored;
+    StructuralBrushNavigationPolicy navigation = StructuralBrushNavigationPolicy::Ignored;
+    StructuralBrushRebuildScope rebuildScope = StructuralBrushRebuildScope::Local;
+};
+
 enum class ProjectionType {
     Perspective,
     Orthographic,
@@ -164,6 +234,12 @@ std::string ToString(PrimitiveType primitive);
 std::string ToString(ShadingModel shadingModel);
 std::string ToString(MaterialStyle materialStyle);
 std::string ToString(MaterialWorkflow materialWorkflow);
+std::string ToString(StructuralBrushOperation operation);
+std::string ToString(StructuralBrushSemanticRole role);
+std::string ToString(StructuralBrushCollisionPolicy policy);
+std::string ToString(StructuralBrushVisibilityPolicy policy);
+std::string ToString(StructuralBrushNavigationPolicy policy);
+std::string ToString(StructuralBrushRebuildScope scope);
 std::string ToString(ProjectionType projectionType);
 std::string ToString(LightType lightType);
 std::string ToString(CameraConfinementBehavior behavior);

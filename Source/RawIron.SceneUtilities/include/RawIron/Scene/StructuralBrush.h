@@ -20,6 +20,7 @@ struct StructuralBrushSpawnOptions {
     std::string_view structuralType = "box";
     ri::structural::StructuralPrimitiveOptions shape{};
     int parent = kInvalidHandle;
+    StructuralBrushMetadata metadata{};
     Transform transform{};
     std::string materialName = "struct_primitive";
     ShadingModel shadingModel = ShadingModel::Lit;
