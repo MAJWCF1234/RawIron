@@ -78,7 +78,7 @@ ctest --test-dir build\semantic-metadata -R "RawIron.SceneUtilities.(StructuralB
 
 Expected: all three smoke tests pass.
 
-- [ ] **Step 2: Push main**
+- [x] **Step 2: Push main**
 
 Run:
 
