@@ -98,6 +98,8 @@ struct SemanticStructuralPartitionQueryPurposeCounts {
 struct SemanticStructuralPartitionMetrics {
     std::size_t entryCount = 0;
     std::size_t regionCount = 0;
+    std::size_t uniqueMetadataSignatureCount = 0;
+    std::size_t duplicateMetadataSignatureCount = 0;
     std::size_t boxQueries = 0;
     std::size_t rayQueries = 0;
     std::size_t boxCandidatesScanned = 0;

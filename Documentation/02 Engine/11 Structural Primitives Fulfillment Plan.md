@@ -31,7 +31,7 @@ The first foundation is in place:
 - Semantic structural partition wraps the existing BSP-style spatial index and adds semantic filtering.
 - Semantic structural partition entries carry compact metadata signatures for cheap diagnostics and cache comparisons.
 - Partition queries support role, region, operation, rebuild scope, M/P/Q/I channel, and query purpose.
-- Partition metrics expose entry counts, query counts, candidate scans, role counts, operation counts, rebuild counts, channel counts, and query-purpose counts.
+- Partition metrics expose entry counts, metadata signature uniqueness, query counts, candidate scans, role counts, operation counts, rebuild counts, channel counts, and query-purpose counts.
 - Scene subtree collider generation can respect structural collision policy, Q-mesh participation, and query purpose.
 - Structural trace feed builds filtered `TraceCollider` lists and ready-to-query `TraceScene` instances.
 - Trace feed metrics report source brush count, emitted collider count, filtered count, filter reasons, and efficiency ratios.

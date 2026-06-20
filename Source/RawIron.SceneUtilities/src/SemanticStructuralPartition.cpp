@@ -319,6 +319,7 @@ void SemanticStructuralPartition::RebuildSideTables() {
     metrics_.entryCount = entries_.size();
 
     std::unordered_set<std::string> regions;
+    std::unordered_set<std::uint64_t> metadataSignatures;
     for (std::size_t index = 0; index < entries_.size(); ++index) {
         const SemanticStructuralPartitionEntry& entry = entries_[index];
         if (!entry.id.empty()) {
@@ -332,8 +333,14 @@ void SemanticStructuralPartition::RebuildSideTables() {
         IncrementRebuildScopeCount(metrics_.rebuildScopeCounts, entry.metadata.rebuildScope);
         IncrementChannelCounts(metrics_.channelCounts, entry.metadata);
         IncrementQueryPurposeCounts(metrics_.queryPurposeCounts, entry.metadata);
+        metadataSignatures.insert(entry.metadataSignature);
     }
     metrics_.regionCount = regions.size();
+    metrics_.uniqueMetadataSignatureCount = metadataSignatures.size();
+    if (metrics_.entryCount > metrics_.uniqueMetadataSignatureCount) {
+        metrics_.duplicateMetadataSignatureCount =
+            metrics_.entryCount - metrics_.uniqueMetadataSignatureCount;
+    }
 }
 
 const SemanticStructuralPartition& SemanticStructuralPartitionCache::GetOrRebuild(

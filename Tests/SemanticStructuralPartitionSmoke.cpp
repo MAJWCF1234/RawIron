@@ -194,6 +194,8 @@ int main() {
     const ri::scene::SemanticStructuralPartitionMetrics metrics = partition.Metrics();
     if (metrics.entryCount != 3
         || metrics.regionCount != 1
+        || metrics.uniqueMetadataSignatureCount != 3
+        || metrics.duplicateMetadataSignatureCount != 0
         || metrics.roleCounts.floor != 1
         || metrics.roleCounts.wall != 2
         || metrics.operationCounts.solid != 1
