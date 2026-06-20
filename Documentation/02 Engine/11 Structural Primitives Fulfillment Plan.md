@@ -36,6 +36,7 @@ The first foundation is in place:
 - Trace feed metrics report source brush count, emitted collider count, filtered count, filter reasons, and efficiency ratios.
 - Structural brush metadata exposes a deterministic signature for cache invalidation and cheap change detection.
 - Semantic structural partition cache uses structural-only scene signatures to auto-refresh after brush metadata edits without rebuilding for non-structural scene churn.
+- Semantic structural partition cache exposes a non-mutating rebuild check for editor/debug dirty-state reporting.
 - Semantic structural partition cache reports reuse counts so avoided rebuilds are visible in diagnostics.
 - Liminal Hall has semantic structural smoke coverage for authored structural rows.
 

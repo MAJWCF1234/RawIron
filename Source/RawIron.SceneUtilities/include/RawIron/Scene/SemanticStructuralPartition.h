@@ -149,6 +149,7 @@ public:
         ri::spatial::SpatialIndexOptions indexOptions = {});
     void Invalidate() noexcept;
     [[nodiscard]] bool IsDirty() const noexcept;
+    [[nodiscard]] bool NeedsRebuild(const Scene& scene) const;
     [[nodiscard]] std::size_t RebuildCount() const noexcept;
     [[nodiscard]] std::size_t ReuseCount() const noexcept;
 

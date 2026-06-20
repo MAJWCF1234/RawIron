@@ -298,6 +298,7 @@ int main() {
     if (cache.RebuildCount() != 1
         || cache.ReuseCount() != 0
         || cache.IsDirty()
+        || cache.NeedsRebuild(scene)
         || cachedInitial.Metrics().entryCount != 1) {
         return EXIT_FAILURE;
     }
@@ -309,6 +310,9 @@ int main() {
     }
     const int nonStructuralNode = scene.CreateNode("EditorOnlyMarker");
     if (nonStructuralNode == ri::scene::kInvalidHandle) {
+        return EXIT_FAILURE;
+    }
+    if (cache.NeedsRebuild(scene)) {
         return EXIT_FAILURE;
     }
     const ri::scene::SemanticStructuralPartition& nonStructuralReuse = cache.GetOrRebuild(scene);
@@ -328,6 +332,9 @@ int main() {
     if (sceneFloor == ri::scene::kInvalidHandle) {
         return EXIT_FAILURE;
     }
+    if (!cache.NeedsRebuild(scene)) {
+        return EXIT_FAILURE;
+    }
     const ri::scene::SemanticStructuralPartition& autoRebuiltCache = cache.GetOrRebuild(scene);
     if (cache.RebuildCount() != 2
         || cache.ReuseCount() != 2
@@ -339,6 +346,9 @@ int main() {
     }
 
     scene.GetNode(sceneWall).structuralBrush.region = "scene_region_b";
+    if (!cache.NeedsRebuild(scene)) {
+        return EXIT_FAILURE;
+    }
     const ri::scene::SemanticStructuralPartition& retaggedCache = cache.GetOrRebuild(scene);
     if (cache.RebuildCount() != 3
         || cache.ReuseCount() != 2
@@ -349,6 +359,9 @@ int main() {
     }
 
     cache.Invalidate();
+    if (!cache.NeedsRebuild(scene)) {
+        return EXIT_FAILURE;
+    }
     const ri::scene::SemanticStructuralPartition& rebuiltCache = cache.GetOrRebuild(scene);
     if (cache.RebuildCount() != 4
         || cache.ReuseCount() != 2

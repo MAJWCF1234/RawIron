@@ -356,6 +356,10 @@ bool SemanticStructuralPartitionCache::IsDirty() const noexcept {
     return dirty_;
 }
 
+bool SemanticStructuralPartitionCache::NeedsRebuild(const Scene& scene) const {
+    return dirty_ || ComputeSemanticStructuralSceneSignature(scene) != sceneSignature_;
+}
+
 std::size_t SemanticStructuralPartitionCache::RebuildCount() const noexcept {
     return rebuildCount_;
 }
