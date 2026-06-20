@@ -250,6 +250,29 @@ void SemanticStructuralPartition::RebuildSideTables() {
     metrics_.regionCount = regions.size();
 }
 
+const SemanticStructuralPartition& SemanticStructuralPartitionCache::GetOrRebuild(
+    const Scene& scene,
+    ri::spatial::SpatialIndexOptions indexOptions) {
+    if (dirty_) {
+        partition_ = BuildSemanticStructuralPartition(scene, indexOptions);
+        dirty_ = false;
+        ++rebuildCount_;
+    }
+    return partition_;
+}
+
+void SemanticStructuralPartitionCache::Invalidate() noexcept {
+    dirty_ = true;
+}
+
+bool SemanticStructuralPartitionCache::IsDirty() const noexcept {
+    return dirty_;
+}
+
+std::size_t SemanticStructuralPartitionCache::RebuildCount() const noexcept {
+    return rebuildCount_;
+}
+
 std::vector<SemanticStructuralPartitionEntry> BuildSemanticStructuralPartitionEntries(const Scene& scene) {
     std::vector<SemanticStructuralPartitionEntry> entries;
     entries.reserve(scene.NodeCount());

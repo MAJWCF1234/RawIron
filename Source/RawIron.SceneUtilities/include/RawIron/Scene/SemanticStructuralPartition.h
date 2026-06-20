@@ -123,6 +123,21 @@ private:
     SemanticStructuralPartitionMetrics metrics_{};
 };
 
+class SemanticStructuralPartitionCache {
+public:
+    [[nodiscard]] const SemanticStructuralPartition& GetOrRebuild(
+        const Scene& scene,
+        ri::spatial::SpatialIndexOptions indexOptions = {});
+    void Invalidate() noexcept;
+    [[nodiscard]] bool IsDirty() const noexcept;
+    [[nodiscard]] std::size_t RebuildCount() const noexcept;
+
+private:
+    SemanticStructuralPartition partition_{};
+    bool dirty_ = true;
+    std::size_t rebuildCount_ = 0;
+};
+
 [[nodiscard]] std::vector<SemanticStructuralPartitionEntry> BuildSemanticStructuralPartitionEntries(
     const Scene& scene);
 [[nodiscard]] SemanticStructuralPartition BuildSemanticStructuralPartition(

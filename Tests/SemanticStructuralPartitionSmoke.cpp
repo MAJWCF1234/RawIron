@@ -215,5 +215,44 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    ri::scene::SemanticStructuralPartitionCache cache;
+    const ri::scene::SemanticStructuralPartition& cachedInitial = cache.GetOrRebuild(scene);
+    if (cache.RebuildCount() != 1
+        || cache.IsDirty()
+        || cachedInitial.Metrics().entryCount != 1) {
+        return EXIT_FAILURE;
+    }
+    const ri::scene::SemanticStructuralPartition& cachedReused = cache.GetOrRebuild(scene);
+    if (cache.RebuildCount() != 1
+        || cachedReused.Metrics().entryCount != 1) {
+        return EXIT_FAILURE;
+    }
+
+    brush.nodeName = "SceneFloor";
+    brush.transform.position = {3.0f, 0.0f, 2.0f};
+    brush.transform.scale = {3.0f, 0.2f, 3.0f};
+    brush.metadata.brushId = "scene_floor";
+    brush.metadata.role = ri::scene::StructuralBrushSemanticRole::Floor;
+    brush.metadata.region = "scene_region";
+    const int sceneFloor = ri::scene::AddStructuralBrushNode(scene, brush);
+    if (sceneFloor == ri::scene::kInvalidHandle) {
+        return EXIT_FAILURE;
+    }
+    const ri::scene::SemanticStructuralPartition& staleCache = cache.GetOrRebuild(scene);
+    if (cache.RebuildCount() != 1
+        || staleCache.Metrics().entryCount != 1) {
+        return EXIT_FAILURE;
+    }
+
+    cache.Invalidate();
+    const ri::scene::SemanticStructuralPartition& rebuiltCache = cache.GetOrRebuild(scene);
+    if (cache.RebuildCount() != 2
+        || cache.IsDirty()
+        || rebuiltCache.Metrics().entryCount != 2
+        || rebuiltCache.QueryBox({{2.0f, -0.2f, 1.0f}, {4.0f, 0.2f, 3.0f}},
+                                 {.role = ri::scene::StructuralBrushSemanticRole::Floor}).size() != 1) {
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }
