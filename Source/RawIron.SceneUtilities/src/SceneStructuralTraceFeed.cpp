@@ -49,6 +49,26 @@ std::vector<ri::trace::TraceCollider> BuildStructuralTraceCollidersForSubtree(
     return colliders;
 }
 
+ri::trace::TraceScene BuildStructuralTraceSceneForSubtree(
+    const Scene& scene,
+    const int rootNodeHandle,
+    ri::spatial::SpatialIndexOptions indexOptions) {
+    return BuildStructuralTraceSceneForSubtree(scene,
+                                              rootNodeHandle,
+                                              MakeDefaultStructuralTraceColliderBuildOptions(),
+                                              indexOptions);
+}
+
+ri::trace::TraceScene BuildStructuralTraceSceneForSubtree(
+    const Scene& scene,
+    const int rootNodeHandle,
+    const SubtreeColliderBuildOptions& options,
+    ri::spatial::SpatialIndexOptions indexOptions) {
+    return ri::trace::TraceScene(
+        BuildStructuralTraceCollidersForSubtree(scene, rootNodeHandle, options),
+        indexOptions);
+}
+
 ri::trace::StructuralTraceRefiner MakeStructuralMeshTraceRefiner(const Scene& scene,
                                                                   const MeshTraceRefinementOptions& meshOptions) {
     return [scenePtr = &scene, meshOptions](const ri::trace::TraceHit& coarse,

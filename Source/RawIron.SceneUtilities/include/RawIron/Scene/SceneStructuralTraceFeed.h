@@ -4,6 +4,7 @@
 #include "RawIron/Scene/SceneSubtreeColliders.h"
 #include "RawIron/Scene/TraceMeshRefinement.h"
 #include "RawIron/Trace/MovementController.h"
+#include "RawIron/Trace/TraceScene.h"
 
 #include <vector>
 
@@ -20,6 +21,16 @@ namespace ri::scene {
     const Scene& scene,
     int rootNodeHandle,
     const SubtreeColliderBuildOptions& options);
+
+[[nodiscard]] ri::trace::TraceScene BuildStructuralTraceSceneForSubtree(
+    const Scene& scene,
+    int rootNodeHandle,
+    ri::spatial::SpatialIndexOptions indexOptions = {});
+[[nodiscard]] ri::trace::TraceScene BuildStructuralTraceSceneForSubtree(
+    const Scene& scene,
+    int rootNodeHandle,
+    const SubtreeColliderBuildOptions& options,
+    ri::spatial::SpatialIndexOptions indexOptions = {});
 
 /// Builds a refiner that maps coarse \ref ri::trace::TraceHit::id to a scene node name, then runs
 /// \ref RefineTraceRayHitWithMeshTriangles for custom mesh geometry. Returns `nullopt` to keep the coarse hit.

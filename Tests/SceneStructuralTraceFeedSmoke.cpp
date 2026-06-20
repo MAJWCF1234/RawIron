@@ -3,6 +3,7 @@
 #include "RawIron/Scene/StructuralBrush.h"
 
 #include <cstdlib>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -66,6 +67,26 @@ int main() {
         || colliders[0].dynamic
         || !ContainsTag(colliders[0], "structural.brush:TraceableWall")
         || !ContainsTag(colliders[0], "structural.query_purpose:trace")) {
+        return EXIT_FAILURE;
+    }
+
+    ri::trace::TraceScene traceScene = ri::scene::BuildStructuralTraceSceneForSubtree(scene, root);
+    const ri::trace::TraceSceneMetrics metrics = traceScene.Metrics();
+    if (metrics.colliderCount != 1
+        || metrics.staticColliderCount != 1
+        || metrics.structuralStaticColliderCount != 1
+        || metrics.dynamicColliderCount != 0) {
+        return EXIT_FAILURE;
+    }
+
+    ri::trace::TraceOptions traceOptions{};
+    traceOptions.structuralOnly = true;
+    const std::optional<ri::trace::TraceHit> hit = traceScene.TraceRay(
+        {0.0f, 0.0f, -3.0f},
+        {0.0f, 0.0f, 1.0f},
+        10.0f,
+        traceOptions);
+    if (!hit.has_value() || hit->id != "TraceableWall") {
         return EXIT_FAILURE;
     }
 
