@@ -133,5 +133,28 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    queryMetadata.queryMesh.raycastable = true;
+    queryMetadata.queryMesh.traceable = false;
+    queryMetadata.queryMesh.placeable = true;
+    queryMetadata.queryMesh.interactable = true;
+
+    colliders.clear();
+    const std::size_t tracePurposeAdded = ri::scene::AppendTraceCollidersForSubtree(
+        scene,
+        root,
+        {
+            .requiredStructuralBrushQueryPurpose = ri::scene::StructuralBrushQueryPurpose::Trace,
+        },
+        colliders);
+    if (tracePurposeAdded != 4
+        || colliders.size() != 4
+        || !ContainsColliderId(colliders, "SolidBrush")
+        || !ContainsColliderId(colliders, "PlayerBrush")
+        || ContainsColliderId(colliders, "QueryOnlyBrush")
+        || !ContainsColliderId(colliders, "NoCollisionBrush")
+        || !ContainsColliderId(colliders, "DetailBrush")) {
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }

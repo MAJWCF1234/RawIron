@@ -87,7 +87,7 @@ git commit -m "feat: expose structural query purpose helpers"
 - Modify: `Tests/SceneSubtreeCollidersSmoke.cpp`
 - Modify: `docs/superpowers/plans/2026-06-20-structural-query-purpose-gates.md`
 
-- [ ] **Step 1: Write the failing subtree collider test**
+- [x] **Step 1: Write the failing subtree collider test**
 
 Add a brush whose Q-mesh is still enabled for placement/interaction but disabled for trace, then call:
 
@@ -101,7 +101,7 @@ ri::scene::AppendTraceCollidersForSubtree(
 
 Expected: the non-traceable brush is omitted from emitted trace colliders.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run:
 
@@ -111,7 +111,7 @@ cmake --build build\semantic-metadata --target SceneSubtreeCollidersSmoke
 
 Expected: build fails because `SubtreeColliderBuildOptions::requiredStructuralBrushQueryPurpose` does not exist.
 
-- [ ] **Step 3: Add the option and filter**
+- [x] **Step 3: Add the option and filter**
 
 Add:
 
@@ -121,7 +121,7 @@ std::optional<StructuralBrushQueryPurpose> requiredStructuralBrushQueryPurpose{}
 
 Use `StructuralBrushSupportsQueryPurpose` to skip structural brush nodes that do not support the requested purpose.
 
-- [ ] **Step 4: Run focused verification**
+- [x] **Step 4: Run focused verification**
 
 Run:
 
@@ -131,7 +131,7 @@ ctest --test-dir build\semantic-metadata -R "RawIron.SceneUtilities.(StructuralB
 
 Expected: all three tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SceneSubtreeColliders.h Source/RawIron.SceneUtilities/src/SceneSubtreeColliders.cpp Tests/SceneSubtreeCollidersSmoke.cpp docs/superpowers/plans/2026-06-20-structural-query-purpose-gates.md

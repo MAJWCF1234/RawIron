@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -22,6 +23,8 @@ struct SubtreeColliderBuildOptions {
     bool respectStructuralBrushCollisionPolicy = false;
     /// When true, structural brush nodes with a disabled Q-mesh channel do not emit trace colliders.
     bool requireStructuralBrushQueryMeshChannel = false;
+    /// When set, structural brush nodes that do not support this Q-mesh purpose do not emit trace colliders.
+    std::optional<StructuralBrushQueryPurpose> requiredStructuralBrushQueryPurpose{};
     /// When true, appends stable `structural.*` semantic tags to colliders generated from structural brushes.
     bool appendStructuralBrushSemanticTags = false;
     /// Extra tags copied onto each \ref ri::trace::TraceCollider::simulationTags (e.g. `subtree_batch`).
