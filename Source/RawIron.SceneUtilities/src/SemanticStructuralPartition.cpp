@@ -88,6 +88,24 @@ std::vector<SemanticStructuralPartitionHit> SemanticStructuralPartition::QueryBo
     return hits;
 }
 
+std::vector<SemanticStructuralPartitionHit> SemanticStructuralPartition::QueryRay(
+    const ri::math::Vec3& origin,
+    const ri::math::Vec3& direction,
+    const float far,
+    const SemanticStructuralPartitionQuery& query) const {
+    std::vector<SemanticStructuralPartitionHit> hits;
+    const std::vector<std::string> ids = index_.QueryRay(origin, direction, far);
+    hits.reserve(ids.size());
+    for (const std::string& id : ids) {
+        const SemanticStructuralPartitionEntry* entry = FindEntry(id);
+        if (entry == nullptr || !MatchesQuery(*entry, query)) {
+            continue;
+        }
+        hits.push_back(SemanticStructuralPartitionHit{.entry = entry});
+    }
+    return hits;
+}
+
 const SemanticStructuralPartitionEntry* SemanticStructuralPartition::FindEntry(const std::string_view id) const {
     const auto found = entryIndexById_.find(std::string(id));
     if (found == entryIndexById_.end()) {

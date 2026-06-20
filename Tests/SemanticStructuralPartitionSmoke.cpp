@@ -47,6 +47,17 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    const auto wallRayHits = partition.QueryRay(
+        {0.0f, 1.5f, -3.0f},
+        {0.0f, 0.0f, 1.0f},
+        10.0f,
+        {.visibility = ri::scene::StructuralBrushVisibilityPolicy::Occluder});
+    if (wallRayHits.size() != 1
+        || wallRayHits[0].entry == nullptr
+        || wallRayHits[0].entry->metadata.brushId != "wall_a") {
+        return EXIT_FAILURE;
+    }
+
     const ri::scene::SemanticStructuralPartitionMetrics metrics = partition.Metrics();
     if (metrics.entryCount != 2
         || metrics.regionCount != 1
@@ -86,6 +97,15 @@ int main() {
         {{2.5f, 1.0f, -0.25f}, {3.5f, 2.0f, 0.25f}},
         {.region = "scene_region"});
     if (sceneHits.size() != 1 || sceneHits[0].entry->metadata.brushId != "scene_wall") {
+        return EXIT_FAILURE;
+    }
+
+    const auto sceneRayHits = scenePartition.QueryRay(
+        {3.0f, 1.5f, -3.0f},
+        {0.0f, 0.0f, 1.0f},
+        6.0f,
+        {.region = "scene_region"});
+    if (sceneRayHits.size() != 1 || sceneRayHits[0].entry->metadata.brushId != "scene_wall") {
         return EXIT_FAILURE;
     }
 

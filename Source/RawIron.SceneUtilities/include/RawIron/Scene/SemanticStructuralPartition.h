@@ -62,6 +62,11 @@ public:
     [[nodiscard]] std::vector<SemanticStructuralPartitionHit> QueryBox(
         const ri::spatial::Aabb& box,
         const SemanticStructuralPartitionQuery& query = {}) const;
+    [[nodiscard]] std::vector<SemanticStructuralPartitionHit> QueryRay(
+        const ri::math::Vec3& origin,
+        const ri::math::Vec3& direction,
+        float far,
+        const SemanticStructuralPartitionQuery& query = {}) const;
 
     [[nodiscard]] const SemanticStructuralPartitionEntry* FindEntry(std::string_view id) const;
     [[nodiscard]] SemanticStructuralPartitionMetrics Metrics() const noexcept;
