@@ -74,6 +74,13 @@ int main() {
                != ri::scene::StructuralBrushMetadataSignature(hits[0].entry->metadata)) {
         return EXIT_FAILURE;
     }
+    const std::vector<const ri::scene::SemanticStructuralPartitionEntry*> signatureMatches =
+        partition.FindEntriesByMetadataSignature(hits[0].entry->metadataSignature);
+    if (signatureMatches.size() != 1
+        || signatureMatches[0] == nullptr
+        || signatureMatches[0]->metadataSignature != hits[0].entry->metadataSignature) {
+        return EXIT_FAILURE;
+    }
 
     const auto floorHits = partition.QueryBox(
         {{-2.0f, -0.2f, -2.0f}, {2.0f, 0.2f, 2.0f}},

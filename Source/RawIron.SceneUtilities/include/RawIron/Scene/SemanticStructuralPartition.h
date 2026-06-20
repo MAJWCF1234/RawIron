@@ -131,6 +131,8 @@ public:
         const SemanticStructuralPartitionQuery& query = {}) const;
 
     [[nodiscard]] const SemanticStructuralPartitionEntry* FindEntry(std::string_view id) const;
+    [[nodiscard]] std::vector<const SemanticStructuralPartitionEntry*> FindEntriesByMetadataSignature(
+        std::uint64_t metadataSignature) const;
     [[nodiscard]] SemanticStructuralPartitionMetrics Metrics() const noexcept;
     void ResetMetrics() noexcept;
 

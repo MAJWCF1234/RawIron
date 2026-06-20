@@ -261,6 +261,17 @@ const SemanticStructuralPartitionEntry* SemanticStructuralPartition::FindEntry(c
     return &entries_[found->second];
 }
 
+std::vector<const SemanticStructuralPartitionEntry*> SemanticStructuralPartition::FindEntriesByMetadataSignature(
+    const std::uint64_t metadataSignature) const {
+    std::vector<const SemanticStructuralPartitionEntry*> matches;
+    for (const SemanticStructuralPartitionEntry& entry : entries_) {
+        if (entry.metadataSignature == metadataSignature) {
+            matches.push_back(&entry);
+        }
+    }
+    return matches;
+}
+
 SemanticStructuralPartitionMetrics SemanticStructuralPartition::Metrics() const noexcept {
     SemanticStructuralPartitionMetrics metrics = metrics_;
     const ri::spatial::SpatialIndexMetrics indexMetrics = index_.Metrics();

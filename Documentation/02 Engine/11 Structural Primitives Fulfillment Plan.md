@@ -30,6 +30,7 @@ The first foundation is in place:
 - M/P/Q/I channel metadata exists for visual, physics, query, and information ownership.
 - Semantic structural partition wraps the existing BSP-style spatial index and adds semantic filtering.
 - Semantic structural partition entries carry compact metadata signatures for cheap diagnostics and cache comparisons.
+- Semantic structural partition can find entries by compact metadata signature for duplicate/diagnostic tooling.
 - Partition queries support role, region, operation, rebuild scope, M/P/Q/I channel, and query purpose.
 - Partition metrics expose entry counts, metadata signature uniqueness, query counts, candidate scans, role counts, operation counts, rebuild counts, channel counts, and query-purpose counts.
 - Scene subtree collider generation can respect structural collision policy, Q-mesh participation, and query purpose.
