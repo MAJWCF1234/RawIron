@@ -498,7 +498,7 @@ cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
 
 Expected: executable exits with code `0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
@@ -547,6 +547,50 @@ Expected: executable exits with code `0`.
 ```powershell
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
 git commit -m "feat: add semantic structural nearest ray query"
+```
+
+## Task 10: Filter Partition Queries By Brush Owner
+
+**Files:**
+- Modify: `Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h`
+- Modify: `Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp`
+- Modify: `Tests/SemanticStructuralPartitionSmoke.cpp`
+- Modify: `docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md`
+
+- [x] **Step 1: Extend the smoke test with owner-id filtering**
+
+The test calls `QueryBox(..., {.brushId = "wall_b"})` and verifies only the far-wall fragment owned by that brush is returned.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+```
+
+Expected: build fails because `SemanticStructuralPartitionQuery` does not expose `brushId`.
+
+- [x] **Step 3: Add brush id filtering**
+
+Add `std::string_view brushId` to `SemanticStructuralPartitionQuery` and reject entries whose `metadata.brushId` does not match when it is provided.
+
+- [x] **Step 4: Run the test to verify it passes**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
+.\build\semantic-metadata\Source\RawIron.SceneUtilities\SemanticStructuralPartitionSmoke.exe
+```
+
+Expected: executable exits with code `0`.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: filter semantic structural queries by brush id"
 ```
 
 ## Self-Review Notes

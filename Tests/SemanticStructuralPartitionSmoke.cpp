@@ -55,6 +55,15 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    const auto ownedWallHits = partition.QueryBox(
+        {{-2.0f, -0.2f, -2.0f}, {2.0f, 3.2f, 5.2f}},
+        {.brushId = "wall_b"});
+    if (ownedWallHits.size() != 1
+        || ownedWallHits[0].entry == nullptr
+        || ownedWallHits[0].entry->id != "far_wall_fragment") {
+        return EXIT_FAILURE;
+    }
+
     const auto wallRayHits = partition.QueryRay(
         {0.0f, 1.5f, -3.0f},
         {0.0f, 0.0f, 1.0f},
@@ -85,7 +94,7 @@ int main() {
         || metrics.regionCount != 1
         || metrics.roleCounts.floor != 1
         || metrics.roleCounts.wall != 2
-        || metrics.boxQueries != 2
+        || metrics.boxQueries != 3
         || metrics.rayQueries != 2
         || metrics.boxCandidatesScanned == 0
         || metrics.rayCandidatesScanned == 0) {

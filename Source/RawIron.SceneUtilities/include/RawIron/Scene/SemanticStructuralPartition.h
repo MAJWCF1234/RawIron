@@ -25,6 +25,7 @@ struct SemanticStructuralPartitionQuery {
     std::optional<StructuralBrushCollisionPolicy> collision{};
     std::optional<StructuralBrushVisibilityPolicy> visibility{};
     std::optional<StructuralBrushNavigationPolicy> navigation{};
+    std::string_view brushId{};
     std::string_view region{};
 };
 

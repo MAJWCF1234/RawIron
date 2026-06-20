@@ -163,6 +163,9 @@ bool SemanticStructuralPartition::MatchesQuery(const SemanticStructuralPartition
     if (query.navigation.has_value() && entry.metadata.navigation != *query.navigation) {
         return false;
     }
+    if (!query.brushId.empty() && entry.metadata.brushId != query.brushId) {
+        return false;
+    }
     if (!query.region.empty() && entry.metadata.region != query.region) {
         return false;
     }
