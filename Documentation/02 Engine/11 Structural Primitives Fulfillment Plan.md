@@ -1,0 +1,168 @@
+# Structural Primitives Fulfillment Plan
+
+RawIron structural primitives are the engine's upgraded brush model. They own authored shape intent, generated mesh outputs, physics/query surfaces, and semantic meaning, while derived partitions make runtime systems fast.
+
+This file replaces the one-off implementation notes that previously lived under `docs/superpowers/plans/`. Keep future structural primitive planning here unless it belongs in a narrower public guide.
+
+## Product Intent
+
+Structural primitives should feel like smarter Source-style brushes, but not be limited to old BSP authoring. The source of truth is an authored structural primitive with M/P/Q/I ownership:
+
+- `M-mesh / Visual mesh`: render geometry, materials, UVs, visible shape.
+- `P-mesh / Physics mesh`: collision hulls, rigid body shape, simulation shape, physical material.
+- `Q-mesh / Query mesh`: raycast, trace, placement, and interaction shape.
+- `I-layer / Information`: semantic role, relations, reporting, structural spatial graph links, and gameplay meaning.
+
+Derived systems then build fast data products from that authored source:
+
+- Semantic structural partition for role, region, operation, policy, channel, and purpose filtering.
+- Trace scene feed for movement, ballistics, pseudo-raytracing candidates, interaction traces, and editor picking.
+- Visibility and culling feeds for portal, occluder, anti-portal, and region diagnostics.
+- Edit/rebuild tracking so brush changes invalidate only the affected area.
+
+## Current Shipped State
+
+The first foundation is in place:
+
+- Structural brush metadata is preserved on scene nodes.
+- Optional semantic CSV columns can tag structural rows without breaking older files.
+- Structural brushes expose role, region, operation, collision, visibility, navigation, and rebuild-scope policies.
+- M/P/Q/I channel metadata exists for visual, physics, query, and information ownership.
+- Semantic structural partition wraps the existing BSP-style spatial index and adds semantic filtering.
+- Partition queries support role, region, operation, rebuild scope, M/P/Q/I channel, and query purpose.
+- Partition metrics expose entry counts, query counts, candidate scans, role counts, operation counts, rebuild counts, channel counts, and query-purpose counts.
+- Scene subtree collider generation can respect structural collision policy, Q-mesh participation, and query purpose.
+- Structural trace feed builds filtered `TraceCollider` lists and ready-to-query `TraceScene` instances.
+- Trace feed metrics report source brush count, emitted collider count, filtered count, filter reasons, and efficiency ratios.
+- Liminal Hall has semantic structural smoke coverage for authored structural rows.
+
+## Developer Fulfillment Workflow
+
+Use this flow for every remaining structural primitive increment:
+
+1. State the specific runtime or authoring problem in this file before coding.
+2. Add or update a smoke test that proves the behavior is missing.
+3. Run the focused target and confirm the test fails for the expected reason.
+4. Implement the smallest production change that makes the test pass.
+5. Run the focused structural suite.
+6. Update this plan with the result and next recommended step.
+7. Commit source changes separately from documentation-only bookkeeping when useful.
+
+Focused structural suite:
+
+```powershell
+ctest --test-dir build\semantic-metadata -R "RawIron.SceneUtilities.(StructuralBrushMetadataSmoke|SemanticStructuralPartitionSmoke|SceneSubtreeCollidersSmoke|SceneStructuralTraceFeedSmoke)" --output-on-failure
+```
+
+Use a broader game-specific suite when editing Liminal Hall or other project data.
+
+## Remaining Work
+
+### Phase 1: Harden the Structural Primitive Contract
+
+- Add compact integer ids or handles for hot-path semantic fields so trace and partition queries do not repeatedly compare strings.
+- Add explicit version/signature data to structural brush metadata for cache invalidation.
+- Separate editor-only information fields from runtime-shippable metadata.
+- Add serialization tests for old CSV rows, semantic CSV rows, and future richer authored formats.
+
+Exit criteria:
+
+- Old structural CSV assets still load.
+- New semantic rows preserve M/P/Q/I ownership.
+- Runtime query paths can avoid string-heavy filtering in measured hot loops.
+
+### Phase 2: Make Semantic BSP a Real Partition Family
+
+- Keep `BspSpatialIndex` as the first broad-phase implementation, but wrap it behind partition-specific builders.
+- Add per-region subpartitions for large authored areas.
+- Add dirty-region rebuild tracking for changed brushes.
+- Add candidate-count diagnostics comparing unfiltered BSP queries with semantic-filtered queries.
+- Add configurable split policy experiments only after candidate metrics justify them.
+
+Exit criteria:
+
+- Trace, visibility, edit, semantic, and render feeds can share authored structural ownership without sharing one overloaded tree.
+- A single brush edit identifies affected partitions without a full-scene rebuild by default.
+
+### Phase 3: Feed Performance-Critical Systems
+
+- Route movement and ballistics through the structural trace feed where structural metadata can filter candidates early.
+- Add pseudo-raytracing candidate feeds that can request only Q-mesh trace/raycast participants.
+- Add editor placement queries that use Q-mesh placement participants and I-layer host rules.
+- Add culling diagnostics using visibility roles before enabling runtime culling decisions.
+- Add carrying/interaction filters that can query interaction-capable Q-meshes and semantic roles.
+
+Exit criteria:
+
+- Each consumer reports source candidate count, filtered candidate count, emitted count, and filter reasons.
+- The system proves performance savings before adding heavier calculations.
+
+### Phase 4: Editor Authoring Experience
+
+- Add inspector controls for role, region, operation, collision, visibility, navigation, rebuild scope, and M/P/Q/I channel flags.
+- Add overlays for semantic regions, query participants, collision participants, visibility candidates, and dirty rebuild bounds.
+- Make generated fragments selectable through their owning structural primitive.
+- Add authoring warnings for missing ids, degenerate bounds, unknown policies, and disabled required channels.
+
+Exit criteria:
+
+- Designers can build on the system without editing CSV by hand.
+- Debug overlays make performance behavior visible instead of magical.
+
+### Phase 5: Runtime Packaging
+
+- Define what authored structural data ships, what is stripped, and what is compressed into runtime partitions.
+- Add build output validation for structural partition artifacts.
+- Add loading tests for runtime-only partition data.
+- Keep editor diagnostics available in development builds without bloating release builds.
+
+Exit criteria:
+
+- Shipped builds keep the fast derived data, not the entire editor-facing note graph.
+- Runtime artifacts can be validated independently of the editor.
+
+## Quality Gates
+
+Structural primitive work is acceptable only when:
+
+- It preserves authored ownership from brush to generated mesh, collider, query shape, and semantic record.
+- It has a failing test before production code changes.
+- It keeps old structural files compatible.
+- It reports metrics for any new optimization path.
+- It avoids broad full-scene rebuilds unless explicitly required.
+- It proves performance improvements with candidate counts or timing before adding more computation.
+- It keeps disposable implementation notes out of the repository.
+
+## Source Map
+
+- `Source/RawIron.Core/include/RawIron/Scene/Components.h`: structural metadata, policies, M/P/Q/I types, channel and query-purpose helpers.
+- `Source/RawIron.SceneUtilities/include/RawIron/Scene/StructuralBrush.h`: structural brush spawn surface.
+- `Source/RawIron.SceneUtilities/src/StructuralBrush.cpp`: default ownership and channel population.
+- `Source/RawIron.SceneUtilities/src/StructuralAssemblyIO.cpp`: structural CSV import.
+- `Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h`: semantic BSP wrapper API.
+- `Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp`: semantic partition implementation.
+- `Source/RawIron.SceneUtilities/include/RawIron/Scene/SceneSubtreeColliders.h`: subtree trace collider options.
+- `Source/RawIron.SceneUtilities/src/SceneSubtreeColliders.cpp`: collider filtering and semantic tag stamping.
+- `Source/RawIron.SceneUtilities/include/RawIron/Scene/SceneStructuralTraceFeed.h`: structural trace feed API.
+- `Source/RawIron.SceneUtilities/src/SceneStructuralTraceFeed.cpp`: structural trace feed implementation and metrics.
+- `Tests/StructuralBrushMetadataSmoke.cpp`: metadata and M/P/Q/I coverage.
+- `Tests/SemanticStructuralPartitionSmoke.cpp`: partition filtering, metrics, cache, and picking coverage.
+- `Tests/SceneSubtreeCollidersSmoke.cpp`: collider policy, Q-mesh, and tag coverage.
+- `Tests/SceneStructuralTraceFeedSmoke.cpp`: trace feed, trace scene, filter reason, and ratio coverage.
+
+## Superseded Notes
+
+The following implementation notes were consolidated into this plan and should not be recreated as separate plan files:
+
+- `2026-06-07-liminal-hall-material-modernization.md`
+- `2026-06-19-semantic-structural-brush-partition.md`
+- `2026-06-20-semantic-partition-query-purpose.md`
+- `2026-06-20-semantic-partition-query-purpose-metrics.md`
+- `2026-06-20-structural-query-purpose-gates.md`
+- `2026-06-20-structural-trace-collider-feed.md`
+- `2026-06-20-structural-trace-collider-purpose-tags.md`
+- `2026-06-20-structural-trace-scene-feed.md`
+- `2026-06-20-structural-trace-scene-feed-result.md`
+- `2026-06-20-structural-trace-feed-filter-metrics.md`
+- `2026-06-20-structural-trace-feed-filter-reasons.md`
+- `2026-06-20-structural-trace-feed-efficiency-ratios.md`
