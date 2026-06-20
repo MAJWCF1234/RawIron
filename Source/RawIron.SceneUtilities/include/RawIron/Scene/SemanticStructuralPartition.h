@@ -30,6 +30,7 @@ struct SemanticStructuralPartitionQuery {
 
 struct SemanticStructuralPartitionHit {
     const SemanticStructuralPartitionEntry* entry = nullptr;
+    float distance = 0.0f;
 };
 
 struct SemanticStructuralPartitionRoleCounts {

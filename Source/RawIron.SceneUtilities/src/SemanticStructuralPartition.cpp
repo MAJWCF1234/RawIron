@@ -2,6 +2,7 @@
 
 #include "RawIron/Scene/SceneUtils.h"
 
+#include <algorithm>
 #include <optional>
 #include <unordered_set>
 #include <utility>
@@ -96,13 +97,25 @@ std::vector<SemanticStructuralPartitionHit> SemanticStructuralPartition::QueryRa
     std::vector<SemanticStructuralPartitionHit> hits;
     const std::vector<std::string> ids = index_.QueryRay(origin, direction, far);
     hits.reserve(ids.size());
+    const ri::spatial::Ray ray{.origin = origin, .direction = direction};
     for (const std::string& id : ids) {
         const SemanticStructuralPartitionEntry* entry = FindEntry(id);
         if (entry == nullptr || !MatchesQuery(*entry, query)) {
             continue;
         }
-        hits.push_back(SemanticStructuralPartitionHit{.entry = entry});
+        float distance = 0.0f;
+        if (!ri::spatial::IntersectRayAabb(ray, entry->bounds, far, &distance)) {
+            continue;
+        }
+        hits.push_back(SemanticStructuralPartitionHit{
+            .entry = entry,
+            .distance = distance,
+        });
     }
+    std::sort(hits.begin(), hits.end(), [](const SemanticStructuralPartitionHit& lhs,
+                                           const SemanticStructuralPartitionHit& rhs) {
+        return lhs.distance < rhs.distance;
+    });
     return hits;
 }
 

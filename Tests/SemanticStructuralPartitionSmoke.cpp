@@ -19,6 +19,9 @@ int main() {
     floor.region = "atrium";
     floor.navigation = ri::scene::StructuralBrushNavigationPolicy::Walkable;
 
+    ri::scene::StructuralBrushMetadata farWall = wall;
+    farWall.brushId = "wall_b";
+
     partition.Rebuild({
         {
             .id = "wall_fragment",
@@ -29,6 +32,11 @@ int main() {
             .id = "floor_fragment",
             .bounds = {{-4.0f, -0.1f, -4.0f}, {4.0f, 0.1f, 4.0f}},
             .metadata = floor,
+        },
+        {
+            .id = "far_wall_fragment",
+            .bounds = {{-1.0f, 0.0f, 4.0f}, {1.0f, 3.0f, 5.0f}},
+            .metadata = farWall,
         },
     });
 
@@ -52,17 +60,20 @@ int main() {
         {0.0f, 0.0f, 1.0f},
         10.0f,
         {.visibility = ri::scene::StructuralBrushVisibilityPolicy::Occluder});
-    if (wallRayHits.size() != 1
+    if (wallRayHits.size() != 2
         || wallRayHits[0].entry == nullptr
-        || wallRayHits[0].entry->metadata.brushId != "wall_a") {
+        || wallRayHits[1].entry == nullptr
+        || wallRayHits[0].entry->metadata.brushId != "wall_a"
+        || wallRayHits[1].entry->metadata.brushId != "wall_b"
+        || wallRayHits[0].distance > wallRayHits[1].distance) {
         return EXIT_FAILURE;
     }
 
     const ri::scene::SemanticStructuralPartitionMetrics metrics = partition.Metrics();
-    if (metrics.entryCount != 2
+    if (metrics.entryCount != 3
         || metrics.regionCount != 1
         || metrics.roleCounts.floor != 1
-        || metrics.roleCounts.wall != 1
+        || metrics.roleCounts.wall != 2
         || metrics.boxQueries != 2
         || metrics.rayQueries != 1
         || metrics.boxCandidatesScanned == 0
