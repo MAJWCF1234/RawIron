@@ -43,6 +43,13 @@ if (WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 
 if (RAWIRON_BUILD_TESTS)
+  add_executable(LiminalHallSemanticStructuralSmoke ${CMAKE_SOURCE_DIR}/Tests/LiminalHallSemanticStructuralSmoke.cpp)
+  target_link_libraries(LiminalHallSemanticStructuralSmoke PRIVATE RawIron::Game.LiminalHall)
+  add_test(
+    NAME RawIron.LiminalHall.SemanticStructuralSmoke
+    COMMAND LiminalHallSemanticStructuralSmoke ${CMAKE_SOURCE_DIR}/Games/LiminalHall
+  )
+
   add_test(
     NAME RawIron.LiminalHall.MaterialAudit
     COMMAND ${CMAKE_COMMAND}

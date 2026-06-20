@@ -862,3 +862,47 @@ Expected: executable exits with code `0`.
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
 git commit -m "feat: expose semantic structural rebuild metrics"
 ```
+
+## Task 17: Apply Semantic Structural Metadata to Liminal Hall
+
+**Files:**
+- Modify: `Games/LiminalHall/levels/assembly.structural.csv`
+- Modify: `Games/LiminalHall/Runtime/CMakeLists.txt`
+- Add: `Tests/LiminalHallSemanticStructuralSmoke.cpp`
+- Modify: `docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md`
+
+- [x] **Step 1: Add a Liminal Hall semantic structural smoke test**
+
+The test builds the Liminal world, builds a semantic structural partition from the scene, verifies role/operation/rebuild metrics, and queries walkable main-floor and portal-cut structural brushes.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\liminal-semantic --target LiminalHallSemanticStructuralSmoke
+.\build\liminal-semantic\Games\LiminalHall\Runtime\LiminalHallSemanticStructuralSmoke.exe Games\LiminalHall
+```
+
+Expected: executable exits non-zero because the Liminal structural CSV has not been semantically annotated.
+
+- [x] **Step 3: Annotate Liminal Hall structural rows**
+
+Add optional semantic columns to the structural CSV header and tag primary floor, wall, ceiling, portal, catwalk, bridge, and retaining-mass rows with semantic roles, regions, operation policy, collision policy, visibility policy, navigation policy, and rebuild scope.
+
+- [x] **Step 4: Run focused verification**
+
+Run:
+
+```powershell
+ctest --test-dir build\liminal-semantic -R "RawIron\.(LiminalHall\.(SemanticStructuralSmoke|MaterialAudit)|SceneUtilities\.(StructuralBrushMetadataSmoke|SemanticStructuralPartitionSmoke))" --output-on-failure
+```
+
+Expected: all four tests pass.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Games/LiminalHall/levels/assembly.structural.csv Games/LiminalHall/Runtime/CMakeLists.txt Tests/LiminalHallSemanticStructuralSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: annotate liminal hall structural semantics"
+```
