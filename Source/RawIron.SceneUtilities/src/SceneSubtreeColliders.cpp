@@ -25,6 +25,23 @@ namespace {
     return true;
 }
 
+void AppendStructuralBrushSemanticTags(const StructuralBrushMetadata& metadata,
+                                       std::vector<std::string>& tags) {
+    if (metadata.brushId.empty()) {
+        return;
+    }
+    tags.push_back("structural.brush:" + metadata.brushId);
+    if (!metadata.region.empty()) {
+        tags.push_back("structural.region:" + metadata.region);
+    }
+    tags.push_back("structural.operation:" + ToString(metadata.operation));
+    tags.push_back("structural.role:" + ToString(metadata.role));
+    tags.push_back("structural.collision:" + ToString(metadata.collision));
+    tags.push_back("structural.visibility:" + ToString(metadata.visibility));
+    tags.push_back("structural.navigation:" + ToString(metadata.navigation));
+    tags.push_back("structural.rebuild:" + ToString(metadata.rebuildScope));
+}
+
 } // namespace
 
 std::string MakeSubtreeColliderId(const Scene& scene, const int nodeHandle, const std::string_view idPrefix) {
@@ -67,6 +84,9 @@ std::size_t AppendTraceCollidersForSubtree(const Scene& scene,
         collider.structural = options.structural;
         collider.dynamic = options.dynamic;
         collider.simulationTags = options.extraSimulationTags;
+        if (options.appendStructuralBrushSemanticTags) {
+            AppendStructuralBrushSemanticTags(node.structuralBrush, collider.simulationTags);
+        }
         collider.simulationFlags = options.simulationFlagsOrMask;
         outColliders.push_back(std::move(collider));
         ++added;

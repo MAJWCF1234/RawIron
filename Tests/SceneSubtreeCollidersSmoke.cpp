@@ -18,6 +18,25 @@ namespace {
     return false;
 }
 
+[[nodiscard]] const ri::trace::TraceCollider* FindCollider(const std::vector<ri::trace::TraceCollider>& colliders,
+                                                           const std::string& id) {
+    for (const ri::trace::TraceCollider& collider : colliders) {
+        if (collider.id == id) {
+            return &collider;
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] bool ContainsTag(const ri::trace::TraceCollider& collider, const std::string& tag) {
+    for (const std::string& candidate : collider.simulationTags) {
+        if (candidate == tag) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 int main() {
@@ -49,6 +68,13 @@ int main() {
         || detail == ri::scene::kInvalidHandle) {
         return EXIT_FAILURE;
     }
+    ri::scene::StructuralBrushMetadata& playerMetadata = scene.GetNode(player).structuralBrush;
+    playerMetadata.region = "test_region";
+    playerMetadata.operation = ri::scene::StructuralBrushOperation::Solid;
+    playerMetadata.role = ri::scene::StructuralBrushSemanticRole::Wall;
+    playerMetadata.visibility = ri::scene::StructuralBrushVisibilityPolicy::Occluder;
+    playerMetadata.navigation = ri::scene::StructuralBrushNavigationPolicy::Blocker;
+    playerMetadata.rebuildScope = ri::scene::StructuralBrushRebuildScope::Region;
 
     std::vector<ri::trace::TraceCollider> colliders;
     const std::size_t added = ri::scene::AppendTraceCollidersForSubtree(
@@ -56,6 +82,7 @@ int main() {
         root,
         {
             .respectStructuralBrushCollisionPolicy = true,
+            .appendStructuralBrushSemanticTags = true,
         },
         colliders);
 
@@ -66,6 +93,19 @@ int main() {
         || ContainsColliderId(colliders, "QueryOnlyBrush")
         || ContainsColliderId(colliders, "NoCollisionBrush")
         || ContainsColliderId(colliders, "DetailBrush")) {
+        return EXIT_FAILURE;
+    }
+
+    const ri::trace::TraceCollider* playerCollider = FindCollider(colliders, "PlayerBrush");
+    if (playerCollider == nullptr
+        || !ContainsTag(*playerCollider, "structural.brush:PlayerBrush")
+        || !ContainsTag(*playerCollider, "structural.region:test_region")
+        || !ContainsTag(*playerCollider, "structural.operation:solid")
+        || !ContainsTag(*playerCollider, "structural.role:wall")
+        || !ContainsTag(*playerCollider, "structural.collision:player")
+        || !ContainsTag(*playerCollider, "structural.visibility:occluder")
+        || !ContainsTag(*playerCollider, "structural.navigation:blocker")
+        || !ContainsTag(*playerCollider, "structural.rebuild:region")) {
         return EXIT_FAILURE;
     }
 
