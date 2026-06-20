@@ -279,7 +279,7 @@ cmake --build build\semantic-metadata --target SemanticStructuralPartitionSmoke
 
 Expected: executable exits with code `0`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Source/RawIron.SceneUtilities/CMakeLists.txt Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
@@ -327,6 +327,50 @@ Expected: executable exits with code `0`.
 ```powershell
 git add Source/RawIron.SceneUtilities/include/RawIron/Scene/SemanticStructuralPartition.h Source/RawIron.SceneUtilities/src/SemanticStructuralPartition.cpp Tests/SemanticStructuralPartitionSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
 git commit -m "feat: feed semantic partition from scene brushes"
+```
+
+## Task 5: Give Default-Spawns A Stable Brush Id
+
+**Files:**
+- Modify: `Source/RawIron.SceneUtilities/src/StructuralBrush.cpp`
+- Modify: `Tests/StructuralBrushMetadataSmoke.cpp`
+- Modify: `docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md`
+
+- [x] **Step 1: Extend the smoke test with default ownership**
+
+The test spawns `DefaultOwnedBrush` without explicit metadata and verifies the spawned node gets `structuralBrush.brushId == "DefaultOwnedBrush"` with conservative default role and collision policy.
+
+- [x] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target StructuralBrushMetadataSmoke
+.\build\semantic-metadata\Source\RawIron.SceneUtilities\StructuralBrushMetadataSmoke.exe
+```
+
+Expected: executable exits non-zero because the default brush id is empty.
+
+- [x] **Step 3: Add fallback brush id assignment**
+
+In `AddStructuralBrushNode`, copy `options.metadata`, set `metadata.brushId = options.nodeName` when the brush id is empty, then store the metadata on the scene node.
+
+- [x] **Step 4: Run the test to verify it passes**
+
+Run:
+
+```powershell
+cmake --build build\semantic-metadata --target StructuralBrushMetadataSmoke
+.\build\semantic-metadata\Source\RawIron.SceneUtilities\StructuralBrushMetadataSmoke.exe
+```
+
+Expected: executable exits with code `0`.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add Source/RawIron.SceneUtilities/src/StructuralBrush.cpp Tests/StructuralBrushMetadataSmoke.cpp docs/superpowers/plans/2026-06-19-semantic-structural-brush-partition.md
+git commit -m "feat: give structural brush spawns default ownership ids"
 ```
 
 ## Self-Review Notes

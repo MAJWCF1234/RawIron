@@ -45,6 +45,22 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    ri::scene::StructuralBrushSpawnOptions defaultMetadataOptions{};
+    defaultMetadataOptions.nodeName = "DefaultOwnedBrush";
+    defaultMetadataOptions.structuralType = "box";
+    defaultMetadataOptions.parent = root;
+    const int defaultMetadataNode = ri::scene::AddStructuralBrushNode(scene, defaultMetadataOptions);
+    if (defaultMetadataNode == ri::scene::kInvalidHandle) {
+        return EXIT_FAILURE;
+    }
+    const ri::scene::StructuralBrushMetadata& defaultMetadata =
+        scene.GetNode(defaultMetadataNode).structuralBrush;
+    if (defaultMetadata.brushId != "DefaultOwnedBrush"
+        || defaultMetadata.role != ri::scene::StructuralBrushSemanticRole::Structure
+        || defaultMetadata.collision != ri::scene::StructuralBrushCollisionPolicy::Solid) {
+        return EXIT_FAILURE;
+    }
+
     const std::filesystem::path csvPath =
         std::filesystem::temp_directory_path() / "rawiron_structural_semantic_smoke.csv";
     {
