@@ -206,6 +206,7 @@ std::vector<SemanticStructuralPartitionEntry> BuildSemanticStructuralPartitionEn
         }
         entries.push_back(SemanticStructuralPartitionEntry{
             .id = node.name,
+            .nodeHandle = handle,
             .bounds = *bounds,
             .metadata = node.structuralBrush,
         });

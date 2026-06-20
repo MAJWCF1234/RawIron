@@ -16,6 +16,7 @@ namespace ri::scene {
 
 struct SemanticStructuralPartitionEntry {
     std::string id;
+    int nodeHandle = kInvalidHandle;
     ri::spatial::Aabb bounds;
     StructuralBrushMetadata metadata{};
 };

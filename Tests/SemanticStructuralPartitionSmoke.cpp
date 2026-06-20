@@ -121,6 +121,7 @@ int main() {
         ri::scene::BuildSemanticStructuralPartitionEntries(scene);
     if (sceneEntries.size() != 1
         || sceneEntries[0].id != "SceneWall"
+        || sceneEntries[0].nodeHandle != sceneWall
         || sceneEntries[0].metadata.brushId != "scene_wall"
         || sceneEntries[0].metadata.role != ri::scene::StructuralBrushSemanticRole::Wall) {
         return EXIT_FAILURE;
@@ -140,7 +141,9 @@ int main() {
         {0.0f, 0.0f, 1.0f},
         6.0f,
         {.region = "scene_region"});
-    if (sceneRayHits.size() != 1 || sceneRayHits[0].entry->metadata.brushId != "scene_wall") {
+    if (sceneRayHits.size() != 1
+        || sceneRayHits[0].entry->metadata.brushId != "scene_wall"
+        || sceneRayHits[0].entry->nodeHandle != sceneWall) {
         return EXIT_FAILURE;
     }
 
