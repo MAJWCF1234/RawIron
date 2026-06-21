@@ -79,3 +79,9 @@ if (UNIX AND NOT APPLE AND CMAKE_DL_LIBS)
 endif()
 
 target_compile_features(RawIron.Render.Vulkan PUBLIC cxx_std_20)
+
+if(RAWIRON_BUILD_TESTS)
+  add_executable(VulkanHybridPostProcessSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanHybridPostProcessSafetySmoke.cpp)
+  target_link_libraries(VulkanHybridPostProcessSafetySmoke PRIVATE RawIron::RenderVulkan)
+  add_test(NAME RawIron.Render.Vulkan.HybridPostProcessSafetySmoke COMMAND VulkanHybridPostProcessSafetySmoke)
+endif()

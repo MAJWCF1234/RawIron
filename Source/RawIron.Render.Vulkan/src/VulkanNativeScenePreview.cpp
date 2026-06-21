@@ -1,5 +1,6 @@
 #include "RawIron/Render/VulkanPreviewPresenter.h"
 #include "RawIron/Render/HybridPresentationTargets.h"
+#include "RawIron/Render/VulkanScenePreviewBridge.h"
 
 #if defined(_WIN32)
 #include "RawIron/Core/Log.h"
@@ -7297,11 +7298,8 @@ bool RunVulkanNativeSceneLoop(const int width,
             }
             if (options.enableHybridHdrPresentation) {
                 sceneData.postProcessSecondary[3] = 1.0f;
-                sceneData.presentationTuning[3] =
-                    std::min(sceneData.presentationTuning[3] > 1e-4f ? sceneData.presentationTuning[3] : 0.58f, 0.58f);
-                if (sceneData.renderQualityTier >= 2) {
-                    sceneData.presentationTuning[0] = std::max(sceneData.presentationTuning[0], 0.05f);
-                }
+                ri::render::vulkan::ApplyHybridHdrPresentationSafety(sceneData.presentationTuning,
+                                                                     sceneData.renderQualityTier);
             }
             if (sceneData.scene == nullptr) {
                 throw std::runtime_error("Native Vulkan scene data did not include a scene pointer.");

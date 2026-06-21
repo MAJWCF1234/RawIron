@@ -33,4 +33,15 @@ void OverlayScenePreviewPostProcessOnParameters(const ri::render::software::Scen
     }
 }
 
+void ApplyHybridHdrPresentationSafety(std::array<float, 4>& presentationTuning, int renderQualityTier) {
+    presentationTuning[3] =
+        std::min(presentationTuning[3] > 1e-4f ? presentationTuning[3] : 0.58f, 0.58f);
+
+    // Quality tier 2 used to force CAS back on even when shader.cfg set it to zero.
+    // Preserve authored/sanitized zero so material inspection cannot resurrect broken CAS artifacts.
+    if (renderQualityTier >= 2 && presentationTuning[0] > 1.0e-4f) {
+        presentationTuning[0] = std::max(presentationTuning[0], 0.05f);
+    }
+}
+
 } // namespace ri::render::vulkan
