@@ -167,7 +167,7 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
                             ri::scene::StructuralBrushCollisionPolicy::Query,
                             ri::scene::StructuralBrushNavigationPolicy::Ignored);
 
-    const int goldSample = ri::scene::AddPrimitiveNode(
+    world.goldSampleNode = ri::scene::AddPrimitiveNode(
         world.scene,
         MaterialSampleOptions(world.rootNode,
                               "CubeTest_GoldSpecSample",
@@ -176,12 +176,12 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
                               {0.95f, 0.95f, 0.95f},
                               0.82f,
                               0.22f));
-    ApplyStructuralMetadata(world.scene.GetNode(goldSample),
+    ApplyStructuralMetadata(world.scene.GetNode(world.goldSampleNode),
                             "cube-test-gold-spec-sample",
                             ri::scene::StructuralBrushSemanticRole::Decor,
                             ri::scene::StructuralBrushCollisionPolicy::Query,
                             ri::scene::StructuralBrushNavigationPolicy::Ignored);
-    const int copperSample = ri::scene::AddPrimitiveNode(
+    world.copperSampleNode = ri::scene::AddPrimitiveNode(
         world.scene,
         MaterialSampleOptions(world.rootNode,
                               "CubeTest_CopperNormalSample",
@@ -190,12 +190,12 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
                               {0.95f, 0.95f, 0.95f},
                               0.64f,
                               0.30f));
-    ApplyStructuralMetadata(world.scene.GetNode(copperSample),
+    ApplyStructuralMetadata(world.scene.GetNode(world.copperSampleNode),
                             "cube-test-copper-normal-sample",
                             ri::scene::StructuralBrushSemanticRole::Decor,
                             ri::scene::StructuralBrushCollisionPolicy::Query,
                             ri::scene::StructuralBrushNavigationPolicy::Ignored);
-    const int ironSample = ri::scene::AddPrimitiveNode(
+    world.ironSampleNode = ri::scene::AddPrimitiveNode(
         world.scene,
         MaterialSampleOptions(world.rootNode,
                               "CubeTest_IronRoughnessSample",
@@ -204,7 +204,7 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
                               {0.78f, 0.78f, 0.78f},
                               0.72f,
                               0.46f));
-    ApplyStructuralMetadata(world.scene.GetNode(ironSample),
+    ApplyStructuralMetadata(world.scene.GetNode(world.ironSampleNode),
                             "cube-test-iron-roughness-sample",
                             ri::scene::StructuralBrushSemanticRole::Decor,
                             ri::scene::StructuralBrushCollisionPolicy::Query,
@@ -340,6 +340,34 @@ void AnimateCubeTestWorld(CubeTestWorld& world, const double elapsedSeconds) {
     }
     ri::scene::Node& cube = world.scene.GetNode(world.cubeNode);
     cube.localTransform.rotationDegrees.y = 28.0f + static_cast<float>(std::sin(elapsedSeconds * 0.35) * 5.0);
+}
+
+void AnimateCubeTestWorldJiggle(CubeTestWorld& world, const double elapsedSeconds) {
+    if (world.cubeNode != ri::scene::kInvalidHandle) {
+        ri::scene::Node& cube = world.scene.GetNode(world.cubeNode);
+        cube.localTransform.rotationDegrees = {
+            static_cast<float>(std::sin(elapsedSeconds * 1.7) * 4.0),
+            28.0f + static_cast<float>(elapsedSeconds * 42.0),
+            static_cast<float>(std::sin(elapsedSeconds * 2.3) * 2.5),
+        };
+        cube.localTransform.position.y = 1.1f + static_cast<float>(std::sin(elapsedSeconds * 3.1) * 0.035);
+    }
+    const auto jiggleSample = [&world, elapsedSeconds](const int node, const float phase, const float spin) {
+        if (node == ri::scene::kInvalidHandle) {
+            return;
+        }
+        ri::scene::Node& sample = world.scene.GetNode(node);
+        sample.localTransform.rotationDegrees.y = -18.0f + static_cast<float>(elapsedSeconds * spin);
+        sample.localTransform.rotationDegrees.x = static_cast<float>(std::sin(elapsedSeconds * 2.0 + phase) * 5.0);
+        sample.localTransform.position.y = 0.55f + static_cast<float>(std::sin(elapsedSeconds * 3.7 + phase) * 0.025);
+    };
+    jiggleSample(world.goldSampleNode, 0.0f, 64.0f);
+    jiggleSample(world.copperSampleNode, 1.7f, -58.0f);
+    if (world.ironSampleNode != ri::scene::kInvalidHandle) {
+        ri::scene::Node& iron = world.scene.GetNode(world.ironSampleNode);
+        iron.localTransform.rotationDegrees.y = static_cast<float>(elapsedSeconds * 38.0);
+        iron.localTransform.position.z = 3.85f + static_cast<float>(std::sin(elapsedSeconds * 2.6) * 0.045);
+    }
 }
 
 } // namespace ri::games::cubetest

@@ -3889,6 +3889,17 @@ GpuAlbedoImage CreateGpuRgba8Image(VkPhysicalDevice physicalDevice,
         return {};
     }
 
+    const auto mipLevelsFor = [](const int w, const int h) -> std::uint32_t {
+        const int largest = std::max(w, h);
+        return largest > 0 ? static_cast<std::uint32_t>(std::floor(std::log2(static_cast<float>(largest)))) + 1U : 1U;
+    };
+    VkFormatProperties formatProperties{};
+    vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &formatProperties);
+    const bool canBlitMipmaps =
+        (formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT) != 0
+        && (formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT) != 0
+        && (formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
+    const std::uint32_t mipLevels = canBlitMipmaps ? mipLevelsFor(width, height) : 1U;
     const VkDeviceSize pixelBytes =
         static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4ULL;
     BufferResource staging = CreateBuffer(physicalDevice,
@@ -3907,11 +3918,11 @@ GpuAlbedoImage CreateGpuRgba8Image(VkPhysicalDevice physicalDevice,
         .imageType = VK_IMAGE_TYPE_2D,
         .format = format,
         .extent = {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1},
-        .mipLevels = 1,
+        .mipLevels = mipLevels,
         .arrayLayers = 1,
         .samples = VK_SAMPLE_COUNT_1_BIT,
         .tiling = VK_IMAGE_TILING_OPTIMAL,
-        .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        .usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
     };
@@ -3941,7 +3952,7 @@ GpuAlbedoImage CreateGpuRgba8Image(VkPhysicalDevice physicalDevice,
                 {
                     .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
                     .baseMipLevel = 0,
-                    .levelCount = 1,
+                    .levelCount = mipLevels,
                     .baseArrayLayer = 0,
                     .layerCount = 1,
                 },
@@ -3972,12 +3983,12 @@ GpuAlbedoImage CreateGpuRgba8Image(VkPhysicalDevice physicalDevice,
         };
         vkCmdCopyBufferToImage(cmd, staging.buffer, out.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-        const VkImageMemoryBarrier dstToShader{
+        VkImageMemoryBarrier mipBarrier{
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
             .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+            .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
             .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
             .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
             .image = out.image,
@@ -3990,6 +4001,98 @@ GpuAlbedoImage CreateGpuRgba8Image(VkPhysicalDevice physicalDevice,
                     .layerCount = 1,
                 },
         };
+        int mipWidth = width;
+        int mipHeight = height;
+        for (std::uint32_t level = 1; level < mipLevels; ++level) {
+            vkCmdPipelineBarrier(cmd,
+                                 VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 0,
+                                 0,
+                                 nullptr,
+                                 0,
+                                 nullptr,
+                                 1,
+                                 &mipBarrier);
+
+            const VkImageBlit blit{
+                .srcSubresource =
+                    {
+                        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                        .mipLevel = level - 1U,
+                        .baseArrayLayer = 0,
+                        .layerCount = 1,
+                    },
+                .srcOffsets =
+                    {
+                        VkOffset3D{0, 0, 0},
+                        VkOffset3D{mipWidth, mipHeight, 1},
+                    },
+                .dstSubresource =
+                    {
+                        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                        .mipLevel = level,
+                        .baseArrayLayer = 0,
+                        .layerCount = 1,
+                    },
+                .dstOffsets =
+                    {
+                        VkOffset3D{0, 0, 0},
+                        VkOffset3D{std::max(1, mipWidth / 2), std::max(1, mipHeight / 2), 1},
+                    },
+            };
+            vkCmdBlitImage(cmd,
+                           out.image,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           out.image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1,
+                           &blit,
+                           VK_FILTER_LINEAR);
+
+            VkImageMemoryBarrier srcToShader = mipBarrier;
+            srcToShader.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            srcToShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            srcToShader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            srcToShader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            srcToShader.subresourceRange.baseMipLevel = level - 1U;
+            vkCmdPipelineBarrier(cmd,
+                                 VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                 0,
+                                 0,
+                                 nullptr,
+                                 0,
+                                 nullptr,
+                                 1,
+                                 &srcToShader);
+
+            mipBarrier.subresourceRange.baseMipLevel = level;
+            mipWidth = std::max(1, mipWidth / 2);
+            mipHeight = std::max(1, mipHeight / 2);
+        }
+
+        VkImageMemoryBarrier finalToShader{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask = static_cast<VkAccessFlags>(VK_ACCESS_TRANSFER_WRITE_BIT),
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = out.image,
+            .subresourceRange =
+                {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = mipLevels - 1U,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+        };
+        if (mipLevels == 1U) {
+            finalToShader.subresourceRange.baseMipLevel = 0;
+        }
         vkCmdPipelineBarrier(cmd,
                              VK_PIPELINE_STAGE_TRANSFER_BIT,
                              VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
@@ -3999,7 +4102,7 @@ GpuAlbedoImage CreateGpuRgba8Image(VkPhysicalDevice physicalDevice,
                              0,
                              nullptr,
                              1,
-                             &dstToShader);
+                             &finalToShader);
     });
 
     DestroyBuffer(device, staging);
@@ -4013,7 +4116,7 @@ GpuAlbedoImage CreateGpuRgba8Image(VkPhysicalDevice physicalDevice,
             {
                 .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
                 .baseMipLevel = 0,
-                .levelCount = 1,
+                .levelCount = mipLevels,
                 .baseArrayLayer = 0,
                 .layerCount = 1,
             },
@@ -6949,6 +7052,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
             .anisotropyEnable = maxSamplerAnisotropy > 1.0f ? VK_TRUE : VK_FALSE,
             .maxAnisotropy = maxSamplerAnisotropy,
+            .maxLod = VK_LOD_CLAMP_NONE,
         };
         VkSampler linearSampler = VK_NULL_HANDLE;
         ExpectVk(vkCreateSampler(device, &samplerInfo, nullptr, &linearSampler), "vkCreateSampler(albedo)");

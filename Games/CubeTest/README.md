@@ -23,5 +23,7 @@ Useful verification:
 
 ```powershell
 RawIron.CubeTestGame.exe --game-root=Games\CubeTest --save-preview --output=Saved\visual_checks\cube_test_preview.bmp
+RawIron.CubeTestGame.exe --game-root=Games\CubeTest --save-jiggle-preview --jiggle-frames=8 --output=Saved\visual_checks\cube_test_jiggle.bmp
 RawIron.CubeTestGame.exe --game-root=Games\CubeTest --benchmark-frames=3
+RawIron.CubeTestGame.exe --game-root=Games\CubeTest --jiggle-test
 ```

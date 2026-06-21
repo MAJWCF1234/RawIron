@@ -39,6 +39,7 @@ fs::path ResolvePreviewOutputPath(const ri::core::CommandLine& commandLine) {
 bool SavePreview(const CubeTestWorld& world,
                  const fs::path& textureRoot,
                  const fs::path& outputPath,
+                 const double animationSeconds,
                  std::string* error) {
     ri::render::software::ScenePreviewOptions options{};
     options.width = 960;
@@ -54,6 +55,7 @@ bool SavePreview(const CubeTestWorld& world,
     options.previewExposure = 1.08f;
     options.previewContrast = 1.08f;
     options.previewSaturation = 1.0f;
+    options.animationTimeSeconds = animationSeconds;
 
     ri::render::software::ScenePreviewCache cache{};
     const ri::render::software::SoftwareImage image =
@@ -75,6 +77,26 @@ bool SavePreview(const CubeTestWorld& world,
         return false;
     }
     ri::core::LogInfo("Cube Test preview saved: " + outputPath.string());
+    return true;
+}
+
+bool SaveJigglePreviewSequence(const fs::path& textureRoot,
+                               const fs::path& outputPath,
+                               const int frames,
+                               std::string* error) {
+    const int frameCount = std::clamp(frames, 1, 120);
+    const fs::path parent = outputPath.parent_path();
+    const std::string stem = outputPath.stem().string();
+    const std::string ext = outputPath.extension().empty() ? ".bmp" : outputPath.extension().string();
+    for (int index = 0; index < frameCount; ++index) {
+        CubeTestWorld frameWorld = BuildCubeTestWorld("Cube Test Jiggle Preview");
+        const double seconds = static_cast<double>(index) / 12.0;
+        AnimateCubeTestWorldJiggle(frameWorld, seconds);
+        const fs::path framePath = parent / (stem + "_" + std::to_string(index) + ext);
+        if (!SavePreview(frameWorld, textureRoot, framePath, seconds, error)) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -193,7 +215,11 @@ bool RunNativeLoop(const StandaloneOptions& options,
         [&state, &textureRoot, &options, &frameCount, started](ri::render::vulkan::VulkanNativeSceneFrame& frame, std::string*) {
             TickPlayState(state);
             const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
-            AnimateCubeTestWorld(state.world, elapsed);
+            if (options.jiggleTest) {
+                AnimateCubeTestWorldJiggle(state.world, elapsed);
+            } else {
+                AnimateCubeTestWorld(state.world, elapsed);
+            }
 
             frame.scene = &state.world.scene;
             frame.cameraNode = state.world.playerCameraNode;
@@ -248,8 +274,12 @@ bool RunStandalone(const StandaloneOptions& options,
     const fs::path textureRoot = ri::content::PickEngineTexturesDirectory(workspaceRoot, executablePath);
 
     CubeTestWorld previewWorld = BuildCubeTestWorld("Cube Test");
+    if (commandLine.HasFlag("--save-jiggle-preview") || options.jigglePreviewFrames > 0) {
+        const int frames = options.jigglePreviewFrames > 0 ? options.jigglePreviewFrames : 8;
+        return SaveJigglePreviewSequence(textureRoot, ResolvePreviewOutputPath(commandLine), frames, error);
+    }
     if (commandLine.HasFlag("--save-preview")) {
-        return SavePreview(previewWorld, textureRoot, ResolvePreviewOutputPath(commandLine), error);
+        return SavePreview(previewWorld, textureRoot, ResolvePreviewOutputPath(commandLine), 0.0, error);
     }
 
 #if defined(_WIN32)
