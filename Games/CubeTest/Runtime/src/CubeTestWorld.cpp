@@ -27,17 +27,46 @@ ri::scene::PrimitiveNodeOptions CubeMaterialOptions(const int parent) {
     options.transform.position = {0.0f, 1.1f, 0.0f};
     options.transform.rotationDegrees = {0.0f, 28.0f, 0.0f};
     options.transform.scale = {2.0f, 2.0f, 2.0f};
-    options.materialName = "cube-test-diamond-full-map";
-    options.materialStyle = ri::scene::MaterialStyle::Crystal;
+    options.materialName = "cube-test-chiseled-quartz-full-map";
+    options.materialStyle = ri::scene::MaterialStyle::Standard;
     options.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
     options.baseColor = {1.0f, 1.0f, 1.0f};
-    options.baseColorTexture = PackageTexture("tile/rt2_diamond_block.png");
-    options.normalTexture = PackageTexture("tile/rt2_diamond_block_n.png");
-    options.ormTexture = PackageTexture("tile/rt2_diamond_block_s.png");
+    options.baseColorTexture = PackageTexture("tile/RT_chiseled_quartz_block.png");
+    options.normalTexture = PackageTexture("tile/RT_chiseled_quartz_block_n.png");
+    options.ormTexture = PackageTexture("tile/RT_chiseled_quartz_block_s.png");
     options.detailTexture = options.baseColorTexture;
     options.textureTiling = {1.0f, 1.0f};
-    options.metallic = 0.12f;
-    options.roughness = 0.34f;
+    options.metallic = 0.02f;
+    options.roughness = 0.48f;
+    return options;
+}
+
+ri::scene::PrimitiveNodeOptions MaterialSampleOptions(const int parent,
+                                                      const std::string_view name,
+                                                      const std::string_view textureStem,
+                                                      const ri::math::Vec3& position,
+                                                      const ri::math::Vec3& scale,
+                                                      const float metallic,
+                                                      const float roughness) {
+    const std::string stem(textureStem);
+    ri::scene::PrimitiveNodeOptions options{};
+    options.nodeName = std::string(name);
+    options.parent = parent;
+    options.primitive = ri::scene::PrimitiveType::Cube;
+    options.transform.position = position;
+    options.transform.rotationDegrees = {0.0f, -18.0f, 0.0f};
+    options.transform.scale = scale;
+    options.materialName = std::string(name) + "-full-map";
+    options.materialStyle = ri::scene::MaterialStyle::Standard;
+    options.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
+    options.baseColor = {1.0f, 1.0f, 1.0f};
+    options.baseColorTexture = PackageTexture("tile/" + stem + ".png");
+    options.normalTexture = PackageTexture("tile/" + stem + "_n.png");
+    options.ormTexture = PackageTexture("tile/" + stem + "_s.png");
+    options.detailTexture = options.baseColorTexture;
+    options.textureTiling = {1.0f, 1.0f};
+    options.metallic = metallic;
+    options.roughness = roughness;
     return options;
 }
 
@@ -87,6 +116,26 @@ void ApplyStructuralMetadata(ri::scene::Node& node,
     };
 }
 
+int AddMarkerBox(ri::scene::Scene& scene,
+                 const int parent,
+                 const std::string_view name,
+                 const ri::math::Vec3& position,
+                 const ri::math::Vec3& scale,
+                 const ri::math::Vec3& color,
+                 const ri::math::Vec3& emissive = {}) {
+    ri::scene::PrimitiveNodeOptions marker{};
+    marker.nodeName = std::string(name);
+    marker.parent = parent;
+    marker.primitive = ri::scene::PrimitiveType::Cube;
+    marker.transform.position = position;
+    marker.transform.scale = scale;
+    marker.materialName = std::string(name) + "-material";
+    marker.baseColor = color;
+    marker.emissiveColor = emissive;
+    marker.roughness = 0.62f;
+    return ri::scene::AddPrimitiveNode(scene, marker);
+}
+
 } // namespace
 
 CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
@@ -101,11 +150,7 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
     platform.transform.position = {0.0f, -0.12f, 0.0f};
     platform.transform.scale = {16.0f, 0.24f, 16.0f};
     platform.materialName = "cube-test-platform";
-    platform.baseColor = {0.78f, 0.80f, 0.76f};
-    platform.baseColorTexture = PackageTexture("tile/RT_smooth_stone.png");
-    platform.normalTexture = PackageTexture("tile/RT_smooth_stone_n.png");
-    platform.ormTexture = PackageTexture("tile/RT_smooth_stone_s.png");
-    platform.detailTexture = platform.baseColorTexture;
+    platform.baseColor = {0.62f, 0.66f, 0.62f};
     platform.textureTiling = {8.0f, 8.0f};
     platform.roughness = 0.74f;
     world.platformNode = ri::scene::AddPrimitiveNode(world.scene, platform);
@@ -122,6 +167,103 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
                             ri::scene::StructuralBrushCollisionPolicy::Query,
                             ri::scene::StructuralBrushNavigationPolicy::Ignored);
 
+    const int goldSample = ri::scene::AddPrimitiveNode(
+        world.scene,
+        MaterialSampleOptions(world.rootNode,
+                              "CubeTest_GoldSpecSample",
+                              "rt2_gold_block",
+                              {-3.35f, 0.55f, 1.85f},
+                              {0.95f, 0.95f, 0.95f},
+                              0.82f,
+                              0.22f));
+    ApplyStructuralMetadata(world.scene.GetNode(goldSample),
+                            "cube-test-gold-spec-sample",
+                            ri::scene::StructuralBrushSemanticRole::Decor,
+                            ri::scene::StructuralBrushCollisionPolicy::Query,
+                            ri::scene::StructuralBrushNavigationPolicy::Ignored);
+    const int copperSample = ri::scene::AddPrimitiveNode(
+        world.scene,
+        MaterialSampleOptions(world.rootNode,
+                              "CubeTest_CopperNormalSample",
+                              "rt2_chiseled_copper",
+                              {3.35f, 0.55f, 1.85f},
+                              {0.95f, 0.95f, 0.95f},
+                              0.64f,
+                              0.30f));
+    ApplyStructuralMetadata(world.scene.GetNode(copperSample),
+                            "cube-test-copper-normal-sample",
+                            ri::scene::StructuralBrushSemanticRole::Decor,
+                            ri::scene::StructuralBrushCollisionPolicy::Query,
+                            ri::scene::StructuralBrushNavigationPolicy::Ignored);
+    const int ironSample = ri::scene::AddPrimitiveNode(
+        world.scene,
+        MaterialSampleOptions(world.rootNode,
+                              "CubeTest_IronRoughnessSample",
+                              "rt2_iron_block",
+                              {0.0f, 0.45f, 3.85f},
+                              {0.78f, 0.78f, 0.78f},
+                              0.72f,
+                              0.46f));
+    ApplyStructuralMetadata(world.scene.GetNode(ironSample),
+                            "cube-test-iron-roughness-sample",
+                            ri::scene::StructuralBrushSemanticRole::Decor,
+                            ri::scene::StructuralBrushCollisionPolicy::Query,
+                            ri::scene::StructuralBrushNavigationPolicy::Ignored);
+
+    AddMarkerBox(world.scene,
+                 world.rootNode,
+                 "CubeTest_NorthTrim",
+                 {0.0f, 0.035f, 8.05f},
+                 {16.4f, 0.08f, 0.12f},
+                 {0.84f, 0.92f, 0.95f},
+                 {0.04f, 0.07f, 0.08f});
+    AddMarkerBox(world.scene,
+                 world.rootNode,
+                 "CubeTest_SouthTrim",
+                 {0.0f, 0.035f, -8.05f},
+                 {16.4f, 0.08f, 0.12f},
+                 {0.84f, 0.92f, 0.95f},
+                 {0.04f, 0.07f, 0.08f});
+    AddMarkerBox(world.scene,
+                 world.rootNode,
+                 "CubeTest_EastTrim",
+                 {8.05f, 0.035f, 0.0f},
+                 {0.12f, 0.08f, 16.4f},
+                 {0.84f, 0.92f, 0.95f},
+                 {0.04f, 0.07f, 0.08f});
+    AddMarkerBox(world.scene,
+                 world.rootNode,
+                 "CubeTest_WestTrim",
+                 {-8.05f, 0.035f, 0.0f},
+                 {0.12f, 0.08f, 16.4f},
+                 {0.84f, 0.92f, 0.95f},
+                 {0.04f, 0.07f, 0.08f});
+    AddMarkerBox(world.scene,
+                 world.rootNode,
+                 "CubeTest_BlueAxis",
+                 {0.0f, 0.045f, 0.0f},
+                 {0.10f, 0.08f, 13.6f},
+                 {0.16f, 0.42f, 0.95f},
+                 {0.02f, 0.05f, 0.12f});
+    AddMarkerBox(world.scene,
+                 world.rootNode,
+                 "CubeTest_AmberAxis",
+                 {0.0f, 0.05f, 0.0f},
+                 {13.6f, 0.08f, 0.10f},
+                 {1.0f, 0.62f, 0.18f},
+                 {0.12f, 0.06f, 0.02f});
+    for (const float x : {-7.2f, 7.2f}) {
+        for (const float z : {-7.2f, 7.2f}) {
+            AddMarkerBox(world.scene,
+                         world.rootNode,
+                         "CubeTest_CornerPost",
+                         {x, 0.46f, z},
+                         {0.34f, 0.92f, 0.34f},
+                         {0.94f, 0.88f, 0.52f},
+                         {0.04f, 0.035f, 0.01f});
+        }
+    }
+
     ri::scene::LightNodeOptions sun{};
     sun.nodeName = "CubeTest_Sun";
     sun.parent = world.rootNode;
@@ -129,13 +271,13 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
     sun.light.name = "CubeTest_Sun";
     sun.light.type = ri::scene::LightType::Directional;
     sun.light.color = {1.0f, 0.96f, 0.88f};
-    sun.light.intensity = 3.2f;
+    sun.light.intensity = 3.8f;
     ri::scene::AddLightNode(world.scene, sun);
 
     ri::scene::LightNodeOptions fill{};
     fill.nodeName = "CubeTest_CubeFill";
     fill.parent = world.rootNode;
-    fill.transform.position = {-3.2f, 3.8f, -3.4f};
+    fill.transform.position = {-3.6f, 3.8f, -3.8f};
     fill.light.name = "CubeTest_CubeFill";
     fill.light.type = ri::scene::LightType::Point;
     fill.light.color = {0.42f, 0.80f, 1.0f};
@@ -143,13 +285,24 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
     fill.light.range = 12.0f;
     ri::scene::AddLightNode(world.scene, fill);
 
+    ri::scene::LightNodeOptions rim{};
+    rim.nodeName = "CubeTest_WarmRim";
+    rim.parent = world.rootNode;
+    rim.transform.position = {4.6f, 2.7f, -4.2f};
+    rim.light.name = "CubeTest_WarmRim";
+    rim.light.type = ri::scene::LightType::Point;
+    rim.light.color = {1.0f, 0.62f, 0.30f};
+    rim.light.intensity = 1.15f;
+    rim.light.range = 10.0f;
+    ri::scene::AddLightNode(world.scene, rim);
+
     world.playerRig = world.scene.CreateNode("CubeTest_PlayerRig", world.rootNode);
-    world.scene.GetNode(world.playerRig).localTransform.position = {0.0f, 1.62f, -6.0f};
+    world.scene.GetNode(world.playerRig).localTransform.position = {0.0f, 1.82f, -7.4f};
     world.playerCameraNode = world.scene.CreateNode("CubeTest_PlayerCamera", world.playerRig);
-    world.scene.GetNode(world.playerCameraNode).localTransform.rotationDegrees = {-7.5f, 0.0f, 0.0f};
+    world.scene.GetNode(world.playerCameraNode).localTransform.rotationDegrees = {-5.0f, 0.0f, 0.0f};
     ri::scene::Camera camera{};
     camera.name = "CubeTest_PlayerCamera";
-    camera.fieldOfViewDegrees = 78.0f;
+    camera.fieldOfViewDegrees = 72.0f;
     camera.nearClip = 0.04f;
     camera.farClip = 160.0f;
     world.scene.AttachCamera(world.playerCameraNode, world.scene.AddCamera(camera));

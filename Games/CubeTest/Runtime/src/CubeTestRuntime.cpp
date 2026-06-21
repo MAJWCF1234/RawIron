@@ -84,9 +84,9 @@ struct PlayState {
     HWND hwnd = nullptr;
     bool mouseLook = false;
     POINT lastMouse{};
-    ri::math::Vec3 position{0.0f, 1.62f, -6.0f};
+    ri::math::Vec3 position{0.0f, 1.82f, -7.4f};
     float yawDegrees = 0.0f;
-    float pitchDegrees = -7.5f;
+    float pitchDegrees = -5.0f;
     std::chrono::steady_clock::time_point lastTick{};
 };
 
@@ -208,9 +208,9 @@ bool RunNativeLoop(const StandaloneOptions& options,
             frame.renderFogEnd = 96.0f;
             frame.renderFogStrength = 0.20f;
             frame.useEnvironmentClear = true;
-            frame.environmentClearTop = {0.58f, 0.66f, 0.72f};
-            frame.environmentClearBottom = {0.28f, 0.31f, 0.32f};
-            frame.nativeAmbientLight = {0.22f, 0.24f, 0.26f};
+            frame.environmentClearTop = {0.50f, 0.62f, 0.70f};
+            frame.environmentClearBottom = {0.30f, 0.34f, 0.34f};
+            frame.nativeAmbientLight = {0.34f, 0.36f, 0.34f};
 
             if (options.benchmarkFrames > 0 && ++frameCount >= options.benchmarkFrames && state.hwnd != nullptr) {
                 PostMessageW(state.hwnd, WM_CLOSE, 0, 0);

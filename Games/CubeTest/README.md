@@ -1,6 +1,6 @@
 # Cube Test
 
-Cube Test is a tiny RawIron game used to validate walking around a single fully mapped cube on a structural platform.
+Cube Test is a tiny RawIron game used to validate walking around fully mapped material samples on a structural platform.
 
 The cube and platform are authored as structural primitives with:
 
@@ -8,6 +8,10 @@ The cube and platform are authored as structural primitives with:
 - P-mesh: static simulation shape and physical material metadata.
 - Q-mesh: raycast, trace, placement, and interaction metadata.
 - I-layer: semantic role, relations, reporting ID, and SSG-style links.
+
+The main cube uses an LRT chiseled-quartz albedo/normal/spec set for normal and shadow readability. Smaller gold,
+copper, and iron samples give the renderer a quick specular/roughness comparison. The current LRT package does not
+ship separate height/depth maps, so this scene evaluates depth through geometry, shadows, and normal-map response.
 
 Run from the build output with:
 
