@@ -84,4 +84,10 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(VulkanHybridPostProcessSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanHybridPostProcessSafetySmoke.cpp)
   target_link_libraries(VulkanHybridPostProcessSafetySmoke PRIVATE RawIron::RenderVulkan)
   add_test(NAME RawIron.Render.Vulkan.HybridPostProcessSafetySmoke COMMAND VulkanHybridPostProcessSafetySmoke)
+  add_test(
+    NAME RawIron.Render.Vulkan.NativeScenePreviewDetailNormalSmoke
+    COMMAND ${CMAKE_COMMAND}
+      -DSHADER_PATH=${CMAKE_CURRENT_SOURCE_DIR}/shaders/NativeScenePreview.frag
+      -P ${CMAKE_SOURCE_DIR}/Tests/VerifyNativeScenePreviewDetailNormal.cmake
+  )
 endif()

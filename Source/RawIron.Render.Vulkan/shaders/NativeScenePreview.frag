@@ -303,16 +303,11 @@ mat3 CotangentFrame(vec3 n, vec3 positionWs, vec2 uv) {
     return mat3(tangent, bitangent, n);
 }
 
-vec3 ApplyNormalMap(vec3 baseNormal, vec2 uv, vec2 detailUv, bool blendDetailNormal) {
+vec3 ApplyNormalMap(vec3 baseNormal, vec2 uv) {
     vec3 tangentNormal = texture(normalTex, uv).xyz * 2.0 - 1.0;
     float tier = clamp(drawData.qualityTier, 0.0, 2.0);
     float normalStrength = mix(0.95, 1.22, tier * 0.5);
     tangentNormal.xy *= normalStrength;
-    if (blendDetailNormal) {
-        vec3 detailNormal = texture(detailTex, detailUv).xyz * 2.0 - 1.0;
-        detailNormal.xy *= 0.26 * normalStrength;
-        tangentNormal = normalize(vec3(tangentNormal.xy + detailNormal.xy, tangentNormal.z));
-    }
     tangentNormal = normalize(tangentNormal);
     mat3 tbn = CotangentFrame(normalize(baseNormal), worldPositionWs - cameraData.cameraWorldPosition.xyz, uv);
     return normalize(tbn * tangentNormal);
@@ -596,9 +591,7 @@ void main() {
             );
         }
         if (hasNormalMap) {
-            const bool blendDetailNormal =
-                (layeredStyle || mixedMediaStyle) && !metalLookupStyle && viewDistanceWs < 40.0;
-            normal = ApplyNormalMap(normal, uv, detailUv, blendDetailNormal);
+            normal = ApplyNormalMap(normal, uv);
         }
         if (hasOrmMap) {
             ormTexel = texture(ormTex, uv).rgb;
