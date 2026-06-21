@@ -1,0 +1,30 @@
+{
+  "id": "cube-test",
+  "name": "Cube Test",
+  "format": "rawiron-game-v1.3.7",
+  "type": "test-game",
+  "entry": "RawIron.CubeTestGame",
+  "runtimeContract": "rawiron-runtime-v1",
+  "runtimeModule": "RawIron.Game.CubeTest",
+  "runtimeHost": "RuntimeCore",
+  "runtimeServices": [
+    "lifecycle",
+    "paths",
+    "frame-clock"
+  ],
+  "version": "1.3.7",
+  "author": "RawIron Team",
+  "editorProjectArg": "--game=cube-test",
+  "primaryLevel": "levels/cube-test.primitives.csv",
+  "description": "Minimal first-person material and structural primitive test: walk around one fully mapped cube on a structural platform.",
+  "editorPreviewScene": "cube-test",
+  "controls": {
+    "move": "WASD",
+    "look": "Right mouse drag or arrow keys",
+    "sprint": "Shift",
+    "quit": "Esc"
+  },
+  "editorOpenArgs": [
+    "--game=cube-test"
+  ]
+}

@@ -19,6 +19,7 @@ option(RAWIRON_BUILD_PARTICLE_SHOWCASE "Build RawIron.ParticleShowcase" ON)
 option(RAWIRON_BUILD_LIMINAL_GAME "Build the Liminal Hall game application" ON)
 option(RAWIRON_BUILD_FOREST_RUINS_GAME "Build the Wilderness Ruins game application" ON)
 option(RAWIRON_BUILD_MULTIPLAYER_SANDBOX_GAME "Build the RawIron Multiplayer Sandbox game application" ON)
+option(RAWIRON_BUILD_CUBE_TEST_GAME "Build the Cube Test game application" ON)
 cmake_dependent_option(RAWIRON_EDITOR_LINK_LIMINAL
   "Link the Liminal Hall game module into the editor (registers editor preview id liminal-hall). Turn OFF for a shipping editor with no bundled games."
   ON
@@ -105,6 +106,10 @@ endif()
 
 if (RAWIRON_BUILD_MULTIPLAYER_SANDBOX_GAME)
   add_subdirectory(Games/RawIronMultiplayerSandbox)
+endif()
+
+if (RAWIRON_BUILD_CUBE_TEST_GAME)
+  add_subdirectory(Games/CubeTest)
 endif()
 
 if(RAWIRON_BUILD_LIMINAL_HALL_MODULE OR RAWIRON_BUILD_LIMINAL_GAME)

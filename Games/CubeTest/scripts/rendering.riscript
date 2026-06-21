@@ -1,0 +1,5 @@
+# Cube Test rendering script notes
+set render.quality cinematic
+set render.hybrid_hdr default_on
+set render.material_test "diamond full-map cube"
+set render.texture_policy "albedo normal spec detail through normal engine rendering"

@@ -1,0 +1,24 @@
+#pragma once
+
+#include "RawIron/Scene/Scene.h"
+#include "RawIron/Trace/TraceScene.h"
+
+#include <string_view>
+#include <vector>
+
+namespace ri::games::cubetest {
+
+struct CubeTestWorld {
+    ri::scene::Scene scene;
+    int rootNode = ri::scene::kInvalidHandle;
+    int platformNode = ri::scene::kInvalidHandle;
+    int cubeNode = ri::scene::kInvalidHandle;
+    int playerRig = ri::scene::kInvalidHandle;
+    int playerCameraNode = ri::scene::kInvalidHandle;
+    std::vector<ri::trace::TraceCollider> colliders;
+};
+
+[[nodiscard]] CubeTestWorld BuildCubeTestWorld(std::string_view sceneName = "Cube Test");
+void AnimateCubeTestWorld(CubeTestWorld& world, double elapsedSeconds);
+
+} // namespace ri::games::cubetest

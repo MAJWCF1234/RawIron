@@ -1,0 +1,5 @@
+# Cube Test gameplay script notes
+set game.id cube-test
+set player.spawn "0 1.62 -6"
+set player.controls "WASD move, Shift sprint, right mouse drag look, Esc quit"
+set structural.goal "validate M/P/Q/I primitive ownership on one cube and platform"

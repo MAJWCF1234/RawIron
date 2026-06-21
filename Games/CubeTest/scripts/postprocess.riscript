@@ -1,0 +1,4 @@
+# Cube Test postprocess notes
+set post.exposure 1.02
+set post.contrast 1.08
+set post.saturation 1.0
