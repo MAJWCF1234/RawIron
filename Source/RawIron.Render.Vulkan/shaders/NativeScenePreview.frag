@@ -363,6 +363,17 @@ vec3 ApplyColorGrade(vec3 color, float contrast, float saturation) {
     return (saturated - 0.5) * contrast + 0.5;
 }
 
+float Luma(vec3 color) {
+    return dot(color, vec3(0.2126, 0.7152, 0.0722));
+}
+
+float DecodeSpecGlossSmoothness(vec4 specGlossTexel) {
+    float rgbGloss = clamp(max(max(specGlossTexel.r, specGlossTexel.g), specGlossTexel.b), 0.0, 1.0);
+    float alphaGloss = clamp(specGlossTexel.a, 0.0, 1.0);
+    float alphaCarriesGloss = 1.0 - smoothstep(0.985, 0.999, alphaGloss);
+    return mix(rgbGloss, alphaGloss, alphaCarriesGloss);
+}
+
 float Hash11(float p) {
     return fract(sin(p * 91.3458) * 47453.5453);
 }
@@ -577,7 +588,7 @@ void main() {
     vec3 albedo = inColor.rgb;
     float sampledAlpha = 1.0;
     vec3 emissiveTexel = vec3(0.0);
-    vec3 ormTexel = vec3(1.0, roughness, drawData.metallic);
+    vec4 materialMapTexel = vec4(1.0, roughness, drawData.metallic, 1.0);
     vec3 metalLookupColor = vec3(1.0);
     float metalLookupAo = 1.0;
     if (drawData.useTexture != 0) {
@@ -594,7 +605,7 @@ void main() {
             normal = ApplyNormalMap(normal, uv);
         }
         if (hasOrmMap) {
-            ormTexel = texture(ormTex, uv).rgb;
+            materialMapTexel = texture(ormTex, uv);
         }
         emissiveTexel = texture(emissiveTex, uv).rgb;
         if (metalLookupStyle) {
@@ -748,15 +759,17 @@ void main() {
         metallic = clamp(max(drawData.metallic, 0.98), 0.0, 1.0);
         ao = clamp(mix(0.58, metalLookupAo, 0.72), 0.38, 1.0);
     } else if (specGlossWorkflow && hasOrmMap) {
-        float specStrength = clamp(max(max(ormTexel.r, ormTexel.g), ormTexel.b), 0.0, 1.0);
-        specColor = mix(vec3(0.04), clamp(ormTexel.rgb, 0.0, 1.0), specStrength);
-        roughness = clamp(mix(drawData.roughness, 1.0 - specStrength, 0.82), 0.04, 1.0);
-        metallic = clamp(max(drawData.metallic, specStrength * 0.35), 0.0, 1.0);
-        ao = clamp(0.78 + (1.0 - specStrength) * 0.22, 0.2, 1.0);
+        vec3 specTexel = clamp(materialMapTexel.rgb, 0.0, 1.0);
+        float specStrength = clamp(max(max(specTexel.r, specTexel.g), specTexel.b), 0.0, 1.0);
+        float smoothness = DecodeSpecGlossSmoothness(materialMapTexel);
+        metallic = clamp(drawData.metallic, 0.0, 1.0);
+        specColor = clamp(mix(vec3(0.04), specTexel, specStrength), vec3(0.0), vec3(mix(0.18, 1.0, metallic)));
+        roughness = clamp(mix(drawData.roughness, 1.0 - smoothness, 0.64), 0.055, 1.0);
+        ao = clamp(mix(1.0, 0.82 + (1.0 - Luma(specTexel)) * 0.18, 0.45), 0.62, 1.0);
     } else if (hasOrmMap) {
-        roughness = clamp(mix(drawData.roughness, ormTexel.g, 0.85), 0.04, 1.0);
-        metallic = clamp(mix(drawData.metallic, ormTexel.b, 0.85), 0.0, 1.0);
-        ao = clamp(ormTexel.r, 0.2, 1.0);
+        roughness = clamp(mix(drawData.roughness, materialMapTexel.g, 0.85), 0.04, 1.0);
+        metallic = clamp(mix(drawData.metallic, materialMapTexel.b, 0.85), 0.0, 1.0);
+        ao = clamp(materialMapTexel.r, 0.2, 1.0);
         specColor = mix(vec3(0.04), albedo, metallic);
     } else {
         // Flat material (albedo-only): honour the authored scalars instead of the
@@ -767,6 +780,10 @@ void main() {
         specColor = mix(vec3(0.04), albedo, metallic);
     }
     float normalVariance = clamp(length(fwidth(normal)), 0.0, 1.0);
+    float normalRelief = hasNormalMap ? clamp((1.0 - dot(normal, geomNormal)) * 2.6 + normalVariance * 0.55, 0.0, 1.0) : 0.0;
+    float microOcclusion = mix(1.0, mix(0.92, 0.78, tier * 0.5), normalRelief * (1.0 - metallic * 0.45));
+    float microSurfaceShadow = mix(1.0, mix(0.94, 0.84, tier * 0.5), normalRelief * (1.0 - metallic * 0.35));
+    ao = clamp(ao * microOcclusion, 0.18, 1.0);
     if (metalLookupStyle) {
         roughness = clamp(roughness + 0.06, 0.08, 1.0);
     } else {
@@ -797,7 +814,7 @@ void main() {
     float diffuseWrapFloor = foliageCard ? 0.14 : (layeredStyle ? mix(0.16, 0.24, tier * 0.5) : 0.14);
     float diffuseTerm = mix(max(nDotL, diffuseWrapFloor), nDotL, foliageCard ? 0.35 : (layeredStyle ? 0.62 : 0.75));
     vec3 diffuse = (kD * albedo / kPi) * diffuseTerm;
-    vec3 direct = (diffuse + (specular * max(nDotL, 0.0))) * lightColor * (foliageCard ? 1.02 : (metalLookupStyle ? 0.95 : 1.38)) * shadow;
+    vec3 direct = (diffuse + (specular * max(nDotL, 0.0))) * lightColor * (foliageCard ? 1.02 : (metalLookupStyle ? 0.95 : 1.38)) * shadow * microSurfaceShadow;
     vec3 ambientBoost = cameraData.presentationExtra.yzw;
     vec3 ambient = albedo * (vec3(0.08, 0.085, 0.09) + ambientBoost * 0.10) * (1.0 - metallic * 0.35);
     if (hybridHdrRadiance) {
