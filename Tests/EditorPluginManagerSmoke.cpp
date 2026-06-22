@@ -32,9 +32,11 @@ bool ContainsLine(const std::string& text, const std::string& line) {
 int main() {
     const fs::path root = fs::temp_directory_path() / "rawiron_editor_plugin_manager_smoke";
     const fs::path blockedRoot = fs::temp_directory_path() / "rawiron_editor_plugin_manager_blocked";
+    const fs::path freshRoot = fs::temp_directory_path() / "rawiron_editor_plugin_manager_fresh";
     std::error_code ec{};
     fs::remove_all(root, ec);
     fs::remove_all(blockedRoot, ec);
+    fs::remove_all(freshRoot, ec);
 
     WriteTextFile(root / "plugins" / "manifest.plugins",
                   "# plugin_id,version,category,entry\n"
@@ -91,6 +93,19 @@ int main() {
         return EXIT_FAILURE;
     }
     if (!ContainsLine(hooksAfterInstall, "runtime,rawiron.telemetry-lite,frame_sample,35")) {
+        return EXIT_FAILURE;
+    }
+
+    const ri::editor::PluginInstallResult freshInstall = ri::editor::InstallPluginStorePackage(freshRoot, package);
+    if (!freshInstall.success) {
+        return EXIT_FAILURE;
+    }
+    const std::string freshManifest = ReadTextFile(freshRoot / "plugins" / "manifest.plugins");
+    const std::string freshScript = ReadTextFile(freshRoot / "scripts" / "plugins.riscript");
+    if (!ContainsLine(freshManifest, "rawiron.telemetry-lite,1.0.0,telemetry,plugins/hooks.riplugin")) {
+        return EXIT_FAILURE;
+    }
+    if (!ContainsLine(freshScript, "plugin.rawiron.telemetry-lite.installed=1")) {
         return EXIT_FAILURE;
     }
 
@@ -193,6 +208,7 @@ int main() {
 
     fs::remove_all(root, ec);
     fs::remove_all(blockedRoot, ec);
+    fs::remove_all(freshRoot, ec);
     fs::remove_all(workspaceRoot, ec);
     return EXIT_SUCCESS;
 }
