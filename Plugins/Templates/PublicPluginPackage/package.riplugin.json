@@ -1,0 +1,37 @@
+{
+  "id": "example_public_plugin",
+  "name": "Example Public Plugin",
+  "version": "1.0.0",
+  "author": "RawIron Community",
+  "category": "utility",
+  "description": "Template package for public RawIron plugin/mod distribution.",
+  "tagLine": "Example plugin installed through the public RawIron plugin contract.",
+  "badge": "template",
+  "manifestLine": "example_public_plugin,1.0.0,utility,plugins/hooks.riplugin",
+  "hookGroup": "runtime.mod",
+  "loadOrder": 100,
+  "tags": [
+    "template",
+    "public-contract"
+  ],
+  "hooks": [
+    "runtime.mod=example_public_plugin"
+  ],
+  "extension": {
+    "id": "example_public_plugin",
+    "displayName": "Example Public Plugin",
+    "version": "1.0.0",
+    "kind": "plugin",
+    "scope": "shared",
+    "host": "runtime",
+    "entry": "plugins/hooks.riplugin",
+    "description": "Template extension metadata for a public RawIron plugin package.",
+    "capabilities": [
+      "runtime.mod"
+    ],
+    "tags": [
+      "template",
+      "public-contract"
+    ]
+  }
+}
