@@ -28,14 +28,17 @@ int main() {
 
     WriteTextFile(root / "plugins" / "manifest.plugins",
                   "legacy.telemetry,1.0,telemetry,plugins/hooks.riplugin\n"
+                  "template.runtime,1.0,utility,plugins/hooks.riplugin\n"
                   "external.tool,1.0,utility,https://example.invalid/external.plugin\n");
     WriteTextFile(root / "plugins" / "load_order.cfg",
                   "legacy.telemetry\n"
+                  "template.runtime=10\n"
                   "external.tool=20\n");
     WriteTextFile(root / "plugins" / "registry.json",
-                  "{ \"plugins\": [\"legacy.telemetry\", \"external.tool\"] }\n");
+                  "{ \"plugins\": [\"legacy.telemetry\", \"template.runtime\", \"external.tool\"] }\n");
     WriteTextFile(root / "plugins" / "hooks.riplugin",
                   "on_startup=legacy.telemetry\n"
+                  "on_runtime=template.runtime\n"
                   "runtime,external.tool,frame_sample,20\n");
     WriteTextFile(root / "config" / "plugins.policy",
                   "allow_unsigned_plugins=0\n"
@@ -44,16 +47,16 @@ int main() {
     WriteTextFile(root / "scripts" / "plugins.riscript", "plugin_hook_batch_size=4\n");
 
     const ri::content::PluginProjectData data = ri::content::LoadPluginProjectData(root);
-    if (!Expect(data.manifestEntries.size() == 2U)) {
+    if (!Expect(data.manifestEntries.size() == 3U)) {
         return EXIT_FAILURE;
     }
-    if (!Expect(data.registryEntries.size() == 2U)) {
+    if (!Expect(data.registryEntries.size() == 3U)) {
         return EXIT_FAILURE;
     }
-    if (!Expect(data.hookBindings.size() == 2U)) {
+    if (!Expect(data.hookBindings.size() == 3U)) {
         return EXIT_FAILURE;
     }
-    if (!Expect(data.activePlugins.size() == 1U)) {
+    if (!Expect(data.activePlugins.size() == 2U)) {
         return EXIT_FAILURE;
     }
     if (!Expect(data.activePlugins.front().manifest.id == "legacy.telemetry")) {
@@ -62,6 +65,7 @@ int main() {
 
     bool sawUnsignedPolicyIssue = false;
     bool sawLegacyBootstrap = false;
+    bool sawTemplateRuntime = false;
     bool sawBlockedManifest = false;
     for (const ri::content::PluginValidationIssue& issue : data.issues) {
         if (issue.message.find("Plugin blocked by policy: external.tool (unsigned plugins disabled)") != std::string::npos) {
@@ -72,6 +76,9 @@ int main() {
         if (hook.pluginId == "legacy.telemetry" && hook.hookPhase == "startup" && hook.eventName == "bootstrap") {
             sawLegacyBootstrap = true;
         }
+        if (hook.pluginId == "template.runtime" && hook.hookPhase == "runtime" && hook.eventName == "frame_sample") {
+            sawTemplateRuntime = true;
+        }
     }
     if (const ri::content::PluginManifestEntry* blocked = ri::content::FindPluginManifestEntry(data, "external.tool")) {
         sawBlockedManifest = blocked->blockedByPolicy
@@ -80,7 +87,8 @@ int main() {
     }
 
     fs::remove_all(root, ec);
-    if (!Expect(sawUnsignedPolicyIssue) || !Expect(sawLegacyBootstrap) || !Expect(sawBlockedManifest)) {
+    if (!Expect(sawUnsignedPolicyIssue) || !Expect(sawLegacyBootstrap) || !Expect(sawTemplateRuntime)
+        || !Expect(sawBlockedManifest)) {
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;
