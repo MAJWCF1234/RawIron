@@ -26,7 +26,7 @@ A public RawIron mod/plugin package should prefer this layout:
   plugins/
     manifest.plugins       plugin registry rows
     registry.json          enable/disable and metadata state
-    hooks.riplugin         hook group bindings
+    hooks.riplugin         executable hook aliases/bindings
     load_order.cfg         explicit ordering
 ```
 
@@ -53,6 +53,13 @@ RawIron should preserve the existing split:
 - `hooks.riplugin`: where they attach to runtime/editor/game hooks.
 - `load_order.cfg`: deterministic ordering when multiple plugins hook the same phase.
 
+Current public loader key/value hook aliases:
+
+- `on_startup=pluginId` maps to the `startup` hook phase and `bootstrap` event.
+- `on_runtime=pluginId` maps to the `runtime` hook phase and `frame_sample` event.
+
+Descriptor-style hook groups such as `runtime.mod` should remain in registry/package metadata until the public loader grows direct descriptor hook support. Internal RawIron exporters should emit currently executable aliases for public builds.
+
 This mirrors the useful parts of real-world systems: descriptor discovery, project-level enable/disable, dependency/ordering metadata, and content/code separation.
 
 ## Compatibility policy for internal RawIron
@@ -65,6 +72,7 @@ Internal RawIron may have richer metadata, but public export should normalize in
 - Avoid absolute paths and `..` path traversal.
 - Prefer `.ri_asset.json` entries for package manifest assets.
 - Put experimental fields under an `extensions` or `metadata` object so old public builds can ignore them.
+- Emit `on_startup`/`on_runtime` hook aliases for current public loader compatibility while preserving richer hook group metadata separately.
 
 ## Public parser policy
 
@@ -91,6 +99,7 @@ Forgiving:
 - Editor RGBA GDI blit now guards allocation/selection failures.
 - Plugin install now creates required folders before metadata writes to avoid partial installs.
 - Asset document parsing accepts common aliases such as `assetId`, `assetType`, `name`, `source`, and `metadata` while still serializing canonical public RawIron fields.
+- Public plugin package template now uses hook aliases that the current public loader actually resolves.
 
 ## Next recommended improvements
 
@@ -98,7 +107,8 @@ Forgiving:
 2. Add a `--plugin-package-validate` command that verifies manifest, registry, hooks, load order, safe paths, and dependencies.
 3. Teach `.ripak` extraction/import to find `package.ri_package.json` inside a single top-level folder wrapper.
 4. Add a mod load report that explains why each plugin was loaded, skipped, blocked by policy, or disabled.
-5. Add a compatibility export preset in internal RawIron: `Export Public Ripack v1`.
+5. Add direct descriptor hook support so `runtime.mod=pluginId` and similar hook groups can map into engine-owned hook phases intentionally instead of being treated as loose script authority.
+6. Add a compatibility export preset in internal RawIron: `Export Public Ripack v1`.
 
 ## Design line
 
