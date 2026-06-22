@@ -1,2 +1,4 @@
-# hookGroup=pluginId
-runtime.mod=example_public_plugin
+# key=value hook aliases supported by the public loader
+# on_startup=pluginId maps to startup/bootstrap
+# on_runtime=pluginId maps to runtime/frame_sample
+on_runtime=example_public_plugin
