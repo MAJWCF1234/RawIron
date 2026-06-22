@@ -1,0 +1,11 @@
+{
+  "plugins": [
+    {
+      "id": "example_public_plugin",
+      "enabled": true,
+      "hookGroup": "runtime.mod",
+      "description": "Template plugin registry entry for public RawIron.",
+      "author": "RawIron Community"
+    }
+  ]
+}
