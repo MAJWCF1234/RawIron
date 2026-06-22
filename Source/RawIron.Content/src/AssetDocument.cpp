@@ -2,8 +2,10 @@
 
 #include "RawIron/Core/Detail/JsonScan.h"
 
+#include <cctype>
 #include <initializer_list>
 #include <sstream>
+#include <string>
 #include <utility>
 
 namespace ri::content {
@@ -22,8 +24,19 @@ std::optional<std::string> ExtractFirstJsonString(std::string_view text,
     return std::nullopt;
 }
 
+std::string NormalizeReferenceKind(std::string_view kind) {
+    std::string normalized{};
+    normalized.reserve(kind.size());
+    for (const char ch : kind) {
+        const char lowered = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        normalized.push_back(lowered == '_' ? '-' : lowered);
+    }
+    return normalized;
+}
+
 bool IsSourceReferenceKind(std::string_view kind) {
-    return kind.empty() || kind == "source" || kind == "authoring-source" || kind == "import-source";
+    const std::string normalized = NormalizeReferenceKind(kind);
+    return normalized.empty() || normalized == "source" || normalized == "authoring-source" || normalized == "import-source";
 }
 
 } // namespace
