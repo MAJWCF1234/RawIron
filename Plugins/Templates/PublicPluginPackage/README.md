@@ -15,18 +15,17 @@ The public contract is intentionally simple:
 
 - stable plugin id
 - semantic version triplet
-- explicit hook group metadata
-- executable hook aliases in `plugins/hooks.riplugin`
+- explicit engine-owned hook group metadata
+- executable hook bindings in `plugins/hooks.riplugin`
 - deterministic load order
 - project-relative paths only
 - no private internal-engine assumptions
 
-Current public loader hook aliases:
+Current public hook bindings:
 
-- `on_startup=pluginId` maps to `startup` / `bootstrap`
-- `on_runtime=pluginId` maps to `runtime` / `frame_sample`
-
-The descriptor `hookGroup` remains useful metadata for the editor/store/exporter, but `plugins/hooks.riplugin` should use an executable alias the public loader can currently resolve.
+- `startup=pluginId` or `on_startup=pluginId` maps to `startup` / `bootstrap`
+- `runtime=pluginId` or `on_runtime=pluginId` maps to `runtime` / `frame_sample`
+- descriptor keys such as `runtime.mod=pluginId` are preserved as engine-owned hook phases with a default event
 
 ## Export checklist
 
@@ -35,8 +34,8 @@ Before an internal RawIron plugin/mod is exported for public RawIron:
 - Confirm package identity fields are stable: `id`, `name`, `version`, `author`, `category`.
 - Confirm `version` is a semantic triplet such as `1.0.0`.
 - Confirm every public path is project-relative.
-- Confirm hooks use current public aliases: `on_startup` or `on_runtime`.
-- Confirm richer internal hook groups are preserved as metadata, not as required execution keys.
+- Confirm hooks use current public bindings or descriptor hook groups.
+- Confirm richer internal hook groups are emitted as engine-owned hook phases, not private runtime ownership.
 - Confirm load order is deterministic.
 - Confirm the package can be disabled from `plugins/registry.json`.
 - Confirm scripts use public `.riscript` markers or stubs.
