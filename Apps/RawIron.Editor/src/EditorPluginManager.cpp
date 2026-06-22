@@ -325,6 +325,20 @@ PluginInstallResult InstallPluginStorePackage(const fs::path& gameRoot, const Pl
     const fs::path pluginsDir = gameRoot / "plugins";
     std::error_code ec{};
     fs::create_directories(pluginsDir, ec);
+    if (ec) {
+        result.message = "Failed to create plugins directory: " + pluginsDir.string();
+        return result;
+    }
+
+    const fs::path scriptsDir = gameRoot / "scripts";
+    if (!package.tagLine.empty()) {
+        ec.clear();
+        fs::create_directories(scriptsDir, ec);
+        if (ec) {
+            result.message = "Failed to create scripts directory: " + scriptsDir.string();
+            return result;
+        }
+    }
 
     const ri::content::PluginProjectData existing = ri::content::LoadPluginProjectData(gameRoot);
     if (IsPluginInstalled(existing, package.id)) {
@@ -378,7 +392,7 @@ PluginInstallResult InstallPluginStorePackage(const fs::path& gameRoot, const Pl
     }
 
     if (!package.tagLine.empty()) {
-        const fs::path scriptPath = gameRoot / "scripts" / "plugins.riscript";
+        const fs::path scriptPath = scriptsDir / "plugins.riscript";
         if (AppendLineIfMissing(scriptPath, "# " + package.id) == AppendLineResult::WriteFailed
             || AppendLineIfMissing(scriptPath, "plugin." + package.id + ".installed=1") == AppendLineResult::WriteFailed) {
             result.message = "Installed plugin metadata but failed to update scripts/plugins.riscript.";
