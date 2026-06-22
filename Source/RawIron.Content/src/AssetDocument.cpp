@@ -22,6 +22,10 @@ std::optional<std::string> ExtractFirstJsonString(std::string_view text,
     return std::nullopt;
 }
 
+bool IsSourceReferenceKind(std::string_view kind) {
+    return kind.empty() || kind == "source" || kind == "authoring-source" || kind == "import-source";
+}
+
 } // namespace
 
 std::string SerializeAssetDocument(const AssetDocument& document) {
@@ -71,9 +75,15 @@ std::optional<AssetDocument> ParseAssetDocument(std::string_view jsonText) {
         reference.kind = ExtractFirstJsonString(object, {"kind", "type"}).value_or("");
         reference.id = ExtractFirstJsonString(object, {"id", "assetId", "asset_id"}).value_or("");
         reference.path = ExtractFirstJsonString(object, {"path", "uri", "sourcePath", "source"}).value_or("");
+        if (out.sourcePath.empty() && !reference.path.empty() && IsSourceReferenceKind(reference.kind)) {
+            out.sourcePath = reference.path;
+        }
         out.references.push_back(std::move(reference));
     }
 
+    if (out.displayName.empty()) {
+        out.displayName = out.id;
+    }
     if (out.id.empty() || out.type.empty()) {
         return std::nullopt;
     }
