@@ -1,13 +1,16 @@
 #include "RawIron/Content/PluginProjectData.h"
 
+#include "RawIron/Content/PluginHookBindingParser.h"
 #include "RawIron/Content/PluginRuntime.h"
 #include "RawIron/Content/ScriptScalars.h"
 #include "RawIron/Core/Detail/JsonScan.h"
 
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <map>
 #include <sstream>
+#include <utility>
 
 namespace ri::content {
 
@@ -84,13 +87,6 @@ void AppendUniqueIssue(std::vector<PluginValidationIssue>& issues, const std::st
     const std::string fourth = NormalizePathToken(tokens[3]);
     return first == "plugin_id" || first == "id" || second == "version" || third == "category"
         || fourth == "entry" || fourth == "entrypath";
-}
-
-[[nodiscard]] bool LooksLikeHookHeader(const std::vector<std::string>& tokens) {
-    if (tokens.size() < 4U) {
-        return false;
-    }
-    return NormalizePathToken(tokens[0]) == "hook" || NormalizePathToken(tokens[0]) == "phase";
 }
 
 [[nodiscard]] PluginSourceKind ClassifyPluginSource(const PluginManifestEntry& entry) {
@@ -179,57 +175,6 @@ void LoadManifestPlugins(const fs::path& path, std::vector<PluginManifestEntry>&
             .version = tokens[1],
             .category = tokens[2],
             .entryPath = tokens[3],
-        });
-    }
-}
-
-void LoadHookBindings(const fs::path& path, std::vector<PluginHookBinding>& out) {
-    std::ifstream stream(path);
-    if (!stream.is_open()) {
-        return;
-    }
-    std::string line{};
-    while (std::getline(stream, line)) {
-        line = Trim(line);
-        if (line.empty() || line[0] == '#') {
-            continue;
-        }
-        const std::size_t equals = line.find('=');
-        if (equals != std::string::npos) {
-            const std::string key = NormalizePathToken(Trim(line.substr(0, equals)));
-            const std::string pluginId = Trim(line.substr(equals + 1U));
-            if (pluginId.empty()) {
-                continue;
-            }
-            if (key == "on_startup" || key == "startup") {
-                out.push_back(PluginHookBinding{
-                    .hookPhase = "startup",
-                    .pluginId = pluginId,
-                    .eventName = "bootstrap",
-                    .priority = 0,
-                });
-            } else if (key == "on_runtime" || key == "runtime") {
-                out.push_back(PluginHookBinding{
-                    .hookPhase = "runtime",
-                    .pluginId = pluginId,
-                    .eventName = "frame_sample",
-                    .priority = 0,
-                });
-            }
-            continue;
-        }
-        const std::vector<std::string> tokens = SplitCsvLine(line);
-        if (tokens.size() < 4U) {
-            continue;
-        }
-        if (LooksLikeHookHeader(tokens)) {
-            continue;
-        }
-        out.push_back(PluginHookBinding{
-            .hookPhase = tokens[0],
-            .pluginId = tokens[1],
-            .eventName = tokens[2],
-            .priority = ParseLoadOrderValue(tokens[3]),
         });
     }
 }
@@ -343,7 +288,7 @@ PluginProjectData LoadPluginProjectData(const fs::path& gameRoot) {
     data.gameRoot = gameRoot;
     LoadManifestPlugins(gameRoot / "plugins" / "manifest.plugins", data.manifestEntries);
     LoadRegistryJson(gameRoot / "plugins" / "registry.json", data.registryEntries);
-    LoadHookBindings(gameRoot / "plugins" / "hooks.riplugin", data.hookBindings);
+    data.hookBindings = LoadPluginHookBindings(gameRoot / "plugins" / "hooks.riplugin");
     data.policy = LoadPluginPolicy(gameRoot / "config" / "plugins.policy");
     data.tuningScalars = LoadScriptScalars(gameRoot / "scripts" / "plugins.riscript");
     ValidatePluginProjectDataInternal(data);
