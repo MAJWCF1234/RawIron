@@ -396,7 +396,16 @@ void EditorRenderer::BlitRgbaImage(HDC dc,
     }
 
     HDC memDc = CreateCompatibleDC(dc);
+    if (memDc == nullptr) {
+        DeleteObject(bitmap);
+        return;
+    }
     HGDIOBJ oldBitmap = SelectObject(memDc, bitmap);
+    if (oldBitmap == nullptr) {
+        DeleteDC(memDc);
+        DeleteObject(bitmap);
+        return;
+    }
     BLENDFUNCTION blend{};
     blend.BlendOp = AC_SRC_OVER;
     blend.SourceConstantAlpha = 255;
