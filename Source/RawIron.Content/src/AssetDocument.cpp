@@ -17,7 +17,8 @@ namespace {
 std::optional<std::string> ExtractFirstJsonString(std::string_view text,
                                                   std::initializer_list<std::string_view> keys) {
     for (const std::string_view key : keys) {
-        if (std::optional<std::string> value = detail_scan::ExtractJsonString(text, key)) {
+        if (std::optional<std::string> value = detail_scan::ExtractJsonString(text, key);
+            value.has_value() && !value->empty()) {
             return value;
         }
     }
