@@ -2,11 +2,26 @@
 
 #include "RawIron/Core/Detail/JsonScan.h"
 
+#include <initializer_list>
 #include <sstream>
 
 namespace ri::content {
 
 namespace detail_scan = ri::core::detail;
+
+namespace {
+
+std::optional<std::string> ExtractFirstJsonString(std::string_view text,
+                                                  std::initializer_list<std::string_view> keys) {
+    for (const std::string_view key : keys) {
+        if (std::optional<std::string> value = detail_scan::ExtractJsonString(text, key)) {
+            return value;
+        }
+    }
+    return std::nullopt;
+}
+
+} // namespace
 
 std::string SerializeAssetDocument(const AssetDocument& document) {
     std::ostringstream json;
@@ -38,21 +53,23 @@ std::string SerializeAssetDocument(const AssetDocument& document) {
 std::optional<AssetDocument> ParseAssetDocument(std::string_view jsonText) {
     AssetDocument out{};
     out.formatVersion = detail_scan::ExtractJsonInt(jsonText, "formatVersion").value_or(AssetDocument::kFormatVersion);
-    out.id = detail_scan::ExtractJsonString(jsonText, "id").value_or("");
-    out.type = detail_scan::ExtractJsonString(jsonText, "type").value_or("");
-    out.displayName = detail_scan::ExtractJsonString(jsonText, "displayName").value_or("");
-    out.sourcePath = detail_scan::ExtractJsonString(jsonText, "sourcePath").value_or("");
+    out.id = ExtractFirstJsonString(jsonText, {"id", "assetId", "asset_id"}).value_or("");
+    out.type = ExtractFirstJsonString(jsonText, {"type", "assetType", "asset_type", "kind"}).value_or("");
+    out.displayName = ExtractFirstJsonString(jsonText, {"displayName", "name", "title"}).value_or("");
+    out.sourcePath = ExtractFirstJsonString(jsonText, {"sourcePath", "source", "sourceUri", "sourceURI"}).value_or("");
     if (const std::optional<std::string_view> payload = detail_scan::ExtractJsonObject(jsonText, "payload")) {
         out.payloadJson = std::string(*payload);
+    } else if (const std::optional<std::string_view> metadata = detail_scan::ExtractJsonObject(jsonText, "metadata")) {
+        out.payloadJson = std::string(*metadata);
     }
 
     const std::vector<std::string_view> referenceObjects = detail_scan::SplitJsonArrayObjects(jsonText, "references");
     out.references.reserve(referenceObjects.size());
     for (const std::string_view object : referenceObjects) {
         AssetReference reference{};
-        reference.kind = detail_scan::ExtractJsonString(object, "kind").value_or("");
-        reference.id = detail_scan::ExtractJsonString(object, "id").value_or("");
-        reference.path = detail_scan::ExtractJsonString(object, "path").value_or("");
+        reference.kind = ExtractFirstJsonString(object, {"kind", "type"}).value_or("");
+        reference.id = ExtractFirstJsonString(object, {"id", "assetId", "asset_id"}).value_or("");
+        reference.path = ExtractFirstJsonString(object, {"path", "uri", "sourcePath", "source"}).value_or("");
         out.references.push_back(std::move(reference));
     }
 
@@ -75,4 +92,3 @@ bool SaveAssetDocument(const std::filesystem::path& path, const AssetDocument& d
 }
 
 } // namespace ri::content
-
