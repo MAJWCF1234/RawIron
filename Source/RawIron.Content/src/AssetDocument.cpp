@@ -36,7 +36,8 @@ std::string NormalizeReferenceKind(std::string_view kind) {
 
 bool IsSourceReferenceKind(std::string_view kind) {
     const std::string normalized = NormalizeReferenceKind(kind);
-    return normalized.empty() || normalized == "source" || normalized == "authoring-source" || normalized == "import-source";
+    return normalized.empty() || normalized == "source" || normalized == "source-path"
+        || normalized == "authoring-source" || normalized == "import-source";
 }
 
 } // namespace
@@ -74,7 +75,10 @@ std::optional<AssetDocument> ParseAssetDocument(std::string_view jsonText) {
     out.id = ExtractFirstJsonString(jsonText, {"id", "assetId", "asset_id"}).value_or("");
     out.type = ExtractFirstJsonString(jsonText, {"type", "assetType", "asset_type", "kind"}).value_or("");
     out.displayName = ExtractFirstJsonString(jsonText, {"displayName", "name", "title"}).value_or("");
-    out.sourcePath = ExtractFirstJsonString(jsonText, {"sourcePath", "source", "sourceUri", "sourceURI"}).value_or("");
+    out.sourcePath = ExtractFirstJsonString(
+        jsonText,
+        {"sourcePath", "source_path", "source", "sourceUri", "sourceURI", "sourceUrl", "sourceURL", "uri", "path"})
+                         .value_or("");
     if (const std::optional<std::string_view> payload = detail_scan::ExtractJsonObject(jsonText, "payload")) {
         out.payloadJson = std::string(*payload);
     } else if (const std::optional<std::string_view> metadata = detail_scan::ExtractJsonObject(jsonText, "metadata")) {
@@ -87,7 +91,7 @@ std::optional<AssetDocument> ParseAssetDocument(std::string_view jsonText) {
         AssetReference reference{};
         reference.kind = ExtractFirstJsonString(object, {"kind", "type"}).value_or("");
         reference.id = ExtractFirstJsonString(object, {"id", "assetId", "asset_id"}).value_or("");
-        reference.path = ExtractFirstJsonString(object, {"path", "uri", "sourcePath", "source"}).value_or("");
+        reference.path = ExtractFirstJsonString(object, {"path", "uri", "sourcePath", "source_path", "source"}).value_or("");
         if (out.sourcePath.empty() && !reference.path.empty() && IsSourceReferenceKind(reference.kind)) {
             out.sourcePath = reference.path;
         }
