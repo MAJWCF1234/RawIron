@@ -100,14 +100,28 @@ std::optional<std::string> ParseQuotedString(std::string_view text, std::size_t 
 }
 
 std::optional<std::size_t> FindJsonKey(std::string_view text, std::string_view key) {
-    const std::string needle = "\"" + std::string(key) + "\"";
-    std::size_t index = text.find(needle);
-    while (index != std::string_view::npos) {
-        const std::size_t cursor = SkipWhitespace(text, index + needle.size());
-        if (cursor < text.size() && text[cursor] == ':') {
+    std::size_t index = 0;
+    while (index < text.size()) {
+        index = SkipWhitespace(text, index);
+        if (index >= text.size()) {
+            break;
+        }
+        if (text[index] != '"') {
+            ++index;
+            continue;
+        }
+
+        std::size_t consumed = index;
+        const std::optional<std::string> parsedKey = ParseQuotedString(text, index, &consumed);
+        if (!parsedKey.has_value()) {
+            ++index;
+            continue;
+        }
+        const std::size_t cursor = SkipWhitespace(text, consumed);
+        if (*parsedKey == key && cursor < text.size() && text[cursor] == ':') {
             return cursor + 1U;
         }
-        index = text.find(needle, index + 1U);
+        index = consumed > index ? consumed : index + 1U;
     }
     return std::nullopt;
 }
