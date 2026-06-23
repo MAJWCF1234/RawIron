@@ -1,4 +1,4 @@
-# Fast Windows smoke: subset of targets + UiMenu headless + core/plugin contract smoke.
+# Fast Windows smoke: subset of targets + UiMenu headless + core/tool/plugin contract smoke.
 name: CI
 
 on:
@@ -39,13 +39,13 @@ jobs:
           arch: x64
 
       - name: Configure CMake (preset dev-msvc)
-        run: cmake --preset dev-msvc -DRAWIRON_BUILD_TESTS=ON
+        run: cmake --preset dev-msvc -DRAWIRON_BUILD_TESTS=ON -DRAWIRON_BUILD_TOOLS=ON
 
       - name: Build smoke targets (CI)
         shell: pwsh
         run: |
           cmake --build build/dev-msvc --config RelWithDebInfo --parallel `
-            --target RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame CommandLineSmoke FixedStepAccumulatorSmoke PluginProjectDataSmoke EditorPluginManagerSmoke
+            --target RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame ri_tool CommandLineSmoke FixedStepAccumulatorSmoke PluginProjectDataSmoke EditorPluginManagerSmoke
 
       - name: UiMenu headless smoke
         shell: pwsh
@@ -55,7 +55,7 @@ jobs:
           & $exe --workspace="${{ github.workspace }}" --headless
           if ($LASTEXITCODE -ne 0) { throw "UiMenu --headless exited $LASTEXITCODE" }
 
-      - name: Core and plugin contract smoke
+      - name: Core, CLI, and plugin contract smoke
         shell: pwsh
         run: |
-          ctest --test-dir build/dev-msvc -C RelWithDebInfo --output-on-failure -R "RawIron\.(Core\.(CommandLineSmoke|FixedStepAccumulatorSmoke)|Content\.PluginProjectDataSmoke|Editor\.PluginManagerSmoke)"
+          ctest --test-dir build/dev-msvc -C RelWithDebInfo --output-on-failure -R "RawIron\.(Core\.(CommandLineSmoke|FixedStepAccumulatorSmoke)|Tool\.(Formats|Workspace|ListProjects|DescribeProject|DoctorProject|ListProjectResources|SceneKitTargets)|Content\.PluginProjectDataSmoke|Editor\.PluginManagerSmoke)"
