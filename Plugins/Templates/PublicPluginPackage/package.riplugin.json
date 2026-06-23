@@ -15,7 +15,7 @@
     "public-contract"
   ],
   "hooks": [
-    "on_runtime=example_public_plugin"
+    "runtime.mod=example_public_plugin"
   ],
   "extension": {
     "id": "example_public_plugin",

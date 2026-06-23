@@ -1,4 +1,5 @@
-# key=value hook aliases supported by the public loader
-# on_startup=pluginId maps to startup/bootstrap
-# on_runtime=pluginId maps to runtime/frame_sample
-on_runtime=example_public_plugin
+# key=value hook bindings supported by the public hook parser
+# startup/on_startup map to startup/bootstrap
+# runtime/on_runtime map to runtime/frame_sample
+# descriptor hook groups are preserved as engine-owned hook phases
+runtime.mod=example_public_plugin

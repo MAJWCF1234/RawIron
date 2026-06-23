@@ -7,6 +7,7 @@ add_library(RawIron.Content
   src/GameManifest.cpp
   src/GameRuntimeSupport.cpp
   src/PipelineAssetInventory.cpp
+  src/PluginHookBindingParser.cpp
   src/PluginProjectData.cpp
   src/PluginRuntime.cpp
   src/PrefabExpansion.cpp
