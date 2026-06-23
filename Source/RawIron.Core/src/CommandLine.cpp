@@ -16,6 +16,10 @@ std::optional<int> ParseInt(std::string_view text) {
     return parsed;
 }
 
+bool LooksLikeLongOption(std::string_view text) {
+    return text.size() > 2U && text[0] == '-' && text[1] == '-';
+}
+
 } // namespace
 
 CommandLine::CommandLine(int argc, char** argv) {
@@ -52,7 +56,10 @@ std::optional<std::string> CommandLine::GetValue(std::string_view option) const 
         const std::string& arg = args_[index];
         if (arg == option) {
             if ((index + 1U) < args_.size()) {
-                return args_[index + 1U];
+                const std::string& value = args_[index + 1U];
+                if (!LooksLikeLongOption(value)) {
+                    return value;
+                }
             }
             return std::nullopt;
         }
