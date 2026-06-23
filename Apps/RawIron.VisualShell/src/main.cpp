@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
             game.has_value()) {
             const int result = RunRiToolThroughShell(buildRoot,
                                                      {
-                                                         "--doctor-project",
+                                                         "--doctor-project=" + *game,
                                                          "--game",
                                                          *game,
                                                          "--root",

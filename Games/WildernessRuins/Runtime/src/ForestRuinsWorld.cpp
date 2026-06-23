@@ -727,7 +727,6 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     const bool useExportedConiferMeshes = !exportedConiferMeshes.empty();
     const int botdVerticalBillboardMesh =
         useBotdForestTrees ? scene.AddMesh(MakeVerticalBillboardMesh(0.0f, 1.0f)) : ri::scene::kInvalidHandle;
-    const bool editorWorkspaceScene = sceneName.find("EditorWorkspace") != std::string_view::npos;
     const ri::content::ScriptScalarMap gameplay = ri::content::LoadScriptScalars(gameRoot / "scripts" / "gameplay.riscript");
 
     world.handles.root = scene.CreateNode("WildernessRuinsLayer");
@@ -809,10 +808,6 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     terrain.textureTiling = ri::math::Vec2{36.0f, 36.0f};
     terrain.resolutionX = 96;
     terrain.resolutionZ = 96;
-    if (editorWorkspaceScene) {
-        terrain.resolutionX = 160;
-        terrain.resolutionZ = 160;
-    }
     terrain.sizeX = 520.0f;
     terrain.sizeZ = 520.0f;
     terrain.heightAmplitude = 1.15f;

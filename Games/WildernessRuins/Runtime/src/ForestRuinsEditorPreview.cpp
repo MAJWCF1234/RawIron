@@ -30,11 +30,15 @@ void ApplyForestRuinsScenePreviewProfile(ri::render::software::ScenePreviewOptio
 namespace {
 
 ri::scene::StarterScene BuildHook(const std::string_view sceneName, const std::filesystem::path& gameRoot) {
-    return BuildForestRuinsEditorScene(sceneName, gameRoot);
+    (void)gameRoot;
+    ri::scene::StarterScene starterScene = ri::scene::BuildStarterScene(sceneName);
+    starterScene.scene.GetNode(starterScene.handles.root).name = "WildernessRuinsLayer";
+    starterScene.scene.GetNode(starterScene.handles.grid).name = "ForestAuthoringGrid";
+    return starterScene;
 }
 
 void AnimateHook(ri::scene::StarterScene& starterScene, const double elapsedSeconds) {
-    AnimateForestRuinsEditorScene(starterScene, elapsedSeconds);
+    ri::scene::AnimateStarterScene(starterScene, elapsedSeconds);
 }
 
 void ConfigureHook(ri::render::software::ScenePreviewOptions& options) {

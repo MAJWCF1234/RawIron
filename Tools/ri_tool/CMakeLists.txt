@@ -58,10 +58,12 @@ if (RAWIRON_BUILD_TESTS)
   file(TO_NATIVE_PATH "${PROJECT_SOURCE_DIR}/Games/RawIronMultiplayerSandbox" RAWIRON_TOOL_MPS_ROOT_NATIVE)
   set(rawiron_tool_projects_expected
     "Workspace root: ${RAWIRON_TOOL_WORKSPACE_ROOT_NATIVE}"
+    "project id=cube-test"
+    "project id=editor-ui-smoke"
     "project id=liminal-hall"
     "project id=rawiron-multiplayer-sandbox"
     "project id=wilderness-ruins"
-    "Project count: 3"
+    "Project count: 5"
   )
   set(rawiron_tool_describe_project_expected
     "Project id: rawiron-multiplayer-sandbox"
@@ -263,7 +265,7 @@ if (RAWIRON_BUILD_TESTS)
     NAME RawIron.Tool.DoctorProject
     COMMAND ${CMAKE_COMMAND}
       "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
-      "-DCOMMAND_ARGS=--doctor-project;--game;rawiron-multiplayer-sandbox;--root;${PROJECT_SOURCE_DIR}"
+      "-DCOMMAND_ARGS=--doctor-project=rawiron-multiplayer-sandbox;--game;rawiron-multiplayer-sandbox;--root;${PROJECT_SOURCE_DIR}"
       "-DEXPECTED_STRINGS=${rawiron_tool_doctor_project_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception;Doctor result: unhealthy"
       "${rawiron_tool_runtime_dll_arg}"

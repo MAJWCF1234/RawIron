@@ -121,7 +121,7 @@ if (RAWIRON_BUILD_TESTS)
     NAME RawIron.VisualShell.DoctorProject
     COMMAND ${CMAKE_COMMAND}
       "-DEXECUTABLE=$<TARGET_FILE:RawIron.VisualShell>"
-      "-DCOMMAND_ARGS=--doctor-project;rawiron-multiplayer-sandbox"
+      "-DCOMMAND_ARGS=--doctor-project=rawiron-multiplayer-sandbox"
       "-DEXPECTED_STRINGS=${rawiron_visual_shell_doctor_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception;Doctor result: unhealthy"
       "${rawiron_visual_shell_runtime_dll_arg}"

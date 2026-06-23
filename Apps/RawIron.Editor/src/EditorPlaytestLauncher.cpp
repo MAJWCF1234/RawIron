@@ -142,7 +142,7 @@ fs::path ResolveGenericPlaytestHostExecutable(const fs::path& buildRoot,
                                              const std::optional<std::string>& configuration) {
     static constexpr const char* kHostCandidates[] = {
         "Games/RawIronMultiplayerSandbox/App/RawIron.MultiplayerSandboxGame.exe",
-        "Games/WildernessRuins/App/RawIron.WildernessRuinsGame.exe",
+        "Games/WildernessRuins/App/RawIron.ForestRuinsGame.exe",
         "Games/LiminalHall/App/RawIron.LiminalHallGame.exe",
     };
     for (const char* relative : kHostCandidates) {
