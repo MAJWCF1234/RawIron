@@ -1,4 +1,4 @@
-# Fast Windows smoke: subset of targets + UiMenu headless + plugin contract smoke.
+# Fast Windows smoke: subset of targets + UiMenu headless + core/plugin contract smoke.
 name: CI
 
 on:
@@ -45,7 +45,7 @@ jobs:
         shell: pwsh
         run: |
           cmake --build build/dev-msvc --config RelWithDebInfo --parallel `
-            --target RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame PluginProjectDataSmoke EditorPluginManagerSmoke
+            --target RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame CommandLineSmoke PluginProjectDataSmoke EditorPluginManagerSmoke
 
       - name: UiMenu headless smoke
         shell: pwsh
@@ -55,7 +55,7 @@ jobs:
           & $exe --workspace="${{ github.workspace }}" --headless
           if ($LASTEXITCODE -ne 0) { throw "UiMenu --headless exited $LASTEXITCODE" }
 
-      - name: Plugin package contract smoke
+      - name: Core and plugin contract smoke
         shell: pwsh
         run: |
-          ctest --test-dir build/dev-msvc -C RelWithDebInfo --output-on-failure -R "RawIron\.(Content\.PluginProjectDataSmoke|Editor\.PluginManagerSmoke)"
+          ctest --test-dir build/dev-msvc -C RelWithDebInfo --output-on-failure -R "RawIron\.(Core\.CommandLineSmoke|Content\.PluginProjectDataSmoke|Editor\.PluginManagerSmoke)"
