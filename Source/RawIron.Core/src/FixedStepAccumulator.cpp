@@ -16,6 +16,9 @@ FixedStepAccumulator::FixedStepAccumulator(FixedStepConfig config)
     if (!std::isfinite(config_.maxFrameDeltaSeconds) || config_.maxFrameDeltaSeconds <= 0.0) {
         config_.maxFrameDeltaSeconds = config_.fixedDeltaSeconds * static_cast<double>(config_.maxCatchUpSteps);
     }
+    if (config_.maxFrameDeltaSeconds < config_.fixedDeltaSeconds) {
+        config_.maxFrameDeltaSeconds = config_.fixedDeltaSeconds;
+    }
 }
 
 void FixedStepAccumulator::Reset(double simulationTimeSeconds) noexcept {
