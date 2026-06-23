@@ -135,29 +135,33 @@ void CollectResourcesUnderTree(const fs::path& gameRoot,
                                std::vector<WorkspaceResourceEntry>& out) {
     std::error_code ec{};
     const fs::path base = gameRoot / subdir;
-    if (!fs::exists(base, ec)) {
+    const bool baseExists = fs::exists(base, ec);
+    if (ec || !baseExists) {
         return;
     }
     const fs::directory_options opts = fs::directory_options::skip_permission_denied;
     fs::recursive_directory_iterator end{};
-    for (fs::recursive_directory_iterator it(base, opts, ec); !ec && it != end; ++it) {
-        if (!it->is_regular_file()) {
+    fs::recursive_directory_iterator it(base, opts, ec);
+    while (!ec && it != end) {
+        std::error_code fileEc{};
+        if (!it->is_regular_file(fileEc) || fileEc) {
+            it.increment(ec);
             continue;
         }
         const fs::path abs = it->path();
         std::error_code relEc{};
         const fs::path rel = fs::relative(abs, gameRoot, relEc);
-        if (relEc) {
-            continue;
+        if (!relEc) {
+            const WorkspaceResourceCategory cat = (forcedCategory == WorkspaceResourceCategory::Other)
+                ? ClassifyRelativeGamePath(rel)
+                : forcedCategory;
+            out.push_back(WorkspaceResourceEntry{
+                .absolutePath = abs,
+                .relativePathUtf8 = rel.generic_string(),
+                .category = cat,
+            });
         }
-        const WorkspaceResourceCategory cat = (forcedCategory == WorkspaceResourceCategory::Other)
-            ? ClassifyRelativeGamePath(rel)
-            : forcedCategory;
-        out.push_back(WorkspaceResourceEntry{
-            .absolutePath = abs,
-            .relativePathUtf8 = rel.generic_string(),
-            .category = cat,
-        });
+        it.increment(ec);
     }
 }
 
