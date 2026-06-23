@@ -1,6 +1,7 @@
 #include "RawIron/Core/Detail/JsonScan.h"
 
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <limits>
@@ -10,6 +11,15 @@
 namespace ri::core::detail {
 
 namespace fs = std::filesystem;
+
+namespace {
+
+[[nodiscard]] bool IsJsonValueTerminator(std::string_view text, std::size_t index) {
+    index = SkipWhitespace(text, index);
+    return index >= text.size() || text[index] == ',' || text[index] == '}' || text[index] == ']';
+}
+
+} // namespace
 
 std::string ReadTextFile(const fs::path& path) {
     std::ifstream stream(path, std::ios::binary);
@@ -100,14 +110,28 @@ std::optional<std::string> ParseQuotedString(std::string_view text, std::size_t 
 }
 
 std::optional<std::size_t> FindJsonKey(std::string_view text, std::string_view key) {
-    const std::string needle = "\"" + std::string(key) + "\"";
-    std::size_t index = text.find(needle);
-    while (index != std::string_view::npos) {
-        const std::size_t cursor = SkipWhitespace(text, index + needle.size());
-        if (cursor < text.size() && text[cursor] == ':') {
+    std::size_t index = 0;
+    while (index < text.size()) {
+        index = SkipWhitespace(text, index);
+        if (index >= text.size()) {
+            break;
+        }
+        if (text[index] != '"') {
+            ++index;
+            continue;
+        }
+
+        std::size_t consumed = index;
+        const std::optional<std::string> parsedKey = ParseQuotedString(text, index, &consumed);
+        if (!parsedKey.has_value()) {
+            ++index;
+            continue;
+        }
+        const std::size_t cursor = SkipWhitespace(text, consumed);
+        if (*parsedKey == key && cursor < text.size() && text[cursor] == ':') {
             return cursor + 1U;
         }
-        index = text.find(needle, index + 1U);
+        index = consumed > index ? consumed : index + 1U;
     }
     return std::nullopt;
 }
@@ -163,10 +187,10 @@ std::optional<bool> ExtractJsonBool(std::string_view text, std::string_view key)
         return std::nullopt;
     }
     std::size_t cursor = SkipWhitespace(text, *valueIndex);
-    if (cursor + 4U <= text.size() && text.substr(cursor, 4) == "true") {
+    if (cursor + 4U <= text.size() && text.substr(cursor, 4) == "true" && IsJsonValueTerminator(text, cursor + 4U)) {
         return true;
     }
-    if (cursor + 5U <= text.size() && text.substr(cursor, 5) == "false") {
+    if (cursor + 5U <= text.size() && text.substr(cursor, 5) == "false" && IsJsonValueTerminator(text, cursor + 5U)) {
         return false;
     }
     return std::nullopt;
@@ -186,13 +210,23 @@ std::optional<std::int32_t> ExtractJsonInt(std::string_view text, std::string_vi
     if (cursor >= text.size() || !std::isdigit(static_cast<unsigned char>(text[cursor]))) {
         return std::nullopt;
     }
+
+    constexpr std::int64_t kMaxPositive = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max());
+    constexpr std::int64_t kMaxNegativeMagnitude = kMaxPositive + 1LL;
+    const std::int64_t limit = negative ? kMaxNegativeMagnitude : kMaxPositive;
     std::int64_t value = 0;
     while (cursor < text.size() && std::isdigit(static_cast<unsigned char>(text[cursor])) != 0) {
         value = value * 10 + static_cast<std::int64_t>(text[cursor] - '0');
         ++cursor;
-        if (value > 0x7FFFFFFFLL) {
+        if (value > limit) {
             return std::nullopt;
         }
+    }
+    if (!IsJsonValueTerminator(text, cursor)) {
+        return std::nullopt;
+    }
+    if (negative && value == kMaxNegativeMagnitude) {
+        return std::numeric_limits<std::int32_t>::min();
     }
     const std::int32_t narrowed = static_cast<std::int32_t>(negative ? -value : value);
     return narrowed;
@@ -202,16 +236,29 @@ namespace {
 
 [[nodiscard]] bool ScanJsonNumberToken(std::string_view text, std::size_t start, std::size_t* consumedOut, double* valueOut) {
     std::size_t index = start;
-    if (index < text.size() && (text[index] == '-' || text[index] == '+')) {
+    if (index < text.size() && text[index] == '-') {
         ++index;
     }
-    while (index < text.size() && std::isdigit(static_cast<unsigned char>(text[index])) != 0) {
-        ++index;
+
+    if (index >= text.size() || !std::isdigit(static_cast<unsigned char>(text[index]))) {
+        return false;
     }
-    if (index < text.size() && text[index] == '.') {
+    if (text[index] == '0') {
         ++index;
+    } else {
         while (index < text.size() && std::isdigit(static_cast<unsigned char>(text[index])) != 0) {
             ++index;
+        }
+    }
+
+    if (index < text.size() && text[index] == '.') {
+        ++index;
+        const std::size_t fractionalStart = index;
+        while (index < text.size() && std::isdigit(static_cast<unsigned char>(text[index])) != 0) {
+            ++index;
+        }
+        if (index == fractionalStart) {
+            return false;
         }
     }
     if (index < text.size() && (text[index] == 'e' || text[index] == 'E')) {
@@ -219,19 +266,23 @@ namespace {
         if (index < text.size() && (text[index] == '-' || text[index] == '+')) {
             ++index;
         }
+        const std::size_t exponentStart = index;
         while (index < text.size() && std::isdigit(static_cast<unsigned char>(text[index])) != 0) {
             ++index;
         }
+        if (index == exponentStart) {
+            return false;
+        }
     }
 
-    if (index == start) {
+    if (!IsJsonValueTerminator(text, index)) {
         return false;
     }
 
     std::string buffer(text.substr(start, index - start));
     char* parseEnd = nullptr;
     const double parsed = std::strtod(buffer.c_str(), &parseEnd);
-    if (parseEnd == buffer.c_str()) {
+    if (parseEnd == buffer.c_str() || parseEnd != buffer.c_str() + buffer.size()) {
         return false;
     }
     *valueOut = parsed;
@@ -331,6 +382,9 @@ std::optional<std::uint64_t> ExtractJsonUInt64(std::string_view text, std::strin
             return std::nullopt;
         }
         value = value * 10ULL + static_cast<std::uint64_t>(digit);
+    }
+    if (!IsJsonValueTerminator(text, cursor)) {
+        return std::nullopt;
     }
     return value;
 }
