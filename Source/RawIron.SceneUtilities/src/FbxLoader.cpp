@@ -8,15 +8,16 @@ int ImportFbxToScene(Scene& targetScene,
                      const std::filesystem::path& path,
                      const FbxImportOptions& options,
                      std::string& error) {
-    return ImportUfbxSceneFile(
-        targetScene,
-        path,
-        UfbxSceneImportOptions{
-            .parent = options.parent,
-            .wrapperNodeName = options.wrapperNodeName,
-            .fileFormat = UfbxSceneImportOptions::FileFormat::Fbx,
-        },
-        error);
+    const UfbxSceneImportOptions importOptions{
+        .parent = options.parent,
+        .wrapperNodeName = options.wrapperNodeName,
+        .fileFormat = UfbxSceneImportOptions::FileFormat::Fbx,
+    };
+#if defined(_WIN32)
+    return ImportUfbxSceneFileSeh(targetScene, path, importOptions, error);
+#else
+    return ImportUfbxSceneFile(targetScene, path, importOptions, error);
+#endif
 }
 
 } // namespace ri::scene

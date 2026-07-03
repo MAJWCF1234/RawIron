@@ -51,6 +51,7 @@ add_library(RawIron.SceneUtilities
   src/SceneSubtreeColliders.cpp
   src/SceneSubtreeHelpers.cpp
   src/TraceMeshRefinement.cpp
+  src/UfbxImportSehWin32.cpp
   src/WorkspaceSandbox.cpp
 )
 

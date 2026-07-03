@@ -52,6 +52,11 @@ if (WIN32)
   )
 endif()
 
+if(MSVC)
+  # Wilderness Ruins world build shares the same deep scene-builder stack frame as the game exe.
+  target_link_options(RawIron.Editor PRIVATE /STACK:67108864)
+endif()
+
 target_compile_features(RawIron.Editor PRIVATE cxx_std_20)
 
 rawiron_stage_runtime_dlls(RawIron.Editor)

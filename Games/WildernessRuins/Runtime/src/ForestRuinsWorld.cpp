@@ -941,6 +941,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
             ImportedModelOptions{
                 .sourcePath = sourcePath,
                 .nodeName = "Template_" + sourcePath.stem().string(),
+                .createPlaceholderOnFailure = true,
             },
             &importError);
     };
@@ -1493,6 +1494,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
         }
     };
 
+
     const int roadSegmentCount = sourcePackReady ? 10 : 27;
     const int roadCrackCount = sourcePackReady ? 6 : 42;
     const int floorShadowPatchCount = (sourcePackReady || useExportedConiferMeshes) ? 0 : 76;
@@ -1560,89 +1562,6 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                                     : ri::math::Vec3{0.43f, 0.42f, 0.36f},
                        "ruin-road-stone");
     }
-
-    auto addHeroRuinCluster = [&]() {
-        const ri::math::Vec3 stone{0.43f, 0.42f, 0.36f};
-        const ri::math::Vec3 darkStone{0.28f, 0.30f, 0.27f};
-        const ri::math::Vec3 moss{0.18f, 0.31f, 0.16f};
-
-        addBoxOnGround("RuinedGateway_LeftPier", -4.8f, 38.0f, {1.6f, 5.8f, 1.5f}, {0.0f, -4.0f, 0.0f}, stone, "hero-ruin-stone");
-        addBoxOnGround("RuinedGateway_RightPier", 4.6f, 37.2f, {1.5f, 4.7f, 1.5f}, {0.0f, 5.0f, 0.0f}, stone, "hero-ruin-stone");
-        addBoxOnGround("RuinedGateway_BrokenLintel", -0.8f, 37.7f, {8.4f, 1.0f, 1.2f}, {0.0f, 2.0f, -7.0f}, stone, "hero-ruin-stone");
-        addBoxOnGround("RuinedGateway_FallenLintel", 3.7f, 32.7f, {1.2f, 0.75f, 7.4f}, {0.0f, -32.0f, 10.0f}, darkStone, "hero-ruin-dark-stone");
-        addBoxOnGround("OvergrownFoundation_LeftWall", -8.8f, 22.0f, {1.1f, 2.4f, 15.5f}, {0.0f, 3.0f, 0.0f}, stone, "hero-ruin-stone");
-        addBoxOnGround("OvergrownFoundation_RightWall", 8.8f, 23.0f, {1.1f, 1.8f, 13.5f}, {0.0f, -6.0f, 0.0f}, stone, "hero-ruin-stone");
-        addBoxOnGround("OvergrownFoundation_BackWall", 0.0f, 14.0f, {16.2f, 2.2f, 1.1f}, {0.0f, 2.0f, 0.0f}, stone, "hero-ruin-stone");
-        addBoxOnGround("SunkenThreshold", 0.0f, 30.4f, {7.6f, 0.28f, 2.8f}, {0.0f, 0.0f, 0.0f}, darkStone, "hero-ruin-dark-stone");
-        addBoxOnGround("CrackedStep_1", 0.0f, 33.8f, {6.4f, 0.22f, 1.5f}, {0.0f, 1.5f, 0.0f}, darkStone, "hero-ruin-dark-stone");
-        addBoxOnGround("CrackedStep_2", -0.4f, 35.3f, {5.0f, 0.24f, 1.3f}, {0.0f, -2.0f, 0.0f}, darkStone, "hero-ruin-dark-stone");
-
-        for (int i = 0; i < heroRubbleCount; ++i) {
-            const float angle = static_cast<float>(i) * 37.0f;
-            const float radius = 5.0f + static_cast<float>((i * 5) % 7) * 0.95f;
-            const float x = std::sin(ri::math::DegreesToRadians(angle)) * radius;
-            const float z = 23.0f + (std::cos(ri::math::DegreesToRadians(angle)) * radius);
-            addBoxOnGround("RuinBlockRubble_" + std::to_string(i + 1),
-                           x,
-                           z,
-                           {0.75f + static_cast<float>(i % 3) * 0.18f,
-                            0.34f + static_cast<float>((i + 1) % 4) * 0.13f,
-                            0.7f + static_cast<float>((i + 2) % 4) * 0.16f},
-                           {static_cast<float>((i % 5) - 2) * 5.0f, angle, static_cast<float>((i % 7) - 3) * 3.0f},
-                           (i % 4 == 0) ? moss : stone,
-                           "hero-ruin-rubble");
-        }
-
-        const int mossCushionCount = sourcePackReady ? 4 : 11;
-        for (int i = 0; i < mossCushionCount; ++i) {
-            const float x = -6.0f + static_cast<float>(i) * 1.25f;
-            const float z = 27.0f + std::sin(static_cast<float>(i) * 1.7f) * 4.0f;
-            addPrimitive("MossCushion_" + std::to_string(i + 1),
-                         PrimitiveType::Sphere,
-                         ri::math::Vec3{x, sampleTerrainHeight(x, z) + 0.25f, z},
-                         {},
-                         {1.2f, 0.32f, 0.9f},
-                         moss,
-                         "moss-cushion",
-                         ShadingModel::Lit);
-        }
-
-        const auto heroImport = [&](const std::string& nodeName,
-                                    const fs::path& sourcePath,
-                                    const float x,
-                                    const float z,
-                                    const ri::math::Vec3& rotation,
-                                    const ri::math::Vec3& scale,
-                                    const float colliderRadius,
-                                    const float colliderHeight) {
-            const ri::math::Vec3 p = groundPoint(x, z);
-            addImported(nodeName, sourcePath, p, rotation, scale);
-            if (colliderRadius > 0.0f && colliderHeight > 0.0f) {
-                addCollider("hero-" + nodeName,
-                            {p.x - colliderRadius, p.y, p.z - colliderRadius},
-                            {p.x + colliderRadius, p.y + colliderHeight, p.z + colliderRadius});
-            }
-        };
-
-        heroImport("HeroBusStop_ClaimedByMoss", postApocRoot / "Bus_Stop_Rural" / "MS_Bus_Stop_Rural.fbx",
-                   -11.5f, 43.0f, {0.0f, 18.0f, 0.0f}, {4.4f, 4.4f, 4.4f}, 5.6f, 4.2f);
-        heroImport("HeroRoadEndsSign", postApocRoot / "Sign_Public_Road_Ends" / "MS_Sign_Public_Road_Ends.fbx",
-                   5.8f, 53.2f, {180.0f, -16.0f, 0.0f}, {3.3f, 3.3f, 3.3f}, 1.1f, 2.8f);
-        heroImport("HeroLightPoleLean", postApocRoot / "Pole_Light_Rural" / "MS_Pole_Light_Rural.fbx",
-                   -7.8f, 31.2f, {0.0f, 38.0f, -7.0f}, {3.5f, 3.5f, 3.5f}, 1.2f, 5.2f);
-        heroImport("HeroFireplaceTowerBack", postApocRoot / "Fireplace_Tower" / "MS_Fireplace_Tower.fbx",
-                   10.8f, 11.8f, {0.0f, -28.0f, 0.0f}, {3.6f, 3.6f, 3.6f}, 3.6f, 7.0f);
-        heroImport("HeroPlankPile", postApocRoot / "Planks" / "MS_Plank_Pile.fbx",
-                   -3.0f, 20.2f, {0.0f, 31.0f, 0.0f}, {3.2f, 3.2f, 3.2f}, 2.4f, 1.2f);
-        heroImport("HeroMailboxTilted", postApocRoot / "Mailbox" / "MS_Mailbox.fbx",
-                   7.4f, 45.4f, {0.0f, -24.0f, 9.0f}, {3.0f, 3.0f, 3.0f}, 0.9f, 1.7f);
-        heroImport("HeroControlBox", postApocRoot / "Control_Box" / "MS_Control_Box.fbx",
-                   -6.2f, 17.0f, {0.0f, 48.0f, 0.0f}, {2.7f, 2.7f, 2.7f}, 1.2f, 1.8f);
-        heroImport("HeroPalletRotting", postApocRoot / "Pallet" / "MS_Pallet.fbx",
-                   5.8f, 24.8f, {0.0f, -42.0f, 0.0f}, {3.1f, 3.1f, 3.1f}, 1.8f, 0.7f);
-    };
-
-    addHeroRuinCluster();
 
     {
         struct MaterialShowcaseSample {
@@ -1755,6 +1674,85 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                                  "ScatterConifer_" + std::to_string(i + 1));
         }
     }
+
+        const ri::math::Vec3 stone{0.43f, 0.42f, 0.36f};
+        const ri::math::Vec3 darkStone{0.28f, 0.30f, 0.27f};
+        const ri::math::Vec3 moss{0.18f, 0.31f, 0.16f};
+
+        addBoxOnGround("RuinedGateway_LeftPier", -4.8f, 38.0f, {1.6f, 5.8f, 1.5f}, {0.0f, -4.0f, 0.0f}, stone, "hero-ruin-stone");
+        addBoxOnGround("RuinedGateway_RightPier", 4.6f, 37.2f, {1.5f, 4.7f, 1.5f}, {0.0f, 5.0f, 0.0f}, stone, "hero-ruin-stone");
+        addBoxOnGround("RuinedGateway_BrokenLintel", -0.8f, 37.7f, {8.4f, 1.0f, 1.2f}, {0.0f, 2.0f, -7.0f}, stone, "hero-ruin-stone");
+        addBoxOnGround("RuinedGateway_FallenLintel", 3.7f, 32.7f, {1.2f, 0.75f, 7.4f}, {0.0f, -32.0f, 10.0f}, darkStone, "hero-ruin-dark-stone");
+        addBoxOnGround("OvergrownFoundation_LeftWall", -8.8f, 22.0f, {1.1f, 2.4f, 15.5f}, {0.0f, 3.0f, 0.0f}, stone, "hero-ruin-stone");
+        addBoxOnGround("OvergrownFoundation_RightWall", 8.8f, 23.0f, {1.1f, 1.8f, 13.5f}, {0.0f, -6.0f, 0.0f}, stone, "hero-ruin-stone");
+        addBoxOnGround("OvergrownFoundation_BackWall", 0.0f, 14.0f, {16.2f, 2.2f, 1.1f}, {0.0f, 2.0f, 0.0f}, stone, "hero-ruin-stone");
+        addBoxOnGround("SunkenThreshold", 0.0f, 30.4f, {7.6f, 0.28f, 2.8f}, {0.0f, 0.0f, 0.0f}, darkStone, "hero-ruin-dark-stone");
+        addBoxOnGround("CrackedStep_1", 0.0f, 33.8f, {6.4f, 0.22f, 1.5f}, {0.0f, 1.5f, 0.0f}, darkStone, "hero-ruin-dark-stone");
+        addBoxOnGround("CrackedStep_2", -0.4f, 35.3f, {5.0f, 0.24f, 1.3f}, {0.0f, -2.0f, 0.0f}, darkStone, "hero-ruin-dark-stone");
+
+        for (int i = 0; i < heroRubbleCount; ++i) {
+            const float angle = static_cast<float>(i) * 37.0f;
+            const float radius = 5.0f + static_cast<float>((i * 5) % 7) * 0.95f;
+            const float x = std::sin(ri::math::DegreesToRadians(angle)) * radius;
+            const float z = 23.0f + (std::cos(ri::math::DegreesToRadians(angle)) * radius);
+            addBoxOnGround("RuinBlockRubble_" + std::to_string(i + 1),
+                           x,
+                           z,
+                           {0.75f + static_cast<float>(i % 3) * 0.18f,
+                            0.34f + static_cast<float>((i + 1) % 4) * 0.13f,
+                            0.7f + static_cast<float>((i + 2) % 4) * 0.16f},
+                           {static_cast<float>((i % 5) - 2) * 5.0f, angle, static_cast<float>((i % 7) - 3) * 3.0f},
+                           (i % 4 == 0) ? moss : stone,
+                           "hero-ruin-rubble");
+        }
+
+        const int mossCushionCount = sourcePackReady ? 4 : 11;
+        for (int i = 0; i < mossCushionCount; ++i) {
+            const float x = -6.0f + static_cast<float>(i) * 1.25f;
+            const float z = 27.0f + std::sin(static_cast<float>(i) * 1.7f) * 4.0f;
+            addPrimitive("MossCushion_" + std::to_string(i + 1),
+                         PrimitiveType::Sphere,
+                         ri::math::Vec3{x, sampleTerrainHeight(x, z) + 0.25f, z},
+                         {},
+                         {1.2f, 0.32f, 0.9f},
+                         moss,
+                         "moss-cushion",
+                         ShadingModel::Lit);
+        }
+
+        const auto heroImport = [&](const std::string& nodeName,
+                                    const fs::path& sourcePath,
+                                    const float x,
+                                    const float z,
+                                    const ri::math::Vec3& rotation,
+                                    const ri::math::Vec3& scale,
+                                    const float colliderRadius,
+                                    const float colliderHeight) {
+            const ri::math::Vec3 p = groundPoint(x, z);
+            addImported(nodeName, sourcePath, p, rotation, scale);
+            if (colliderRadius > 0.0f && colliderHeight > 0.0f) {
+                addCollider("hero-" + nodeName,
+                            {p.x - colliderRadius, p.y, p.z - colliderRadius},
+                            {p.x + colliderRadius, p.y + colliderHeight, p.z + colliderRadius});
+            }
+        };
+
+        heroImport("HeroBusStop_ClaimedByMoss", postApocRoot / "Bus_Stop_Rural" / "MS_Bus_Stop_Rural.fbx",
+                   -11.5f, 43.0f, {0.0f, 18.0f, 0.0f}, {4.4f, 4.4f, 4.4f}, 5.6f, 4.2f);
+        heroImport("HeroRoadEndsSign", postApocRoot / "Sign_Public_Road_Ends" / "MS_Sign_Public_Road_Ends.fbx",
+                   5.8f, 53.2f, {180.0f, -16.0f, 0.0f}, {3.3f, 3.3f, 3.3f}, 1.1f, 2.8f);
+        heroImport("HeroLightPoleLean", postApocRoot / "Pole_Light_Rural" / "MS_Pole_Light_Rural.fbx",
+                   -7.8f, 31.2f, {0.0f, 38.0f, -7.0f}, {3.5f, 3.5f, 3.5f}, 1.2f, 5.2f);
+        heroImport("HeroFireplaceTowerBack", postApocRoot / "Fireplace_Tower" / "MS_Fireplace_Tower.fbx",
+                   10.8f, 11.8f, {0.0f, -28.0f, 0.0f}, {3.6f, 3.6f, 3.6f}, 3.6f, 7.0f);
+        heroImport("HeroPlankPile", postApocRoot / "Planks" / "MS_Plank_Pile.fbx",
+                   -3.0f, 20.2f, {0.0f, 31.0f, 0.0f}, {3.2f, 3.2f, 3.2f}, 2.4f, 1.2f);
+        heroImport("HeroMailboxTilted", postApocRoot / "Mailbox" / "MS_Mailbox.fbx",
+                   7.4f, 45.4f, {0.0f, -24.0f, 9.0f}, {3.0f, 3.0f, 3.0f}, 0.9f, 1.7f);
+        heroImport("HeroControlBox", postApocRoot / "Control_Box" / "MS_Control_Box.fbx",
+                   -6.2f, 17.0f, {0.0f, 48.0f, 0.0f}, {2.7f, 2.7f, 2.7f}, 1.2f, 1.8f);
+        heroImport("HeroPalletRotting", postApocRoot / "Pallet" / "MS_Pallet.fbx",
+                   5.8f, 24.8f, {0.0f, -42.0f, 0.0f}, {3.1f, 3.1f, 3.1f}, 1.8f, 0.7f);
 
     world.playerRig = scene.CreateNode("PlayerRig", world.handles.root);
     const float spawnGroundY = sampleTerrainHeight(guaranteedSpawn.x, guaranteedSpawn.z);

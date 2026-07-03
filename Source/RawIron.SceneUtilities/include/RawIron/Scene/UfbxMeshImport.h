@@ -25,4 +25,12 @@ int ImportUfbxSceneFile(Scene& targetScene,
                         const UfbxSceneImportOptions& options,
                         std::string& error);
 
+#if defined(_WIN32)
+/// Windows-only guard around `ImportUfbxSceneFile` so malformed FBX cannot terminate the process.
+int ImportUfbxSceneFileSeh(Scene& targetScene,
+                           const std::filesystem::path& path,
+                           const UfbxSceneImportOptions& options,
+                           std::string& error);
+#endif
+
 } // namespace ri::scene

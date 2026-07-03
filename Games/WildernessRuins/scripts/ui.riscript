@@ -13,5 +13,5 @@ show_objective_panel = 1
 crosshair_mode = 1
 crosshair_scale = 1.0
 hud_style_variant = 1
-runtime_ui_boot_flow = 1
+runtime_ui_boot_flow = 0
 runtime_ui_hotkeys_enabled = 1

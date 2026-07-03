@@ -191,6 +191,9 @@ if not exist "%~dp0ai\factions.cfg" (
 
 cd /d "%~dp0..\.."
 
+set "GAME_ROOT=%~dp0"
+if "%GAME_ROOT:~-1%"=="\" set "GAME_ROOT=%GAME_ROOT:~0,-1%"
+
 set "SCRIPTS=%CD%\Scripts"
 set "TARGET_EXE="
 call "%SCRIPTS%\Resolve-RawIronBinary.cmd" "Games\LiminalHall\App" "RawIron.LiminalGame.exe" TARGET_EXE "%CD%"
@@ -203,9 +206,10 @@ if not defined TARGET_EXE (
 if not defined TARGET_EXE goto :missing_liminal
 
 echo Launching %TARGET_EXE%
+set "CORE_ARGS=--game=liminal-hall --game-root=%GAME_ROOT% --workspace-root=%CD% --boot-ui=gameplay --renderer=vulkan"
 set "DEFAULT_ARGS="
-if "%~1"=="" set "DEFAULT_ARGS=--renderer=vulkan --width=2560 --height=1440"
-call "%SCRIPTS%\Launch-WithMsvcRuntime.cmd" "%TARGET_EXE%" %DEFAULT_ARGS% %*
+if "%~1"=="" set "DEFAULT_ARGS=--width=2560 --height=1440"
+call "%SCRIPTS%\Launch-WithMsvcRuntime.cmd" "%TARGET_EXE%" %CORE_ARGS% %DEFAULT_ARGS% %*
 if %errorlevel% equ 0 exit /b 0
 
 echo Could not launch RawIron.LiminalGame with Visual C++ runtime environment.

@@ -25,5 +25,5 @@ if not defined VCVARS if exist "C:\Program Files\Microsoft Visual Studio\2022\En
 if defined VCVARS call "%VCVARS%" >nul 2>nul
 
 shift
-start "" /wait "%EXE_PATH%" %*
+start "" /wait /d "%CD%" "%EXE_PATH%" %*
 exit /b %errorlevel%

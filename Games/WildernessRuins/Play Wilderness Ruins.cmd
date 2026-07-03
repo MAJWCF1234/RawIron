@@ -209,7 +209,7 @@ echo Launching %TARGET_EXE%
 echo Game root: %GAME_ROOT%
 echo Workspace: %CD%
 
-set "CORE_ARGS=--game=wilderness-ruins --game-root="%GAME_ROOT%" --workspace-root="%CD%" --renderer=vulkan"
+set "CORE_ARGS=--game=wilderness-ruins --game-root=%GAME_ROOT% --workspace-root=%CD% --renderer=vulkan --boot-ui=gameplay"
 set "DEFAULT_ARGS=--render-quality=balanced --width=1920 --height=1080"
 if not "%~1"=="" set "DEFAULT_ARGS="
 
