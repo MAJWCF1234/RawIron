@@ -1,6 +1,6 @@
 # Cube Test
 
-Cube Test is a tiny RawIron game used to validate walking around fully mapped material samples on a structural platform.
+Cube Test is a tiny RawIron game used to validate walking around fully mapped material samples on a structural platform, with **native Vulkan hybrid HDR** as the default interactive renderer.
 
 The cube and platform are authored as structural primitives with:
 
@@ -10,8 +10,10 @@ The cube and platform are authored as structural primitives with:
 - I-layer: semantic role, relations, reporting ID, and SSG-style links.
 
 The main cube uses an LRT chiseled-quartz albedo/normal/spec set for normal and shadow readability. Smaller gold,
-copper, and iron samples give the renderer a quick specular/roughness comparison. The current LRT package does not
-ship separate height/depth maps, so this scene evaluates depth through geometry, shadows, and normal-map response.
+copper, iron, and **crystal/glass (diamond block)** samples give the renderer a quick specular/roughness/transparency
+comparison. A **subtract portal brush** validates structural semantic roles in the render path. Four ring point lights
+stress-test hybrid HDR lighting. `levels/cube-test.primitives.csv` mirrors the runtime layout for editor round-trip.
+The editor registers `cube-test` as a bundled preview scene.
 
 Run from the build output with:
 

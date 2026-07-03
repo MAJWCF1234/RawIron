@@ -10,6 +10,9 @@
 #if defined(RAWIRON_EDITOR_BUNDLE_MULTIPLAYER_SANDBOX)
 #include "RawIron/Games/MultiplayerSandbox/MultiplayerSandboxEditorPreview.h"
 #endif
+#if defined(RAWIRON_EDITOR_BUNDLE_CUBE_TEST)
+#include "RawIron/Games/CubeTest/CubeTestEditorPreview.h"
+#endif
 
 #include <filesystem>
 
@@ -24,6 +27,9 @@ void RegisterBundledGameEditorPreviews() {
 #endif
 #if defined(RAWIRON_EDITOR_BUNDLE_MULTIPLAYER_SANDBOX)
     ri::games::multiplayersandbox::RegisterMultiplayerSandboxEditorPreview();
+#endif
+#if defined(RAWIRON_EDITOR_BUNDLE_CUBE_TEST)
+    ri::games::cubetest::RegisterCubeTestEditorPreview();
 #endif
 }
 

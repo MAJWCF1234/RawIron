@@ -1175,7 +1175,18 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
             &primitiveImportError);
     }
 
-    (void)scene.CreateNode("StructuralPrimitiveGallery", world.handles.root);
+    {
+        ri::scene::StructuralPrimitiveGalleryOptions galleryOptions{};
+        galleryOptions.parent = world.handles.root;
+        galleryOptions.nodeNamePrefix = "LiminalStructuralGallery";
+        galleryOptions.transform.position = {-52.0f, 0.0f, -8.0f};
+        galleryOptions.cellSpacing = {3.6f, 4.2f};
+        galleryOptions.itemScale = {1.5f, 1.5f, 1.5f};
+        galleryOptions.platformMargin = {3.5f, 0.0f, 3.5f};
+        galleryOptions.platformThickness = 0.45f;
+        galleryOptions.materialRows = ri::scene::BuildDefaultStructuralGalleryMaterials();
+        (void)ri::scene::SpawnStructuralPrimitiveGallery(scene, galleryOptions);
+    }
     {
         const ri::scene::StructuralAssemblySpawnResult structuralSpawn = ri::scene::SpawnStructuralAssemblyFromCsv(
             scene,
@@ -1185,6 +1196,135 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
                 .materialNamePrefix = "liminal_struct",
             });
         (void)structuralSpawn;
+    }
+
+    // Surreal mood landmarks — base positions must stay in sync with AnimateSceneMood().
+    auto addMoodLandmark = [&](const std::string& name,
+                               const PrimitiveType primitive,
+                               const ri::math::Vec3& position,
+                               const ri::math::Vec3& scale,
+                               const ri::math::Vec3& color,
+                               const ri::math::Vec3& emissive,
+                               const std::string& texture = "tile/RT_white_stained_glass.png") {
+        const int handle = addPrimitive(name,
+                                        primitive,
+                                        position,
+                                        scale,
+                                        color,
+                                        liminalPackageTexture(texture),
+                                        ri::math::Vec2{1.0f, 1.0f},
+                                        "liminal-mood-" + name,
+                                        ShadingModel::Unlit);
+        if (handle != ri::scene::kInvalidHandle && scene.GetNode(handle).material != ri::scene::kInvalidHandle) {
+            scene.GetMaterial(scene.GetNode(handle).material).emissiveColor = emissive;
+        }
+        return handle;
+    };
+    (void)addMoodLandmark("FractalGate",
+                          PrimitiveType::Cube,
+                          ri::math::Vec3{0.0f, 6.0f, 15.0f},
+                          ri::math::Vec3{4.0f, 6.0f, 0.5f},
+                          ri::math::Vec3{0.18f, 0.92f, 0.86f},
+                          ri::math::Vec3{0.22f, 0.78f, 0.72f},
+                          "tile/RT_cyan_glazed_terracotta.png");
+    (void)addMoodLandmark("CheckerObeliskLeft",
+                          PrimitiveType::Cube,
+                          ri::math::Vec3{-12.0f, 4.0f, 8.0f},
+                          ri::math::Vec3{2.0f, 8.0f, 2.0f},
+                          ri::math::Vec3{0.92f, 0.92f, 0.92f},
+                          ri::math::Vec3{0.08f, 0.08f, 0.08f},
+                          "tile/RT_black_concrete.png");
+    (void)addMoodLandmark("CheckerObeliskRight",
+                          PrimitiveType::Cube,
+                          ri::math::Vec3{12.0f, 4.0f, 8.0f},
+                          ri::math::Vec3{2.0f, 8.0f, 2.0f},
+                          ri::math::Vec3{0.08f, 0.08f, 0.08f},
+                          ri::math::Vec3{0.92f, 0.92f, 0.92f},
+                          "tile/RT_white_concrete.png");
+    (void)addMoodLandmark("PulsingBrainSphere",
+                          PrimitiveType::Sphere,
+                          ri::math::Vec3{25.0f, 15.0f, -20.0f},
+                          ri::math::Vec3{10.0f, 10.0f, 10.0f},
+                          ri::math::Vec3{0.72f, 0.18f, 0.42f},
+                          ri::math::Vec3{0.48f, 0.08f, 0.22f},
+                          "tile/RT_magenta_glazed_terracotta.png");
+    (void)addMoodLandmark("BrainHalo",
+                          PrimitiveType::Cube,
+                          ri::math::Vec3{25.0f, 15.0f, -20.0f},
+                          ri::math::Vec3{16.0f, 0.2f, 16.0f},
+                          ri::math::Vec3{0.86f, 0.32f, 0.58f},
+                          ri::math::Vec3{0.36f, 0.12f, 0.28f},
+                          "tile/RT_pink_stained_glass.png");
+    (void)addMoodLandmark("NeonSun",
+                          PrimitiveType::Sphere,
+                          ri::math::Vec3{0.0f, 30.0f, 80.0f},
+                          ri::math::Vec3{15.0f, 15.0f, 15.0f},
+                          ri::math::Vec3{1.0f, 0.82f, 0.22f},
+                          ri::math::Vec3{0.92f, 0.58f, 0.08f},
+                          "tile/RT_orange_glazed_terracotta.png");
+    (void)addMoodLandmark("NeonSunShell",
+                          PrimitiveType::Sphere,
+                          ri::math::Vec3{0.0f, 30.0f, 80.0f},
+                          ri::math::Vec3{18.0f, 18.0f, 18.0f},
+                          ri::math::Vec3{1.0f, 0.72f, 0.18f},
+                          ri::math::Vec3{0.42f, 0.24f, 0.04f},
+                          "tile/RT_yellow_stained_glass.png");
+    const int glitchPyramid =
+        addMoodLandmark("GlitchPyramid",
+                        PrimitiveType::Cube,
+                        ri::math::Vec3{-30.0f, 8.0f, 35.0f},
+                        ri::math::Vec3{6.0f, 6.0f, 6.0f},
+                        ri::math::Vec3{0.22f, 0.88f, 0.72f},
+                        ri::math::Vec3{0.14f, 0.52f, 0.44f},
+                        "tile/RT_lime_glazed_terracotta.png");
+    if (glitchPyramid != ri::scene::kInvalidHandle) {
+        scene.GetNode(glitchPyramid).localTransform.rotationDegrees = {0.0f, 45.0f, 45.0f};
+    }
+
+    auto addMoodLight = [&](const std::string& name,
+                            const ri::math::Vec3& position,
+                            const ri::math::Vec3& color,
+                            const float intensity,
+                            const float range) {
+        LightNodeOptions lightOptions{};
+        lightOptions.nodeName = name;
+        lightOptions.parent = world.handles.root;
+        lightOptions.transform.position = position;
+        lightOptions.light = Light{
+            .name = name,
+            .type = LightType::Point,
+            .color = color,
+            .intensity = intensity,
+            .range = range,
+        };
+        (void)AddLightNode(scene, lightOptions);
+    };
+    addMoodLight("GateLight", ri::math::Vec3{0.0f, 8.0f, 15.0f}, ri::math::Vec3{0.22f, 0.92f, 0.82f}, 14.0f, 28.0f);
+    addMoodLight("BrainLight", ri::math::Vec3{25.0f, 17.0f, -20.0f}, ri::math::Vec3{0.92f, 0.22f, 0.48f}, 16.0f, 36.0f);
+    addMoodLight("SunLight", ri::math::Vec3{0.0f, 32.0f, 80.0f}, ri::math::Vec3{1.0f, 0.78f, 0.28f}, 22.0f, 120.0f);
+
+    {
+        PrimitiveNodeOptions basinWater{};
+        basinWater.nodeName = "OuterBasinWater";
+        basinWater.parent = world.handles.root;
+        basinWater.primitive = PrimitiveType::Plane;
+        basinWater.materialName = "liminal-basin-water";
+        basinWater.transform.position = {0.0f, -1.35f, 6.0f};
+        basinWater.transform.rotationDegrees = {0.0f, 0.0f, 0.0f};
+        basinWater.transform.scale = {96.0f, 1.0f, 72.0f};
+        basinWater.baseColor = {0.08f, 0.24f, 0.34f};
+        basinWater.baseColorTexture = liminalPackageTexture("tile/RT_cyan_stained_glass.png");
+        basinWater.emissiveColor = {0.04f, 0.14f, 0.22f};
+        basinWater.textureTiling = {12.0f, 9.0f};
+        basinWater.shadingModel = ShadingModel::Lit;
+        basinWater.materialStyle = MaterialStyle::Crystal;
+        basinWater.materialWorkflow = MaterialWorkflow::SpecGloss;
+        basinWater.transparent = true;
+        basinWater.opacity = 0.68f;
+        basinWater.doubleSided = true;
+        basinWater.roughness = 0.08f;
+        basinWater.metallic = 0.02f;
+        (void)AddPrimitiveNode(scene, basinWater);
     }
 
     LightNodeOptions westFill{};

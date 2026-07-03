@@ -1,6 +1,7 @@
 add_library(RawIron.Game.CubeTest
   src/CubeTestRuntime.cpp
   src/CubeTestWorld.cpp
+  src/CubeTestEditorPreview.cpp
 )
 
 add_library(RawIron::Game.CubeTest ALIAS RawIron.Game.CubeTest)
@@ -18,6 +19,7 @@ target_link_libraries(RawIron.Game.CubeTest
     RawIron::RenderVulkan
     RawIron::SceneUtilities
     RawIron::Trace
+    RawIron::EditorPreview
 )
 
 if (WIN32)

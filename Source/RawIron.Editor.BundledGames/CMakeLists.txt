@@ -29,4 +29,9 @@ if(RAWIRON_BUILD_MULTIPLAYER_SANDBOX_GAME)
   target_link_libraries(RawIron.Editor.BundledGames PRIVATE RawIron::Game.MultiplayerSandbox)
 endif()
 
+if(RAWIRON_BUILD_CUBE_TEST_GAME)
+  target_compile_definitions(RawIron.Editor.BundledGames PRIVATE RAWIRON_EDITOR_BUNDLE_CUBE_TEST=1)
+  target_link_libraries(RawIron.Editor.BundledGames PRIVATE RawIron::Game.CubeTest)
+endif()
+
 target_compile_features(RawIron.Editor.BundledGames PUBLIC cxx_std_20)

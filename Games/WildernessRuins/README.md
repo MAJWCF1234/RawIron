@@ -14,7 +14,14 @@ Format contract: `rawiron-game-v1.3.7`
 
 ## Purpose
 
-Wilderness Ruins is the grounded outdoor counterpart to Liminal Hall. It uses the same shared engine and project contract while demonstrating a different authored atmosphere, movement space, and world presentation profile.
+Wilderness Ruins is the grounded outdoor counterpart to Liminal Hall. It uses the same shared engine and project contract while demonstrating procedural terrain, imported FBX/OBJ scatter, hero ruin clusters, and a **material showcase pad** east of spawn with six LRT PBR samples (oak, moss stone, gold, copper, prismarine, deepslate). The editor viewport now loads the full wilderness world instead of a generic starter grid.
+
+## Showcase highlights
+
+- **Procedural forest** — terrain, BOTD/exported conifers, rock and bush scatter, post-apocalypse ruin props along a winding path.
+- **Hero ruin cluster** — gateway, foundation walls, imported bus stop/sign/pole FBX heroes with moss-overgrown presentation.
+- **Material showcase pad** — labeled LRT tile samples with full albedo/normal/spec binding via `ApplyForestRuinsShowcaseMaterials`.
+- **Editor preview** — `BuildForestRuinsEditorScene` mirrors the playable world in the editor viewport.
 
 ## Open and run
 

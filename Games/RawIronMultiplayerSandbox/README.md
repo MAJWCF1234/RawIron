@@ -16,7 +16,7 @@ Format contract: `rawiron-game-v1.3.7`
 
 RawIron Multiplayer Sandbox is the in-repo multiplayer proving ground for dedicated, listen, hybrid, and client flows. It is also the engine trust lab for structural primitives, material styles, rendering diagnostics, and runtime-authored catalog scenes.
 
-The 3D scene boots into a wide structural primitive catalog. Each column is a shared engine primitive preset, and each row applies a different engine-owned material style so authors can inspect geometry, UVs, lighting response, emissive behavior, crystal/transparent materials, mixed-media materials, and layered rough/metallic surfaces without writing custom brush code in the game.
+The 3D scene boots into a wide structural primitive catalog with **showcase decor enabled** (accent beacons, cinematic frame, scrim walls). Each column is a shared engine primitive preset, and each row applies a different engine-owned material style so authors can inspect geometry, UVs, lighting response, emissive behavior, crystal/transparent materials, mixed-media materials, and layered rough/metallic surfaces without writing custom brush code in the game. **Net test markers** on the overlook deck highlight the multiplayer test environment.
 
 ## Open and run
 

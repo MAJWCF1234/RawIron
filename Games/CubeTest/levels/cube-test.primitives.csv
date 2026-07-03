@@ -1,0 +1,9 @@
+# Cube Test primitive assembly — mirrors the runtime M/P/Q/I showcase layout.
+# name,type,x,y,z,rx,ry,rz,sx,sy,sz,color_r,color_g,color_b,texture,tileX,tileY
+CubeTest_Platform,box,0,-0.12,0,0,0,0,16,0.24,16,0.62,0.66,0.62,,8,8
+CubeTest_MappedCube,box,0,1.1,0,0,28,0,2,2,2,1,1,1,tile/RT_chiseled_quartz_block.png,1,1
+CubeTest_GoldSpecSample,box,-3.35,0.55,1.85,0,-18,0,0.95,0.95,0.95,1,1,1,tile/rt2_gold_block.png,1,1
+CubeTest_CopperNormalSample,box,3.35,0.55,1.85,0,-18,0,0.95,0.95,0.95,1,1,1,tile/rt2_chiseled_copper.png,1,1
+CubeTest_IronRoughnessSample,box,0,0.45,3.85,0,-18,0,0.78,0.78,0.78,1,1,1,tile/rt2_iron_block.png,1,1
+CubeTest_CrystalGlassSample,box,-3.35,0.45,-2.15,0,-18,0,0.82,0.82,0.82,1,1,1,tile/rt2_diamond_block.png,1,1
+CubeTest_PortalBrush,box,4.8,1.35,-1.6,0,-24,0,1.4,2.6,0.22,0.72,0.88,0.96,,1,1

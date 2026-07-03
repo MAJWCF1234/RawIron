@@ -699,7 +699,7 @@ World BuildWorld(const std::string_view sceneName, const fs::path& gameRoot) {
                     10.0f,
                     48.0f);
 
-    const bool enableShowcaseDecor = false;
+    const bool enableShowcaseDecor = true;
     if (enableShowcaseDecor) {
         AddAccentBeacon(scene,
                         world.handles.root,
@@ -889,6 +889,59 @@ World BuildWorld(const std::string_view sceneName, const fs::path& gameRoot) {
                         ri::math::Vec3{0.78f, 0.90f, 1.0f},
                         10.0f,
                         58.0f);
+    }
+
+    {
+        const ri::math::Vec3 netMarkerColor{0.22f, 0.92f, 0.72f};
+        const std::array<ri::math::Vec3, 4> netMarkerPositions{
+            overlookCenter + ri::math::Vec3{-8.5f, 2.2f, -4.5f},
+            overlookCenter + ri::math::Vec3{8.5f, 2.2f, -4.5f},
+            overlookCenter + ri::math::Vec3{-8.5f, 2.2f, 4.5f},
+            overlookCenter + ri::math::Vec3{8.5f, 2.2f, 4.5f},
+        };
+        for (std::size_t index = 0; index < netMarkerPositions.size(); ++index) {
+            const std::string prefix = "SandboxNetMarker" + std::to_string(index + 1);
+            (void)AddCatalogPrimitive(scene,
+                                      world.handles.root,
+                                      prefix + "_Pillar",
+                                      PrimitiveType::Cube,
+                                      netMarkerPositions[index] + ri::math::Vec3{0.0f, -0.8f, 0.0f},
+                                      ri::math::Vec3{0.42f, 1.6f, 0.42f},
+                                      ri::math::Vec3{0.28f, 0.32f, 0.36f},
+                                      prefix + "_pillar_material",
+                                      "polished_blackstone.png",
+                                      ri::math::Vec2{1.0f, 1.0f});
+            const int beacon = AddCatalogPrimitive(scene,
+                                                   world.handles.root,
+                                                   prefix + "_Beacon",
+                                                   PrimitiveType::Cube,
+                                                   netMarkerPositions[index] + ri::math::Vec3{0.0f, 0.55f, 0.0f},
+                                                   ri::math::Vec3{0.55f, 0.55f, 0.55f},
+                                                   netMarkerColor,
+                                                   prefix + "_beacon_material",
+                                                   "sea_lantern.png",
+                                                   ri::math::Vec2{1.0f, 1.0f});
+            if (beacon != kInvalidHandle && scene.GetNode(beacon).material != kInvalidHandle) {
+                scene.GetMaterial(scene.GetNode(beacon).material).emissiveColor = netMarkerColor * 0.65f;
+            }
+            AddCatalogLight(scene,
+                            world.handles.root,
+                            prefix + "_Light",
+                            netMarkerPositions[index] + ri::math::Vec3{0.0f, 1.2f, 0.0f},
+                            netMarkerColor,
+                            8.0f,
+                            18.0f);
+        }
+        (void)AddCatalogPrimitive(scene,
+                                  world.handles.root,
+                                  "SandboxNetTestSign",
+                                  PrimitiveType::Cube,
+                                  overlookCenter + ri::math::Vec3{0.0f, 3.4f, -6.8f},
+                                  ri::math::Vec3{4.8f, 0.9f, 0.12f},
+                                  ri::math::Vec3{0.12f, 0.16f, 0.20f},
+                                  "sandbox_net_test_sign",
+                                  "polished_blackstone_bricks.png",
+                                  ri::math::Vec2{2.0f, 1.0f});
     }
 
     const ri::math::Vec3 playerEye{

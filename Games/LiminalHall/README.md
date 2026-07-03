@@ -14,7 +14,15 @@ Format contract: `rawiron-game-v1.3.7`
 
 ## Purpose
 
-Liminal Hall is the surreal in-repo exploration and runtime showcase project. It demonstrates authored world assembly, runtime-owned presentation, interaction hooks, project config ownership, and the shared game contract working inside a shippable game folder.
+Liminal Hall is the surreal in-repo exploration and runtime showcase project. It demonstrates authored structural primitives at monument scale, semantic CSV assembly, a compact structural primitive gallery, surreal mood landmarks, basin water presentation, runtime-owned Vulkan presentation, interaction hooks, project config ownership, and the shared game contract working inside a shippable game folder.
+
+## Showcase highlights
+
+- **Structural chamber** — `levels/assembly.structural.csv` drives the main hall with full semantic metadata (roles, regions, operations, M/P/Q/I channels).
+- **Primitive gallery** — west-side `LiminalStructuralGallery` spawned from engine structural presets with LRT material rows.
+- **Mood landmarks** — animated FractalGate, checker obelisks, brain sphere, neon sun, and glitch pyramid with matching point lights.
+- **Basin water** — translucent outer-basin plane under the structural floor for void/water presentation.
+- **Logic demo chain** — pressure plate, door, portal with LogicKit GLB visuals.
 
 ## Open and run
 

@@ -1,6 +1,7 @@
 #include "RawIron/Games/CubeTest/CubeTestWorld.h"
 
 #include "RawIron/Scene/Helpers.h"
+#include "RawIron/Scene/StructuralBrush.h"
 
 #include <cmath>
 #include <filesystem>
@@ -210,6 +211,53 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
                             ri::scene::StructuralBrushCollisionPolicy::Query,
                             ri::scene::StructuralBrushNavigationPolicy::Ignored);
 
+    world.crystalSampleNode = ri::scene::AddPrimitiveNode(
+        world.scene,
+        MaterialSampleOptions(world.rootNode,
+                              "CubeTest_CrystalGlassSample",
+                              "rt2_diamond_block",
+                              {-3.35f, 0.45f, -2.15f},
+                              {0.82f, 0.82f, 0.82f},
+                              0.08f,
+                              0.14f));
+    if (world.crystalSampleNode != ri::scene::kInvalidHandle) {
+        ri::scene::Material& crystalMaterial = world.scene.GetMaterial(world.scene.GetNode(world.crystalSampleNode).material);
+        crystalMaterial.materialStyle = ri::scene::MaterialStyle::Crystal;
+        crystalMaterial.transparent = true;
+        crystalMaterial.opacity = 0.62f;
+        crystalMaterial.doubleSided = true;
+        crystalMaterial.emissiveColor = {0.08f, 0.18f, 0.22f};
+        ApplyStructuralMetadata(world.scene.GetNode(world.crystalSampleNode),
+                                "cube-test-crystal-glass-sample",
+                                ri::scene::StructuralBrushSemanticRole::Decor,
+                                ri::scene::StructuralBrushCollisionPolicy::Query,
+                                ri::scene::StructuralBrushNavigationPolicy::Ignored);
+    }
+
+    {
+        ri::scene::StructuralBrushSpawnOptions portalBrush{};
+        portalBrush.nodeName = "CubeTest_PortalBrush";
+        portalBrush.parent = world.rootNode;
+        portalBrush.structuralType = "box";
+        portalBrush.transform.position = {4.8f, 1.35f, -1.6f};
+        portalBrush.transform.rotationDegrees = {0.0f, -24.0f, 0.0f};
+        portalBrush.transform.scale = {1.4f, 2.6f, 0.22f};
+        portalBrush.metadata.brushId = "cube-test-portal";
+        portalBrush.metadata.region = "cube-test-platform";
+        portalBrush.metadata.role = ri::scene::StructuralBrushSemanticRole::Portal;
+        portalBrush.metadata.operation = ri::scene::StructuralBrushOperation::Subtract;
+        portalBrush.metadata.collision = ri::scene::StructuralBrushCollisionPolicy::None;
+        portalBrush.metadata.visibility = ri::scene::StructuralBrushVisibilityPolicy::Portal;
+        portalBrush.metadata.navigation = ri::scene::StructuralBrushNavigationPolicy::Ignored;
+        portalBrush.metadata.rebuildScope = ri::scene::StructuralBrushRebuildScope::Local;
+        portalBrush.metadata.visualMesh.renderable = true;
+        portalBrush.metadata.queryMesh.raycastable = true;
+        portalBrush.metadata.queryMesh.traceable = false;
+        portalBrush.metadata.informationLayer.reportable = true;
+        portalBrush.metadata.informationLayer.gameplayMeaning = "Hybrid HDR portal subtract brush for render validation.";
+        world.portalBrushNode = ri::scene::AddStructuralBrushNode(world.scene, portalBrush);
+    }
+
     AddMarkerBox(world.scene,
                  world.rootNode,
                  "CubeTest_NorthTrim",
@@ -296,6 +344,24 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
     rim.light.range = 10.0f;
     ri::scene::AddLightNode(world.scene, rim);
 
+    for (const float angleDegrees : {0.0f, 90.0f, 180.0f, 270.0f}) {
+        const float radians = ri::math::DegreesToRadians(angleDegrees);
+        ri::scene::LightNodeOptions ring{};
+        ring.nodeName = "CubeTest_RenderRing_" + std::to_string(static_cast<int>(angleDegrees));
+        ring.parent = world.rootNode;
+        ring.transform.position = {
+            std::sin(radians) * 6.8f,
+            2.8f,
+            std::cos(radians) * 6.8f,
+        };
+        ring.light.name = ring.nodeName;
+        ring.light.type = ri::scene::LightType::Point;
+        ring.light.color = {0.72f, 0.86f, 1.0f};
+        ring.light.intensity = 0.85f;
+        ring.light.range = 8.5f;
+        ri::scene::AddLightNode(world.scene, ring);
+    }
+
     world.playerRig = world.scene.CreateNode("CubeTest_PlayerRig", world.rootNode);
     world.scene.GetNode(world.playerRig).localTransform.position = {0.0f, 1.82f, -7.4f};
     world.playerCameraNode = world.scene.CreateNode("CubeTest_PlayerCamera", world.playerRig);
@@ -363,6 +429,7 @@ void AnimateCubeTestWorldJiggle(CubeTestWorld& world, const double elapsedSecond
     };
     jiggleSample(world.goldSampleNode, 0.0f, 64.0f);
     jiggleSample(world.copperSampleNode, 1.7f, -58.0f);
+    jiggleSample(world.crystalSampleNode, 2.4f, 48.0f);
     if (world.ironSampleNode != ri::scene::kInvalidHandle) {
         ri::scene::Node& iron = world.scene.GetNode(world.ironSampleNode);
         iron.localTransform.rotationDegrees.y = static_cast<float>(elapsedSeconds * 38.0);

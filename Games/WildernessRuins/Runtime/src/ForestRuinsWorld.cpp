@@ -696,6 +696,80 @@ void ApplyForestRuinsShowcaseMaterials(ri::scene::Scene& scene, const fs::path& 
                             ri::math::Vec2{2.2f, 2.2f});
             continue;
         }
+        if (ContainsAny(key, {"material-showcase-pad", "material-showcase-label"})) {
+            setLayeredStone(material,
+                            material.baseColor,
+                            0.88f,
+                            "tile/RT_smooth_stone.png",
+                            "tile/RT_smooth_stone_n.png",
+                            "tile/RT_smooth_stone_s.png",
+                            ri::math::Vec2{2.0f, 2.0f});
+            continue;
+        }
+        if (ContainsAny(key, {"material-showcase-oak-planks"})) {
+            setLayeredStone(material,
+                            material.baseColor,
+                            0.74f,
+                            "tile/rt2_oak_planks.png",
+                            "tile/rt2_oak_planks_n.png",
+                            "tile/rt2_oak_planks_s.png",
+                            ri::math::Vec2{1.4f, 1.4f});
+            continue;
+        }
+        if (ContainsAny(key, {"material-showcase-moss-stone"})) {
+            setLayeredStone(material,
+                            material.baseColor,
+                            0.82f,
+                            "tile/RT_mossy_stone_bricks.png",
+                            "tile/RT_mossy_stone_bricks_n.png",
+                            "tile/RT_mossy_stone_bricks_s.png",
+                            ri::math::Vec2{1.6f, 1.6f});
+            continue;
+        }
+        if (ContainsAny(key, {"material-showcase-gold-block"})) {
+            setLayeredStone(material,
+                            material.baseColor,
+                            0.22f,
+                            "tile/rt2_gold_block.png",
+                            "tile/rt2_gold_block_n.png",
+                            "tile/rt2_gold_block_s.png",
+                            ri::math::Vec2{1.0f, 1.0f});
+            material.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
+            material.metallic = 0.92f;
+            continue;
+        }
+        if (ContainsAny(key, {"material-showcase-copper-block"})) {
+            setLayeredStone(material,
+                            material.baseColor,
+                            0.28f,
+                            "tile/rt2_copper_block.png",
+                            "tile/rt2_copper_block_n.png",
+                            "tile/rt2_copper_block_s.png",
+                            ri::math::Vec2{1.0f, 1.0f});
+            material.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
+            material.metallic = 0.88f;
+            continue;
+        }
+        if (ContainsAny(key, {"material-showcase-prismarine"})) {
+            setLayeredStone(material,
+                            material.baseColor,
+                            0.52f,
+                            "tile/rt2_prismarine_bricks.png",
+                            "tile/rt2_prismarine_bricks_n.png",
+                            "tile/rt2_prismarine_bricks_s.png",
+                            ri::math::Vec2{1.4f, 1.4f});
+            continue;
+        }
+        if (ContainsAny(key, {"material-showcase-deepslate"})) {
+            setLayeredStone(material,
+                            material.baseColor,
+                            0.66f,
+                            "tile/rt2_deepslate_tiles.png",
+                            "tile/rt2_deepslate_tiles_n.png",
+                            "tile/rt2_deepslate_tiles_s.png",
+                            ri::math::Vec2{1.5f, 1.5f});
+            continue;
+        }
         if (ContainsAny(key, {"moss-cushion"})) {
             setLayeredStone(material,
                             material.baseColor,
@@ -1569,6 +1643,47 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     };
 
     addHeroRuinCluster();
+
+    {
+        struct MaterialShowcaseSample {
+            std::string name;
+            std::string materialKey;
+            float x;
+            float z;
+            ri::math::Vec3 color;
+        };
+        const std::array<MaterialShowcaseSample, 6> samples{{
+            {"MaterialShowcase_OakPlanks", "material-showcase-oak-planks", 12.0f, 68.0f, {0.86f, 0.70f, 0.46f}},
+            {"MaterialShowcase_MossStone", "material-showcase-moss-stone", 14.5f, 68.0f, {0.52f, 0.56f, 0.48f}},
+            {"MaterialShowcase_GoldBlock", "material-showcase-gold-block", 17.0f, 68.0f, {1.0f, 0.84f, 0.36f}},
+            {"MaterialShowcase_CopperBlock", "material-showcase-copper-block", 19.5f, 68.0f, {0.94f, 0.58f, 0.42f}},
+            {"MaterialShowcase_Prismarine", "material-showcase-prismarine", 22.0f, 68.0f, {0.55f, 0.82f, 0.78f}},
+            {"MaterialShowcase_Deepslate", "material-showcase-deepslate", 24.5f, 68.0f, {0.55f, 0.56f, 0.60f}},
+        }};
+        addBoxOnGround("MaterialShowcase_Pad",
+                       18.0f,
+                       64.5f,
+                       {16.0f, 0.12f, 4.8f},
+                       {0.0f, 0.0f, 0.0f},
+                       {0.34f, 0.36f, 0.32f},
+                       "material-showcase-pad");
+        for (const MaterialShowcaseSample& sample : samples) {
+            addBoxOnGround(sample.name,
+                           sample.x,
+                           sample.z,
+                           {1.05f, 1.05f, 1.05f},
+                           {0.0f, static_cast<float>((sample.x + sample.z) * 3.0f), 0.0f},
+                           sample.color,
+                           sample.materialKey);
+        }
+        addBoxOnGround("MaterialShowcase_LabelPost",
+                       10.5f,
+                       64.5f,
+                       {0.18f, 2.4f, 0.18f},
+                       {0.0f, 0.0f, 0.0f},
+                       {0.72f, 0.74f, 0.68f},
+                       "material-showcase-label");
+    }
 
     spawnScatter(ruinAssets, ruinCount, true);
     spawnScatter(rockAssets, rockCount, false);

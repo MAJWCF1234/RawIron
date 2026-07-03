@@ -16,6 +16,8 @@ struct CubeTestWorld {
     int goldSampleNode = ri::scene::kInvalidHandle;
     int copperSampleNode = ri::scene::kInvalidHandle;
     int ironSampleNode = ri::scene::kInvalidHandle;
+    int crystalSampleNode = ri::scene::kInvalidHandle;
+    int portalBrushNode = ri::scene::kInvalidHandle;
     int playerRig = ri::scene::kInvalidHandle;
     int playerCameraNode = ri::scene::kInvalidHandle;
     std::vector<ri::trace::TraceCollider> colliders;
