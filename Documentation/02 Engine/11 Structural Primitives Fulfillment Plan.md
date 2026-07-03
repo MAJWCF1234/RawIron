@@ -32,6 +32,12 @@ The first foundation is in place:
 - Semantic structural partition entries carry compact metadata signatures for cheap diagnostics and cache comparisons.
 - Semantic structural partition keeps a compact metadata-signature lookup table for duplicate/diagnostic tooling.
 - Semantic structural partition keeps a region lookup table as a stepping stone toward per-region partitions and dirty-region rebuilds.
+- Semantic structural partition is a partition family: one spatial subpartition per authored region plus a regionless bucket, all sharing the authored entry list.
+- Region-scoped queries resolve against the region's own subpartition instead of walking every tree; metrics report how many queries were region-scoped.
+- Partition rebuilds keep the spatial tree of any subpartition whose content (ids, bounds, order) is unchanged, so a single brush edit re-splits only the affected region; metrics report reused vs rebuilt subpartitions per rebuild.
+- Metadata-only edits (roles, policies, channels) never force a spatial re-split because tree content signatures cover only ids and bounds.
+- The partition cache rebuilds in place, so cache-driven refreshes inherit subpartition reuse.
+- Partition metrics report matched-versus-scanned candidate counts for box and ray queries so semantic filter savings are measurable.
 - Partition queries support role, region, operation, rebuild scope, M/P/Q/I channel, and query purpose.
 - Partition metrics expose entry counts, metadata signature uniqueness, query counts, candidate scans, role counts, operation counts, rebuild counts, channel counts, and query-purpose counts.
 - Scene subtree collider generation can respect structural collision policy, Q-mesh participation, and query purpose.
@@ -79,16 +85,18 @@ Exit criteria:
 
 ### Phase 2: Make Semantic BSP a Real Partition Family
 
-- Keep `BspSpatialIndex` as the first broad-phase implementation, but wrap it behind partition-specific builders.
-- Add per-region subpartitions for large authored areas.
-- Add dirty-region rebuild tracking for geometry and dependency edits.
-- Add candidate-count diagnostics comparing unfiltered BSP queries with semantic-filtered queries.
-- Add configurable split policy experiments only after candidate metrics justify them.
+- [x] Keep `BspSpatialIndex` as the first broad-phase implementation, but wrap it behind partition-specific builders (per-region `RegionSubpartition` builders inside `SemanticStructuralPartition::Rebuild`).
+- [x] Add per-region subpartitions for large authored areas (one spatial tree per authored region plus a regionless bucket; region-scoped queries touch only their own tree).
+- [x] Add dirty-region rebuild tracking for geometry and dependency edits (content signatures over ids/bounds keep unchanged trees on rebuild; `lastRebuildSubpartitionsReused` / `lastRebuildSubpartitionsRebuilt` expose locality).
+- [x] Add candidate-count diagnostics comparing unfiltered BSP queries with semantic-filtered queries (`boxCandidatesMatched` / `rayCandidatesMatched` vs `boxCandidatesScanned` / `rayCandidatesScanned`).
+- [ ] Add configurable split policy experiments only after candidate metrics justify them.
 
 Exit criteria:
 
-- Trace, visibility, edit, semantic, and render feeds can share authored structural ownership without sharing one overloaded tree.
-- A single brush edit identifies affected partitions without a full-scene rebuild by default.
+- Trace, visibility, edit, semantic, and render feeds can share authored structural ownership without sharing one overloaded tree. — Met for semantic queries: each region owns its tree and the regionless bucket is isolated.
+- A single brush edit identifies affected partitions without a full-scene rebuild by default. — Met: moving one brush re-splits only its region's subpartition (covered in `SemanticStructuralPartitionSmoke`).
+
+Result (2026-07-03): Phase 2 landed. `SemanticStructuralPartition` now builds a family of per-region subpartitions with content-signature reuse, region-scoped query routing, and matched-vs-scanned metrics; the cache rebuilds in place to inherit reuse. Next recommended step: Phase 3 — route a real movement or ballistics consumer through the structural trace feed with early semantic filtering and report candidate savings.
 
 ### Phase 3: Feed Performance-Critical Systems
 

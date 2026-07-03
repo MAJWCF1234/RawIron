@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 #include <string_view>
 #include <unordered_set>
@@ -33,6 +34,22 @@ void HashString(std::uint64_t& hash, const std::string_view value) {
         HashByte(hash, c);
     }
     HashByte(hash, 0xffU);
+}
+
+void HashFloat(std::uint64_t& hash, const float value) {
+    std::uint32_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(value));
+    std::memcpy(&bits, &value, sizeof(bits));
+    HashUint(hash, bits);
+}
+
+void HashAabb(std::uint64_t& hash, const ri::spatial::Aabb& bounds) {
+    HashFloat(hash, bounds.min.x);
+    HashFloat(hash, bounds.min.y);
+    HashFloat(hash, bounds.min.z);
+    HashFloat(hash, bounds.max.x);
+    HashFloat(hash, bounds.max.y);
+    HashFloat(hash, bounds.max.z);
 }
 
 [[nodiscard]] std::uint64_t ComputeSemanticStructuralSceneSignature(const Scene& scene) {
@@ -183,31 +200,138 @@ void SemanticStructuralPartition::Rebuild(std::vector<SemanticStructuralPartitio
         entry.metadataSignature = StructuralBrushMetadataSignature(entry.metadata);
     }
     RebuildSideTables();
+    RebuildSubpartitions(indexOptions);
+}
 
-    std::vector<ri::spatial::SpatialEntry> spatialEntries;
-    spatialEntries.reserve(entries_.size());
-    for (const SemanticStructuralPartitionEntry& entry : entries_) {
-        spatialEntries.push_back(ri::spatial::SpatialEntry{
-            .id = entry.id,
-            .bounds = entry.bounds,
+void SemanticStructuralPartition::RebuildSubpartitions(const ri::spatial::SpatialIndexOptions indexOptions) {
+    const bool optionsChanged = indexOptions.maxLeafSize != indexOptions_.maxLeafSize
+        || indexOptions.maxDepth != indexOptions_.maxDepth;
+    indexOptions_ = indexOptions;
+
+    // Group entries by authored region; regionless entries share the "" bucket. Group order follows
+    // first appearance so subpartition-local entry order is deterministic.
+    std::vector<RegionSubpartition> next;
+    std::unordered_map<std::string, std::size_t, detail::TransparentStringHash, std::equal_to<>> nextIndexByRegion;
+    for (std::size_t index = 0; index < entries_.size(); ++index) {
+        const std::string& region = entries_[index].metadata.region;
+        const auto found = nextIndexByRegion.find(std::string_view{region});
+        std::size_t subpartitionIndex;
+        if (found != nextIndexByRegion.end()) {
+            subpartitionIndex = found->second;
+        } else {
+            subpartitionIndex = next.size();
+            next.push_back(RegionSubpartition{.region = region});
+            nextIndexByRegion.emplace(region, subpartitionIndex);
+        }
+        next[subpartitionIndex].entryIndices.push_back(index);
+    }
+
+    lastRebuildSubpartitionsReused_ = 0;
+    lastRebuildSubpartitionsRebuilt_ = 0;
+    for (RegionSubpartition& subpartition : next) {
+        // The spatial tree only depends on entry ids, bounds, and their order; metadata-only edits
+        // (role, policies, channels) never force a re-split.
+        std::uint64_t signature = kSemanticPartitionFnvOffset;
+        HashUint(signature, subpartition.entryIndices.size());
+        for (const std::size_t entryIndex : subpartition.entryIndices) {
+            const SemanticStructuralPartitionEntry& entry = entries_[entryIndex];
+            HashString(signature, entry.id);
+            HashAabb(signature, entry.bounds);
+        }
+        subpartition.contentSignature = signature;
+
+        if (!optionsChanged) {
+            const auto previousIt = subpartitionIndexByRegion_.find(std::string_view{subpartition.region});
+            if (previousIt != subpartitionIndexByRegion_.end()) {
+                RegionSubpartition& previous = subpartitions_[previousIt->second];
+                if (previous.contentSignature == signature
+                    && previous.entryIndices.size() == subpartition.entryIndices.size()) {
+                    // Same ids/bounds/order: the old tree's subpartition-local source indices still
+                    // map 1:1 onto the new entryIndices vector, so the split tree can be kept.
+                    subpartition.index = std::move(previous.index);
+                    ++lastRebuildSubpartitionsReused_;
+                    continue;
+                }
+            }
+        }
+
+        std::vector<ri::spatial::SpatialEntry> spatialEntries;
+        spatialEntries.reserve(subpartition.entryIndices.size());
+        for (const std::size_t entryIndex : subpartition.entryIndices) {
+            const SemanticStructuralPartitionEntry& entry = entries_[entryIndex];
+            spatialEntries.push_back(ri::spatial::SpatialEntry{
+                .id = entry.id,
+                .bounds = entry.bounds,
+            });
+        }
+        subpartition.index.Rebuild(std::move(spatialEntries), indexOptions);
+        ++lastRebuildSubpartitionsRebuilt_;
+    }
+
+    subpartitions_ = std::move(next);
+    subpartitionIndexByRegion_ = std::move(nextIndexByRegion);
+}
+
+const SemanticStructuralPartition::RegionSubpartition* SemanticStructuralPartition::FindSubpartition(
+    const std::string_view region) const {
+    const auto found = subpartitionIndexByRegion_.find(region);
+    if (found == subpartitionIndexByRegion_.end()) {
+        return nullptr;
+    }
+    return &subpartitions_[found->second];
+}
+
+void SemanticStructuralPartition::CollectBoxCandidates(const RegionSubpartition& subpartition,
+                                                       const ri::spatial::Aabb& box,
+                                                       std::vector<std::size_t>& outEntryIndices) const {
+    for (const std::size_t localIndex : subpartition.index.QueryBoxSourceIndices(box)) {
+        outEntryIndices.push_back(subpartition.entryIndices[localIndex]);
+    }
+}
+
+void SemanticStructuralPartition::CollectRayCandidates(
+    const RegionSubpartition& subpartition,
+    const ri::math::Vec3& origin,
+    const ri::math::Vec3& direction,
+    const float far,
+    std::vector<ri::spatial::SpatialRayCandidate>& outCandidates) const {
+    for (const ri::spatial::SpatialRayCandidate& candidate :
+         subpartition.index.QueryRayCandidates(origin, direction, far)) {
+        outCandidates.push_back(ri::spatial::SpatialRayCandidate{
+            .sourceIndex = subpartition.entryIndices[candidate.sourceIndex],
+            .distance = candidate.distance,
         });
     }
-    index_.Rebuild(std::move(spatialEntries), indexOptions);
 }
 
 std::vector<SemanticStructuralPartitionHit> SemanticStructuralPartition::QueryBox(
     const ri::spatial::Aabb& box,
     const SemanticStructuralPartitionQuery& query) const {
+    ++queryStats_.boxQueries;
+    std::vector<std::size_t> candidates;
+    if (!query.region.empty()) {
+        ++queryStats_.regionScopedBoxQueries;
+        if (const RegionSubpartition* subpartition = FindSubpartition(query.region);
+            subpartition != nullptr) {
+            CollectBoxCandidates(*subpartition, box, candidates);
+        }
+    } else {
+        for (const RegionSubpartition& subpartition : subpartitions_) {
+            CollectBoxCandidates(subpartition, box, candidates);
+        }
+    }
+    queryStats_.boxCandidatesScanned += candidates.size();
+
     std::vector<SemanticStructuralPartitionHit> hits;
-    const std::vector<std::string> ids = index_.QueryBox(box);
-    hits.reserve(ids.size());
-    for (const std::string& id : ids) {
-        const SemanticStructuralPartitionEntry* entry = FindEntry(id);
-        if (entry == nullptr || !MatchesQuery(*entry, query)) {
+    hits.reserve(candidates.size());
+    for (const std::size_t entryIndex : candidates) {
+        const SemanticStructuralPartitionEntry& entry = entries_[entryIndex];
+        if (!MatchesQuery(entry, query)) {
             continue;
         }
-        hits.push_back(SemanticStructuralPartitionHit{.entry = entry});
+        hits.push_back(SemanticStructuralPartitionHit{.entry = &entry});
     }
+    queryStats_.boxCandidatesMatched += hits.size();
     return hits;
 }
 
@@ -216,27 +340,43 @@ std::vector<SemanticStructuralPartitionHit> SemanticStructuralPartition::QueryRa
     const ri::math::Vec3& direction,
     const float far,
     const SemanticStructuralPartitionQuery& query) const {
-    std::vector<SemanticStructuralPartitionHit> hits;
-    const std::vector<std::string> ids = index_.QueryRay(origin, direction, far);
-    hits.reserve(ids.size());
-    const ri::spatial::Ray ray{.origin = origin, .direction = direction};
-    for (const std::string& id : ids) {
-        const SemanticStructuralPartitionEntry* entry = FindEntry(id);
-        if (entry == nullptr || !MatchesQuery(*entry, query)) {
-            continue;
+    ++queryStats_.rayQueries;
+    std::vector<ri::spatial::SpatialRayCandidate> candidates;
+    if (!query.region.empty()) {
+        ++queryStats_.regionScopedRayQueries;
+        if (const RegionSubpartition* subpartition = FindSubpartition(query.region);
+            subpartition != nullptr) {
+            CollectRayCandidates(*subpartition, origin, direction, far, candidates);
         }
-        float distance = 0.0f;
-        if (!ri::spatial::IntersectRayAabb(ray, entry->bounds, far, &distance)) {
+    } else {
+        for (const RegionSubpartition& subpartition : subpartitions_) {
+            CollectRayCandidates(subpartition, origin, direction, far, candidates);
+        }
+    }
+    queryStats_.rayCandidatesScanned += candidates.size();
+
+    std::vector<SemanticStructuralPartitionHit> hits;
+    hits.reserve(candidates.size());
+    for (const ri::spatial::SpatialRayCandidate& candidate : candidates) {
+        const SemanticStructuralPartitionEntry& entry = entries_[candidate.sourceIndex];
+        if (!MatchesQuery(entry, query)) {
             continue;
         }
         hits.push_back(SemanticStructuralPartitionHit{
-            .entry = entry,
-            .distance = distance,
+            .entry = &entry,
+            .distance = candidate.distance,
         });
     }
+    queryStats_.rayCandidatesMatched += hits.size();
     std::sort(hits.begin(), hits.end(), [](const SemanticStructuralPartitionHit& lhs,
                                            const SemanticStructuralPartitionHit& rhs) {
-        return lhs.distance < rhs.distance;
+        if (lhs.distance != rhs.distance) {
+            return lhs.distance < rhs.distance;
+        }
+        if (lhs.entry->nodeHandle != rhs.entry->nodeHandle) {
+            return lhs.entry->nodeHandle < rhs.entry->nodeHandle;
+        }
+        return lhs.entry < rhs.entry;
     });
     return hits;
 }
@@ -246,15 +386,47 @@ std::optional<SemanticStructuralPartitionHit> SemanticStructuralPartition::Query
     const ri::math::Vec3& direction,
     const float far,
     const SemanticStructuralPartitionQuery& query) const {
-    std::vector<SemanticStructuralPartitionHit> hits = QueryRay(origin, direction, far, query);
-    if (hits.empty()) {
-        return std::nullopt;
+    ++queryStats_.rayQueries;
+    std::vector<ri::spatial::SpatialRayCandidate> candidates;
+    if (!query.region.empty()) {
+        ++queryStats_.regionScopedRayQueries;
+        if (const RegionSubpartition* subpartition = FindSubpartition(query.region);
+            subpartition != nullptr) {
+            CollectRayCandidates(*subpartition, origin, direction, far, candidates);
+        }
+    } else {
+        for (const RegionSubpartition& subpartition : subpartitions_) {
+            CollectRayCandidates(subpartition, origin, direction, far, candidates);
+        }
     }
-    return hits.front();
+    queryStats_.rayCandidatesScanned += candidates.size();
+
+    std::optional<SemanticStructuralPartitionHit> best;
+    std::size_t matched = 0;
+    for (const ri::spatial::SpatialRayCandidate& candidate : candidates) {
+        const SemanticStructuralPartitionEntry& entry = entries_[candidate.sourceIndex];
+        if (!MatchesQuery(entry, query)) {
+            continue;
+        }
+        ++matched;
+        const bool closer = !best.has_value()
+            || candidate.distance < best->distance
+            || (candidate.distance == best->distance
+                && (entry.nodeHandle < best->entry->nodeHandle
+                    || (entry.nodeHandle == best->entry->nodeHandle && &entry < best->entry)));
+        if (closer) {
+            best = SemanticStructuralPartitionHit{
+                .entry = &entry,
+                .distance = candidate.distance,
+            };
+        }
+    }
+    queryStats_.rayCandidatesMatched += matched;
+    return best;
 }
 
 const SemanticStructuralPartitionEntry* SemanticStructuralPartition::FindEntry(const std::string_view id) const {
-    const auto found = entryIndexById_.find(std::string(id));
+    const auto found = entryIndexById_.find(id);
     if (found == entryIndexById_.end()) {
         return nullptr;
     }
@@ -282,7 +454,7 @@ std::size_t SemanticStructuralPartition::MetadataSignatureBucketCount() const no
 std::vector<const SemanticStructuralPartitionEntry*> SemanticStructuralPartition::FindEntriesByRegion(
     const std::string_view region) const {
     std::vector<const SemanticStructuralPartitionEntry*> matches;
-    const auto found = entryIndicesByRegion_.find(std::string(region));
+    const auto found = entryIndicesByRegion_.find(region);
     if (found == entryIndicesByRegion_.end()) {
         return matches;
     }
@@ -299,16 +471,25 @@ std::size_t SemanticStructuralPartition::RegionBucketCount() const noexcept {
 
 SemanticStructuralPartitionMetrics SemanticStructuralPartition::Metrics() const noexcept {
     SemanticStructuralPartitionMetrics metrics = metrics_;
-    const ri::spatial::SpatialIndexMetrics indexMetrics = index_.Metrics();
-    metrics.boxQueries = indexMetrics.boxQueries;
-    metrics.rayQueries = indexMetrics.rayQueries;
-    metrics.boxCandidatesScanned = indexMetrics.boxCandidatesScanned;
-    metrics.rayCandidatesScanned = indexMetrics.rayCandidatesScanned;
+    metrics.boxQueries = queryStats_.boxQueries;
+    metrics.rayQueries = queryStats_.rayQueries;
+    metrics.boxCandidatesScanned = queryStats_.boxCandidatesScanned;
+    metrics.rayCandidatesScanned = queryStats_.rayCandidatesScanned;
+    metrics.boxCandidatesMatched = queryStats_.boxCandidatesMatched;
+    metrics.rayCandidatesMatched = queryStats_.rayCandidatesMatched;
+    metrics.regionScopedBoxQueries = queryStats_.regionScopedBoxQueries;
+    metrics.regionScopedRayQueries = queryStats_.regionScopedRayQueries;
+    metrics.subpartitionCount = subpartitions_.size();
+    metrics.lastRebuildSubpartitionsReused = lastRebuildSubpartitionsReused_;
+    metrics.lastRebuildSubpartitionsRebuilt = lastRebuildSubpartitionsRebuilt_;
     return metrics;
 }
 
 void SemanticStructuralPartition::ResetMetrics() noexcept {
-    index_.ResetMetrics();
+    queryStats_ = {};
+    for (RegionSubpartition& subpartition : subpartitions_) {
+        subpartition.index.ResetMetrics();
+    }
 }
 
 bool SemanticStructuralPartition::MatchesQuery(const SemanticStructuralPartitionEntry& entry,
@@ -390,7 +571,9 @@ const SemanticStructuralPartition& SemanticStructuralPartitionCache::GetOrRebuil
     ri::spatial::SpatialIndexOptions indexOptions) {
     const std::uint64_t sceneSignature = ComputeSemanticStructuralSceneSignature(scene);
     if (dirty_ || sceneSignature != sceneSignature_) {
-        partition_ = BuildSemanticStructuralPartition(scene, indexOptions);
+        // Rebuild in place so region subpartitions whose content did not change keep their
+        // spatial trees; a single brush edit re-splits only the affected region.
+        partition_.Rebuild(BuildSemanticStructuralPartitionEntries(scene), indexOptions);
         sceneSignature_ = sceneSignature;
         dirty_ = false;
         ++rebuildCount_;

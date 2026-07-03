@@ -396,5 +396,210 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // Duplicate entry ids (e.g. two scene nodes sharing a name) must stay individually queryable:
+    // queries resolve candidates by index, not by id round-trips.
+    ri::scene::StructuralBrushMetadata dupWall = wall;
+    dupWall.brushId = "dup_wall";
+    ri::scene::SemanticStructuralPartition duplicatePartition;
+    duplicatePartition.Rebuild({
+        {
+            .id = "shared_name",
+            .nodeHandle = 11,
+            .bounds = {{-1.0f, 0.0f, 0.0f}, {1.0f, 3.0f, 1.0f}},
+            .metadata = dupWall,
+        },
+        {
+            .id = "shared_name",
+            .nodeHandle = 12,
+            .bounds = {{-1.0f, 0.0f, 4.0f}, {1.0f, 3.0f, 5.0f}},
+            .metadata = dupWall,
+        },
+    });
+
+    const auto duplicateBoxHits = duplicatePartition.QueryBox({{-2.0f, -1.0f, -1.0f}, {2.0f, 4.0f, 6.0f}});
+    if (duplicateBoxHits.size() != 2
+        || duplicateBoxHits[0].entry == nullptr
+        || duplicateBoxHits[1].entry == nullptr
+        || duplicateBoxHits[0].entry == duplicateBoxHits[1].entry
+        || duplicateBoxHits[0].entry->nodeHandle + duplicateBoxHits[1].entry->nodeHandle != 23) {
+        return EXIT_FAILURE;
+    }
+
+    const auto duplicateRayHits = duplicatePartition.QueryRay(
+        {0.0f, 1.5f, -3.0f},
+        {0.0f, 0.0f, 1.0f},
+        20.0f);
+    if (duplicateRayHits.size() != 2
+        || duplicateRayHits[0].entry == nullptr
+        || duplicateRayHits[1].entry == nullptr
+        || duplicateRayHits[0].entry->nodeHandle != 11
+        || duplicateRayHits[1].entry->nodeHandle != 12
+        || duplicateRayHits[0].distance >= duplicateRayHits[1].distance) {
+        return EXIT_FAILURE;
+    }
+
+    const auto duplicateNearest = duplicatePartition.QueryNearestRay(
+        {0.0f, 1.5f, -3.0f},
+        {0.0f, 0.0f, 1.0f},
+        20.0f);
+    if (!duplicateNearest.has_value()
+        || duplicateNearest->entry == nullptr
+        || duplicateNearest->entry->nodeHandle != 11) {
+        return EXIT_FAILURE;
+    }
+
+    // Phase 2: the partition is a family of per-region subpartitions. Region-scoped queries
+    // resolve against a single region tree, and rebuilds keep trees for unchanged regions.
+    ri::scene::StructuralBrushMetadata atriumWall = wall;
+    ri::scene::StructuralBrushMetadata hallWall = wall;
+    hallWall.brushId = "hall_wall";
+    hallWall.region = "hall";
+    ri::scene::StructuralBrushMetadata looseProp = wall;
+    looseProp.brushId = "loose_prop";
+    looseProp.region.clear();
+
+    const std::vector<ri::scene::SemanticStructuralPartitionEntry> familyEntries{
+        {
+            .id = "atrium_wall_a",
+            .nodeHandle = 21,
+            .bounds = {{-1.0f, 0.0f, -1.0f}, {1.0f, 3.0f, 1.0f}},
+            .metadata = atriumWall,
+        },
+        {
+            .id = "atrium_wall_b",
+            .nodeHandle = 22,
+            .bounds = {{2.0f, 0.0f, -1.0f}, {4.0f, 3.0f, 1.0f}},
+            .metadata = atriumWall,
+        },
+        {
+            .id = "hall_wall_a",
+            .nodeHandle = 23,
+            .bounds = {{-1.0f, 0.0f, 8.0f}, {1.0f, 3.0f, 10.0f}},
+            .metadata = hallWall,
+        },
+        {
+            .id = "loose_prop_a",
+            .nodeHandle = 24,
+            .bounds = {{6.0f, 0.0f, -1.0f}, {7.0f, 1.0f, 1.0f}},
+            .metadata = looseProp,
+        },
+    };
+
+    ri::scene::SemanticStructuralPartition familyPartition;
+    familyPartition.Rebuild(familyEntries);
+    ri::scene::SemanticStructuralPartitionMetrics familyMetrics = familyPartition.Metrics();
+    // atrium + hall + the regionless bucket.
+    if (familyMetrics.subpartitionCount != 3
+        || familyMetrics.regionCount != 2
+        || familyMetrics.lastRebuildSubpartitionsRebuilt != 3
+        || familyMetrics.lastRebuildSubpartitionsReused != 0) {
+        return EXIT_FAILURE;
+    }
+
+    // A region-scoped query over the whole world must only scan the region's own tree.
+    const ri::spatial::Aabb everywhere{{-100.0f, -100.0f, -100.0f}, {100.0f, 100.0f, 100.0f}};
+    const auto atriumScoped = familyPartition.QueryBox(everywhere, {.region = "atrium"});
+    familyMetrics = familyPartition.Metrics();
+    if (atriumScoped.size() != 2
+        || atriumScoped[0].entry == nullptr
+        || atriumScoped[0].entry->metadata.region != "atrium"
+        || familyMetrics.regionScopedBoxQueries != 1
+        || familyMetrics.boxCandidatesScanned != 2
+        || familyMetrics.boxCandidatesMatched != 2) {
+        return EXIT_FAILURE;
+    }
+
+    // Unknown regions resolve to no subpartition and no candidates.
+    if (!familyPartition.QueryBox(everywhere, {.region = "missing_region"}).empty()) {
+        return EXIT_FAILURE;
+    }
+
+    // Unscoped queries walk every subpartition; semantic filters report matched vs scanned.
+    const auto unscopedHall = familyPartition.QueryBox(
+        everywhere, {.brushId = "hall_wall"});
+    familyMetrics = familyPartition.Metrics();
+    if (unscopedHall.size() != 1
+        || unscopedHall[0].entry == nullptr
+        || unscopedHall[0].entry->nodeHandle != 23
+        || familyMetrics.boxCandidatesScanned != 2 + 4
+        || familyMetrics.boxCandidatesMatched != 2 + 1) {
+        return EXIT_FAILURE;
+    }
+
+    const auto scopedRay = familyPartition.QueryRay(
+        {0.0f, 1.5f, -5.0f},
+        {0.0f, 0.0f, 1.0f},
+        30.0f,
+        {.region = "hall"});
+    familyMetrics = familyPartition.Metrics();
+    if (scopedRay.size() != 1
+        || scopedRay[0].entry == nullptr
+        || scopedRay[0].entry->nodeHandle != 23
+        || familyMetrics.regionScopedRayQueries != 1
+        || familyMetrics.rayCandidatesScanned != 1
+        || familyMetrics.rayCandidatesMatched != 1) {
+        return EXIT_FAILURE;
+    }
+
+    // Rebuilding with identical content must keep every subpartition tree.
+    familyPartition.Rebuild(familyEntries);
+    familyMetrics = familyPartition.Metrics();
+    if (familyMetrics.lastRebuildSubpartitionsReused != 3
+        || familyMetrics.lastRebuildSubpartitionsRebuilt != 0) {
+        return EXIT_FAILURE;
+    }
+
+    // A metadata-only edit (same ids, bounds, regions) also keeps every tree: the spatial split
+    // does not depend on roles or policies.
+    std::vector<ri::scene::SemanticStructuralPartitionEntry> retaggedEntries = familyEntries;
+    retaggedEntries[0].metadata.role = ri::scene::StructuralBrushSemanticRole::Cover;
+    familyPartition.Rebuild(retaggedEntries);
+    familyMetrics = familyPartition.Metrics();
+    if (familyMetrics.lastRebuildSubpartitionsReused != 3
+        || familyMetrics.lastRebuildSubpartitionsRebuilt != 0
+        || familyPartition.QueryBox(everywhere,
+                                    {.role = ri::scene::StructuralBrushSemanticRole::Cover}).size() != 1) {
+        return EXIT_FAILURE;
+    }
+
+    // Moving one brush re-splits only its own region's subpartition.
+    std::vector<ri::scene::SemanticStructuralPartitionEntry> movedEntries = familyEntries;
+    movedEntries[2].bounds = {{-1.0f, 0.0f, 12.0f}, {1.0f, 3.0f, 14.0f}};
+    familyPartition.Rebuild(movedEntries);
+    familyMetrics = familyPartition.Metrics();
+    if (familyMetrics.lastRebuildSubpartitionsReused != 2
+        || familyMetrics.lastRebuildSubpartitionsRebuilt != 1) {
+        return EXIT_FAILURE;
+    }
+    const auto movedHall = familyPartition.QueryBox(
+        {{-2.0f, -1.0f, 11.0f}, {2.0f, 4.0f, 15.0f}}, {.region = "hall"});
+    if (movedHall.size() != 1 || movedHall[0].entry->nodeHandle != 23) {
+        return EXIT_FAILURE;
+    }
+
+    // Changing spatial index options invalidates every tree.
+    familyPartition.Rebuild(movedEntries, {.maxLeafSize = 2, .maxDepth = 6});
+    familyMetrics = familyPartition.Metrics();
+    if (familyMetrics.lastRebuildSubpartitionsReused != 0
+        || familyMetrics.lastRebuildSubpartitionsRebuilt != 3) {
+        return EXIT_FAILURE;
+    }
+
+    // ResetMetrics clears query counters but keeps content and rebuild-locality stats.
+    familyPartition.ResetMetrics();
+    familyMetrics = familyPartition.Metrics();
+    if (familyMetrics.boxQueries != 0
+        || familyMetrics.rayQueries != 0
+        || familyMetrics.boxCandidatesScanned != 0
+        || familyMetrics.rayCandidatesScanned != 0
+        || familyMetrics.boxCandidatesMatched != 0
+        || familyMetrics.rayCandidatesMatched != 0
+        || familyMetrics.regionScopedBoxQueries != 0
+        || familyMetrics.regionScopedRayQueries != 0
+        || familyMetrics.subpartitionCount != 3
+        || familyMetrics.entryCount != 4) {
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }

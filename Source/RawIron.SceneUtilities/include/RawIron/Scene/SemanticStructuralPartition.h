@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -16,6 +17,18 @@
 namespace ri::scene {
 
 struct Ray;
+
+namespace detail {
+
+/// Heterogeneous hash so `std::string`-keyed maps accept `std::string_view` lookups without allocating.
+struct TransparentStringHash {
+    using is_transparent = void;
+    [[nodiscard]] std::size_t operator()(const std::string_view value) const noexcept {
+        return std::hash<std::string_view>{}(value);
+    }
+};
+
+} // namespace detail
 
 struct SemanticStructuralPartitionEntry {
     std::string id;
@@ -104,6 +117,20 @@ struct SemanticStructuralPartitionMetrics {
     std::size_t rayQueries = 0;
     std::size_t boxCandidatesScanned = 0;
     std::size_t rayCandidatesScanned = 0;
+    /// Candidates that survived semantic filtering. Comparing matched vs scanned shows how much
+    /// work the broad-phase handed to filters; comparing scanned vs entryCount shows how much the
+    /// region subpartitions and BSP trees pruned before filtering.
+    std::size_t boxCandidatesMatched = 0;
+    std::size_t rayCandidatesMatched = 0;
+    /// Region-scoped queries that resolved against a single region subpartition instead of every tree.
+    std::size_t regionScopedBoxQueries = 0;
+    std::size_t regionScopedRayQueries = 0;
+    /// Subpartition family shape: one spatial tree per authored region plus one regionless tree.
+    std::size_t subpartitionCount = 0;
+    /// Rebuild locality: subpartitions whose content signature was unchanged keep their spatial
+    /// tree on `Rebuild` instead of re-splitting.
+    std::size_t lastRebuildSubpartitionsReused = 0;
+    std::size_t lastRebuildSubpartitionsRebuilt = 0;
     SemanticStructuralPartitionRoleCounts roleCounts{};
     SemanticStructuralPartitionOperationCounts operationCounts{};
     SemanticStructuralPartitionRebuildScopeCounts rebuildScopeCounts{};
@@ -111,6 +138,16 @@ struct SemanticStructuralPartitionMetrics {
     SemanticStructuralPartitionQueryPurposeCounts queryPurposeCounts{};
 };
 
+/// Semantic-filtered broad-phase over structural brush entries. Box/ray queries resolve candidates through
+/// integer source indices (no string round-trips), so entries with duplicate ids remain individually queryable;
+/// `FindEntry` is id-keyed and resolves duplicates to the last entry with that id. Entries with an empty `id`
+/// or empty bounds are excluded from spatial queries.
+///
+/// The partition is a family of per-region subpartitions: entries sharing an authored `metadata.region`
+/// share one spatial tree, and regionless entries share a fallback tree. Queries with a `region` filter
+/// resolve against that region's subpartition only; unscoped queries walk every subpartition. `Rebuild`
+/// keeps the spatial tree of any subpartition whose content (ids, bounds, order) is unchanged, so a single
+/// brush edit re-splits only the affected region's tree.
 class SemanticStructuralPartition {
 public:
     void Rebuild(std::vector<SemanticStructuralPartitionEntry> entries,
@@ -141,16 +178,57 @@ public:
     void ResetMetrics() noexcept;
 
 private:
+    /// One spatial tree per authored region (plus one regionless tree). `entryIndices` maps the
+    /// subpartition-local source indices returned by `index` back to positions in `entries_`.
+    /// `contentSignature` hashes the (id, bounds, order) content so `Rebuild` can keep the tree
+    /// when a region's geometry did not change.
+    struct RegionSubpartition {
+        std::string region;
+        std::vector<std::size_t> entryIndices;
+        std::uint64_t contentSignature = 0;
+        ri::spatial::BspSpatialIndex index;
+    };
+
+    /// Query-side counters kept separate from content stats so `ResetMetrics` does not disturb
+    /// entry/region/signature counts computed at rebuild time.
+    struct QueryStats {
+        std::size_t boxQueries = 0;
+        std::size_t rayQueries = 0;
+        std::size_t boxCandidatesScanned = 0;
+        std::size_t rayCandidatesScanned = 0;
+        std::size_t boxCandidatesMatched = 0;
+        std::size_t rayCandidatesMatched = 0;
+        std::size_t regionScopedBoxQueries = 0;
+        std::size_t regionScopedRayQueries = 0;
+    };
+
     [[nodiscard]] bool MatchesQuery(const SemanticStructuralPartitionEntry& entry,
                                     const SemanticStructuralPartitionQuery& query) const;
     void RebuildSideTables();
+    void RebuildSubpartitions(ri::spatial::SpatialIndexOptions indexOptions);
+    [[nodiscard]] const RegionSubpartition* FindSubpartition(std::string_view region) const;
+    void CollectBoxCandidates(const RegionSubpartition& subpartition,
+                              const ri::spatial::Aabb& box,
+                              std::vector<std::size_t>& outEntryIndices) const;
+    void CollectRayCandidates(const RegionSubpartition& subpartition,
+                              const ri::math::Vec3& origin,
+                              const ri::math::Vec3& direction,
+                              float far,
+                              std::vector<ri::spatial::SpatialRayCandidate>& outCandidates) const;
 
     std::vector<SemanticStructuralPartitionEntry> entries_;
-    std::unordered_map<std::string, std::size_t> entryIndexById_;
+    std::vector<RegionSubpartition> subpartitions_;
+    std::unordered_map<std::string, std::size_t, detail::TransparentStringHash, std::equal_to<>>
+        subpartitionIndexByRegion_;
+    ri::spatial::SpatialIndexOptions indexOptions_{};
+    std::size_t lastRebuildSubpartitionsReused_ = 0;
+    std::size_t lastRebuildSubpartitionsRebuilt_ = 0;
+    std::unordered_map<std::string, std::size_t, detail::TransparentStringHash, std::equal_to<>> entryIndexById_;
     std::unordered_map<std::uint64_t, std::vector<std::size_t>> entryIndicesByMetadataSignature_;
-    std::unordered_map<std::string, std::vector<std::size_t>> entryIndicesByRegion_;
-    ri::spatial::BspSpatialIndex index_;
+    std::unordered_map<std::string, std::vector<std::size_t>, detail::TransparentStringHash, std::equal_to<>>
+        entryIndicesByRegion_;
     SemanticStructuralPartitionMetrics metrics_{};
+    mutable QueryStats queryStats_{};
 };
 
 class SemanticStructuralPartitionCache {
