@@ -17,7 +17,8 @@ void BspSpatialIndex::Rebuild(std::vector<SpatialEntry> entries, SpatialIndexOpt
     rootNode_ = kInvalidNode;
 
     entries_.reserve(entries.size());
-    for (SpatialEntry& entry : entries) {
+    for (std::size_t sourceIndex = 0; sourceIndex < entries.size(); ++sourceIndex) {
+        SpatialEntry& entry = entries[sourceIndex];
         if (entry.id.empty() || IsEmpty(entry.bounds)) {
             continue;
         }
@@ -25,8 +26,12 @@ void BspSpatialIndex::Rebuild(std::vector<SpatialEntry> entries, SpatialIndexOpt
             .id = std::move(entry.id),
             .bounds = entry.bounds,
             .center = Center(entry.bounds),
+            .sourceIndex = sourceIndex,
         });
     }
+
+    visitStamps_.assign(entries_.size(), 0U);
+    visitEpoch_ = 0;
 
     if (entries_.empty()) {
         metrics_.lastRebuildEntryCount = 0;
@@ -54,20 +59,29 @@ Aabb BspSpatialIndex::Bounds() const {
     return nodes_[rootNode_].bounds;
 }
 
-std::vector<std::string> BspSpatialIndex::QueryBox(const Aabb& box) const {
+std::uint32_t BspSpatialIndex::BeginQueryEpoch() const {
+    visitEpoch_ += 1;
+    if (visitEpoch_ == 0U) {
+        std::fill(visitStamps_.begin(), visitStamps_.end(), 0U);
+        visitEpoch_ = 1U;
+    }
+    return visitEpoch_;
+}
+
+std::vector<std::size_t> BspSpatialIndex::CollectBoxCandidates(const Aabb& box) const {
     metrics_.boxQueries += 1;
     if (rootNode_ == kInvalidNode || IsEmpty(box)) {
         return {};
     }
-    std::vector<std::string> out;
-    std::vector<bool> seen(entries_.size(), false);
-    QueryBoxNode(rootNode_, box, out, seen);
+    std::vector<std::size_t> out;
+    QueryBoxNode(rootNode_, box, BeginQueryEpoch(), out);
     return out;
 }
 
-std::vector<std::string> BspSpatialIndex::QueryRay(const ri::math::Vec3& origin,
-                                                   const ri::math::Vec3& direction,
-                                                   float far) const {
+std::vector<BspSpatialIndex::InternalRayHit> BspSpatialIndex::CollectRayCandidates(
+    const ri::math::Vec3& origin,
+    const ri::math::Vec3& direction,
+    float far) const {
     metrics_.rayQueries += 1;
     if (rootNode_ == kInvalidNode
         || !std::isfinite(origin.x) || !std::isfinite(origin.y) || !std::isfinite(origin.z)
@@ -81,9 +95,53 @@ std::vector<std::string> BspSpatialIndex::QueryRay(const ri::math::Vec3& origin,
     const Ray ray{.origin = origin, .direction = normalizedDirection};
     const Aabb segmentBounds = BuildSegmentBounds(origin, end);
 
+    std::vector<InternalRayHit> out;
+    QueryRayNode(rootNode_, ray, far, segmentBounds, BeginQueryEpoch(), out);
+    return out;
+}
+
+std::vector<std::string> BspSpatialIndex::QueryBox(const Aabb& box) const {
+    const std::vector<std::size_t> candidates = CollectBoxCandidates(box);
     std::vector<std::string> out;
-    std::vector<bool> seen(entries_.size(), false);
-    QueryRayNode(rootNode_, ray, far, segmentBounds, out, seen);
+    out.reserve(candidates.size());
+    for (const std::size_t entryIndex : candidates) {
+        out.push_back(entries_[entryIndex].id);
+    }
+    return out;
+}
+
+std::vector<std::string> BspSpatialIndex::QueryRay(const ri::math::Vec3& origin,
+                                                   const ri::math::Vec3& direction,
+                                                   float far) const {
+    const std::vector<InternalRayHit> candidates = CollectRayCandidates(origin, direction, far);
+    std::vector<std::string> out;
+    out.reserve(candidates.size());
+    for (const InternalRayHit& hit : candidates) {
+        out.push_back(entries_[hit.entryIndex].id);
+    }
+    return out;
+}
+
+std::vector<std::size_t> BspSpatialIndex::QueryBoxSourceIndices(const Aabb& box) const {
+    std::vector<std::size_t> candidates = CollectBoxCandidates(box);
+    for (std::size_t& entryIndex : candidates) {
+        entryIndex = entries_[entryIndex].sourceIndex;
+    }
+    return candidates;
+}
+
+std::vector<SpatialRayCandidate> BspSpatialIndex::QueryRayCandidates(const ri::math::Vec3& origin,
+                                                                     const ri::math::Vec3& direction,
+                                                                     float far) const {
+    const std::vector<InternalRayHit> candidates = CollectRayCandidates(origin, direction, far);
+    std::vector<SpatialRayCandidate> out;
+    out.reserve(candidates.size());
+    for (const InternalRayHit& hit : candidates) {
+        out.push_back(SpatialRayCandidate{
+            .sourceIndex = entries_[hit.entryIndex].sourceIndex,
+            .distance = hit.distance,
+        });
+    }
     return out;
 }
 
@@ -190,8 +248,8 @@ std::size_t BspSpatialIndex::BuildNode(const std::vector<std::size_t>& entryIndi
 
 void BspSpatialIndex::QueryBoxNode(std::size_t nodeIndex,
                                    const Aabb& box,
-                                   std::vector<std::string>& out,
-                                   std::vector<bool>& seen) const {
+                                   const std::uint32_t epoch,
+                                   std::vector<std::size_t>& out) const {
     const Node& node = nodes_[nodeIndex];
     if (!Intersects(node.bounds, box)) {
         return;
@@ -200,20 +258,20 @@ void BspSpatialIndex::QueryBoxNode(std::size_t nodeIndex,
     if (node.left == kInvalidNode && node.right == kInvalidNode) {
         for (std::size_t entryIndex : node.entryIndices) {
             metrics_.boxCandidatesScanned += 1;
-            if (seen[entryIndex] || !Intersects(entries_[entryIndex].bounds, box)) {
+            if (visitStamps_[entryIndex] == epoch || !Intersects(entries_[entryIndex].bounds, box)) {
                 continue;
             }
-            seen[entryIndex] = true;
-            out.push_back(entries_[entryIndex].id);
+            visitStamps_[entryIndex] = epoch;
+            out.push_back(entryIndex);
         }
         return;
     }
 
     if (node.left != kInvalidNode) {
-        QueryBoxNode(node.left, box, out, seen);
+        QueryBoxNode(node.left, box, epoch, out);
     }
     if (node.right != kInvalidNode) {
-        QueryBoxNode(node.right, box, out, seen);
+        QueryBoxNode(node.right, box, epoch, out);
     }
 }
 
@@ -221,8 +279,8 @@ void BspSpatialIndex::QueryRayNode(std::size_t nodeIndex,
                                    const Ray& ray,
                                    float far,
                                    const Aabb& segmentBounds,
-                                   std::vector<std::string>& out,
-                                   std::vector<bool>& seen) const {
+                                   const std::uint32_t epoch,
+                                   std::vector<InternalRayHit>& out) const {
     const Node& node = nodes_[nodeIndex];
     if (!Intersects(node.bounds, segmentBounds)) {
         return;
@@ -231,15 +289,18 @@ void BspSpatialIndex::QueryRayNode(std::size_t nodeIndex,
     if (node.left == kInvalidNode && node.right == kInvalidNode) {
         for (std::size_t entryIndex : node.entryIndices) {
             metrics_.rayCandidatesScanned += 1;
-            if (seen[entryIndex]) {
+            if (visitStamps_[entryIndex] == epoch) {
                 continue;
             }
             float hitDistance = 0.0f;
             if (!IntersectRayAabb(ray, entries_[entryIndex].bounds, far, &hitDistance)) {
                 continue;
             }
-            seen[entryIndex] = true;
-            out.push_back(entries_[entryIndex].id);
+            visitStamps_[entryIndex] = epoch;
+            out.push_back(InternalRayHit{
+                .entryIndex = entryIndex,
+                .distance = hitDistance,
+            });
         }
         return;
     }
@@ -261,10 +322,10 @@ void BspSpatialIndex::QueryRayNode(std::size_t nodeIndex,
     }
 
     if (firstChild != kInvalidNode) {
-        QueryRayNode(firstChild, ray, far, segmentBounds, out, seen);
+        QueryRayNode(firstChild, ray, far, segmentBounds, epoch, out);
     }
     if (secondChild != kInvalidNode) {
-        QueryRayNode(secondChild, ray, far, segmentBounds, out, seen);
+        QueryRayNode(secondChild, ray, far, segmentBounds, epoch, out);
     }
 }
 

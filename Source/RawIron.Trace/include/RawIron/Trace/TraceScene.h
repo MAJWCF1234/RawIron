@@ -7,9 +7,22 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace ri::trace {
+
+namespace detail {
+
+/// Heterogeneous hash so `std::string`-keyed maps accept `std::string_view` lookups without allocating.
+struct TransparentStringHash {
+    using is_transparent = void;
+    [[nodiscard]] std::size_t operator()(const std::string_view value) const noexcept {
+        return std::hash<std::string_view>{}(value);
+    }
+};
+
+} // namespace detail
 
 struct TraceCollider {
     std::string id;
@@ -128,6 +141,11 @@ private:
 
     std::vector<TraceCollider> colliders_;
     std::vector<std::size_t> dynamicColliderIndices_;
+    /// O(1) id -> `colliders_` index (ids are unique after `SetColliders` dedupe).
+    std::unordered_map<std::string, std::size_t, detail::TransparentStringHash, std::equal_to<>> colliderIndexById_;
+    /// Maps broad-phase source indices back to `colliders_` (parallel to the entries fed to each index).
+    std::vector<std::size_t> staticColliderIndices_;
+    std::vector<std::size_t> structuralColliderIndices_;
     /// Broad-phase AABB BSP for non-dynamic colliders; candidates are refined with narrow-phase box/ray/sweep.
     ri::spatial::BspSpatialIndex staticIndex_;
     /// Same tree class, filtered to `structural` static colliders (gameplay/visibility queries).

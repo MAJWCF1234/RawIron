@@ -105,15 +105,16 @@ bool TraceScene::TrySetDynamicColliderBounds(std::string_view id, const ri::spat
     if (id.empty() || ri::spatial::IsEmpty(bounds)) {
         return false;
     }
-    for (const std::size_t colliderIndex : dynamicColliderIndices_) {
-        TraceCollider& collider = colliders_[colliderIndex];
-        if (!collider.dynamic || collider.id != id) {
-            continue;
-        }
-        collider.bounds = bounds;
-        return true;
+    const auto found = colliderIndexById_.find(id);
+    if (found == colliderIndexById_.end()) {
+        return false;
     }
-    return false;
+    TraceCollider& collider = colliders_[found->second];
+    if (!collider.dynamic) {
+        return false;
+    }
+    collider.bounds = bounds;
+    return true;
 }
 
 std::size_t TraceScene::EraseCollidersIf(const std::function<bool(const TraceCollider&)>& shouldRemove,
@@ -151,6 +152,9 @@ std::size_t TraceScene::EraseCollidersWithIds(const std::vector<std::string_view
 void TraceScene::SetColliders(std::vector<TraceCollider> colliders, ri::spatial::SpatialIndexOptions indexOptions) {
     colliders_.clear();
     dynamicColliderIndices_.clear();
+    colliderIndexById_.clear();
+    staticColliderIndices_.clear();
+    structuralColliderIndices_.clear();
     metrics_.colliderCount = 0;
     metrics_.staticColliderCount = 0;
     metrics_.structuralStaticColliderCount = 0;
@@ -158,27 +162,29 @@ void TraceScene::SetColliders(std::vector<TraceCollider> colliders, ri::spatial:
 
     std::vector<ri::spatial::SpatialEntry> staticEntries;
     std::vector<ri::spatial::SpatialEntry> structuralEntries;
-    std::unordered_set<std::string> seenColliderIds;
 
     for (TraceCollider& collider : colliders) {
         if (collider.id.empty() || ri::spatial::IsEmpty(collider.bounds)) {
             continue;
         }
-        if (!seenColliderIds.insert(collider.id).second) {
+        if (colliderIndexById_.contains(collider.id)) {
             continue;
         }
 
         const std::size_t index = colliders_.size();
         colliders_.push_back(std::move(collider));
         const TraceCollider& stored = colliders_.back();
+        colliderIndexById_.emplace(stored.id, index);
         if (stored.dynamic) {
             dynamicColliderIndices_.push_back(index);
             metrics_.dynamicColliderCount += 1;
         } else {
             staticEntries.push_back({stored.id, stored.bounds});
+            staticColliderIndices_.push_back(index);
             metrics_.staticColliderCount += 1;
             if (stored.structural) {
                 structuralEntries.push_back({stored.id, stored.bounds});
+                structuralColliderIndices_.push_back(index);
                 metrics_.structuralStaticColliderCount += 1;
             }
         }
@@ -353,15 +359,16 @@ std::optional<TraceHit> TraceScene::FindGroundHit(const ri::math::Vec3& origin,
         .max = {origin.x + halfProbe, origin.y + 0.001f, origin.z + halfProbe},
     };
 
+    // Both broad-phase trees hold static colliders only, so the dynamic skip of the old linear scan is implicit.
+    const std::vector<std::size_t>& sourceToCollider = options.structuralOnly ? structuralColliderIndices_ : staticColliderIndices_;
+    const std::vector<std::size_t> probeSources = options.structuralOnly
+        ? structuralIndex_.QueryBoxSourceIndices(probeBox)
+        : staticIndex_.QueryBoxSourceIndices(probeBox);
+
     std::optional<TraceHit> bestHit;
-    for (const TraceCollider& collider : colliders_) {
+    for (const std::size_t sourceIndex : probeSources) {
+        const TraceCollider& collider = colliders_[sourceToCollider[sourceIndex]];
         if (!options.ignoreId.empty() && collider.id == options.ignoreId) {
-            continue;
-        }
-        if (options.structuralOnly && !collider.structural) {
-            continue;
-        }
-        if (collider.dynamic || !ri::spatial::Intersects(collider.bounds, probeBox)) {
             continue;
         }
         if (origin.x < collider.bounds.min.x || origin.x > collider.bounds.max.x ||
@@ -418,31 +425,28 @@ void TraceScene::ResetMetrics() noexcept {
 }
 
 const TraceCollider* TraceScene::FindCollider(std::string_view id) const {
-    auto found = std::find_if(colliders_.begin(), colliders_.end(), [&](const TraceCollider& collider) {
-        return collider.id == id;
-    });
-    return found == colliders_.end() ? nullptr : &(*found);
+    const auto found = colliderIndexById_.find(id);
+    return found == colliderIndexById_.end() ? nullptr : &colliders_[found->second];
 }
 
 std::vector<const TraceCollider*> TraceScene::CollectCandidatesForBox(const ri::spatial::Aabb& box,
                                                                       bool structuralOnly,
                                                                       std::string_view ignoreId) const {
     std::vector<const TraceCollider*> candidates;
-    std::unordered_set<std::string> seen;
 
-    const std::vector<std::string> staticIds = structuralOnly ? structuralIndex_.QueryBox(box) : staticIndex_.QueryBox(box);
-    metrics_.staticCandidates += staticIds.size();
-    for (const std::string& id : staticIds) {
-        if (!ignoreId.empty() && id == ignoreId) {
+    // Static and dynamic colliders never share ids (SetColliders dedupes), so no cross-set dedupe is needed.
+    const std::vector<std::size_t>& sourceToCollider = structuralOnly ? structuralColliderIndices_ : staticColliderIndices_;
+    const std::vector<std::size_t> staticSources = structuralOnly
+        ? structuralIndex_.QueryBoxSourceIndices(box)
+        : staticIndex_.QueryBoxSourceIndices(box);
+    metrics_.staticCandidates += staticSources.size();
+    candidates.reserve(staticSources.size());
+    for (const std::size_t sourceIndex : staticSources) {
+        const TraceCollider& collider = colliders_[sourceToCollider[sourceIndex]];
+        if (!ignoreId.empty() && collider.id == ignoreId) {
             continue;
         }
-        if (seen.contains(id)) {
-            continue;
-        }
-        if (const TraceCollider* collider = FindCollider(id)) {
-            seen.insert(id);
-            candidates.push_back(collider);
-        }
+        candidates.push_back(&collider);
     }
 
     if (!structuralOnly) {
@@ -451,10 +455,8 @@ std::vector<const TraceCollider*> TraceScene::CollectCandidatesForBox(const ri::
             if ((!ignoreId.empty() && collider.id == ignoreId) || !ri::spatial::Intersects(collider.bounds, box)) {
                 continue;
             }
-            if (seen.insert(collider.id).second) {
-                candidates.push_back(&collider);
-                metrics_.dynamicCandidates += 1;
-            }
+            candidates.push_back(&collider);
+            metrics_.dynamicCandidates += 1;
         }
     }
 
@@ -467,23 +469,19 @@ std::vector<const TraceCollider*> TraceScene::CollectCandidatesForRay(const ri::
                                                                       bool structuralOnly,
                                                                       std::string_view ignoreId) const {
     std::vector<const TraceCollider*> candidates;
-    std::unordered_set<std::string> seen;
 
-    const std::vector<std::string> staticIds = structuralOnly
-        ? structuralIndex_.QueryRay(origin, direction, far)
-        : staticIndex_.QueryRay(origin, direction, far);
-    metrics_.staticCandidates += staticIds.size();
-    for (const std::string& id : staticIds) {
-        if (!ignoreId.empty() && id == ignoreId) {
+    const std::vector<std::size_t>& sourceToCollider = structuralOnly ? structuralColliderIndices_ : staticColliderIndices_;
+    const std::vector<ri::spatial::SpatialRayCandidate> staticSources = structuralOnly
+        ? structuralIndex_.QueryRayCandidates(origin, direction, far)
+        : staticIndex_.QueryRayCandidates(origin, direction, far);
+    metrics_.staticCandidates += staticSources.size();
+    candidates.reserve(staticSources.size());
+    for (const ri::spatial::SpatialRayCandidate& source : staticSources) {
+        const TraceCollider& collider = colliders_[sourceToCollider[source.sourceIndex]];
+        if (!ignoreId.empty() && collider.id == ignoreId) {
             continue;
         }
-        if (seen.contains(id)) {
-            continue;
-        }
-        if (const TraceCollider* collider = FindCollider(id)) {
-            seen.insert(id);
-            candidates.push_back(collider);
-        }
+        candidates.push_back(&collider);
     }
 
     if (!structuralOnly) {
@@ -496,10 +494,8 @@ std::vector<const TraceCollider*> TraceScene::CollectCandidatesForRay(const ri::
             if (!ri::spatial::IntersectRayAabb(ri::spatial::Ray{.origin = origin, .direction = direction}, collider.bounds, far, &hitDistance)) {
                 continue;
             }
-            if (seen.insert(collider.id).second) {
-                candidates.push_back(&collider);
-                metrics_.dynamicCandidates += 1;
-            }
+            candidates.push_back(&collider);
+            metrics_.dynamicCandidates += 1;
         }
     }
 
