@@ -31,7 +31,36 @@ jobs:
         uses: jakoch/install-vulkan-sdk-action@v1.5.5
         with:
           vulkan_version: latest
+          install_runtime: true
           cache: true
+
+      # Hosted runners have no GPU driver, so vulkan-1.dll never exists in System32. Anything
+      # linking Vulkan::Vulkan (ri_tool, preview apps) hits STATUS_DLL_NOT_FOUND (0xc0000135) at
+      # process start unless the loader DLL is on PATH. Older cached SDK folders may predate
+      # install_runtime, so fall back to downloading the runtime components directly.
+      - name: Ensure Vulkan runtime DLL on PATH
+        shell: pwsh
+        run: |
+          $candidates = @('C:\Windows\System32\vulkan-1.dll')
+          if ($env:VULKAN_SDK) {
+            $candidates = @(
+              (Join-Path $env:VULKAN_SDK 'runtime\x64\vulkan-1.dll'),
+              (Join-Path $env:VULKAN_SDK 'Bin\vulkan-1.dll')
+            ) + $candidates
+          }
+          $found = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $found) {
+            $zip = Join-Path $env:RUNNER_TEMP 'vulkan-runtime.zip'
+            $dir = Join-Path $env:RUNNER_TEMP 'vulkan-runtime'
+            Invoke-WebRequest -Uri 'https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-runtime-components.zip' -OutFile $zip
+            Expand-Archive -LiteralPath $zip -DestinationPath $dir -Force
+            $found = Get-ChildItem -Path $dir -Recurse -Filter 'vulkan-1.dll' |
+              Where-Object { $_.FullName -match 'x64' } |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $found) { throw 'vulkan-1.dll not found: SDK runtime missing and runtime download failed' }
+          Write-Host "Vulkan runtime loader: $found"
+          Add-Content -Path $env:GITHUB_PATH -Value (Split-Path -Parent $found)
 
       - name: MSVC developer environment
         uses: ilammy/msvc-dev-cmd@v1
