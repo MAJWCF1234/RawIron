@@ -619,14 +619,20 @@ bool PresentPreviewImageWindow(const PreviewImageData& inputImage,
             }
 
             ExpectVk(vkWaitForFences(device, 1, &renderFence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
-            ExpectVk(vkResetFences(device, 1, &renderFence), "vkResetFences");
 
             std::uint32_t imageIndex = 0;
             VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailable, VK_NULL_HANDLE, &imageIndex);
             if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
+                // Skip the frame without resetting the fence: nothing will be submitted this
+                // iteration, so a reset fence would deadlock the next vkWaitForFences.
+                Sleep(16);
                 continue;
             }
-            ExpectVk(acquireResult, "vkAcquireNextImageKHR");
+            // VK_SUBOPTIMAL_KHR still delivers a usable image; treat it as success.
+            if (acquireResult != VK_SUBOPTIMAL_KHR) {
+                ExpectVk(acquireResult, "vkAcquireNextImageKHR");
+            }
+            ExpectVk(vkResetFences(device, 1, &renderFence), "vkResetFences");
 
             const VkCommandBuffer commandBuffer = commandBuffers[imageIndex];
             ExpectVk(vkResetCommandBuffer(commandBuffer, 0), "vkResetCommandBuffer");
@@ -996,7 +1002,7 @@ bool RunVulkanSoftwarePreviewLoop(const int windowWidth,
         scratch.width = softwareRenderWidth;
         scratch.height = softwareRenderHeight;
         scratch.format = PreviewPixelFormat::Rgba8;
-        scratch.pixels.resize(static_cast<std::size_t>(softwareRenderWidth * softwareRenderHeight * 3), 0);
+        scratch.pixels.resize(static_cast<std::size_t>(softwareRenderWidth) * static_cast<std::size_t>(softwareRenderHeight) * 4U, 0);
 
         const VkDeviceSize uploadSize =
             static_cast<VkDeviceSize>(static_cast<std::size_t>(softwareRenderWidth * softwareRenderHeight) * 4ULL);
@@ -1077,14 +1083,20 @@ bool RunVulkanSoftwarePreviewLoop(const int windowWidth,
             std::memcpy(mappedMemory, convertedScratch.pixels.data(), convertedScratch.pixels.size());
 
             ExpectVk(vkWaitForFences(device, 1, &renderFence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
-            ExpectVk(vkResetFences(device, 1, &renderFence), "vkResetFences");
 
             std::uint32_t imageIndex = 0;
             VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailable, VK_NULL_HANDLE, &imageIndex);
             if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
+                // Skip the frame without resetting the fence: nothing will be submitted this
+                // iteration, so a reset fence would deadlock the next vkWaitForFences.
+                Sleep(16);
                 continue;
             }
-            ExpectVk(acquireResult, "vkAcquireNextImageKHR");
+            // VK_SUBOPTIMAL_KHR still delivers a usable image; treat it as success.
+            if (acquireResult != VK_SUBOPTIMAL_KHR) {
+                ExpectVk(acquireResult, "vkAcquireNextImageKHR");
+            }
+            ExpectVk(vkResetFences(device, 1, &renderFence), "vkResetFences");
 
             const VkCommandBuffer commandBuffer = commandBuffers[imageIndex];
             ExpectVk(vkResetCommandBuffer(commandBuffer, 0), "vkResetCommandBuffer");

@@ -84,6 +84,9 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(VulkanHybridPostProcessSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanHybridPostProcessSafetySmoke.cpp)
   target_link_libraries(VulkanHybridPostProcessSafetySmoke PRIVATE RawIron::RenderVulkan)
   add_test(NAME RawIron.Render.Vulkan.HybridPostProcessSafetySmoke COMMAND VulkanHybridPostProcessSafetySmoke)
+  add_executable(VulkanCommandPipelineSmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanCommandPipelineSmoke.cpp)
+  target_link_libraries(VulkanCommandPipelineSmoke PRIVATE RawIron::RenderVulkan)
+  add_test(NAME RawIron.Render.Vulkan.CommandPipelineSmoke COMMAND VulkanCommandPipelineSmoke)
   add_test(
     NAME RawIron.Render.Vulkan.NativeScenePreviewDetailNormalSmoke
     COMMAND ${CMAKE_COMMAND}

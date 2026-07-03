@@ -4565,6 +4565,7 @@ struct NativeAlbedoTextureCache {
     GpuAlbedoImage flatNormalImage{};
     GpuAlbedoImage ormDefaultImage{};
     VkDescriptorSet whiteDescriptorSet = VK_NULL_HANDLE;
+    mutable bool loggedDescriptorPoolExhaustion = false;
     std::unordered_map<std::string, GpuAlbedoImage> imagesByKey{};
     std::unordered_map<std::string, VkDescriptorSet> descriptorByKey{};
     std::unordered_map<std::string, fs::path> siblingMapByKey{};
@@ -4858,6 +4859,13 @@ struct NativeAlbedoTextureCache {
             .pSetLayouts = &textureSetLayout,
         };
         if (vkAllocateDescriptorSets(device, &allocateInfo, &set) != VK_SUCCESS) {
+            if (!loggedDescriptorPoolExhaustion) {
+                loggedDescriptorPoolExhaustion = true;
+                ri::core::LogInfo(
+                    "Vulkan texture descriptor pool exhausted; further materials fall back to the "
+                    "white placeholder set. Raise kMaxTextureSets if the scene needs more unique "
+                    "material texture combinations.");
+            }
             return VK_NULL_HANDLE;
         }
         return set;
@@ -4966,6 +4974,8 @@ struct NativeAlbedoTextureCache {
 
         VkDescriptorSet set = allocateDescriptorSet();
         if (set == VK_NULL_HANDLE) {
+            // Cache the fallback so an exhausted pool is not retried for this key every frame.
+            descriptorByKey.emplace(key, whiteDescriptorSet);
             return whiteDescriptorSet;
         }
         const GpuAlbedoImage* albedoLoaded = resolveImageForAbsolutePath(albedoPath, kColorTextureFormat);
@@ -5027,6 +5037,7 @@ struct NativeAlbedoTextureCache {
         }
         VkDescriptorSet set = allocateDescriptorSet();
         if (set == VK_NULL_HANDLE) {
+            descriptorByKey.emplace(key, whiteDescriptorSet);
             return whiteDescriptorSet;
         }
         writeMaterialDescriptorSet(
@@ -7347,19 +7358,27 @@ bool RunVulkanNativeSceneLoop(const int width,
             .flags = VK_FENCE_CREATE_SIGNALED_BIT,
         };
         std::array<VkSemaphore, kFramesInFlight> imageAvailable{};
-        std::array<VkSemaphore, kFramesInFlight> renderFinished{};
         std::array<VkFence, kFramesInFlight> inFlightFences{};
         for (std::uint32_t frameIndex = 0; frameIndex < kFramesInFlight; ++frameIndex) {
             ExpectVk(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailable[frameIndex]),
                      "vkCreateSemaphore(imageAvailable)");
-            ExpectVk(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinished[frameIndex]),
-                     "vkCreateSemaphore(renderFinished)");
             ExpectVk(vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[frameIndex]), "vkCreateFence");
+        }
+        // One renderFinished semaphore per swapchain image (not per frame in flight): the
+        // presentation engine may still wait on the semaphore after our frame fence signals,
+        // so reusing a per-frame semaphore two frames later races with the outstanding present.
+        std::vector<VkSemaphore> renderFinished(commandBuffers.size(), VK_NULL_HANDLE);
+        for (VkSemaphore& semaphore : renderFinished) {
+            ExpectVk(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &semaphore),
+                     "vkCreateSemaphore(renderFinished)");
         }
         std::vector<VkFence> imageInFlight(commandBuffers.size(), VK_NULL_HANDLE);
         std::uint32_t currentFrame = 0U;
         std::uint64_t lastFrameSequence = 0;
         bool hasPresentedFrame = false;
+        // Roughly ten seconds at the 16 ms retry cadence before declaring the swapchain dead.
+        constexpr std::uint32_t kMaxConsecutiveOutOfDateFrames = 600U;
+        std::uint32_t consecutiveOutOfDateFrames = 0U;
 
         if (!usingExistingClient) {
             ShowWindow(hwnd, SW_SHOW);
@@ -7913,10 +7932,26 @@ bool RunVulkanNativeSceneLoop(const int width,
                 VK_NULL_HANDLE,
                 &imageIndex);
             if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
+                // The fixed-extent swapchain cannot recover in-loop; hosts (e.g. the editor
+                // viewport) restart the loop on resize. Keep waiting while the window is
+                // minimized, but fail with a clear error instead of spinning forever if the
+                // swapchain stays out of date while the window is visible.
+                if (IsIconic(hwnd) == 0) {
+                    ++consecutiveOutOfDateFrames;
+                    if (consecutiveOutOfDateFrames >= kMaxConsecutiveOutOfDateFrames) {
+                        throw std::runtime_error(
+                            "Vulkan swapchain stayed VK_ERROR_OUT_OF_DATE_KHR; the surface size "
+                            "changed and the native preview loop must be restarted.");
+                    }
+                }
                 Sleep(16);
                 continue;
             }
-            ExpectVk(acquireResult, "vkAcquireNextImageKHR");
+            // VK_SUBOPTIMAL_KHR still delivers a usable image; treat it as success.
+            if (acquireResult != VK_SUBOPTIMAL_KHR) {
+                ExpectVk(acquireResult, "vkAcquireNextImageKHR");
+            }
+            consecutiveOutOfDateFrames = 0U;
             if (imageInFlight[imageIndex] != VK_NULL_HANDLE) {
                 ExpectVk(vkWaitForFences(device, 1, &imageInFlight[imageIndex], VK_TRUE, UINT64_MAX),
                          "vkWaitForFences(image)");
@@ -7975,25 +8010,27 @@ bool RunVulkanNativeSceneLoop(const int width,
                 .commandBufferCount = 1,
                 .pCommandBuffers = &commandBuffers[imageIndex],
                 .signalSemaphoreCount = 1,
-                .pSignalSemaphores = &renderFinished[currentFrame],
+                .pSignalSemaphores = &renderFinished[imageIndex],
             };
             ExpectVk(vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameFence), "vkQueueSubmit");
 
             const VkPresentInfoKHR presentInfo{
                 .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
                 .waitSemaphoreCount = 1,
-                .pWaitSemaphores = &renderFinished[currentFrame],
+                .pWaitSemaphores = &renderFinished[imageIndex],
                 .swapchainCount = 1,
                 .pSwapchains = &swapchain,
                 .pImageIndices = &imageIndex,
             };
             const VkResult presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
-            if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
+            if (presentResult == VK_ERROR_OUT_OF_DATE_KHR) {
                 Sleep(16);
                 currentFrame = (currentFrame + 1U) % kFramesInFlight;
                 continue;
             }
-            if (presentResult != VK_SUCCESS) {
+            // VK_SUBOPTIMAL_KHR means the frame was still presented; only other non-success
+            // results are fatal.
+            if (presentResult != VK_SUCCESS && presentResult != VK_SUBOPTIMAL_KHR) {
                 ExpectVk(presentResult, "vkQueuePresentKHR");
             }
             lastFrameSequence = frame.frameSequence;
@@ -8005,8 +8042,10 @@ bool RunVulkanNativeSceneLoop(const int width,
         textureCache.destroy();
         for (std::uint32_t frameIndex = 0; frameIndex < kFramesInFlight; ++frameIndex) {
             vkDestroyFence(device, inFlightFences[frameIndex], nullptr);
-            vkDestroySemaphore(device, renderFinished[frameIndex], nullptr);
             vkDestroySemaphore(device, imageAvailable[frameIndex], nullptr);
+        }
+        for (VkSemaphore semaphore : renderFinished) {
+            vkDestroySemaphore(device, semaphore, nullptr);
         }
         vkDestroyCommandPool(device, commandPool, nullptr);
         vkDestroyDescriptorPool(device, cameraDescriptorPool, nullptr);
