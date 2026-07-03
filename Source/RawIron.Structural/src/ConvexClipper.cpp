@@ -235,10 +235,12 @@ ConvexSolidClipResult ClipConvexSolidByPlane(const ConvexSolid& solid, const Pla
 
     std::vector<ri::math::Vec3> uniqueCutPoints = DedupeVertices(cutPoints, epsilon);
     if (uniqueCutPoints.size() >= 3) {
-        const std::vector<ri::math::Vec3> frontCap = SortCoplanarPoints(uniqueCutPoints, splitPlane, epsilon);
-        std::vector<ri::math::Vec3> backCap(frontCap.rbegin(), frontCap.rend());
-        frontSolid.polygons.push_back(ConvexPolygon{splitPlane, frontCap});
-        backSolid.polygons.push_back(ConvexPolygon{NegatePlane(splitPlane), backCap});
+        // Caps must face outward from the solid they seal: the front solid occupies the positive half-space,
+        // so its cap faces along -splitPlane.normal; the back solid's cap faces along +splitPlane.normal.
+        const std::vector<ri::math::Vec3> ccwFromNormal = SortCoplanarPoints(uniqueCutPoints, splitPlane, epsilon);
+        std::vector<ri::math::Vec3> cwFromNormal(ccwFromNormal.rbegin(), ccwFromNormal.rend());
+        frontSolid.polygons.push_back(ConvexPolygon{NegatePlane(splitPlane), std::move(cwFromNormal)});
+        backSolid.polygons.push_back(ConvexPolygon{splitPlane, ccwFromNormal});
     }
 
     if (!frontSolid.polygons.empty()) {
