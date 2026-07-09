@@ -14,6 +14,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(RAWIRON_BUILD_PLAYER "Build RawIron.Player (generic runtime host)" ON)
 option(RAWIRON_BUILD_PREVIEW "Build RawIron.Preview (Scene Kit + snapshot host)" ON)
 option(RAWIRON_BUILD_EDITOR "Build RawIron.Editor" ON)
+option(RAWIRON_BUILD_FORGE "Build RawIron.Forge (modeling and rigging workbench)" ON)
 option(RAWIRON_BUILD_PARTICLE_SHOWCASE "Build RawIron.ParticleShowcase" ON)
 option(RAWIRON_BUILD_LIMINAL_GAME "Build the Liminal Hall game application" ON)
 option(RAWIRON_BUILD_FOREST_RUINS_GAME "Build the Wilderness Ruins game application" ON)
@@ -103,6 +104,10 @@ endif()
 
 if (RAWIRON_BUILD_EDITOR)
   add_subdirectory(Apps/RawIron.Editor)
+endif()
+
+if (RAWIRON_BUILD_FORGE)
+  add_subdirectory(Apps/RawIron.Forge)
 endif()
 
 if (RAWIRON_BUILD_PARTICLE_SHOWCASE)

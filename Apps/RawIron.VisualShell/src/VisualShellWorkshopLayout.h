@@ -101,7 +101,7 @@ struct WorkshopTileSpec {
 
 inline constexpr WorkshopTileSpec kWorkshopTiles[kDesktopIconCount] = {
     {"Editor", "Level Editor"},
-    {"Forge", "Preview Window"},
+    {"Forge", "Forge"},
     {"Examples", "Scene Kit Targets"},
 
     {"Tests", "Core Tests"},

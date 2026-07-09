@@ -219,6 +219,16 @@ std::vector<Action> BuildActions(const fs::path& buildRoot, const fs::path& sour
         },
     });
     actions.push_back(Action{
+        "Forge",
+        "Open Raw Iron's model preparation and rigging workbench.",
+        Action::Kind::LaunchDetached,
+        ResolveBuiltBinaryPath(buildRoot, fs::path("Apps") / "RawIron.Forge", "RawIron.Forge" + exeSuffix),
+        {
+            "--workspace",
+            Narrow(sourceRoot),
+        },
+    });
+    actions.push_back(Action{
         "Standalone Player",
         "Launch the native RawIron player shell.",
         Action::Kind::LaunchDetached,
@@ -316,24 +326,6 @@ std::vector<Action> BuildActions(const fs::path& buildRoot, const fs::path& sour
         {
             "--formats",
         },
-    });
-    actions.push_back(Action{
-        "Rigging Toolkit",
-        "Show the native model/rig authoring workflow, import coverage, and validation contract.",
-        Action::Kind::RunCaptured,
-        ResolveRiToolPath(buildRoot),
-        {
-            "--rig-toolchain-report",
-            "--root",
-            Narrow(sourceRoot),
-        },
-    });
-    actions.push_back(Action{
-        "Open Model Assets",
-        "Open the source-model folder used by the editor and rigging pipeline.",
-        Action::Kind::OpenFolder,
-        sourceRoot / "Assets" / "Source" / "models",
-        {},
     });
     actions.push_back(Action{
         "List Projects",

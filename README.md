@@ -25,6 +25,7 @@ By default the root `CMakeLists.txt` builds these **runnable targets**:
 | **`RawIron.Player`** | Generic **runtime host** + Vulkan bootstrap (`Apps/RawIron.Player`). **`Launch RawIron Player.cmd`**. |
 | **`RawIron.Preview`** | Scene Kit **snapshot / preview** host, software + optional Vulkan (`Apps/RawIron.Preview`). **`Launch RawIron Preview.cmd`**. |
 | **`RawIron.Editor`** | Native **editor** host (`Apps/RawIron.Editor`). **`Launch RawIron Editor.cmd`**. Game folders pass **`--game=…`**. |
+| **`RawIron.Forge`** | Native **model-source and rigging workbench** (`Apps/RawIron.Forge`), launched from the existing **Forge** icon in Visual Shell. |
 | **`RawIron.VisualShell`** | Keyboard-first **visual shell** (`Apps/RawIron.VisualShell`). **`Launch RawIron Visual Shell.cmd`**. |
 | **`RawIron.UiMenu`** | JSON + Dear ImGui **UI / screen-flow** harness (`--demo-vn`, `--headless`). |
 | **`RawIron.ParticleShowcase`** | CPU/GPU **particle** exercise host. |
@@ -46,7 +47,7 @@ Optional **`RAWIRON_BUILD_*`** switches turn off **`RawIron.Player`** / **`RawIr
 git clone <your-fork-or-upstream-url> RawIron
 cd RawIron
 cmake --preset dev-msvc
-cmake --build build/dev-msvc --config RelWithDebInfo --target RawIron.Player RawIron.Preview RawIron.Editor RawIron.VisualShell RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame RawIron.MultiplayerSandboxGame RawIron.BotClient RawIron.DedicatedServer
+cmake --build build/dev-msvc --config RelWithDebInfo --target RawIron.Player RawIron.Preview RawIron.Editor RawIron.Forge RawIron.VisualShell RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame RawIron.MultiplayerSandboxGame RawIron.BotClient RawIron.DedicatedServer
 ```
 
 **Typical outputs** (paths use `RelWithDebInfo`; adjust if you use another VS configuration):
@@ -55,6 +56,7 @@ cmake --build build/dev-msvc --config RelWithDebInfo --target RawIron.Player Raw
 build\dev-msvc\Apps\RawIron.Player\RelWithDebInfo\RawIron.Player.exe
 build\dev-msvc\Apps\RawIron.Preview\RelWithDebInfo\RawIron.Preview.exe
 build\dev-msvc\Apps\RawIron.Editor\RelWithDebInfo\RawIron.Editor.exe
+build\dev-msvc\Apps\RawIron.Forge\RelWithDebInfo\RawIron.Forge.exe
 build\dev-msvc\Apps\RawIron.VisualShell\RelWithDebInfo\RawIron.VisualShell.exe
 build\dev-msvc\Apps\RawIron.UiMenu\RelWithDebInfo\RawIron.UiMenu.exe
 build\dev-msvc\Apps\RawIron.ParticleShowcase\RelWithDebInfo\RawIron.ParticleShowcase.exe
@@ -71,7 +73,7 @@ build\dev-msvc\Apps\RawIron.DedicatedServer\RelWithDebInfo\RawIron.DedicatedServ
 .\build\dev-msvc\Apps\RawIron.UiMenu\RelWithDebInfo\RawIron.UiMenu.exe --workspace=$PWD --headless
 ```
 
-**Editor & visual shell (from repo root, after build):** double-click **`Launch RawIron Editor.cmd`** or **`Launch RawIron Visual Shell.cmd`**. The editor is invoked with **`--workspace=<repo root>`**; add **`--game=liminal-hall`** or **`--game=wilderness-ruins`** to open a registered project (same as **`Games\LiminalHall\Open Liminal Hall In Editor.cmd`**).
+**Editor, Forge & visual shell (from repo root, after build):** double-click **`Launch RawIron Editor.cmd`** or **`Launch RawIron Visual Shell.cmd`**. Visual Shell is the Raw Iron workdesk; its existing **Forge** icon opens the model-source and rigging workbench. The editor is invoked with **`--workspace=<repo root>`**; add **`--game=liminal-hall`** or **`--game=wilderness-ruins`** to open a registered project (same as **`Games\LiminalHall\Open Liminal Hall In Editor.cmd`**).
 
 **VN demo (interactive, branching JSON UI):** double-click **`Launch UiMenu VN Demo.cmd`** in the repo root, or run the same `RawIron.UiMenu.exe` with **`--demo-vn`**. In-game copy may use **`${variableId}`** in `text` / `label` / `speaker` / choice labels / **`portrait`** / **`image`** / **`background.image`** paths. Press **`B`** for the **backlog** (opens scrolled to the end). **`H`** toggles the small music / missing-background dev strip. **`1`–`9`** activate visible choice buttons in screen order. Screen **`advance`** supports **`onSpace`**, **`onClick`**, **`onEnter`**, **`onMouseWheel`**, and **`delaySeconds`** (hold **Ctrl** to shorten the timer). **`say`** blocks may set **`voice`** (cue string; UI + backlog until playback is wired).
 
@@ -125,7 +127,7 @@ Visitors typically look for **(1)** how to run something without compiling, **(2
 
 ## Optional targets
 
-**Player**, **Preview**, **Editor**, and **Visual Shell** are **ON** by default. Turn any **OFF** with `-D RAWIRON_BUILD_PLAYER=OFF`, `-D RAWIRON_BUILD_PREVIEW=OFF`, `-D RAWIRON_BUILD_EDITOR=OFF`, `-D RAWIRON_BUILD_VISUAL_SHELL=OFF` for a faster configure.
+**Player**, **Preview**, **Editor**, **Forge**, and **Visual Shell** are **ON** by default. Turn any **OFF** with `-D RAWIRON_BUILD_PLAYER=OFF`, `-D RAWIRON_BUILD_PREVIEW=OFF`, `-D RAWIRON_BUILD_EDITOR=OFF`, `-D RAWIRON_BUILD_FORGE=OFF`, `-D RAWIRON_BUILD_VISUAL_SHELL=OFF` for a faster configure.
 
 Other switches:
 
@@ -141,7 +143,7 @@ Other switches:
 
 - **`Source/`** — engine libraries (`RawIron.Core`, `RawIron.Runtime`, `RawIron.Render.Vulkan`, `RawIron.SceneUtilities`, …).
 - **`Games/`** — **LiminalHall**, **WildernessRuins**, and **RawIronMultiplayerSandbox** runtimes + game apps.
-- **`Apps/`** — **`RawIron.Player`**, **`RawIron.Preview`**, **`RawIron.Editor`**, **`RawIron.VisualShell`**, **`RawIron.UiMenu`**, **`RawIron.ParticleShowcase`**, **`RawIron.BotClient`**, **`RawIron.DedicatedServer`**.
+- **`Apps/`** — **`RawIron.Player`**, **`RawIron.Preview`**, **`RawIron.Editor`**, **`RawIron.Forge`**, **`RawIron.VisualShell`**, **`RawIron.UiMenu`**, **`RawIron.ParticleShowcase`**, **`RawIron.BotClient`**, **`RawIron.DedicatedServer`**.
 - **`Assets/`** — cooked/source content; **`Assets/UI/`** — JSON UI manifests + schema.
 - **`Documentation/`** — Obsidian-style engine docs (`Documentation/00 Home.md`).
 - **`Scripts/`** — build hygiene, publish, sync profile builds.

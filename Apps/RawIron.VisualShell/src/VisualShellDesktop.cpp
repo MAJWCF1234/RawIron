@@ -937,7 +937,7 @@ private:
         const Item items[] = {
             {"New project...", 0},
             {"Open Games folder", 1},
-            {"Forge (preview)", 2},
+            {"Forge", 2},
             {"Editor", 3},
             {"Workspace CLI check", 4},
             {"Documentation", 5},
@@ -1038,7 +1038,7 @@ private:
                             shell_.AppendLog("Opened Games folder.");
                             break;
                         case 2: {
-                            const auto idx = FindActionIndex(shell_.Actions(), "Preview Window");
+                            const auto idx = FindActionIndex(shell_.Actions(), "Forge");
                             if (idx) {
                                 shell_.SetSelectedIndex(*idx);
                                 shell_.LaunchSelected(hwnd_);
