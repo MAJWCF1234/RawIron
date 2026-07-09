@@ -102,7 +102,7 @@ Result (2026-07-03): Phase 2 landed. `SemanticStructuralPartition` now builds a 
 ### Phase 3: Feed Performance-Critical Systems
 
 - [x] Route a real movement consumer through the structural trace feed: the Multiplayer Sandbox merges its generated structural hall feed into the same trace scene used by first-person movement, logs source/emitted/filtered counts and filter reasons, and keeps a detail-only perforated visual divider out of blocking traces.
-- Route ballistics through the structural trace feed where structural metadata can filter candidates early.
+- [x] Route competitive hitscan and projectile resolution through an optional structural world trace: `CompetitiveWeaponSimulator` clips rewound entity checks at the nearest blocking collider and reports that collider/distance, preventing hits through walls while leaving non-structural trace content out of combat occlusion. Structural-only traces also include dynamic structural colliders such as moving doors and platforms.
 - Add pseudo-raytracing candidate feeds that can request only Q-mesh trace/raycast participants.
 - Add editor placement queries that use Q-mesh placement participants and I-layer host rules.
 - Add culling diagnostics using visibility roles before enabling runtime culling decisions.
@@ -113,7 +113,7 @@ Exit criteria:
 - Each consumer reports source candidate count, filtered candidate count, emitted count, and filter reasons.
 - The system proves performance savings before adding heavier calculations.
 
-Result (2026-07-09): CSG assembly fragments now keep generated structural ownership, and `StructuralTraceColliderFeedResult` allows a filtered structural subtree to be merged into a larger gameplay trace scene without dropping metrics. The Multiplayer Sandbox movement trace uses that path; its smoke test proves the emitted colliders retain semantic tags and that the detail-only perforated divider is filtered. Next recommended step: route the same feed through a ballistics or interaction consumer and make its candidate reduction visible in runtime diagnostics.
+Result (2026-07-09): CSG assembly fragments now keep generated structural ownership, and `StructuralTraceColliderFeedResult` allows a filtered structural subtree to be merged into a larger gameplay trace scene without dropping metrics. The Multiplayer Sandbox movement trace uses that path; its smoke test proves the emitted colliders retain semantic tags and that the detail-only perforated divider is filtered. `CompetitiveWeaponSimulator` now consumes the same structural-only `TraceScene` contract for hitscan and projectile obstruction, normalizes public aim directions, and reports the blocking world hit. Next recommended step: surface structural candidate reductions in a playable combat/network scenario or route the same query purpose through interaction.
 
 ### Phase 4: Editor Authoring Experience
 
@@ -168,6 +168,7 @@ Structural primitive work is acceptable only when:
 - `Tests/SceneSubtreeCollidersSmoke.cpp`: collider policy, Q-mesh, and tag coverage.
 - `Tests/SceneStructuralTraceFeedSmoke.cpp`: trace feed, trace scene, filter reason, and ratio coverage.
 - `Tests/MultiplayerSandboxStructuralTraceFeedSmoke.cpp`: real movement-consumer feed merge and metric coverage.
+- `Tests/CompetitiveWeaponSimulatorSmoke.cpp`: rewind weapon resolution, structural world obstruction, and direction-validation coverage.
 
 ## Superseded Notes
 

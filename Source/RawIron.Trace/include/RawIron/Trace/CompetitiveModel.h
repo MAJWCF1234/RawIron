@@ -51,16 +51,26 @@ struct WeaponFireResult {
     bool rewound = false;
     bool wasHitscan = true;
     std::optional<std::string> hitEntityId{};
+    /// Nearest blocking structural collider when a world trace was supplied. Entity hit tests are
+    /// clipped just before this distance, preventing rewind shots from resolving through walls.
+    std::optional<std::string> blockingWorldColliderId{};
+    float blockingWorldDistance = 0.0f;
     std::uint32_t rewindTick = 0;
     int cooldownTicksRemaining = 0;
 };
+
+class TraceScene;
 
 class CompetitiveWeaponSimulator {
 public:
     explicit CompetitiveWeaponSimulator(CompetitiveSimulationConfig config);
 
+    /// Resolves a lag-compensated weapon shot. When blockingWorldTrace is supplied, it is
+    /// queried as a structural-only scene; build it from policy-filtered structural colliders so
+    /// non-blocking/query/detail geometry cannot occlude combat.
     [[nodiscard]] WeaponFireResult TryFire(const WeaponFireRequest& request,
-                                           const std::vector<RewindFrame>& history);
+                                           const std::vector<RewindFrame>& history,
+                                           const TraceScene* blockingWorldTrace = nullptr);
     void Tick();
 
 private:

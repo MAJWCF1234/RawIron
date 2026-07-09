@@ -1,5 +1,7 @@
 #include "RawIron/Trace/CompetitiveModel.h"
 
+#include "RawIron/Trace/TraceScene.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -21,6 +23,27 @@ ri::math::Vec3 Scale(const ri::math::Vec3& v, const float s) {
 
 ri::math::Vec3 Add(const ri::math::Vec3& a, const ri::math::Vec3& b) {
     return {a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+constexpr float kMinimumDirectionLengthSquared = 1.0e-20f;
+constexpr float kWorldBlockDistanceBias = 0.001f;
+
+[[nodiscard]] std::optional<ri::math::Vec3> NormalizeWeaponDirection(const ri::math::Vec3& direction) {
+    if (ri::math::LengthSquared(direction) < kMinimumDirectionLengthSquared) {
+        return std::nullopt;
+    }
+    return ri::math::Normalize(direction);
+}
+
+[[nodiscard]] std::optional<TraceHit> TraceBlockingWorld(const TraceScene* blockingWorldTrace,
+                                                          const ri::math::Vec3& origin,
+                                                          const ri::math::Vec3& directionUnit,
+                                                          const float maxDistance) {
+    if (blockingWorldTrace == nullptr || !std::isfinite(maxDistance) || maxDistance <= 0.0f) {
+        return std::nullopt;
+    }
+    return blockingWorldTrace->TraceRay(
+        origin, directionUnit, maxDistance, TraceOptions{.structuralOnly = true});
 }
 
 } // namespace
@@ -86,19 +109,27 @@ std::optional<std::string> EvaluateRewoundHitscan(const RewindFrame& frame,
                                                   const ri::math::Vec3& rayDirectionUnit,
                                                   const float maxDistance,
                                                   const float hitRadius) {
+    if (!std::isfinite(maxDistance) || maxDistance <= 0.0f || !std::isfinite(hitRadius) || hitRadius < 0.0f) {
+        return std::nullopt;
+    }
+    const std::optional<ri::math::Vec3> direction = NormalizeWeaponDirection(rayDirectionUnit);
+    if (!direction.has_value()) {
+        return std::nullopt;
+    }
+
     std::optional<std::string> winner{};
     float bestT = maxDistance;
 
     for (const RewindPose& pose : frame.entities) {
         const ri::math::Vec3 to = Sub(pose.position, rayOrigin);
-        const float t = ri::math::Dot(to, rayDirectionUnit);
+        const float t = ri::math::Dot(to, *direction);
         if (t < 0.0f || t > bestT) {
             continue;
         }
         const ri::math::Vec3 closest{
-            rayOrigin.x + rayDirectionUnit.x * t,
-            rayOrigin.y + rayDirectionUnit.y * t,
-            rayOrigin.z + rayDirectionUnit.z * t,
+            rayOrigin.x + direction->x * t,
+            rayOrigin.y + direction->y * t,
+            rayOrigin.z + direction->z * t,
         };
         const float d2 = LenSq(Sub(pose.position, closest));
         if (d2 <= (hitRadius * hitRadius)) {
@@ -136,10 +167,15 @@ const WeaponTimingSpec* CompetitiveWeaponSimulator::FindWeaponSpec(const std::st
 }
 
 WeaponFireResult CompetitiveWeaponSimulator::TryFire(const WeaponFireRequest& request,
-                                                     const std::vector<RewindFrame>& history) {
+                                                     const std::vector<RewindFrame>& history,
+                                                     const TraceScene* blockingWorldTrace) {
     WeaponFireResult out{};
     const WeaponTimingSpec* spec = FindWeaponSpec(request.weaponId);
     if (spec == nullptr) {
+        return out;
+    }
+    const std::optional<ri::math::Vec3> direction = NormalizeWeaponDirection(request.directionUnit);
+    if (!direction.has_value()) {
         return out;
     }
 
@@ -174,18 +210,35 @@ WeaponFireResult CompetitiveWeaponSimulator::TryFire(const WeaponFireRequest& re
     out.rewound = true;
 
     if (spec->hitscan) {
+        float entityMaxDistance = spec->maxRange;
+        if (const std::optional<TraceHit> worldHit =
+                TraceBlockingWorld(blockingWorldTrace, request.origin, *direction, spec->maxRange);
+            worldHit.has_value()) {
+            out.blockingWorldColliderId = worldHit->id;
+            out.blockingWorldDistance = worldHit->time;
+            entityMaxDistance = std::max(0.0f, worldHit->time - kWorldBlockDistanceBias);
+        }
         out.hitEntityId = EvaluateRewoundHitscan(*rewound,
                                                  request.origin,
-                                                 request.directionUnit,
-                                                 spec->maxRange,
+                                                 *direction,
+                                                 entityMaxDistance,
                                                  config_.playerHitRadius);
     } else {
         const std::uint32_t dt = request.serverTick > request.clientShotTick
             ? request.serverTick - request.clientShotTick
             : 0U;
+        const float travelDistance = std::max(0.0f, spec->projectileSpeed)
+            * static_cast<float>(dt);
+        if (const std::optional<TraceHit> worldHit =
+                TraceBlockingWorld(blockingWorldTrace, request.origin, *direction, travelDistance);
+            worldHit.has_value()) {
+            out.blockingWorldColliderId = worldHit->id;
+            out.blockingWorldDistance = worldHit->time;
+            return out;
+        }
         out.hitEntityId = EvaluateRewoundProjectile(*rewound,
                                                     request.origin,
-                                                    Scale(request.directionUnit, spec->projectileSpeed),
+                                                    Scale(*direction, spec->projectileSpeed),
                                                     dt,
                                                     spec->projectileRadius,
                                                     config_.playerHitRadius);

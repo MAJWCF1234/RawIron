@@ -31,3 +31,11 @@ target_link_libraries(RawIron.Trace
 )
 
 target_compile_features(RawIron.Trace PUBLIC cxx_std_20)
+
+if (RAWIRON_BUILD_TESTS)
+  add_executable(CompetitiveWeaponSimulatorSmoke
+    ${CMAKE_SOURCE_DIR}/Tests/CompetitiveWeaponSimulatorSmoke.cpp
+  )
+  target_link_libraries(CompetitiveWeaponSimulatorSmoke PRIVATE RawIron::Trace)
+  add_test(NAME RawIron.Trace.CompetitiveWeaponSimulatorSmoke COMMAND CompetitiveWeaponSimulatorSmoke)
+endif()

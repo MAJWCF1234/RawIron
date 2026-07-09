@@ -449,15 +449,15 @@ std::vector<const TraceCollider*> TraceScene::CollectCandidatesForBox(const ri::
         candidates.push_back(&collider);
     }
 
-    if (!structuralOnly) {
-        for (std::size_t colliderIndex : dynamicColliderIndices_) {
-            const TraceCollider& collider = colliders_[colliderIndex];
-            if ((!ignoreId.empty() && collider.id == ignoreId) || !ri::spatial::Intersects(collider.bounds, box)) {
-                continue;
-            }
-            candidates.push_back(&collider);
-            metrics_.dynamicCandidates += 1;
+    for (const std::size_t colliderIndex : dynamicColliderIndices_) {
+        const TraceCollider& collider = colliders_[colliderIndex];
+        if ((structuralOnly && !collider.structural)
+            || (!ignoreId.empty() && collider.id == ignoreId)
+            || !ri::spatial::Intersects(collider.bounds, box)) {
+            continue;
         }
+        candidates.push_back(&collider);
+        metrics_.dynamicCandidates += 1;
     }
 
     return candidates;
@@ -484,19 +484,19 @@ std::vector<const TraceCollider*> TraceScene::CollectCandidatesForRay(const ri::
         candidates.push_back(&collider);
     }
 
-    if (!structuralOnly) {
-        for (std::size_t colliderIndex : dynamicColliderIndices_) {
-            const TraceCollider& collider = colliders_[colliderIndex];
-            if (!ignoreId.empty() && collider.id == ignoreId) {
-                continue;
-            }
-            float hitDistance = 0.0f;
-            if (!ri::spatial::IntersectRayAabb(ri::spatial::Ray{.origin = origin, .direction = direction}, collider.bounds, far, &hitDistance)) {
-                continue;
-            }
-            candidates.push_back(&collider);
-            metrics_.dynamicCandidates += 1;
+    for (const std::size_t colliderIndex : dynamicColliderIndices_) {
+        const TraceCollider& collider = colliders_[colliderIndex];
+        if ((structuralOnly && !collider.structural)
+            || (!ignoreId.empty() && collider.id == ignoreId)) {
+            continue;
         }
+        float hitDistance = 0.0f;
+        if (!ri::spatial::IntersectRayAabb(
+                ri::spatial::Ray{.origin = origin, .direction = direction}, collider.bounds, far, &hitDistance)) {
+            continue;
+        }
+        candidates.push_back(&collider);
+        metrics_.dynamicCandidates += 1;
     }
 
     return candidates;
