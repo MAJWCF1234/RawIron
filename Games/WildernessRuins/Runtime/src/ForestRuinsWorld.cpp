@@ -13,7 +13,9 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -782,122 +784,172 @@ void ApplyForestRuinsShowcaseMaterials(ri::scene::Scene& scene, const fs::path& 
     }
 }
 
-} // namespace
-
-bool IsForestRuinsGameRoot(const fs::path& gameRoot) {
-    const std::optional<ri::content::GameManifest> manifest = ri::content::LoadGameManifest(gameRoot / "manifest.json");
-    return manifest.has_value() && manifest->id == "wilderness-ruins";
+void PushForestCollider(World& world, std::string id, const ri::math::Vec3& min, const ri::math::Vec3& max) {
+    world.colliders.push_back(ri::trace::TraceCollider{
+        .id = std::move(id),
+        .bounds = ri::spatial::Aabb{.min = min, .max = max},
+        .structural = true,
+    });
 }
 
-World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot) {
-    World world{};
-    world.scene = Scene(std::string(sceneName));
-    Scene& scene = world.scene;
-    const fs::path workspaceRoot = ri::content::DetectWorkspaceRoot(gameRoot);
-    const ForestSceneLayout forest = MakeForestSceneLayout(workspaceRoot, gameRoot);
-    const std::vector<BotdBillboardVariant> botdTreeVariants = DiscoverBotdBillboardVariants(forest.botdBillboardsRoot);
-    const std::vector<fs::path> exportedConiferMeshes = DiscoverExportedConiferMeshes(forest.exportedMeshesRoot);
-    const bool useBotdForestTrees = !botdTreeVariants.empty();
-    const bool useExportedConiferMeshes = !exportedConiferMeshes.empty();
-    const int botdVerticalBillboardMesh =
-        useBotdForestTrees ? scene.AddMesh(MakeVerticalBillboardMesh(0.0f, 1.0f)) : ri::scene::kInvalidHandle;
-    const ri::content::ScriptScalarMap gameplay = ri::content::LoadScriptScalars(gameRoot / "scripts" / "gameplay.riscript");
+[[nodiscard]] float SampleForestTerrainHeight(const ProceduralTerrainOptions& terrain,
+                                              const float worldX,
+                                              const float worldZ) {
+    const float ridge =
+        std::sin(worldX * terrain.heightFrequency) * std::cos(worldZ * terrain.heightFrequency * 0.78f);
+    const float swell = std::sin((worldX + worldZ) * terrain.heightFrequency * 0.45f);
+    const float detail =
+        std::sin(worldX * terrain.detailFrequency) * std::sin(worldZ * terrain.detailFrequency * 1.31f);
+    return (ridge * terrain.heightAmplitude) + (swell * terrain.heightAmplitude * 0.55f)
+        + (detail * terrain.detailAmplitude);
+}
 
-    world.handles.root = scene.CreateNode("WildernessRuinsLayer");
+struct ForestRuinsScenePopulateContext {
+    World& world;
+    Scene& scene;
+    const ForestSceneLayout& forest;
+    const fs::path& workspaceRoot;
+    const fs::path& gameRoot;
+    const ProceduralTerrainOptions& terrain;
+    const ri::content::ScriptScalarMap& gameplay;
+    bool useBotdForestTrees = false;
+    bool useExportedConiferMeshes = false;
+    int botdVerticalBillboardMesh = ri::scene::kInvalidHandle;
+    const std::vector<BotdBillboardVariant>& botdTreeVariants;
+    const std::vector<fs::path>& exportedConiferMeshes;
+};
 
-    LightNodeOptions sun{};
-    sun.nodeName = "SunLight";
-    sun.parent = world.handles.root;
-    sun.transform.rotationDegrees = ri::math::Vec3{-42.0f, 34.0f, 0.0f};
-    sun.light = Light{
-        .name = "SunLight",
-        .type = LightType::Directional,
-        .color = ri::math::Vec3{1.00f, 0.94f, 0.82f},
-        .intensity = 2.45f,
+struct ForestRuinsHeroPopulateCallbacks {
+    std::function<void(const std::string&,
+                       const fs::path&,
+                       float,
+                       float,
+                       const ri::math::Vec3&,
+                       const ri::math::Vec3&,
+                       float,
+                       float)>
+        heroImport;
+    std::function<void(const std::string&, float, float, const ri::math::Vec3&, const ri::math::Vec3&, const ri::math::Vec3&, const std::string&)>
+        addBoxOnGround;
+    std::function<void(const std::string&,
+                       PrimitiveType,
+                       const ri::math::Vec3&,
+                       const ri::math::Vec3&,
+                       const ri::math::Vec3&,
+                       const ri::math::Vec3&,
+                       const std::string&,
+                       ShadingModel)>
+        addPrimitive;
+    std::function<float(float, float)> sampleTerrainHeight;
+    bool sourcePackReady = false;
+    int heroRubbleCount = 0;
+    fs::path postApocRoot;
+};
+
+struct ForestRuinsScatterBundle {
+    World* world = nullptr;
+    Scene* scene = nullptr;
+    ProceduralTerrainOptions terrain{};
+    SceneModelTemplateRegistry scatterModelTemplates{};
+    std::unordered_map<std::string, int> exportedConiferTemplates;
+    int coniferTemplateParent = kInvalidHandle;
+    int worldRoot = kInvalidHandle;
+    int coniferTrunkBatch = kInvalidHandle;
+    std::array<int, 4> coniferBillboardBatches{
+        kInvalidHandle,
+        kInvalidHandle,
+        kInvalidHandle,
+        kInvalidHandle,
     };
-    world.handles.sun = AddLightNode(scene, sun);
+    bool useBotdForestTrees = false;
+    int botdVerticalBillboardMesh = kInvalidHandle;
+    std::vector<BotdBillboardVariant> botdTreeVariants;
+    std::vector<fs::path> exportedConiferMeshes;
+    std::string barkTexturePath;
+    std::function<void(const std::string&,
+                       const fs::path&,
+                       const ri::math::Vec3&,
+                       const ri::math::Vec3&,
+                       const ri::math::Vec3&)>
+        addImported;
+    std::function<void(std::string, const ri::math::Vec3&, const ri::math::Vec3&)> addCollider;
+    std::function<int(const std::string&, float, float, const ri::math::Vec3&, const ri::math::Vec3&, const ri::math::Vec3&, const std::string&)>
+        addBoxOnGround;
+    std::function<int(const std::string&,
+                      PrimitiveType,
+                      const ri::math::Vec3&,
+                      const ri::math::Vec3&,
+                      const ri::math::Vec3&,
+                      const ri::math::Vec3&,
+                      const std::string&,
+                      ShadingModel)>
+        addPrimitive;
+    std::function<void(const ri::math::Vec3&, float, float, int, const std::string&)> addForestConiferTree;
+    std::function<float(float, float)> sampleTerrainHeight;
+    std::function<ri::math::Vec3(float, float)> groundPoint;
+    std::vector<ScatterAsset> ruinAssets;
+    std::vector<ScatterAsset> rockAssets;
+    std::vector<ScatterAsset> bushAssets;
+    DeterministicRng rng{};
+    std::vector<Clearing> clearings;
+    ri::math::Vec3 guaranteedSpawn{};
+    float spawnReserveRadius = 11.5f;
+    float scatterExtent = 170.0f;
+    int scatterSeed = 1337;
+    int ruinCount = 0;
+    int rockCount = 0;
+    int bushCount = 0;
+    int treeCount = 0;
+    bool generateTrees = false;
+    bool sourcePackReady = false;
+    bool useExportedConiferMeshes = false;
+    int botdTreeVariantCount = 0;
+    int heroRubbleCount = 0;
+    fs::path postApocRoot;
+    ForestRuinsHeroPopulateCallbacks heroCallbacks;
+};
 
-    LightNodeOptions bounce{};
-    bounce.nodeName = "BounceFill";
-    bounce.parent = world.handles.root;
-    bounce.transform.position = ri::math::Vec3{0.0f, 4.0f, 0.0f};
-    bounce.light = Light{
-        .name = "BounceFill",
-        .type = LightType::Point,
-        .color = ri::math::Vec3{0.42f, 0.56f, 0.48f},
-        .intensity = 2.85f,
-        .range = 120.0f,
-    };
-    (void)AddLightNode(scene, bounce);
+[[nodiscard]] std::unique_ptr<ForestRuinsScatterBundle> PrepareForestRuinsScatterBundle(
+    const ForestRuinsScenePopulateContext& ctx,
+    ri::math::Vec3& guaranteedSpawn);
 
-    OrbitCameraOptions orbitCamera{};
-    orbitCamera.parent = world.handles.root;
-    orbitCamera.camera = Camera{
-        .name = "EditorOrbitCamera",
-        .projection = ProjectionType::Perspective,
-        .fieldOfViewDegrees = 80.0f,
-        .nearClip = 0.05f,
-        .farClip = 2000.0f,
-    };
-    orbitCamera.orbit = OrbitCameraState{
-        .target = ri::math::Vec3{0.0f, 4.0f, 78.0f},
-        .distance = 34.0f,
-        .yawDegrees = 180.0f,
-        .pitchDegrees = -28.0f,
-    };
-    world.handles.orbitCamera = AddOrbitCamera(scene, orbitCamera);
+void ExecuteForestRuinsScatterBundle(ForestRuinsScatterBundle& bundle);
 
-    GridHelperOptions grid{};
-    grid.parent = world.handles.root;
-    grid.nodeName = "ForestAuthoringGrid";
-    grid.size = 260.0f;
-    grid.color = ri::math::Vec3{0.16f, 0.22f, 0.16f};
-    grid.transform.position = ri::math::Vec3{0.0f, 0.01f, 0.0f};
-    world.handles.grid = AddGridHelper(scene, grid);
+void WireForestRuinsScatterCallbacks(ForestRuinsScatterBundle& bundle);
 
-    AxesHelperOptions axes{};
-    axes.parent = world.handles.root;
-    axes.axisLength = 2.2f;
-    axes.axisThickness = 0.08f;
-    axes.transform.position = ri::math::Vec3{0.0f, 0.02f, 0.0f};
-    world.handles.axes = AddAxesHelper(scene, axes);
+void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& callbacks);
+
+[[nodiscard]] ri::math::Vec3 PopulateForestRuinsSceneContent(const ForestRuinsScenePopulateContext& ctx) {
+    ri::math::Vec3 guaranteedSpawn{};
+    std::unique_ptr<ForestRuinsScatterBundle> bundle = PrepareForestRuinsScatterBundle(ctx, guaranteedSpawn);
+    ExecuteForestRuinsScatterBundle(*bundle);
+    PopulateForestRuinsHeroCluster(bundle->heroCallbacks);
+    return guaranteedSpawn;
+}
+
+[[nodiscard]] std::unique_ptr<ForestRuinsScatterBundle> PrepareForestRuinsScatterBundle(
+    const ForestRuinsScenePopulateContext& ctx,
+    ri::math::Vec3& guaranteedSpawn) {
+    auto bundle = std::make_unique<ForestRuinsScatterBundle>();
+    World& world = ctx.world;
+    Scene& scene = ctx.scene;
+    const ForestSceneLayout& forest = ctx.forest;
+    const fs::path& workspaceRoot = ctx.workspaceRoot;
+    const fs::path& gameRoot = ctx.gameRoot;
+    const ProceduralTerrainOptions& terrain = ctx.terrain;
+    const ri::content::ScriptScalarMap& gameplay = ctx.gameplay;
+    const bool useBotdForestTrees = ctx.useBotdForestTrees;
+    const bool useExportedConiferMeshes = ctx.useExportedConiferMeshes;
+    const int botdVerticalBillboardMesh = ctx.botdVerticalBillboardMesh;
+    const std::vector<BotdBillboardVariant>& botdTreeVariants = ctx.botdTreeVariants;
+    const std::vector<fs::path>& exportedConiferMeshes = ctx.exportedConiferMeshes;
 
     auto addCollider = [&](std::string id, const ri::math::Vec3& min, const ri::math::Vec3& max) {
-        world.colliders.push_back(ri::trace::TraceCollider{
-            .id = std::move(id),
-            .bounds = ri::spatial::Aabb{.min = min, .max = max},
-            .structural = true,
-        });
+        PushForestCollider(world, std::move(id), min, max);
     };
 
-    ProceduralTerrainOptions terrain{};
-    terrain.nodeName = "ForestTerrain";
-    terrain.parent = world.handles.root;
-    terrain.materialName = "wilderness-ground";
-    terrain.baseColor = ri::math::Vec3{0.30f, 0.37f, 0.24f};
-    terrain.baseColorTexture = ToAbsoluteAssetPath(forest.groundDiffuse);
-    if (fs::exists(forest.groundNormal)) {
-        terrain.normalTexture = ToAbsoluteAssetPath(forest.groundNormal);
-    }
-    terrain.textureTiling = ri::math::Vec2{36.0f, 36.0f};
-    terrain.resolutionX = 96;
-    terrain.resolutionZ = 96;
-    terrain.sizeX = 520.0f;
-    terrain.sizeZ = 520.0f;
-    terrain.heightAmplitude = 1.15f;
-    terrain.heightFrequency = 0.018f;
-    terrain.detailAmplitude = 0.32f;
-    terrain.detailFrequency = 0.092f;
-    (void)AddProceduralTerrainNode(scene, terrain);
-
     auto sampleTerrainHeight = [&terrain](const float worldX, const float worldZ) -> float {
-        const float ridge =
-            std::sin(worldX * terrain.heightFrequency) * std::cos(worldZ * terrain.heightFrequency * 0.78f);
-        const float swell = std::sin((worldX + worldZ) * terrain.heightFrequency * 0.45f);
-        const float detail =
-            std::sin(worldX * terrain.detailFrequency) * std::sin(worldZ * terrain.detailFrequency * 1.31f);
-        return (ridge * terrain.heightAmplitude) + (swell * terrain.heightAmplitude * 0.55f)
-            + (detail * terrain.detailAmplitude);
+        return SampleForestTerrainHeight(terrain, worldX, worldZ);
     };
 
     auto resolveImportedModelUniformScale = [](const fs::path& sourcePath) -> float {
@@ -1351,6 +1403,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                                                 .parent = coniferTemplateParent,
                                                 .transform = Transform{},
                                                 .snapMeshBaseToGround = false,
+                                                .createPlaceholderOnFailure = true,
                                             },
                                             &importError);
                 if (templateRoot != kInvalidHandle) {
@@ -1421,7 +1474,7 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
         });
     }
 
-    const ri::math::Vec3 guaranteedSpawn{0.0f, 0.0f, 76.0f};
+    guaranteedSpawn = ri::math::Vec3{0.0f, 0.0f, 76.0f};
     const float spawnReserveRadius = 11.5f;
     clearings.push_back(Clearing{.center = guaranteedSpawn, .radius = spawnReserveRadius});
     for (float z = 82.0f; z >= -34.0f; z -= 12.0f) {
@@ -1456,50 +1509,357 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
         }
     }
 
-    auto spawnScatter = [&](const std::vector<ScatterAsset>& assets, const int count, const bool useClearings) {
-        if (assets.empty() || count <= 0) {
+    ForestRuinsScatterBundle& out = *bundle;
+    out.world = &world;
+    out.scene = &scene;
+    out.terrain = terrain;
+    out.scatterModelTemplates = std::move(scatterModelTemplates);
+    out.exportedConiferTemplates = std::move(exportedConiferTemplates);
+    out.coniferTemplateParent = coniferTemplateParent;
+    out.worldRoot = world.handles.root;
+    out.coniferTrunkBatch = coniferTrunkBatch;
+    out.coniferBillboardBatches = coniferBillboardBatches;
+    out.useBotdForestTrees = useBotdForestTrees;
+    out.useExportedConiferMeshes = useExportedConiferMeshes;
+    out.botdVerticalBillboardMesh = botdVerticalBillboardMesh;
+    out.botdTreeVariants = botdTreeVariants;
+    out.exportedConiferMeshes = exportedConiferMeshes;
+    out.barkTexturePath = barkTexturePath;
+    out.ruinAssets = std::move(ruinAssets);
+    out.rockAssets = std::move(rockAssets);
+    out.bushAssets = std::move(bushAssets);
+    out.rng = rng;
+    out.clearings = std::move(clearings);
+    out.guaranteedSpawn = guaranteedSpawn;
+    out.spawnReserveRadius = spawnReserveRadius;
+    out.scatterExtent = scatterExtent;
+    out.scatterSeed = scatterSeed;
+    out.ruinCount = ruinCount;
+    out.rockCount = rockCount;
+    out.bushCount = bushCount;
+    out.treeCount = treeCount;
+    out.generateTrees = generateTrees;
+    out.sourcePackReady = sourcePackReady;
+    out.botdTreeVariantCount = static_cast<int>(botdTreeVariants.size());
+    out.heroRubbleCount = sourcePackReady ? 5 : 18;
+    out.postApocRoot = postApocRoot;
+    return bundle;
+}
+
+void WireForestRuinsScatterCallbacks(ForestRuinsScatterBundle& bundle) {
+    ForestRuinsScatterBundle* self = &bundle;
+    self->sampleTerrainHeight = [self](const float worldX, const float worldZ) {
+        return SampleForestTerrainHeight(self->terrain, worldX, worldZ);
+    };
+    self->addCollider = [self](std::string id, const ri::math::Vec3& min, const ri::math::Vec3& max) {
+        PushForestCollider(*self->world, std::move(id), min, max);
+    };
+    self->addImported = [self](const std::string& nodeName,
+                               const fs::path& sourcePath,
+                               const ri::math::Vec3& position,
+                               const ri::math::Vec3& rotation,
+                               const ri::math::Vec3& scale) {
+        if (!fs::exists(sourcePath)) {
             return;
         }
-        for (int i = 0; i < count; ++i) {
-            const ScatterAsset& asset = assets[static_cast<std::size_t>(rng.NextIndex(static_cast<int>(assets.size())))];
-            if (!fs::exists(asset.sourcePath)) {
-                continue;
+        float importScale = 0.025f;
+        if (PathContainsAscii(sourcePath, "forest scene")) {
+            importScale = 0.055f;
+        } else if (PathContainsAscii(sourcePath, "generated/forestscene")) {
+            importScale = 1.0f;
+        } else if (PathContainsAscii(sourcePath, "post apocalypse")) {
+            importScale = 0.018f;
+        }
+        const ri::math::Vec3 calibratedScale = scale * importScale;
+        std::string importError;
+        (void)InstantiateSceneModelTemplate(
+            *self->scene,
+            self->scatterModelTemplates,
+            sourcePath,
+            self->worldRoot,
+            nodeName,
+            Transform{
+                .position = position,
+                .rotationDegrees = rotation,
+                .scale = calibratedScale,
+            },
+            position.y,
+            ImportedModelOptions{
+                .sourcePath = sourcePath,
+                .nodeName = "Template_" + sourcePath.stem().string(),
+                .createPlaceholderOnFailure = true,
+            },
+            &importError);
+    };
+    self->addPrimitive = [self](const std::string& nodeName,
+                                const PrimitiveType primitive,
+                                const ri::math::Vec3& position,
+                                const ri::math::Vec3& rotation,
+                                const ri::math::Vec3& scale,
+                                const ri::math::Vec3& baseColor,
+                                const std::string& materialName,
+                                const ShadingModel shadingModel) {
+        PrimitiveNodeOptions primitiveOptions{};
+        primitiveOptions.nodeName = nodeName;
+        primitiveOptions.parent = self->worldRoot;
+        primitiveOptions.primitive = primitive;
+        primitiveOptions.materialName = materialName;
+        primitiveOptions.shadingModel = shadingModel;
+        primitiveOptions.baseColor = baseColor;
+        primitiveOptions.alphaCutoff = 1.0f;
+        primitiveOptions.roughness = 0.96f;
+        primitiveOptions.transform = Transform{
+            .position = position,
+            .rotationDegrees = rotation,
+            .scale = scale,
+        };
+        return AddPrimitiveNode(*self->scene, primitiveOptions);
+    };
+    self->addBoxOnGround = [self](const std::string& nodeName,
+                                  const float x,
+                                  const float z,
+                                  const ri::math::Vec3& size,
+                                  const ri::math::Vec3& rotation,
+                                  const ri::math::Vec3& color,
+                                  const std::string& materialName) {
+        const float y = self->sampleTerrainHeight(x, z) + (size.y * 0.5f);
+        return self->addPrimitive(nodeName,
+                                  PrimitiveType::Cube,
+                                  ri::math::Vec3{x, y, z},
+                                  rotation,
+                                  size,
+                                  color,
+                                  materialName,
+                                  ShadingModel::Lit);
+    };
+    self->groundPoint = [self](const float x, const float z) {
+        return ri::math::Vec3{x, self->sampleTerrainHeight(x, z), z};
+    };
+    self->addForestConiferTree = [self](const ri::math::Vec3& root,
+                                        const float targetHeight,
+                                        const float yawDegrees,
+                                        const int variantIndex,
+                                        const std::string& nodePrefix) {
+        if (self->useExportedConiferMeshes && !self->exportedConiferMeshes.empty()) {
+            const fs::path& meshPath =
+                self->exportedConiferMeshes[static_cast<std::size_t>(std::abs(variantIndex))
+                                          % self->exportedConiferMeshes.size()];
+            const std::string meshKey = meshPath.lexically_normal().generic_string();
+            int templateRoot = kInvalidHandle;
+            const auto cachedTemplate = self->exportedConiferTemplates.find(meshKey);
+            if (cachedTemplate != self->exportedConiferTemplates.end()) {
+                templateRoot = cachedTemplate->second;
+            } else {
+                std::string importError;
+                templateRoot = AddModelNode(*self->scene,
+                                            ImportedModelOptions{
+                                                .sourcePath = meshPath,
+                                                .nodeName = "ConiferTemplate_" + meshPath.stem().string(),
+                                                .parent = self->coniferTemplateParent,
+                                                .transform = Transform{},
+                                                .snapMeshBaseToGround = false,
+                                                .createPlaceholderOnFailure = true,
+                                            },
+                                            &importError);
+                if (templateRoot != kInvalidHandle) {
+                    self->exportedConiferTemplates.emplace(meshKey, templateRoot);
+                }
             }
-            float scaleUniform = rng.NextRange(asset.minScale, asset.maxScale);
-            ri::math::Vec3 position = PickScatterPoint(rng, scatterExtent, useClearings, clearings);
-            position.y = sampleTerrainHeight(position.x, position.z);
-            const ri::math::Vec3 spawnDelta = position - guaranteedSpawn;
-            if ((spawnDelta.x * spawnDelta.x) + (spawnDelta.z * spawnDelta.z) < (spawnReserveRadius * spawnReserveRadius)) {
-                position = PickScatterPoint(rng, scatterExtent, useClearings, clearings);
-                scaleUniform *= 0.98f;
+            if (templateRoot == kInvalidHandle) {
+                return;
             }
-            const ri::math::Vec3 rotation{0.0f, rng.NextRange(-180.0f, 180.0f), 0.0f};
-            const ri::math::Vec3 scale{scaleUniform, scaleUniform, scaleUniform};
-            const std::string nodeName = asset.namePrefix + "_" + std::to_string(i + 1) + "_"
-                + std::to_string(scatterSeed);
-            addImported(nodeName, asset.sourcePath, position, rotation, scale);
-            if (asset.colliderRadius > 0.0f && asset.colliderHeight > 0.0f) {
-                addCollider("scatter-" + nodeName,
-                            ri::math::Vec3{
-                                position.x - (asset.colliderRadius * scaleUniform),
-                                position.y,
-                                position.z - (asset.colliderRadius * scaleUniform),
-                            },
-                            ri::math::Vec3{
-                                position.x + (asset.colliderRadius * scaleUniform),
-                                position.y + (asset.colliderHeight * scaleUniform),
-                                position.z + (asset.colliderRadius * scaleUniform),
-                            });
+            const float meshScale = std::clamp(targetHeight / 24.0f, 0.35f, 2.4f);
+            const Transform placement{
+                .position = root,
+                .rotationDegrees = ri::math::Vec3{0.0f, yawDegrees, 0.0f},
+                .scale = ri::math::Vec3{meshScale, meshScale, meshScale},
+            };
+            const int instanceRoot = CloneSceneSubtree(
+                *self->scene, templateRoot, self->worldRoot, nodePrefix + "_Mesh", placement);
+            if (instanceRoot != kInvalidHandle) {
+                SnapNodeMeshBaseToGround(*self->scene, instanceRoot, root.y);
             }
+            return;
+        }
+        if (self->useBotdForestTrees && !self->botdTreeVariants.empty()) {
+            const BotdBillboardVariant& variant =
+                self->botdTreeVariants[static_cast<std::size_t>(std::abs(variantIndex))
+                                       % self->botdTreeVariants.size()];
+            const float heightScale = std::clamp(targetHeight / std::max(variant.height, 1.0f), 0.35f, 2.4f);
+            if (!fs::exists(variant.albedoPath)) {
+                return;
+            }
+            const float treeWidth = variant.width * heightScale;
+            const float treeHeight = variant.height * heightScale;
+            if (self->botdVerticalBillboardMesh != kInvalidHandle) {
+                Material billboardMaterial{
+                    .name = "conifer-billboard-" + variant.label,
+                    .shadingModel = ShadingModel::Lit,
+                    .baseColor = ri::math::Vec3{1.0f, 1.0f, 1.0f},
+                    .baseColorTexture = ToAbsoluteAssetPath(variant.albedoPath),
+                    .roughness = 0.96f,
+                    .alphaCutoff = 0.28f,
+                    .doubleSided = true,
+                };
+                if (!variant.normalPath.empty() && fs::exists(variant.normalPath)) {
+                    billboardMaterial.normalTexture = ToAbsoluteAssetPath(variant.normalPath);
+                }
+                const int billboardMaterialHandle = self->scene->AddMaterial(billboardMaterial);
+                const auto addCrossedBillboard = [&](const std::string& planeName,
+                                                     const float yawOffset,
+                                                     const float widthScale) {
+                    const int node = self->scene->CreateNode(planeName, self->worldRoot);
+                    self->scene->GetNode(node).localTransform = Transform{
+                        .position = root,
+                        .rotationDegrees = ri::math::Vec3{0.0f, yawDegrees + yawOffset, 0.0f},
+                        .scale = ri::math::Vec3{treeWidth * widthScale, treeHeight, 1.0f},
+                    };
+                    self->scene->AttachMesh(node, self->botdVerticalBillboardMesh, billboardMaterialHandle);
+                };
+                addCrossedBillboard(nodePrefix + "_Billboard_1", 0.0f, 1.0f);
+                addCrossedBillboard(nodePrefix + "_Billboard_2", 90.0f, 0.92f);
+            }
+            return;
+        }
+        if (self->coniferTrunkBatch == kInvalidHandle) {
+            return;
+        }
+        const float safeHeight = std::max(targetHeight, 1.0f);
+        const float safeRadius = std::max(targetHeight * 0.22f, 0.35f);
+        const float trunkHeight = safeHeight * 0.43f;
+        self->scene->AddMeshInstance(self->coniferTrunkBatch,
+                                     Transform{
+                                         .position = ri::math::Vec3{root.x, root.y + (trunkHeight * 0.5f), root.z},
+                                         .rotationDegrees = ri::math::Vec3{0.0f, yawDegrees, 0.0f},
+                                         .scale = ri::math::Vec3{safeRadius * 0.16f, trunkHeight, safeRadius * 0.16f},
+                                     });
+        const std::size_t variantSlot = static_cast<std::size_t>(std::abs(variantIndex) % 4);
+        const float billboardWidth = std::max(safeRadius * 1.75f, safeHeight * 0.38f);
+        if (self->coniferBillboardBatches[variantSlot] != kInvalidHandle) {
+            self->scene->AddMeshInstance(self->coniferBillboardBatches[variantSlot],
+                                         Transform{
+                                             .position = root,
+                                             .rotationDegrees = ri::math::Vec3{0.0f, yawDegrees, 0.0f},
+                                             .scale = ri::math::Vec3{billboardWidth, safeHeight, 1.0f},
+                                         });
+            self->scene->AddMeshInstance(self->coniferBillboardBatches[variantSlot],
+                                         Transform{
+                                             .position = ri::math::Vec3{root.x, root.y + 0.04f, root.z},
+                                             .rotationDegrees = ri::math::Vec3{0.0f, yawDegrees + 93.0f, 0.0f},
+                                             .scale = ri::math::Vec3{billboardWidth * 0.92f, safeHeight * 0.98f, 1.0f},
+                                         });
         }
     };
+}
 
+void SpawnForestRuinsAssetScatter(ForestRuinsScatterBundle& bundle,
+                                  const std::vector<ScatterAsset>& assets,
+                                  const int count,
+                                  const bool useClearings) {
+    if (assets.empty() || count <= 0) {
+        return;
+    }
+    for (int i = 0; i < count; ++i) {
+        const ScatterAsset& asset =
+            assets[static_cast<std::size_t>(bundle.rng.NextIndex(static_cast<int>(assets.size())))];
+        if (!fs::exists(asset.sourcePath)) {
+            continue;
+        }
+        float scaleUniform = bundle.rng.NextRange(asset.minScale, asset.maxScale);
+        ri::math::Vec3 position = PickScatterPoint(bundle.rng, bundle.scatterExtent, useClearings, bundle.clearings);
+        position.y = bundle.sampleTerrainHeight(position.x, position.z);
+        const ri::math::Vec3 spawnDelta = position - bundle.guaranteedSpawn;
+        if ((spawnDelta.x * spawnDelta.x) + (spawnDelta.z * spawnDelta.z)
+            < (bundle.spawnReserveRadius * bundle.spawnReserveRadius)) {
+            position = PickScatterPoint(bundle.rng, bundle.scatterExtent, useClearings, bundle.clearings);
+            scaleUniform *= 0.98f;
+        }
+        const ri::math::Vec3 rotation{0.0f, bundle.rng.NextRange(-180.0f, 180.0f), 0.0f};
+        const ri::math::Vec3 scale{scaleUniform, scaleUniform, scaleUniform};
+        const std::string nodeName = asset.namePrefix + "_" + std::to_string(i + 1) + "_"
+            + std::to_string(bundle.scatterSeed);
+        bundle.addImported(nodeName, asset.sourcePath, position, rotation, scale);
+        if (asset.colliderRadius > 0.0f && asset.colliderHeight > 0.0f) {
+            bundle.addCollider("scatter-" + nodeName,
+                               ri::math::Vec3{
+                                   position.x - (asset.colliderRadius * scaleUniform),
+                                   position.y,
+                                   position.z - (asset.colliderRadius * scaleUniform),
+                               },
+                               ri::math::Vec3{
+                                   position.x + (asset.colliderRadius * scaleUniform),
+                                   position.y + (asset.colliderHeight * scaleUniform),
+                                   position.z + (asset.colliderRadius * scaleUniform),
+                               });
+        }
+    }
+}
 
-    const int roadSegmentCount = sourcePackReady ? 10 : 27;
-    const int roadCrackCount = sourcePackReady ? 6 : 42;
-    const int floorShadowPatchCount = (sourcePackReady || useExportedConiferMeshes) ? 0 : 76;
-    const int roadEdgeStoneCount = sourcePackReady ? 8 : 34;
-    const int heroRubbleCount = sourcePackReady ? 5 : 18;
+void PopulateForestRuinsPathTrees(ForestRuinsScatterBundle& bundle) {
+    const int pathWallTreeCount = bundle.sourcePackReady ? 34 : 86;
+    const int pathTallTreeCount = bundle.sourcePackReady ? 6 : 14;
+    const int pathSmallTreeCount = bundle.sourcePackReady ? 22 : 68;
+    for (int i = 0; i < pathWallTreeCount; ++i) {
+        const float z = 78.0f - (static_cast<float>(i) * (bundle.sourcePackReady ? 2.35f : 1.95f));
+        const float side = (i % 2 == 0) ? -1.0f : 1.0f;
+        const float forestWallOffset = RuinPathHalfWidth(z) + 7.0f + static_cast<float>((i * 11) % 7) * 1.05f;
+        const float x = RuinPathCenterX(z) + side * forestWallOffset;
+        const ri::math::Vec3 root{x, bundle.sampleTerrainHeight(x, z), z};
+        bundle.addForestConiferTree(root,
+                                    9.8f + static_cast<float>((i * 17) % 9) * 0.72f,
+                                    static_cast<float>((i * 29) % 360),
+                                    i,
+                                    "PathConifer_" + std::to_string(i + 1));
+    }
+    for (int i = 0; i < pathTallTreeCount; ++i) {
+        const float z = 74.0f - (static_cast<float>(i) * 3.8f);
+        const float side = (i % 2 == 0) ? -1.0f : 1.0f;
+        const float x = RuinPathCenterX(z) + side * (14.0f + static_cast<float>((i * 5) % 4) * 2.6f);
+        const ri::math::Vec3 root{x, bundle.sampleTerrainHeight(x, z), z};
+        bundle.addForestConiferTree(root,
+                                    11.6f + static_cast<float>((i * 19) % 5) * 0.9f,
+                                    static_cast<float>((i * 43) % 360),
+                                    i + 1,
+                                    "PathConiferTall_" + std::to_string(i + 1));
+    }
+    for (int i = 0; i < pathSmallTreeCount; ++i) {
+        const float z = 74.0f - (static_cast<float>(i) * 2.15f);
+        const float side = (i % 2 == 0) ? -1.0f : 1.0f;
+        const float x = RuinPathCenterX(z) + side * (RuinPathHalfWidth(z) + 2.2f + static_cast<float>((i * 5) % 4) * 0.48f);
+        const ri::math::Vec3 root{x, bundle.sampleTerrainHeight(x, z), z};
+        bundle.addForestConiferTree(root,
+                                    2.8f + static_cast<float>((i * 7) % 5) * 0.46f,
+                                    static_cast<float>((i * 47) % 360),
+                                    i + 2,
+                                    "PathConiferSmall_" + std::to_string(i + 1));
+    }
+}
+
+void PopulateForestRuinsForestScatter(ForestRuinsScatterBundle& bundle) {
+    if (!bundle.generateTrees || bundle.treeCount <= 0) {
+        return;
+    }
+    for (int i = 0; i < bundle.treeCount; ++i) {
+        const ri::math::Vec3 root = PickScatterPoint(bundle.rng, bundle.scatterExtent, false, bundle.clearings);
+        const float groundY = bundle.sampleTerrainHeight(root.x, root.z);
+        const float yawBase = bundle.rng.NextRange(-180.0f, 180.0f);
+        bundle.addForestConiferTree(ri::math::Vec3{root.x, groundY, root.z},
+                                    bundle.rng.NextRange(7.2f, 15.5f),
+                                    yawBase,
+                                    bundle.rng.NextIndex(bundle.botdTreeVariantCount > 0 ? bundle.botdTreeVariantCount : 4),
+                                    "ScatterConifer_" + std::to_string(i + 1));
+    }
+}
+
+void ExecuteForestRuinsScatterBundle(ForestRuinsScatterBundle& bundle) {
+    WireForestRuinsScatterCallbacks(bundle);
+    const auto& addBoxOnGround = bundle.addBoxOnGround;
+    const auto& addImported = bundle.addImported;
+    const auto& groundPoint = bundle.groundPoint;
+    const int roadSegmentCount = bundle.sourcePackReady ? 10 : 27;
+    const int roadCrackCount = bundle.sourcePackReady ? 6 : 42;
+    const int floorShadowPatchCount = (bundle.sourcePackReady || bundle.useExportedConiferMeshes) ? 0 : 76;
+    const int roadEdgeStoneCount = bundle.sourcePackReady ? 8 : 34;
 
     for (int i = 0; i < roadSegmentCount; ++i) {
         const float z = 77.0f - (static_cast<float>(i) * 4.8f);
@@ -1604,55 +1964,16 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                        "material-showcase-label");
     }
 
-    spawnScatter(ruinAssets, ruinCount, true);
-    spawnScatter(rockAssets, rockCount, false);
-    spawnScatter(bushAssets, bushCount, false);
-
-    const int pathWallTreeCount = sourcePackReady ? 34 : 86;
-    const int pathTallTreeCount = sourcePackReady ? 6 : 14;
-    const int pathSmallTreeCount = sourcePackReady ? 22 : 68;
-    for (int i = 0; i < pathWallTreeCount; ++i) {
-        const float z = 78.0f - (static_cast<float>(i) * (sourcePackReady ? 2.35f : 1.95f));
-        const float side = (i % 2 == 0) ? -1.0f : 1.0f;
-        const float forestWallOffset = RuinPathHalfWidth(z) + 7.0f + static_cast<float>((i * 11) % 7) * 1.05f;
-        const float x = RuinPathCenterX(z) + side * forestWallOffset;
-        const ri::math::Vec3 root{x, sampleTerrainHeight(x, z), z};
-        addForestConiferTree(root,
-                             9.8f + static_cast<float>((i * 17) % 9) * 0.72f,
-                             static_cast<float>((i * 29) % 360),
-                             i,
-                             "PathConifer_" + std::to_string(i + 1));
-    }
-
-    for (int i = 0; i < pathTallTreeCount; ++i) {
-        const float z = 74.0f - (static_cast<float>(i) * 3.8f);
-        const float side = (i % 2 == 0) ? -1.0f : 1.0f;
-        const float x = RuinPathCenterX(z) + side * (14.0f + static_cast<float>((i * 5) % 4) * 2.6f);
-        const ri::math::Vec3 root{x, sampleTerrainHeight(x, z), z};
-        addForestConiferTree(root,
-                             11.6f + static_cast<float>((i * 19) % 5) * 0.9f,
-                             static_cast<float>((i * 43) % 360),
-                             i + 1,
-                             "PathConiferTall_" + std::to_string(i + 1));
-    }
-
-    for (int i = 0; i < pathSmallTreeCount; ++i) {
-        const float z = 74.0f - (static_cast<float>(i) * 2.15f);
-        const float side = (i % 2 == 0) ? -1.0f : 1.0f;
-        const float x = RuinPathCenterX(z) + side * (RuinPathHalfWidth(z) + 2.2f + static_cast<float>((i * 5) % 4) * 0.48f);
-        const ri::math::Vec3 root{x, sampleTerrainHeight(x, z), z};
-        addForestConiferTree(root,
-                             2.8f + static_cast<float>((i * 7) % 5) * 0.46f,
-                             static_cast<float>((i * 47) % 360),
-                             i + 2,
-                             "PathConiferSmall_" + std::to_string(i + 1));
-    }
+    SpawnForestRuinsAssetScatter(bundle, bundle.ruinAssets, bundle.ruinCount, true);
+    SpawnForestRuinsAssetScatter(bundle, bundle.rockAssets, bundle.rockCount, false);
+    SpawnForestRuinsAssetScatter(bundle, bundle.bushAssets, bundle.bushCount, false);
+    PopulateForestRuinsPathTrees(bundle);
 
     for (int i = 0; i < 18; ++i) {
         const float angle = static_cast<float>(i) * 23.0f;
         const float x = std::sin(ri::math::DegreesToRadians(angle)) * (8.8f + static_cast<float>(i % 4));
         const float z = 25.0f + std::cos(ri::math::DegreesToRadians(angle)) * (9.0f + static_cast<float>((i + 1) % 5));
-        const ScatterAsset& bush = bushAssets[static_cast<std::size_t>(i % static_cast<int>(bushAssets.size()))];
+        const ScatterAsset& bush = bundle.bushAssets[static_cast<std::size_t>(i % static_cast<int>(bundle.bushAssets.size()))];
         addImported("HeroBushCluster_" + std::to_string(i + 1),
                     bush.sourcePath,
                     groundPoint(x, z),
@@ -1662,97 +1983,269 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
                      4.8f + static_cast<float>(i % 3) * 0.8f});
     }
 
-    if (generateTrees && treeCount > 0) {
-        for (int i = 0; i < treeCount; ++i) {
-            const ri::math::Vec3 root = PickScatterPoint(rng, scatterExtent, false, clearings);
-            const float groundY = sampleTerrainHeight(root.x, root.z);
-            const float yawBase = rng.NextRange(-180.0f, 180.0f);
-            addForestConiferTree(ri::math::Vec3{root.x, groundY, root.z},
-                                 rng.NextRange(7.2f, 15.5f),
-                                 yawBase,
-                                 rng.NextIndex(static_cast<int>(botdTreeVariants.empty() ? 4 : botdTreeVariants.size())),
-                                 "ScatterConifer_" + std::to_string(i + 1));
+    PopulateForestRuinsForestScatter(bundle);
+
+    ForestRuinsScatterBundle* self = &bundle;
+    bundle.heroCallbacks.heroImport = [self](const std::string& nodeName,
+                                             const fs::path& sourcePath,
+                                             const float x,
+                                             const float z,
+                                             const ri::math::Vec3& rotation,
+                                             const ri::math::Vec3& scale,
+                                             const float colliderRadius,
+                                             const float colliderHeight) {
+        const ri::math::Vec3 p = self->groundPoint(x, z);
+        self->addImported(nodeName, sourcePath, p, rotation, scale);
+        if (colliderRadius > 0.0f && colliderHeight > 0.0f) {
+            self->addCollider("hero-" + nodeName,
+                              {p.x - colliderRadius, p.y, p.z - colliderRadius},
+                              {p.x + colliderRadius, p.y + colliderHeight, p.z + colliderRadius});
         }
+    };
+    bundle.heroCallbacks.addBoxOnGround = bundle.addBoxOnGround;
+    bundle.heroCallbacks.addPrimitive = bundle.addPrimitive;
+    bundle.heroCallbacks.sampleTerrainHeight = bundle.sampleTerrainHeight;
+    bundle.heroCallbacks.sourcePackReady = bundle.sourcePackReady;
+    bundle.heroCallbacks.heroRubbleCount = bundle.heroRubbleCount;
+    bundle.heroCallbacks.postApocRoot = bundle.postApocRoot;
+}
+
+void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& callbacks) {
+    const ri::math::Vec3 stone{0.43f, 0.42f, 0.36f};
+    const ri::math::Vec3 darkStone{0.28f, 0.30f, 0.27f};
+    const ri::math::Vec3 moss{0.18f, 0.31f, 0.16f};
+
+    callbacks.addBoxOnGround("RuinedGateway_LeftPier", -4.8f, 38.0f, {1.6f, 5.8f, 1.5f}, {0.0f, -4.0f, 0.0f}, stone, "hero-ruin-stone");
+    callbacks.addBoxOnGround("RuinedGateway_RightPier", 4.6f, 37.2f, {1.5f, 4.7f, 1.5f}, {0.0f, 5.0f, 0.0f}, stone, "hero-ruin-stone");
+    callbacks.addBoxOnGround("RuinedGateway_BrokenLintel", -0.8f, 37.7f, {8.4f, 1.0f, 1.2f}, {0.0f, 2.0f, -7.0f}, stone, "hero-ruin-stone");
+    callbacks.addBoxOnGround("RuinedGateway_FallenLintel", 3.7f, 32.7f, {1.2f, 0.75f, 7.4f}, {0.0f, -32.0f, 10.0f}, darkStone, "hero-ruin-dark-stone");
+    callbacks.addBoxOnGround("OvergrownFoundation_LeftWall", -8.8f, 22.0f, {1.1f, 2.4f, 15.5f}, {0.0f, 3.0f, 0.0f}, stone, "hero-ruin-stone");
+    callbacks.addBoxOnGround("OvergrownFoundation_RightWall", 8.8f, 23.0f, {1.1f, 1.8f, 13.5f}, {0.0f, -6.0f, 0.0f}, stone, "hero-ruin-stone");
+    callbacks.addBoxOnGround("OvergrownFoundation_BackWall", 0.0f, 14.0f, {16.2f, 2.2f, 1.1f}, {0.0f, 2.0f, 0.0f}, stone, "hero-ruin-stone");
+    callbacks.addBoxOnGround("SunkenThreshold", 0.0f, 30.4f, {7.6f, 0.28f, 2.8f}, {0.0f, 0.0f, 0.0f}, darkStone, "hero-ruin-dark-stone");
+    callbacks.addBoxOnGround("CrackedStep_1", 0.0f, 33.8f, {6.4f, 0.22f, 1.5f}, {0.0f, 1.5f, 0.0f}, darkStone, "hero-ruin-dark-stone");
+    callbacks.addBoxOnGround("CrackedStep_2", -0.4f, 35.3f, {5.0f, 0.24f, 1.3f}, {0.0f, -2.0f, 0.0f}, darkStone, "hero-ruin-dark-stone");
+
+    for (int i = 0; i < callbacks.heroRubbleCount; ++i) {
+        const float angle = static_cast<float>(i) * 37.0f;
+        const float radius = 5.0f + static_cast<float>((i * 5) % 7) * 0.95f;
+        const float x = std::sin(ri::math::DegreesToRadians(angle)) * radius;
+        const float z = 23.0f + (std::cos(ri::math::DegreesToRadians(angle)) * radius);
+        callbacks.addBoxOnGround("RuinBlockRubble_" + std::to_string(i + 1),
+                                 x,
+                                 z,
+                                 {0.75f + static_cast<float>(i % 3) * 0.18f,
+                                  0.34f + static_cast<float>((i + 1) % 4) * 0.13f,
+                                  0.7f + static_cast<float>((i + 2) % 4) * 0.16f},
+                                 {static_cast<float>((i % 5) - 2) * 5.0f, angle, static_cast<float>((i % 7) - 3) * 3.0f},
+                                 (i % 4 == 0) ? moss : stone,
+                                 "hero-ruin-rubble");
     }
 
-        const ri::math::Vec3 stone{0.43f, 0.42f, 0.36f};
-        const ri::math::Vec3 darkStone{0.28f, 0.30f, 0.27f};
-        const ri::math::Vec3 moss{0.18f, 0.31f, 0.16f};
+    const int mossCushionCount = callbacks.sourcePackReady ? 4 : 11;
+    for (int i = 0; i < mossCushionCount; ++i) {
+        const float x = -6.0f + static_cast<float>(i) * 1.25f;
+        const float z = 27.0f + std::sin(static_cast<float>(i) * 1.7f) * 4.0f;
+        callbacks.addPrimitive("MossCushion_" + std::to_string(i + 1),
+                               PrimitiveType::Sphere,
+                               ri::math::Vec3{x, callbacks.sampleTerrainHeight(x, z) + 0.25f, z},
+                               {},
+                               {1.2f, 0.32f, 0.9f},
+                               moss,
+                               "moss-cushion",
+                               ShadingModel::Lit);
+    }
 
-        addBoxOnGround("RuinedGateway_LeftPier", -4.8f, 38.0f, {1.6f, 5.8f, 1.5f}, {0.0f, -4.0f, 0.0f}, stone, "hero-ruin-stone");
-        addBoxOnGround("RuinedGateway_RightPier", 4.6f, 37.2f, {1.5f, 4.7f, 1.5f}, {0.0f, 5.0f, 0.0f}, stone, "hero-ruin-stone");
-        addBoxOnGround("RuinedGateway_BrokenLintel", -0.8f, 37.7f, {8.4f, 1.0f, 1.2f}, {0.0f, 2.0f, -7.0f}, stone, "hero-ruin-stone");
-        addBoxOnGround("RuinedGateway_FallenLintel", 3.7f, 32.7f, {1.2f, 0.75f, 7.4f}, {0.0f, -32.0f, 10.0f}, darkStone, "hero-ruin-dark-stone");
-        addBoxOnGround("OvergrownFoundation_LeftWall", -8.8f, 22.0f, {1.1f, 2.4f, 15.5f}, {0.0f, 3.0f, 0.0f}, stone, "hero-ruin-stone");
-        addBoxOnGround("OvergrownFoundation_RightWall", 8.8f, 23.0f, {1.1f, 1.8f, 13.5f}, {0.0f, -6.0f, 0.0f}, stone, "hero-ruin-stone");
-        addBoxOnGround("OvergrownFoundation_BackWall", 0.0f, 14.0f, {16.2f, 2.2f, 1.1f}, {0.0f, 2.0f, 0.0f}, stone, "hero-ruin-stone");
-        addBoxOnGround("SunkenThreshold", 0.0f, 30.4f, {7.6f, 0.28f, 2.8f}, {0.0f, 0.0f, 0.0f}, darkStone, "hero-ruin-dark-stone");
-        addBoxOnGround("CrackedStep_1", 0.0f, 33.8f, {6.4f, 0.22f, 1.5f}, {0.0f, 1.5f, 0.0f}, darkStone, "hero-ruin-dark-stone");
-        addBoxOnGround("CrackedStep_2", -0.4f, 35.3f, {5.0f, 0.24f, 1.3f}, {0.0f, -2.0f, 0.0f}, darkStone, "hero-ruin-dark-stone");
+    callbacks.heroImport("HeroBusStop_ClaimedByMoss",
+                         callbacks.postApocRoot / "Bus_Stop_Rural" / "MS_Bus_Stop_Rural.fbx",
+                         -11.5f,
+                         43.0f,
+                         {0.0f, 18.0f, 0.0f},
+                         {4.4f, 4.4f, 4.4f},
+                         5.6f,
+                         4.2f);
+    callbacks.heroImport("HeroRoadEndsSign",
+                         callbacks.postApocRoot / "Sign_Public_Road_Ends" / "MS_Sign_Public_Road_Ends.fbx",
+                         5.8f,
+                         53.2f,
+                         {180.0f, -16.0f, 0.0f},
+                         {3.3f, 3.3f, 3.3f},
+                         1.1f,
+                         2.8f);
+    callbacks.heroImport("HeroLightPoleLean",
+                         callbacks.postApocRoot / "Pole_Light_Rural" / "MS_Pole_Light_Rural.fbx",
+                         -7.8f,
+                         31.2f,
+                         {0.0f, 38.0f, -7.0f},
+                         {3.5f, 3.5f, 3.5f},
+                         1.2f,
+                         5.2f);
+    callbacks.heroImport("HeroFireplaceTowerBack",
+                         callbacks.postApocRoot / "Fireplace_Tower" / "MS_Fireplace_Tower.fbx",
+                         10.8f,
+                         11.8f,
+                         {0.0f, -28.0f, 0.0f},
+                         {3.6f, 3.6f, 3.6f},
+                         3.6f,
+                         7.0f);
+    callbacks.heroImport("HeroPlankPile",
+                         callbacks.postApocRoot / "Planks" / "MS_Plank_Pile.fbx",
+                         -3.0f,
+                         20.2f,
+                         {0.0f, 31.0f, 0.0f},
+                         {3.2f, 3.2f, 3.2f},
+                         2.4f,
+                         1.2f);
+    callbacks.heroImport("HeroMailboxTilted",
+                         callbacks.postApocRoot / "Mailbox" / "MS_Mailbox.fbx",
+                         7.4f,
+                         45.4f,
+                         {0.0f, -24.0f, 9.0f},
+                         {3.0f, 3.0f, 3.0f},
+                         0.9f,
+                         1.7f);
+    callbacks.heroImport("HeroControlBox",
+                         callbacks.postApocRoot / "Control_Box" / "MS_Control_Box.fbx",
+                         -6.2f,
+                         17.0f,
+                         {0.0f, 48.0f, 0.0f},
+                         {2.7f, 2.7f, 2.7f},
+                         1.2f,
+                         1.8f);
+    callbacks.heroImport("HeroPalletRotting",
+                         callbacks.postApocRoot / "Pallet" / "MS_Pallet.fbx",
+                         5.8f,
+                         24.8f,
+                         {0.0f, -42.0f, 0.0f},
+                         {3.1f, 3.1f, 3.1f},
+                         1.8f,
+                         0.7f);
+}
 
-        for (int i = 0; i < heroRubbleCount; ++i) {
-            const float angle = static_cast<float>(i) * 37.0f;
-            const float radius = 5.0f + static_cast<float>((i * 5) % 7) * 0.95f;
-            const float x = std::sin(ri::math::DegreesToRadians(angle)) * radius;
-            const float z = 23.0f + (std::cos(ri::math::DegreesToRadians(angle)) * radius);
-            addBoxOnGround("RuinBlockRubble_" + std::to_string(i + 1),
-                           x,
-                           z,
-                           {0.75f + static_cast<float>(i % 3) * 0.18f,
-                            0.34f + static_cast<float>((i + 1) % 4) * 0.13f,
-                            0.7f + static_cast<float>((i + 2) % 4) * 0.16f},
-                           {static_cast<float>((i % 5) - 2) * 5.0f, angle, static_cast<float>((i % 7) - 3) * 3.0f},
-                           (i % 4 == 0) ? moss : stone,
-                           "hero-ruin-rubble");
-        }
+} // namespace
 
-        const int mossCushionCount = sourcePackReady ? 4 : 11;
-        for (int i = 0; i < mossCushionCount; ++i) {
-            const float x = -6.0f + static_cast<float>(i) * 1.25f;
-            const float z = 27.0f + std::sin(static_cast<float>(i) * 1.7f) * 4.0f;
-            addPrimitive("MossCushion_" + std::to_string(i + 1),
-                         PrimitiveType::Sphere,
-                         ri::math::Vec3{x, sampleTerrainHeight(x, z) + 0.25f, z},
-                         {},
-                         {1.2f, 0.32f, 0.9f},
-                         moss,
-                         "moss-cushion",
-                         ShadingModel::Lit);
-        }
+bool IsForestRuinsGameRoot(const fs::path& gameRoot) {
+    const std::optional<ri::content::GameManifest> manifest = ri::content::LoadGameManifest(gameRoot / "manifest.json");
+    return manifest.has_value() && manifest->id == "wilderness-ruins";
+}
 
-        const auto heroImport = [&](const std::string& nodeName,
-                                    const fs::path& sourcePath,
-                                    const float x,
-                                    const float z,
-                                    const ri::math::Vec3& rotation,
-                                    const ri::math::Vec3& scale,
-                                    const float colliderRadius,
-                                    const float colliderHeight) {
-            const ri::math::Vec3 p = groundPoint(x, z);
-            addImported(nodeName, sourcePath, p, rotation, scale);
-            if (colliderRadius > 0.0f && colliderHeight > 0.0f) {
-                addCollider("hero-" + nodeName,
-                            {p.x - colliderRadius, p.y, p.z - colliderRadius},
-                            {p.x + colliderRadius, p.y + colliderHeight, p.z + colliderRadius});
-            }
-        };
+World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot) {
+    World world{};
+    world.scene = Scene(std::string(sceneName));
+    Scene& scene = world.scene;
+    const fs::path workspaceRoot = ri::content::DetectWorkspaceRoot(gameRoot);
+    const ForestSceneLayout forest = MakeForestSceneLayout(workspaceRoot, gameRoot);
+    const std::vector<BotdBillboardVariant> botdTreeVariants = DiscoverBotdBillboardVariants(forest.botdBillboardsRoot);
+    const std::vector<fs::path> exportedConiferMeshes = DiscoverExportedConiferMeshes(forest.exportedMeshesRoot);
+    const bool useBotdForestTrees = !botdTreeVariants.empty();
+    const bool useExportedConiferMeshes = !exportedConiferMeshes.empty();
+    const int botdVerticalBillboardMesh =
+        useBotdForestTrees ? scene.AddMesh(MakeVerticalBillboardMesh(0.0f, 1.0f)) : ri::scene::kInvalidHandle;
+    const ri::content::ScriptScalarMap gameplay = ri::content::LoadScriptScalars(gameRoot / "scripts" / "gameplay.riscript");
 
-        heroImport("HeroBusStop_ClaimedByMoss", postApocRoot / "Bus_Stop_Rural" / "MS_Bus_Stop_Rural.fbx",
-                   -11.5f, 43.0f, {0.0f, 18.0f, 0.0f}, {4.4f, 4.4f, 4.4f}, 5.6f, 4.2f);
-        heroImport("HeroRoadEndsSign", postApocRoot / "Sign_Public_Road_Ends" / "MS_Sign_Public_Road_Ends.fbx",
-                   5.8f, 53.2f, {180.0f, -16.0f, 0.0f}, {3.3f, 3.3f, 3.3f}, 1.1f, 2.8f);
-        heroImport("HeroLightPoleLean", postApocRoot / "Pole_Light_Rural" / "MS_Pole_Light_Rural.fbx",
-                   -7.8f, 31.2f, {0.0f, 38.0f, -7.0f}, {3.5f, 3.5f, 3.5f}, 1.2f, 5.2f);
-        heroImport("HeroFireplaceTowerBack", postApocRoot / "Fireplace_Tower" / "MS_Fireplace_Tower.fbx",
-                   10.8f, 11.8f, {0.0f, -28.0f, 0.0f}, {3.6f, 3.6f, 3.6f}, 3.6f, 7.0f);
-        heroImport("HeroPlankPile", postApocRoot / "Planks" / "MS_Plank_Pile.fbx",
-                   -3.0f, 20.2f, {0.0f, 31.0f, 0.0f}, {3.2f, 3.2f, 3.2f}, 2.4f, 1.2f);
-        heroImport("HeroMailboxTilted", postApocRoot / "Mailbox" / "MS_Mailbox.fbx",
-                   7.4f, 45.4f, {0.0f, -24.0f, 9.0f}, {3.0f, 3.0f, 3.0f}, 0.9f, 1.7f);
-        heroImport("HeroControlBox", postApocRoot / "Control_Box" / "MS_Control_Box.fbx",
-                   -6.2f, 17.0f, {0.0f, 48.0f, 0.0f}, {2.7f, 2.7f, 2.7f}, 1.2f, 1.8f);
-        heroImport("HeroPalletRotting", postApocRoot / "Pallet" / "MS_Pallet.fbx",
-                   5.8f, 24.8f, {0.0f, -42.0f, 0.0f}, {3.1f, 3.1f, 3.1f}, 1.8f, 0.7f);
+    world.handles.root = scene.CreateNode("WildernessRuinsLayer");
+
+    LightNodeOptions sun{};
+    sun.nodeName = "SunLight";
+    sun.parent = world.handles.root;
+    sun.transform.rotationDegrees = ri::math::Vec3{-42.0f, 34.0f, 0.0f};
+    sun.light = Light{
+        .name = "SunLight",
+        .type = LightType::Directional,
+        .color = ri::math::Vec3{1.00f, 0.94f, 0.82f},
+        .intensity = 2.45f,
+    };
+    world.handles.sun = AddLightNode(scene, sun);
+
+    LightNodeOptions bounce{};
+    bounce.nodeName = "BounceFill";
+    bounce.parent = world.handles.root;
+    bounce.transform.position = ri::math::Vec3{0.0f, 4.0f, 0.0f};
+    bounce.light = Light{
+        .name = "BounceFill",
+        .type = LightType::Point,
+        .color = ri::math::Vec3{0.42f, 0.56f, 0.48f},
+        .intensity = 2.85f,
+        .range = 120.0f,
+    };
+    (void)AddLightNode(scene, bounce);
+
+    OrbitCameraOptions orbitCamera{};
+    orbitCamera.parent = world.handles.root;
+    orbitCamera.camera = Camera{
+        .name = "EditorOrbitCamera",
+        .projection = ProjectionType::Perspective,
+        .fieldOfViewDegrees = 80.0f,
+        .nearClip = 0.05f,
+        .farClip = 2000.0f,
+    };
+    orbitCamera.orbit = OrbitCameraState{
+        .target = ri::math::Vec3{0.0f, 4.0f, 78.0f},
+        .distance = 34.0f,
+        .yawDegrees = 180.0f,
+        .pitchDegrees = -28.0f,
+    };
+    world.handles.orbitCamera = AddOrbitCamera(scene, orbitCamera);
+
+    GridHelperOptions grid{};
+    grid.parent = world.handles.root;
+    grid.nodeName = "ForestAuthoringGrid";
+    grid.size = 260.0f;
+    grid.color = ri::math::Vec3{0.16f, 0.22f, 0.16f};
+    grid.transform.position = ri::math::Vec3{0.0f, 0.01f, 0.0f};
+    world.handles.grid = AddGridHelper(scene, grid);
+
+    AxesHelperOptions axes{};
+    axes.parent = world.handles.root;
+    axes.axisLength = 2.2f;
+    axes.axisThickness = 0.08f;
+    axes.transform.position = ri::math::Vec3{0.0f, 0.02f, 0.0f};
+    world.handles.axes = AddAxesHelper(scene, axes);
+
+    ProceduralTerrainOptions terrain{};
+    terrain.nodeName = "ForestTerrain";
+    terrain.parent = world.handles.root;
+    terrain.materialName = "wilderness-ground";
+    terrain.baseColor = ri::math::Vec3{0.30f, 0.37f, 0.24f};
+    terrain.baseColorTexture = ToAbsoluteAssetPath(forest.groundDiffuse);
+    if (fs::exists(forest.groundNormal)) {
+        terrain.normalTexture = ToAbsoluteAssetPath(forest.groundNormal);
+    }
+    terrain.textureTiling = ri::math::Vec2{36.0f, 36.0f};
+    terrain.resolutionX = 96;
+    terrain.resolutionZ = 96;
+    terrain.sizeX = 520.0f;
+    terrain.sizeZ = 520.0f;
+    terrain.heightAmplitude = 1.15f;
+    terrain.heightFrequency = 0.018f;
+    terrain.detailAmplitude = 0.32f;
+    terrain.detailFrequency = 0.092f;
+    (void)AddProceduralTerrainNode(scene, terrain);
+
+    auto sampleTerrainHeight = [&terrain](const float worldX, const float worldZ) -> float {
+        const float ridge =
+            std::sin(worldX * terrain.heightFrequency) * std::cos(worldZ * terrain.heightFrequency * 0.78f);
+        const float swell = std::sin((worldX + worldZ) * terrain.heightFrequency * 0.45f);
+        const float detail =
+            std::sin(worldX * terrain.detailFrequency) * std::sin(worldZ * terrain.detailFrequency * 1.31f);
+        return (ridge * terrain.heightAmplitude) + (swell * terrain.heightAmplitude * 0.55f)
+            + (detail * terrain.detailAmplitude);
+    };
+
+    const ri::math::Vec3 guaranteedSpawn = PopulateForestRuinsSceneContent({
+        .world = world,
+        .scene = scene,
+        .forest = forest,
+        .workspaceRoot = workspaceRoot,
+        .gameRoot = gameRoot,
+        .terrain = terrain,
+        .gameplay = gameplay,
+        .useBotdForestTrees = useBotdForestTrees,
+        .useExportedConiferMeshes = useExportedConiferMeshes,
+        .botdVerticalBillboardMesh = botdVerticalBillboardMesh,
+        .botdTreeVariants = botdTreeVariants,
+        .exportedConiferMeshes = exportedConiferMeshes,
+    });
 
     world.playerRig = scene.CreateNode("PlayerRig", world.handles.root);
     const float spawnGroundY = sampleTerrainHeight(guaranteedSpawn.x, guaranteedSpawn.z);

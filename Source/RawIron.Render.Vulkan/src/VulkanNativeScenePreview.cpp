@@ -7310,7 +7310,9 @@ bool RunVulkanNativeSceneLoop(const int width,
         };
         vkUpdateDescriptorSets(device, 1, &writeShadow, 0, nullptr);
 
-        constexpr std::uint32_t kMaxTextureSets = 512U;
+        // Outdoor / scatter scenes (Wilderness Ruins) easily exceed 512 unique material
+        // texture combinations once bushes, rocks, and conifer billboards are instanced.
+        constexpr std::uint32_t kMaxTextureSets = 2048U;
         const VkDescriptorPoolSize texturePoolSize{
             .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = kMaxTextureSets * 6U,

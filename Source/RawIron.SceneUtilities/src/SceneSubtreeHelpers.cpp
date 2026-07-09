@@ -73,25 +73,6 @@ void ToggleSceneSubtreeVisibilityAndCollision(std::vector<int>& hiddenNodeHandle
     }
 }
 
-[[nodiscard]] int CloneSceneSubtreeRecursive(Scene& scene,
-                                             int srcHandle,
-                                             int newParent,
-                                             int sourceRoot,
-                                             const std::string& rootName,
-                                             const Transform& rootPlacement) {
-    const Node& src = scene.GetNode(srcHandle);
-    const std::string nodeName = srcHandle == sourceRoot ? rootName : src.name;
-    const int dup = scene.CreateNode(nodeName, newParent);
-    scene.GetNode(dup).localTransform = srcHandle == sourceRoot ? rootPlacement : src.localTransform;
-    if (src.mesh != kInvalidHandle) {
-        scene.AttachMesh(dup, src.mesh, src.material);
-    }
-    for (const int child : src.children) {
-        (void)CloneSceneSubtreeRecursive(scene, child, dup, sourceRoot, rootName, rootPlacement);
-    }
-    return dup;
-}
-
 int CloneSceneSubtree(Scene& scene,
                       const int sourceRoot,
                       const int parent,
@@ -100,7 +81,45 @@ int CloneSceneSubtree(Scene& scene,
     if (sourceRoot == kInvalidHandle) {
         return kInvalidHandle;
     }
-    return CloneSceneSubtreeRecursive(scene, sourceRoot, parent, sourceRoot, rootName, rootPlacement);
+
+    // CreateNode may reallocate Scene::nodes_, so never hold Node&/children iterators
+    // across CreateNode. Copy child handles first, then create the duplicate.
+    struct PendingClone {
+        int srcHandle = kInvalidHandle;
+        int newParent = kInvalidHandle;
+    };
+    std::vector<PendingClone> stack;
+    stack.push_back(PendingClone{.srcHandle = sourceRoot, .newParent = parent});
+
+    int clonedRoot = kInvalidHandle;
+    while (!stack.empty()) {
+        const PendingClone job = stack.back();
+        stack.pop_back();
+
+        const Node& src = scene.GetNode(job.srcHandle);
+        const std::string nodeName = job.srcHandle == sourceRoot ? rootName : src.name;
+        const Transform localTransform =
+            job.srcHandle == sourceRoot ? rootPlacement : src.localTransform;
+        const int mesh = src.mesh;
+        const int material = src.material;
+        const std::vector<int> children = src.children;
+
+        const int dup = scene.CreateNode(nodeName, job.newParent);
+        scene.GetNode(dup).localTransform = localTransform;
+        if (mesh != kInvalidHandle) {
+            scene.AttachMesh(dup, mesh, material);
+        }
+        if (job.srcHandle == sourceRoot) {
+            clonedRoot = dup;
+        }
+
+        // Push children in reverse so the first child is processed next (stable DFS order).
+        for (std::size_t i = children.size(); i > 0; --i) {
+            stack.push_back(PendingClone{.srcHandle = children[i - 1], .newParent = dup});
+        }
+    }
+
+    return clonedRoot;
 }
 
 int EnsureSceneModelTemplate(Scene& scene,
