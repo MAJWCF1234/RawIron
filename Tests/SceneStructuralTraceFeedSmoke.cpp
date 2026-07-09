@@ -80,6 +80,19 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    const ri::scene::StructuralTraceColliderFeedResult colliderFeed =
+        ri::scene::BuildStructuralTraceColliderFeedForSubtree(scene, root);
+    if (colliderFeed.colliders.size() != 1
+        || colliderFeed.colliders[0].id != "TraceableWall"
+        || colliderFeed.metrics.colliderCount != 1
+        || colliderFeed.metrics.sourceStructuralBrushCount != 4
+        || colliderFeed.metrics.filteredStructuralBrushCount != 3
+        || colliderFeed.metrics.collisionPolicyFilteredCount != 1
+        || colliderFeed.metrics.queryChannelFilteredCount != 1
+        || colliderFeed.metrics.queryPurposeFilteredCount != 1) {
+        return EXIT_FAILURE;
+    }
+
     ri::trace::TraceScene traceScene = ri::scene::BuildStructuralTraceSceneForSubtree(scene, root);
     const ri::trace::TraceSceneMetrics metrics = traceScene.Metrics();
     if (metrics.colliderCount != 1

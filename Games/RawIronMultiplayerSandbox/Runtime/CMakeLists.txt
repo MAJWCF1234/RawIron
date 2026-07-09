@@ -34,3 +34,18 @@ if (WIN32)
 endif()
 
 target_compile_features(RawIron.Game.MultiplayerSandbox PUBLIC cxx_std_20)
+
+if (RAWIRON_BUILD_TESTS)
+  add_executable(MultiplayerSandboxStructuralTraceFeedSmoke
+    ${CMAKE_SOURCE_DIR}/Tests/MultiplayerSandboxStructuralTraceFeedSmoke.cpp
+  )
+  target_link_libraries(MultiplayerSandboxStructuralTraceFeedSmoke
+    PRIVATE
+      RawIron::Game.MultiplayerSandbox
+  )
+  add_test(
+    NAME RawIron.MultiplayerSandbox.StructuralTraceFeedSmoke
+    COMMAND MultiplayerSandboxStructuralTraceFeedSmoke
+            "${CMAKE_SOURCE_DIR}/Games/RawIronMultiplayerSandbox"
+  )
+endif()

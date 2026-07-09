@@ -30,6 +30,13 @@ struct StructuralTraceSceneFeedResult {
     StructuralTraceSceneFeedMetrics metrics{};
 };
 
+/// Filtered structural colliders plus the accounting needed when they are merged into a larger
+/// gameplay trace scene containing non-structural world colliders.
+struct StructuralTraceColliderFeedResult {
+    std::vector<ri::trace::TraceCollider> colliders{};
+    StructuralTraceSceneFeedMetrics metrics{};
+};
+
 /// Defaults for movement / ballistics structural traces: structural, static, blocking,
 /// query-mesh-backed, trace-purpose only, with semantic tags for later routing/debugging.
 [[nodiscard]] SubtreeColliderBuildOptions MakeDefaultStructuralTraceColliderBuildOptions();
@@ -38,6 +45,14 @@ struct StructuralTraceSceneFeedResult {
     const Scene& scene,
     int rootNodeHandle);
 [[nodiscard]] std::vector<ri::trace::TraceCollider> BuildStructuralTraceCollidersForSubtree(
+    const Scene& scene,
+    int rootNodeHandle,
+    const SubtreeColliderBuildOptions& options);
+
+[[nodiscard]] StructuralTraceColliderFeedResult BuildStructuralTraceColliderFeedForSubtree(
+    const Scene& scene,
+    int rootNodeHandle);
+[[nodiscard]] StructuralTraceColliderFeedResult BuildStructuralTraceColliderFeedForSubtree(
     const Scene& scene,
     int rootNodeHandle,
     const SubtreeColliderBuildOptions& options);

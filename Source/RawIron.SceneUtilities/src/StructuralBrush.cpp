@@ -379,11 +379,44 @@ StructuralBrushSpawnOptions SpawnOptionsFromAssemblyNode(const StructuralPrimiti
     spawn.transform.position = node.position;
     spawn.transform.rotationDegrees = node.rotation;
     spawn.transform.scale = node.scale;
+    // Assembly material metadata is the shared semantic baseline, but each authored node
+    // needs a stable identity so its generated collider, query shape, and editor selection
+    // can be traced back to an individual structural primitive.
+    if (!node.id.empty()) {
+        spawn.metadata.brushId = node.id;
+    }
+    if (spawn.metadata.operation == StructuralBrushOperation::Unspecified) {
+        spawn.metadata.operation = StructuralBrushOperation::Solid;
+    }
+    if (node.detailOnly) {
+        spawn.metadata.collision = StructuralBrushCollisionPolicy::Detail;
+    }
     return spawn;
+}
+
+StructuralBrushMetadata MakeCompiledFragmentMetadata(const StructuralBrushSpawnOptions& assemblyMaterial,
+                                                      const ri::structural::CompiledGeometryNode& compiled,
+                                                      const std::string_view nodeName,
+                                                      const std::string_view meshName) {
+    StructuralBrushMetadata metadata = assemblyMaterial.metadata;
+    metadata.brushId = !compiled.node.id.empty() ? compiled.node.id : std::string(nodeName);
+    if (metadata.operation == StructuralBrushOperation::Unspecified) {
+        metadata.operation = StructuralBrushOperation::Solid;
+    }
+    if (compiled.node.detailOnly) {
+        metadata.collision = StructuralBrushCollisionPolicy::Detail;
+    }
+    FillDefaultStructuralBrushMeshChannels(
+        metadata, std::string(nodeName), std::string(meshName), assemblyMaterial.materialName);
+    if (!compiled.authoringSourceKey.empty()) {
+        metadata.informationLayer.relations.push_back("structural.source:" + compiled.authoringSourceKey);
+    }
+    return metadata;
 }
 
 int SpawnWorldSpaceBrushMesh(Scene& scene,
                              const int parent,
+                             const StructuralBrushSpawnOptions& assemblyMaterial,
                              const int materialHandle,
                              const ri::structural::CompiledGeometryNode& compiled,
                              const std::string& nodeName) {
@@ -391,10 +424,13 @@ int SpawnWorldSpaceBrushMesh(Scene& scene,
         return kInvalidHandle;
     }
 
-    Mesh mesh = MeshFromStructuralCompiledMesh(compiled.compiledMesh, nodeName + "_Mesh");
+    const std::string meshName = nodeName + "_Mesh";
+    Mesh mesh = MeshFromStructuralCompiledMesh(compiled.compiledMesh, meshName);
     const int meshHandle = scene.AddMesh(std::move(mesh));
     const int nodeHandle = scene.CreateNode(nodeName, parent);
     scene.GetNode(nodeHandle).localTransform = Transform{};
+    scene.GetNode(nodeHandle).structuralBrush =
+        MakeCompiledFragmentMetadata(assemblyMaterial, compiled, nodeName, meshName);
     scene.AttachMesh(nodeHandle, meshHandle, materialHandle);
     return nodeHandle;
 }
@@ -564,7 +600,7 @@ StructuralPrimitiveAssemblyResult AddStructuralPrimitiveAssembly(Scene& scene,
 
     for (const ri::structural::CompiledGeometryNode& fragment : compiled.compiledNodes) {
         const std::string nodeName = !fragment.node.name.empty() ? fragment.node.name : fragment.node.id;
-        const int meshNode = SpawnWorldSpaceBrushMesh(scene, root, materialHandle, fragment, nodeName);
+        const int meshNode = SpawnWorldSpaceBrushMesh(scene, root, material, materialHandle, fragment, nodeName);
         if (meshNode != kInvalidHandle) {
             result.meshNodes.push_back(meshNode);
             ++result.compiledFragmentCount;

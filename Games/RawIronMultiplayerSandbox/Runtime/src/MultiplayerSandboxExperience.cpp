@@ -504,6 +504,15 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     };
     state.traceScene = ri::trace::TraceScene(state.world.colliders, bspOptions);
     ri::core::LogInfo("Trace collider count: " + std::to_string(state.traceScene.ColliderCount()));
+    const ri::scene::StructuralTraceSceneFeedMetrics& structuralTraceMetrics =
+        state.world.structuralTraceFeedMetrics;
+    ri::core::LogInfo(
+        "Structural trace feed: source=" + std::to_string(structuralTraceMetrics.sourceStructuralBrushCount)
+        + " emitted=" + std::to_string(structuralTraceMetrics.colliderCount)
+        + " filtered=" + std::to_string(structuralTraceMetrics.filteredStructuralBrushCount)
+        + " collision-policy=" + std::to_string(structuralTraceMetrics.collisionPolicyFilteredCount)
+        + " query-channel=" + std::to_string(structuralTraceMetrics.queryChannelFilteredCount)
+        + " query-purpose=" + std::to_string(structuralTraceMetrics.queryPurposeFilteredCount));
     {
         std::string colliderIds;
         for (std::size_t index = 0; index < state.world.colliders.size(); ++index) {

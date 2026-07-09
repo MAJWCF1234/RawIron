@@ -252,6 +252,10 @@ std::vector<ri::structural::StructuralNode> BuildSandboxStructuralHallNodes() {
     perforated.cellsX = 6;
     perforated.cellsY = 4;
     perforated.thickness = 0.1f;
+    // The perforated divider is visual detail. Its coarse AABB must not become an invisible
+    // blocking wall in movement/ballistics traces; the structural feed will retain it for render
+    // ownership while filtering it from the blocking trace channel.
+    perforated.detailOnly = true;
     nodes.push_back(std::move(perforated));
 
     nodes.push_back(MakeStructuralPrimitiveGraphNode(

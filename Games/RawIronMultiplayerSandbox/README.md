@@ -49,8 +49,8 @@ The 3D scene boots into a wide structural primitive catalog with **showcase deco
 - `SpawnStructuralPrimitiveGallery` for engine-owned primitive/material catalog generation
 - `SpawnStructuralPrimitiveBundle` for single-path structural primitive mesh, material, and node creation
 - `SpawnStructuralPrimitiveAssembly` for multi-node graphs (convex CSG subtract/union, hollow volumes, mesh-forward shapes)
-- `SpawnSandboxStructuralHall` — hollow shell with door/window/sky cuts, perforated partition, ramp, arch; mesh colliders from primitive subtree
-- Mesh-derived trace colliders on the catalog platform and brush hall (`AppendTraceCollidersForSubtree`)
+- `SpawnSandboxStructuralHall` — hollow shell with door/window/sky cuts, perforated visual detail, ramp, and arch; compiled CSG fragments retain structural ownership
+- Mesh-derived trace colliders on the catalog platform plus policy-filtered structural trace-feed colliders on the brush hall (`BuildStructuralTraceColliderFeedForSubtree`)
 - native structural primitives including boxes, arches, roofs, stairs, torus/tube shapes, lattice volumes, terrain patches, wall panels, beam frames, catwalks, buttresses, and skylight oculi
 - structural brush fallback UV projection for textured custom meshes
 - material styles covering standard, retro, layered, mixed-media, crystal, emissive, rough, and metallic presentation

@@ -123,6 +123,26 @@ std::vector<ri::trace::TraceCollider> BuildStructuralTraceCollidersForSubtree(
     return colliders;
 }
 
+StructuralTraceColliderFeedResult BuildStructuralTraceColliderFeedForSubtree(
+    const Scene& scene,
+    const int rootNodeHandle) {
+    return BuildStructuralTraceColliderFeedForSubtree(
+        scene, rootNodeHandle, MakeDefaultStructuralTraceColliderBuildOptions());
+}
+
+StructuralTraceColliderFeedResult BuildStructuralTraceColliderFeedForSubtree(
+    const Scene& scene,
+    const int rootNodeHandle,
+    const SubtreeColliderBuildOptions& options) {
+    StructuralTraceColliderFeedResult result{};
+    result.colliders = BuildStructuralTraceCollidersForSubtree(scene, rootNodeHandle, options);
+    result.metrics = ComputeStructuralTraceSceneFeedMetrics(
+        result.colliders,
+        CountStructuralBrushesInSubtree(scene, rootNodeHandle));
+    CountStructuralBrushFilterReasons(scene, rootNodeHandle, options, result.metrics);
+    return result;
+}
+
 ri::trace::TraceScene BuildStructuralTraceSceneForSubtree(
     const Scene& scene,
     const int rootNodeHandle,
@@ -158,14 +178,11 @@ StructuralTraceSceneFeedResult BuildStructuralTraceSceneFeedForSubtree(
     const int rootNodeHandle,
     const SubtreeColliderBuildOptions& options,
     ri::spatial::SpatialIndexOptions indexOptions) {
-    std::vector<ri::trace::TraceCollider> colliders =
-        BuildStructuralTraceCollidersForSubtree(scene, rootNodeHandle, options);
+    StructuralTraceColliderFeedResult colliderFeed =
+        BuildStructuralTraceColliderFeedForSubtree(scene, rootNodeHandle, options);
     StructuralTraceSceneFeedResult result{};
-    result.metrics = ComputeStructuralTraceSceneFeedMetrics(
-        colliders,
-        CountStructuralBrushesInSubtree(scene, rootNodeHandle));
-    CountStructuralBrushFilterReasons(scene, rootNodeHandle, options, result.metrics);
-    result.traceScene = ri::trace::TraceScene(std::move(colliders), indexOptions);
+    result.metrics = colliderFeed.metrics;
+    result.traceScene = ri::trace::TraceScene(std::move(colliderFeed.colliders), indexOptions);
     return result;
 }
 

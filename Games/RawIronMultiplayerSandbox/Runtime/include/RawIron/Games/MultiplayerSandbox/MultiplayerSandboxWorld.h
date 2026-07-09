@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RawIron/Scene/Scene.h"
+#include "RawIron/Scene/SceneStructuralTraceFeed.h"
 #include "RawIron/Scene/WorkspaceSandbox.h"
 #include "RawIron/Trace/TraceScene.h"
 
@@ -20,6 +21,8 @@ struct World {
     int inspectionRig = ri::scene::kInvalidHandle;
     int inspectionCube = ri::scene::kInvalidHandle;
     ri::math::Vec3 catalogExtents{};
+    /// Structural-hall contribution to the gameplay movement trace scene.
+    ri::scene::StructuralTraceSceneFeedMetrics structuralTraceFeedMetrics{};
     std::vector<ri::trace::TraceCollider> colliders;
 };
 

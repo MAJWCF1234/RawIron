@@ -48,6 +48,7 @@ The first foundation is in place:
 - Semantic structural partition cache exposes a non-mutating rebuild check for editor/debug dirty-state reporting.
 - Semantic structural partition cache reports reuse counts so avoided rebuilds are visible in diagnostics.
 - Liminal Hall has semantic structural smoke coverage for authored structural rows.
+- Compiled CSG fragments retain stable structural M/P/Q/I metadata, including their authored source relation, so generated geometry participates in semantic trace feeds instead of becoming anonymous render-only meshes.
 
 ## Developer Fulfillment Workflow
 
@@ -100,7 +101,8 @@ Result (2026-07-03): Phase 2 landed. `SemanticStructuralPartition` now builds a 
 
 ### Phase 3: Feed Performance-Critical Systems
 
-- Route movement and ballistics through the structural trace feed where structural metadata can filter candidates early.
+- [x] Route a real movement consumer through the structural trace feed: the Multiplayer Sandbox merges its generated structural hall feed into the same trace scene used by first-person movement, logs source/emitted/filtered counts and filter reasons, and keeps a detail-only perforated visual divider out of blocking traces.
+- Route ballistics through the structural trace feed where structural metadata can filter candidates early.
 - Add pseudo-raytracing candidate feeds that can request only Q-mesh trace/raycast participants.
 - Add editor placement queries that use Q-mesh placement participants and I-layer host rules.
 - Add culling diagnostics using visibility roles before enabling runtime culling decisions.
@@ -110,6 +112,8 @@ Exit criteria:
 
 - Each consumer reports source candidate count, filtered candidate count, emitted count, and filter reasons.
 - The system proves performance savings before adding heavier calculations.
+
+Result (2026-07-09): CSG assembly fragments now keep generated structural ownership, and `StructuralTraceColliderFeedResult` allows a filtered structural subtree to be merged into a larger gameplay trace scene without dropping metrics. The Multiplayer Sandbox movement trace uses that path; its smoke test proves the emitted colliders retain semantic tags and that the detail-only perforated divider is filtered. Next recommended step: route the same feed through a ballistics or interaction consumer and make its candidate reduction visible in runtime diagnostics.
 
 ### Phase 4: Editor Authoring Experience
 
@@ -163,6 +167,7 @@ Structural primitive work is acceptable only when:
 - `Tests/SemanticStructuralPartitionSmoke.cpp`: partition filtering, metrics, cache, and picking coverage.
 - `Tests/SceneSubtreeCollidersSmoke.cpp`: collider policy, Q-mesh, and tag coverage.
 - `Tests/SceneStructuralTraceFeedSmoke.cpp`: trace feed, trace scene, filter reason, and ratio coverage.
+- `Tests/MultiplayerSandboxStructuralTraceFeedSmoke.cpp`: real movement-consumer feed merge and metric coverage.
 
 ## Superseded Notes
 

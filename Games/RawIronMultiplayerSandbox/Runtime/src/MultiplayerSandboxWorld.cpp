@@ -1,6 +1,7 @@
 #include "RawIron/Games/MultiplayerSandbox/MultiplayerSandboxWorld.h"
 
 #include "RawIron/Scene/Helpers.h"
+#include "RawIron/Scene/SceneStructuralTraceFeed.h"
 #include "RawIron/Scene/SceneSubtreeColliders.h"
 #include "RawIron/Scene/StructuralPrimitiveBundle.h"
 
@@ -959,10 +960,12 @@ World BuildWorld(const std::string_view sceneName, const fs::path& gameRoot) {
         SpawnSandboxStructuralHall(scene, world.handles.root, brushHallOrigin, "SandboxStructuralHall");
     world.brushHallRoot = structuralHall.root;
     if (structuralHall.root != kInvalidHandle) {
-        SubtreeColliderBuildOptions hallColliders{};
-        hallColliders.idPrefix = "sandbox_structural_hall";
-        hallColliders.structural = true;
-        (void)AppendTraceCollidersForSubtree(scene, structuralHall.root, hallColliders, world.colliders);
+        ri::scene::StructuralTraceColliderFeedResult structuralTraceFeed =
+            BuildStructuralTraceColliderFeedForSubtree(scene, structuralHall.root);
+        world.structuralTraceFeedMetrics = structuralTraceFeed.metrics;
+        world.colliders.insert(world.colliders.end(),
+                               structuralTraceFeed.colliders.begin(),
+                               structuralTraceFeed.colliders.end());
     }
 
     const float initialYawRadians = 68.0f * 0.017453292519943295f;

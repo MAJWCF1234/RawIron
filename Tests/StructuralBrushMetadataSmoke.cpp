@@ -1,7 +1,9 @@
 #include "RawIron/Scene/Scene.h"
+#include "RawIron/Scene/SceneStructuralTraceFeed.h"
 #include "RawIron/Scene/StructuralAssemblyIO.h"
 #include "RawIron/Scene/StructuralBrush.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -200,6 +202,51 @@ int main() {
         || importedMetadata.role != ri::scene::StructuralBrushSemanticRole::Floor
         || importedMetadata.region != "atrium"
         || importedMetadata.navigation != ri::scene::StructuralBrushNavigationPolicy::Walkable) {
+        return EXIT_FAILURE;
+    }
+
+    // CSG output is still an authored structural primitive. Compiled fragments must retain
+    // M/P/Q/I ownership so the structural trace feed can use the same generated geometry
+    // as gameplay movement and ballistics.
+    ri::scene::Scene assemblyScene{"CompiledStructuralAssemblyMetadata"};
+    const int assemblyRoot = assemblyScene.CreateNode("Root");
+    ri::scene::StructuralPrimitiveAssemblyOptions assembly{};
+    assembly.parent = assemblyRoot;
+    assembly.rootNodeName = "CompiledAssembly";
+    assembly.material.materialName = "compiled_assembly_material";
+    assembly.nodes.push_back(ri::scene::MakeStructuralPrimitiveSolid(
+        "compiled_shell", "box", {0.0f, 2.0f, 0.0f}, {6.0f, 4.0f, 4.0f}));
+    assembly.nodes.push_back(ri::scene::MakeStructuralPrimitiveSubtract(
+        "compiled_door_cut", "box", {"compiled_shell"}, {0.0f, 1.5f, 2.1f}, {1.8f, 3.0f, 0.8f}));
+
+    const ri::scene::StructuralPrimitiveAssemblyResult compiledAssembly =
+        ri::scene::AddStructuralPrimitiveAssembly(assemblyScene, assembly);
+    if (compiledAssembly.root == ri::scene::kInvalidHandle || compiledAssembly.meshNodes.empty()) {
+        return EXIT_FAILURE;
+    }
+
+    const ri::scene::StructuralBrushMetadata& compiledMetadata =
+        assemblyScene.GetNode(compiledAssembly.meshNodes.front()).structuralBrush;
+    if (compiledMetadata.brushId.empty()
+        || compiledMetadata.operation != ri::scene::StructuralBrushOperation::Solid
+        || compiledMetadata.role != ri::scene::StructuralBrushSemanticRole::Structure
+        || compiledMetadata.collision != ri::scene::StructuralBrushCollisionPolicy::Solid
+        || compiledMetadata.visualMesh.meshId.empty()
+        || compiledMetadata.visualMesh.materialSetId != "compiled_assembly_material"
+        || compiledMetadata.physicsMesh.meshId.empty()
+        || compiledMetadata.queryMesh.meshId.empty()
+        || compiledMetadata.informationLayer.semanticGraphId
+               != "structural." + compiledMetadata.brushId
+        || std::find(compiledMetadata.informationLayer.relations.begin(),
+                     compiledMetadata.informationLayer.relations.end(),
+                     "structural.source:compiled_shell")
+               == compiledMetadata.informationLayer.relations.end()) {
+        return EXIT_FAILURE;
+    }
+
+    const std::vector<ri::trace::TraceCollider> compiledColliders =
+        ri::scene::BuildStructuralTraceCollidersForSubtree(assemblyScene, compiledAssembly.root);
+    if (compiledColliders.size() != compiledAssembly.meshNodes.size()) {
         return EXIT_FAILURE;
     }
 
