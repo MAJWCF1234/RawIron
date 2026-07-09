@@ -43,10 +43,17 @@ The first foundation is in place:
 - Scene subtree collider generation can respect structural collision policy, Q-mesh participation, and query purpose.
 - Structural trace feed builds filtered `TraceCollider` lists and ready-to-query `TraceScene` instances.
 - Trace feed metrics report source brush count, emitted collider count, filtered count, filter reasons, and efficiency ratios.
+- Multiplayer Sandbox merges its filtered structural hall feed into the first-person movement trace scene and logs its source, emitted, and filtered counts.
+- Competitive hitscan and projectile resolution accepts the same structural-only trace-scene contract, so rewind checks stop at blocking structural geometry rather than resolving through walls.
+- Structural-only trace queries include both static and dynamic structural colliders while continuing to exclude non-structural dynamic content.
 - Structural brush metadata exposes a deterministic signature for cache invalidation and cheap change detection.
 - Semantic structural partition cache uses structural-only scene signatures to auto-refresh after brush metadata edits without rebuilding for non-structural scene churn.
+- Semantic structural partition cache signatures include resolved world bounds, so direct brush or ancestor-transform edits refresh cached spatial entries rather than picking at stale positions.
 - Semantic structural partition cache exposes a non-mutating rebuild check for editor/debug dirty-state reporting.
 - Semantic structural partition cache reports reuse counts so avoided rebuilds are visible in diagnostics.
+- Exact semantic Q-mesh raycasts now combine partition broad-phase filtering with source-mesh narrow-phase hits; callers receive the resolved point, normal, node, and copied semantic metadata.
+- Editor structural catalog stamps route through cached Q-mesh placement raycasts, while generic create placement continues to use the accurate mesh/ground fallback.
+- Camera-plot placement now raycasts exact mesh geometry rather than stopping at renderable AABBs.
 - Liminal Hall has semantic structural smoke coverage for authored structural rows.
 - Compiled CSG fragments retain stable structural M/P/Q/I metadata, including their authored source relation, so generated geometry participates in semantic trace feeds instead of becoming anonymous render-only meshes.
 
@@ -65,79 +72,52 @@ Use this flow for every remaining structural primitive increment:
 Focused structural suite:
 
 ```powershell
-ctest --test-dir build\semantic-metadata -R "RawIron.SceneUtilities.(StructuralBrushMetadataSmoke|SemanticStructuralPartitionSmoke|SceneSubtreeCollidersSmoke|SceneStructuralTraceFeedSmoke)" --output-on-failure
+ctest --test-dir build\dev-msvc -C RelWithDebInfo --output-on-failure -R "RawIron\.(Trace\.CompetitiveWeaponSimulatorSmoke|SceneUtilities\.(StructuralBrushMetadataSmoke|SemanticStructuralPartitionSmoke|SceneSubtreeCollidersSmoke|SceneStructuralTraceFeedSmoke)|MultiplayerSandbox\.StructuralTraceFeedSmoke)"
 ```
 
 Use a broader game-specific suite when editing Liminal Hall or other project data.
 
-## Remaining Work
+## Active Backlog
 
-### Phase 1: Harden the Structural Primitive Contract
+### 1. Harden the Runtime Structural Contract
 
-- Add compact integer ids or handles for hot-path semantic fields so trace and partition queries do not repeatedly compare strings.
-- Separate editor-only information fields from runtime-shippable metadata.
-- Add serialization tests for old CSV rows, semantic CSV rows, and future richer authored formats.
+- Replace hot-path string comparisons for semantic fields with compact runtime ids or handles, while retaining strings for authoring and diagnostics.
+- Define an explicit editor-only metadata boundary and a smaller runtime-shippable structural record.
+- Add compatibility coverage for legacy CSV rows, semantic CSV rows, and the next richer authored format.
 
-Exit criteria:
+Done means old levels remain loadable, new M/P/Q/I ownership survives serialization, and measured runtime queries can use compact fields.
 
-- Old structural CSV assets still load.
-- New semantic rows preserve M/P/Q/I ownership.
-- Runtime query paths can avoid string-heavy filtering in measured hot loops.
+### 2. Complete the Remaining Query Consumers
 
-### Phase 2: Make Semantic BSP a Real Partition Family
+- Build Q-mesh candidate feeds for pseudo-raytracing/raycast consumers.
+- Add game-runtime interaction/carrying filters for interaction-capable Q-meshes and semantic roles, with target ownership rules that avoid treating every structural surface as an activatable target.
+- Expose visibility-role diagnostics before making visibility data affect runtime culling.
+- Report source, emitted, filtered, and query-candidate counts from each newly wired consumer.
 
-- [x] Keep `BspSpatialIndex` as the first broad-phase implementation, but wrap it behind partition-specific builders (per-region `RegionSubpartition` builders inside `SemanticStructuralPartition::Rebuild`).
-- [x] Add per-region subpartitions for large authored areas (one spatial tree per authored region plus a regionless bucket; region-scoped queries touch only their own tree).
-- [x] Add dirty-region rebuild tracking for geometry and dependency edits (content signatures over ids/bounds keep unchanged trees on rebuild; `lastRebuildSubpartitionsReused` / `lastRebuildSubpartitionsRebuilt` expose locality).
-- [x] Add candidate-count diagnostics comparing unfiltered BSP queries with semantic-filtered queries (`boxCandidatesMatched` / `rayCandidatesMatched` vs `boxCandidatesScanned` / `rayCandidatesScanned`).
-- [ ] Add configurable split policy experiments only after candidate metrics justify them.
+Done means every additional consumer proves its filtering benefit before it adds expensive narrow-phase work.
 
-Exit criteria:
-
-- Trace, visibility, edit, semantic, and render feeds can share authored structural ownership without sharing one overloaded tree. — Met for semantic queries: each region owns its tree and the regionless bucket is isolated.
-- A single brush edit identifies affected partitions without a full-scene rebuild by default. — Met: moving one brush re-splits only its region's subpartition (covered in `SemanticStructuralPartitionSmoke`).
-
-Result (2026-07-03): Phase 2 landed. `SemanticStructuralPartition` now builds a family of per-region subpartitions with content-signature reuse, region-scoped query routing, and matched-vs-scanned metrics; the cache rebuilds in place to inherit reuse. Next recommended step: Phase 3 — route a real movement or ballistics consumer through the structural trace feed with early semantic filtering and report candidate savings.
-
-### Phase 3: Feed Performance-Critical Systems
-
-- [x] Route a real movement consumer through the structural trace feed: the Multiplayer Sandbox merges its generated structural hall feed into the same trace scene used by first-person movement, logs source/emitted/filtered counts and filter reasons, and keeps a detail-only perforated visual divider out of blocking traces.
-- [x] Route competitive hitscan and projectile resolution through an optional structural world trace: `CompetitiveWeaponSimulator` clips rewound entity checks at the nearest blocking collider and reports that collider/distance, preventing hits through walls while leaving non-structural trace content out of combat occlusion. Structural-only traces also include dynamic structural colliders such as moving doors and platforms.
-- Add pseudo-raytracing candidate feeds that can request only Q-mesh trace/raycast participants.
-- Add editor placement queries that use Q-mesh placement participants and I-layer host rules.
-- Add culling diagnostics using visibility roles before enabling runtime culling decisions.
-- Add carrying/interaction filters that can query interaction-capable Q-meshes and semantic roles.
-
-Exit criteria:
-
-- Each consumer reports source candidate count, filtered candidate count, emitted count, and filter reasons.
-- The system proves performance savings before adding heavier calculations.
-
-Result (2026-07-09): CSG assembly fragments now keep generated structural ownership, and `StructuralTraceColliderFeedResult` allows a filtered structural subtree to be merged into a larger gameplay trace scene without dropping metrics. The Multiplayer Sandbox movement trace uses that path; its smoke test proves the emitted colliders retain semantic tags and that the detail-only perforated divider is filtered. `CompetitiveWeaponSimulator` now consumes the same structural-only `TraceScene` contract for hitscan and projectile obstruction, normalizes public aim directions, and reports the blocking world hit. Next recommended step: surface structural candidate reductions in a playable combat/network scenario or route the same query purpose through interaction.
-
-### Phase 4: Editor Authoring Experience
+### 3. Deliver Editor-First Structural Authoring
 
 - Add inspector controls for role, region, operation, collision, visibility, navigation, rebuild scope, and M/P/Q/I channel flags.
-- Add overlays for semantic regions, query participants, collision participants, visibility candidates, and dirty rebuild bounds.
-- Make generated fragments selectable through their owning structural primitive.
-- Add authoring warnings for missing ids, degenerate bounds, unknown policies, and disabled required channels.
+- Add overlays for semantic regions, query/collision participants, visibility candidates, and dirty rebuild bounds.
+- Resolve a generated CSG fragment selection to its authored structural owner.
+- Warn on missing ids, degenerate bounds, unknown policies, and disabled required channels.
 
-Exit criteria:
+Done means designers can author and diagnose structural content without editing CSV by hand.
 
-- Designers can build on the system without editing CSV by hand.
-- Debug overlays make performance behavior visible instead of magical.
+### 4. Define Runtime Packaging
 
-### Phase 5: Runtime Packaging
+- Specify which authored fields ship, which are stripped, and which are compressed into runtime partitions.
+- Validate generated partition artifacts during the build.
+- Add loading coverage for runtime-only structural data while preserving development diagnostics.
 
-- Define what authored structural data ships, what is stripped, and what is compressed into runtime partitions.
-- Add build output validation for structural partition artifacts.
-- Add loading tests for runtime-only partition data.
-- Keep editor diagnostics available in development builds without bloating release builds.
+Done means shipping builds carry validated derived data without the full editor-facing note graph.
 
-Exit criteria:
+## Deferred Until Metrics Justify It
 
-- Shipped builds keep the fast derived data, not the entire editor-facing note graph.
-- Runtime artifacts can be validated independently of the editor.
+- Experiment with configurable BSP split policies only after the existing candidate metrics identify a scene that needs them.
+
+The next recommended implementation is a game-runtime interaction gate that compares an interaction target's distance with the nearest `QueryMesh + Interaction` hit, then reports a clear blocked/eligible result without changing legacy target selection behavior.
 
 ## Quality Gates
 
@@ -169,20 +149,3 @@ Structural primitive work is acceptable only when:
 - `Tests/SceneStructuralTraceFeedSmoke.cpp`: trace feed, trace scene, filter reason, and ratio coverage.
 - `Tests/MultiplayerSandboxStructuralTraceFeedSmoke.cpp`: real movement-consumer feed merge and metric coverage.
 - `Tests/CompetitiveWeaponSimulatorSmoke.cpp`: rewind weapon resolution, structural world obstruction, and direction-validation coverage.
-
-## Superseded Notes
-
-The following implementation notes were consolidated into this plan and should not be recreated as separate plan files:
-
-- `2026-06-07-liminal-hall-material-modernization.md`
-- `2026-06-19-semantic-structural-brush-partition.md`
-- `2026-06-20-semantic-partition-query-purpose.md`
-- `2026-06-20-semantic-partition-query-purpose-metrics.md`
-- `2026-06-20-structural-query-purpose-gates.md`
-- `2026-06-20-structural-trace-collider-feed.md`
-- `2026-06-20-structural-trace-collider-purpose-tags.md`
-- `2026-06-20-structural-trace-scene-feed.md`
-- `2026-06-20-structural-trace-scene-feed-result.md`
-- `2026-06-20-structural-trace-feed-filter-metrics.md`
-- `2026-06-20-structural-trace-feed-filter-reasons.md`
-- `2026-06-20-structural-trace-feed-efficiency-ratios.md`

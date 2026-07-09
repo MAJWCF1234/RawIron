@@ -46,6 +46,7 @@
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Scene/PrimitivesCsvIO.h"
 #include "RawIron/Scene/SceneStateIO.h"
+#include "RawIron/Scene/SemanticStructuralPartition.h"
 #include "RawIron/Scene/StructuralBrush.h"
 #include "RawIron/Scene/StructuralPrimitivePresets.h"
 #include "RawIron/Scene/WorkspaceSandbox.h"
@@ -7044,12 +7045,40 @@ enum class UiWorkbenchTextEditTarget {
         if (!HitCameraPlot(point)) {
             return false;
         }
-        const std::optional<ri::math::Vec3> placement = ri::render::software::PickPlacementPointInCameraView(
+        std::optional<ri::math::Vec3> placement = ri::render::software::PickPlacementPointInCameraView(
             CameraViewRectFrom(cameraPlotRect_),
             x,
             y,
             starterScene_.scene,
             starterScene_.handles.orbitCamera.cameraNode);
+        // Structural stamps target the authored Q-mesh, not arbitrary render geometry. The cached
+        // partition keeps this precise click path inexpensive while scene edits still invalidate it.
+        if (authoringCatalogSection_ == ri::editor::AuthoringCatalogSection::Structural) {
+            const std::optional<ri::render::software::CameraViewRay> cameraRay =
+                ri::render::software::BuildCameraViewRay(
+                    CameraViewRectFrom(cameraPlotRect_),
+                    x,
+                    y,
+                    starterScene_.scene,
+                    starterScene_.handles.orbitCamera.cameraNode);
+            if (cameraRay.has_value()) {
+                const ri::scene::SemanticStructuralPartition& partition =
+                    structuralPlacementPartitionCache_.GetOrRebuild(starterScene_.scene);
+                const std::optional<ri::scene::SemanticStructuralRaycastHit> structuralHit =
+                    ri::scene::RaycastSemanticStructuralPartition(
+                        starterScene_.scene,
+                        partition,
+                        cameraRay->ray,
+                        cameraRay->farClip,
+                        {
+                            .channel = ri::scene::StructuralBrushChannel::QueryMesh,
+                            .queryPurpose = ri::scene::StructuralBrushQueryPurpose::Placement,
+                        });
+                if (structuralHit.has_value()) {
+                    placement = structuralHit->hit.position;
+                }
+            }
+        }
         if (!placement.has_value()) {
             return false;
         }
@@ -9561,6 +9590,7 @@ enum class UiWorkbenchTextEditTarget {
     bool autosavePending_ = false;
     ri::scene::StarterScene starterScene_{};
     ri::scene::Scene baselineStarterScene_{};
+    ri::scene::SemanticStructuralPartitionCache structuralPlacementPartitionCache_{};
     std::size_t authoredNodeStart_ = 0;
     ri::world::InventoryPolicy creatorInventoryPolicy_{};
     bool statsOverlayVisible_ = false;

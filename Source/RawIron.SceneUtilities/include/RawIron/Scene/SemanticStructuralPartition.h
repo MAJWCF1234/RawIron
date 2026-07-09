@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RawIron/Scene/Components.h"
+#include "RawIron/Scene/Raycast.h"
 #include "RawIron/Scene/Scene.h"
 #include "RawIron/Spatial/Aabb.h"
 #include "RawIron/Spatial/SpatialIndex.h"
@@ -15,8 +16,6 @@
 #include <vector>
 
 namespace ri::scene {
-
-struct Ray;
 
 namespace detail {
 
@@ -59,6 +58,13 @@ struct SemanticStructuralPartitionHit {
 struct SemanticStructuralPickHit {
     SemanticStructuralPartitionEntry entry;
     float distance = 0.0f;
+};
+
+/// Exact mesh hit resolved after semantic-partition broad-phase filtering. `entry` is copied so
+/// the result stays valid when a cache or transient partition is rebuilt after the query.
+struct SemanticStructuralRaycastHit {
+    SemanticStructuralPartitionEntry entry;
+    RaycastHit hit{};
 };
 
 struct SemanticStructuralPartitionRoleCounts {
@@ -256,6 +262,23 @@ private:
     const Scene& scene,
     ri::spatial::SpatialIndexOptions indexOptions = {});
 [[nodiscard]] std::optional<SemanticStructuralPickHit> PickSemanticStructuralBrush(
+    const Scene& scene,
+    const Ray& ray,
+    float far,
+    const SemanticStructuralPartitionQuery& query = {},
+    ri::spatial::SpatialIndexOptions indexOptions = {});
+/// Performs an exact mesh raycast over a prebuilt semantic partition. The partition supplies the
+/// semantic broad phase and filter; the final hit comes from the source node's mesh geometry.
+/// Callers that reuse a partition cache (for example editor viewport interaction) avoid rebuilding
+/// spatial indices for every input event.
+[[nodiscard]] std::optional<SemanticStructuralRaycastHit> RaycastSemanticStructuralPartition(
+    const Scene& scene,
+    const SemanticStructuralPartition& partition,
+    const Ray& ray,
+    float far,
+    const SemanticStructuralPartitionQuery& query = {});
+/// Convenience exact semantic raycast for one-off callers that do not retain a partition cache.
+[[nodiscard]] std::optional<SemanticStructuralRaycastHit> RaycastSemanticStructuralBrush(
     const Scene& scene,
     const Ray& ray,
     float far,

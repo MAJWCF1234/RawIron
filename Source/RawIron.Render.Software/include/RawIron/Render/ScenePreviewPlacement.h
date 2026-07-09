@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RawIron/Math/Vec3.h"
+#include "RawIron/Scene/Raycast.h"
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Scene/Scene.h"
@@ -24,7 +25,22 @@ struct CameraViewScreenPoint {
     bool inFront = false;
 };
 
-/// Ray-picks a world placement point from a perspective camera plot (meshes + y=0 ground).
+/// Perspective camera ray expressed in world space, including the camera clipping range that
+/// viewport placement and semantic queries must respect.
+struct CameraViewRay {
+    ri::scene::Ray ray{};
+    float nearClip = 0.05f;
+    float farClip = 1000.0f;
+};
+
+/// Builds a world-space perspective ray for a client point inside a camera plot.
+[[nodiscard]] std::optional<CameraViewRay> BuildCameraViewRay(const CameraViewRect& plot,
+                                                               int mouseX,
+                                                               int mouseY,
+                                                               const ri::scene::Scene& scene,
+                                                               int cameraNodeHandle);
+
+/// Ray-picks a precise world placement point from a perspective camera plot (mesh geometry + y=0 ground).
 [[nodiscard]] std::optional<ri::math::Vec3> PickPlacementPointInCameraView(const CameraViewRect& plot,
                                                                             int mouseX,
                                                                             int mouseY,

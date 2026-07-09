@@ -204,45 +204,28 @@ std::optional<ri::math::Vec3> PickPlacementPointInCameraView(const CameraViewRec
                                                               const int mouseY,
                                                               const ri::scene::Scene& scene,
                                                               const int cameraNodeHandle) {
-    const std::optional<CameraViewBasis> basis = BuildCameraViewBasis(plot, scene, cameraNodeHandle);
-    if (!basis.has_value()) {
+    const std::optional<CameraViewRay> cameraRay =
+        BuildCameraViewRay(plot, mouseX, mouseY, scene, cameraNodeHandle);
+    if (!cameraRay.has_value()) {
         return std::nullopt;
     }
-
-    const ri::spatial::Ray ray{
-        .origin = basis->position,
-        .direction = RayDirectionFromMouse(*basis, mouseX, mouseY),
-    };
 
     float bestDistance = std::numeric_limits<float>::infinity();
     ri::math::Vec3 bestPoint{};
     bool found = false;
-    for (const int handle : ri::scene::CollectRenderableNodes(scene)) {
-        const std::optional<ri::scene::WorldBounds> bounds =
-            ri::scene::ComputeNodeWorldBounds(scene, handle, true);
-        if (!bounds.has_value()) {
-            continue;
-        }
-        const ri::spatial::Aabb box{
-            .min = bounds->min,
-            .max = bounds->max,
-        };
-        float hitDistance = 0.0f;
-        if (!ri::spatial::IntersectRayAabb(ray, box, basis->farClip, &hitDistance)) {
-            continue;
-        }
-        if (hitDistance < bestDistance) {
-            bestDistance = hitDistance;
-            bestPoint = ray.origin + ray.direction * hitDistance;
-            found = true;
-        }
+    if (const std::optional<ri::scene::RaycastHit> meshHit =
+            ri::scene::RaycastSceneNearest(scene, cameraRay->ray);
+        meshHit.has_value() && meshHit->distance <= cameraRay->farClip) {
+        bestDistance = meshHit->distance;
+        bestPoint = meshHit->position;
+        found = true;
     }
 
     constexpr float kGroundPlaneY = 0.0f;
-    if (std::abs(ray.direction.y) > 1.0e-5f) {
-        const float groundT = (kGroundPlaneY - ray.origin.y) / ray.direction.y;
-        if (groundT > 0.0f && groundT < basis->farClip && (!found || groundT < bestDistance)) {
-            bestPoint = ray.origin + ray.direction * groundT;
+    if (std::abs(cameraRay->ray.direction.y) > 1.0e-5f) {
+        const float groundT = (kGroundPlaneY - cameraRay->ray.origin.y) / cameraRay->ray.direction.y;
+        if (groundT > 0.0f && groundT < cameraRay->farClip && (!found || groundT < bestDistance)) {
+            bestPoint = cameraRay->ray.origin + cameraRay->ray.direction * groundT;
             found = true;
         }
     }
@@ -251,6 +234,25 @@ std::optional<ri::math::Vec3> PickPlacementPointInCameraView(const CameraViewRec
         return std::nullopt;
     }
     return bestPoint;
+}
+
+std::optional<CameraViewRay> BuildCameraViewRay(const CameraViewRect& plot,
+                                                 const int mouseX,
+                                                 const int mouseY,
+                                                 const ri::scene::Scene& scene,
+                                                 const int cameraNodeHandle) {
+    const std::optional<CameraViewBasis> basis = BuildCameraViewBasis(plot, scene, cameraNodeHandle);
+    if (!basis.has_value()) {
+        return std::nullopt;
+    }
+    return CameraViewRay{
+        .ray = {
+            .origin = basis->position,
+            .direction = RayDirectionFromMouse(*basis, mouseX, mouseY),
+        },
+        .nearClip = basis->nearClip,
+        .farClip = basis->farClip,
+    };
 }
 
 std::optional<CameraViewScreenPoint> ProjectWorldPointToCameraView(const CameraViewRect& plot,

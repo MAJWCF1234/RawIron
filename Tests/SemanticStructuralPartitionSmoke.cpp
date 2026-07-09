@@ -319,6 +319,47 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    const auto precisePlacementHit = ri::scene::RaycastSemanticStructuralPartition(
+        scene,
+        builtScenePartition,
+        {.origin = {3.0f, 1.5f, -3.0f}, .direction = {0.0f, 0.0f, 1.0f}},
+        6.0f,
+        {
+            .channel = ri::scene::StructuralBrushChannel::QueryMesh,
+            .queryPurpose = ri::scene::StructuralBrushQueryPurpose::Placement,
+        });
+    if (!precisePlacementHit.has_value()
+        || precisePlacementHit->entry.nodeHandle != sceneWall
+        || precisePlacementHit->hit.node != sceneWall
+        || precisePlacementHit->hit.distance <= 0.0f
+        || precisePlacementHit->hit.distance > 6.0f) {
+        return EXIT_FAILURE;
+    }
+
+    ri::scene::SemanticStructuralPartition oneOffPartition = ri::scene::BuildSemanticStructuralPartition(scene);
+    scene.GetNode(sceneWall).structuralBrush.queryMesh.placeable = false;
+    oneOffPartition = ri::scene::BuildSemanticStructuralPartition(scene);
+    if (ri::scene::RaycastSemanticStructuralPartition(
+            scene,
+            oneOffPartition,
+            {.origin = {3.0f, 1.5f, -3.0f}, .direction = {0.0f, 0.0f, 1.0f}},
+            6.0f,
+            {
+                .channel = ri::scene::StructuralBrushChannel::QueryMesh,
+                .queryPurpose = ri::scene::StructuralBrushQueryPurpose::Placement,
+            }).has_value()
+        || !ri::scene::RaycastSemanticStructuralBrush(
+            scene,
+            {.origin = {3.0f, 1.5f, -3.0f}, .direction = {0.0f, 0.0f, 1.0f}},
+            6.0f,
+            {
+                .channel = ri::scene::StructuralBrushChannel::QueryMesh,
+                .queryPurpose = ri::scene::StructuralBrushQueryPurpose::Interaction,
+            }).has_value()) {
+        return EXIT_FAILURE;
+    }
+    scene.GetNode(sceneWall).structuralBrush.queryMesh.placeable = true;
+
     ri::scene::SemanticStructuralPartitionCache cache;
     const ri::scene::SemanticStructuralPartition& cachedInitial = cache.GetOrRebuild(scene);
     if (cache.RebuildCount() != 1
@@ -393,6 +434,20 @@ int main() {
         || cache.ReuseCount() != 2
         || cache.IsDirty()
         || rebuiltCache.Metrics().entryCount != 2) {
+        return EXIT_FAILURE;
+    }
+
+    // Bounds are part of the cache signature: direct transform edits (including edits that do not
+    // alter structural metadata) must rebuild the spatial partition before the next Q-mesh query.
+    scene.GetNode(sceneFloor).localTransform.position.x += 0.5f;
+    if (!cache.NeedsRebuild(scene)) {
+        return EXIT_FAILURE;
+    }
+    const ri::scene::SemanticStructuralPartition& movedCache = cache.GetOrRebuild(scene);
+    if (cache.RebuildCount() != 5
+        || cache.ReuseCount() != 2
+        || movedCache.QueryBox({{2.4f, -0.2f, 1.0f}, {4.6f, 0.2f, 3.0f}},
+                                {.role = ri::scene::StructuralBrushSemanticRole::Floor}).size() != 1) {
         return EXIT_FAILURE;
     }
 

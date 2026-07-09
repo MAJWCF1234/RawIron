@@ -4,6 +4,7 @@
 #include "RawIron/Scene/SceneUtils.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -64,6 +65,14 @@ void HashAabb(std::uint64_t& hash, const ri::spatial::Aabb& bounds) {
         HashUint(hash, static_cast<std::uint64_t>(handle));
         HashString(hash, node.name);
         HashUint(hash, StructuralBrushMetadataSignature(node.structuralBrush));
+        // Metadata alone is not enough: moving a brush (or any ancestor) changes its world-space
+        // spatial entry while leaving the metadata signature untouched. Hash the resolved bounds so
+        // cached Q-mesh partitions never answer from an old transform.
+        const std::optional<ri::spatial::Aabb> bounds = TryComputeMeshNodeWorldAabb(scene, handle);
+        HashByte(hash, bounds.has_value() ? 1U : 0U);
+        if (bounds.has_value()) {
+            HashAabb(hash, *bounds);
+        }
     }
     HashUint(hash, structuralNodeCount);
     return hash;
@@ -649,6 +658,58 @@ std::optional<SemanticStructuralPickHit> PickSemanticStructuralBrush(
         .entry = *hit->entry,
         .distance = hit->distance,
     };
+}
+
+std::optional<SemanticStructuralRaycastHit> RaycastSemanticStructuralPartition(
+    const Scene& scene,
+    const SemanticStructuralPartition& partition,
+    const Ray& ray,
+    const float far,
+    const SemanticStructuralPartitionQuery& query) {
+    if (far <= 0.0f || ri::math::LengthSquared(ray.direction) <= 0.000001f) {
+        return std::nullopt;
+    }
+
+    const Ray normalizedRay{
+        .origin = ray.origin,
+        .direction = ri::math::Normalize(ray.direction),
+    };
+
+    const std::vector<SemanticStructuralPartitionHit> candidates =
+        partition.QueryRay(normalizedRay.origin, normalizedRay.direction, far, query);
+    std::optional<SemanticStructuralRaycastHit> best;
+    for (const SemanticStructuralPartitionHit& candidate : candidates) {
+        if (candidate.entry == nullptr) {
+            continue;
+        }
+        const std::optional<RaycastHit> preciseHit =
+            RaycastNode(scene, candidate.entry->nodeHandle, normalizedRay);
+        if (!preciseHit.has_value() || preciseHit->distance > far) {
+            continue;
+        }
+
+        const bool closer = !best.has_value()
+            || preciseHit->distance + 0.0001f < best->hit.distance
+            || (std::abs(preciseHit->distance - best->hit.distance) <= 0.0001f
+                && candidate.entry->nodeHandle < best->entry.nodeHandle);
+        if (closer) {
+            best = SemanticStructuralRaycastHit{
+                .entry = *candidate.entry,
+                .hit = *preciseHit,
+            };
+        }
+    }
+    return best;
+}
+
+std::optional<SemanticStructuralRaycastHit> RaycastSemanticStructuralBrush(
+    const Scene& scene,
+    const Ray& ray,
+    const float far,
+    const SemanticStructuralPartitionQuery& query,
+    const ri::spatial::SpatialIndexOptions indexOptions) {
+    const SemanticStructuralPartition partition = BuildSemanticStructuralPartition(scene, indexOptions);
+    return RaycastSemanticStructuralPartition(scene, partition, ray, far, query);
 }
 
 } // namespace ri::scene
