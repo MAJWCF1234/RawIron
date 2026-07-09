@@ -38,6 +38,7 @@ add_library(RawIron.SceneUtilities
   src/StructuralPrimitivePresets.cpp
   src/PrimitivesCsvIO.cpp
   src/Raycast.cpp
+  src/RigAuthoring.cpp
   src/RuntimeMeshFactory.cpp
   src/SceneEntityPhysics.cpp
   src/ScriptedCameraReview.cpp
@@ -93,4 +94,8 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(SceneStructuralTraceFeedSmoke ${CMAKE_SOURCE_DIR}/Tests/SceneStructuralTraceFeedSmoke.cpp)
   target_link_libraries(SceneStructuralTraceFeedSmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.SceneStructuralTraceFeedSmoke COMMAND SceneStructuralTraceFeedSmoke)
+
+  add_executable(RigAuthoringSmoke ${CMAKE_SOURCE_DIR}/Tests/RigAuthoringSmoke.cpp)
+  target_link_libraries(RigAuthoringSmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.RigAuthoringSmoke COMMAND RigAuthoringSmoke)
 endif()

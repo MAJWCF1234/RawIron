@@ -63,8 +63,11 @@ ObjectPhysicsBatchResult StepKinematicObjectBatch(
         KinematicPhysicsOptions merged = options;
         merged.ignoreColliderId = slot.objectColliderId;
 
+        // Object batches are commonly stepped from presentation frame deltas. Unlike the single-step API, the batch
+        // must not discard time after a hitch; the duration wrapper keeps the same bounded integrator while consuming
+        // every safe slice.
         KinematicStepResult step =
-            SimulateKinematicBodyStep(scene, slot.state, deltaSeconds, merged, modifiers, constraints);
+            SimulateKinematicBodyForDuration(scene, slot.state, deltaSeconds, merged, modifiers, constraints);
         slot.state = step.state;
         outStep = std::move(step);
         result.simulatedCount += 1;

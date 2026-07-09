@@ -14,6 +14,7 @@
 #include "RawIron/Scene/SceneKit.h"
 #include "RawIron/Scene/SceneStateIO.h"
 #include "RawIron/Scene/SceneUtils.h"
+#include "RawIron/Scene/RigAuthoring.h"
 #include "EditorProjectScaffolding.h"
 #include "EditorWorkspace.h"
 
@@ -499,6 +500,10 @@ std::optional<UnityMeshAssetSummary> TryParseUnityMeshAsset(const fs::path& sour
 std::string InferAssetTypeFromExtension(const fs::path& sourcePath) {
     const std::string extension = ToLowerAscii(sourcePath.extension().string());
     const std::string stem = ToLowerAscii(sourcePath.stem().string());
+    const std::string filename = ToLowerAscii(sourcePath.filename().string());
+    if (filename.ends_with(".ri_rig.json")) {
+        return "rig";
+    }
     if (extension == ".uasset") {
         if (stem.rfind("m_", 0) == 0) {
             return "material";
@@ -640,6 +645,27 @@ std::string BuildBlenderAssetPayloadJson() {
            "\"preferredExports\":[\"gltf\",\"glb\",\"fbx\"],\"runtimePolicy\":\"do-not-ship-authoring-container\"}";
 }
 
+std::string BuildRigAssetPayloadJson(const fs::path& sourcePath) {
+    std::ostringstream payload;
+    payload << "{\"sourceFormat\":\"rawiron-rig\"";
+    const std::optional<ri::scene::RigDefinition> rig = ri::scene::LoadRigDefinition(sourcePath);
+    if (!rig.has_value()) {
+        payload << ",\"validation\":\"parse-failed\"}";
+        return payload.str();
+    }
+    const ri::scene::RigValidationReport report = ri::scene::ValidateRigDefinition(*rig);
+    payload << ",\"profile\":\"" << ri::scene::RigProfileName(rig->profile) << "\"";
+    payload << ",\"boneCount\":" << rig->bones.size();
+    payload << ",\"rootBoneCount\":" << report.rootBoneCount;
+    payload << ",\"validation\":\"" << (report.valid ? "valid" : "invalid") << "\"";
+    if (rig->profile == ri::scene::RigProfile::Humanoid) {
+        payload << ",\"humanoidCoverage\":{\"matched\":" << report.humanoidMatchedBoneCount
+                << ",\"required\":" << report.humanoidRequiredBoneCount << '}';
+    }
+    payload << '}';
+    return payload.str();
+}
+
 bool IsForeignScriptExtension(const std::string& extension) {
     return extension == ".cs" || extension == ".lua" || extension == ".js" || extension == ".boo";
 }
@@ -674,6 +700,7 @@ ri::content::AssetDocument BuildStandardAssetDocument(const fs::path& sourcePath
     ri::content::AssetDocument document{};
     const fs::path normalizedSource = fs::weakly_canonical(sourcePath);
     const std::string extension = ToLowerAscii(normalizedSource.extension().string());
+    const bool isRig = ToLowerAscii(normalizedSource.filename().string()).ends_with(".ri_rig.json");
     const std::optional<fs::path> relative = TryRelativeToRoot(normalizedSource, workspace.root);
 
     document.id = SanitizeAssetId(normalizedSource.stem().string());
@@ -686,7 +713,10 @@ ri::content::AssetDocument BuildStandardAssetDocument(const fs::path& sourcePath
         .path = document.sourcePath,
     });
 
-    if (extension == ".asset") {
+    if (isRig) {
+        document.type = "rig";
+        document.payloadJson = BuildRigAssetPayloadJson(normalizedSource);
+    } else if (extension == ".asset") {
         if (const std::optional<UnityMeshAssetSummary> meshSummary = TryParseUnityMeshAsset(normalizedSource)) {
             document.type = "mesh";
             document.payloadJson = BuildUnityMeshPayloadJson(*meshSummary);
@@ -714,6 +744,9 @@ fs::path DefaultStandardizedOutputPath(const WorkspaceLayout& workspace, const f
 
 bool ShouldStandardizeExtension(const fs::path& path) {
     const std::string extension = ToLowerAscii(path.extension().string());
+    if (ToLowerAscii(path.filename().string()).ends_with(".ri_rig.json")) {
+        return true;
+    }
     return extension == ".asset" || extension == ".spm" || extension == ".fbx" || extension == ".obj"
         || extension == ".gltf" || extension == ".glb" || extension == ".blend" || extension == ".png" || extension == ".jpg"
         || extension == ".jpeg" || extension == ".tga" || extension == ".bmp" || extension == ".hdr"
@@ -1009,6 +1042,83 @@ void ValidateAssetPackage(const ri::core::CommandLine& commandLine) {
     ri::core::LogInfo("  Manifest: " + manifestPath.string());
     ri::core::LogInfo("  Package: " + manifest->packageId);
     ri::core::LogInfo("  Assets: " + std::to_string(manifest->assets.size()));
+}
+
+void PrintRigToolchainReport() {
+    ri::core::LogInfo("RawIron modeling and rigging toolchain:");
+    ri::core::LogInfo("  Authoring source: .ri_rig.json portable skeleton definitions.");
+    ri::core::LogInfo("  Baseline: --rig-create-humanoid generates root-motion + 21-bone humanoid convention.");
+    ri::core::LogInfo("  Validation: hierarchy cycles, duplicate names, rest-transform validity, and humanoid coverage.");
+    ri::core::LogInfo("  Mesh inputs: OBJ, glTF/GLB, and FBX import through RawIron.SceneUtilities.");
+    ri::core::LogInfo("  Animation: imported transform clips plus stable humanoid bone-name canonicalization.");
+    ri::core::LogInfo("  Editor workflow: save rigs under Assets/Source/rigs, then inspect/package them with project assets.");
+}
+
+void CreateHumanoidRig(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto idArg = commandLine.GetValue("--rig-create-humanoid");
+    if (!idArg.has_value() || idArg->empty()) {
+        throw std::runtime_error("Missing --rig-create-humanoid <rig-id>.");
+    }
+
+    const std::string rigId = SanitizeAssetId(*idArg);
+    fs::path output = workspace.assetsSource / "rigs" / (rigId + ".ri_rig.json");
+    if (const auto outputArg = commandLine.GetValue("--output"); outputArg.has_value() && !outputArg->empty()) {
+        output = fs::path(*outputArg);
+    }
+    std::error_code existsError{};
+    if (fs::exists(output, existsError) && !commandLine.HasFlag("--overwrite")) {
+        throw std::runtime_error("Rig output already exists (use --overwrite to replace it): " + output.string());
+    }
+
+    const std::string displayName = commandLine.GetValue("--name").value_or(*idArg);
+    const ri::scene::RigDefinition rig = ri::scene::CreateHumanoidRigDefinition(rigId, displayName);
+    const ri::scene::RigValidationReport report = ri::scene::ValidateRigDefinition(rig);
+    if (!report.valid) {
+        throw std::runtime_error("Internal humanoid rig template failed validation.");
+    }
+    if (!ri::scene::SaveRigDefinition(output, rig)) {
+        throw std::runtime_error("Failed to write rig: " + output.string());
+    }
+
+    ri::core::LogInfo("Created humanoid rig:");
+    ri::core::LogInfo("  Id: " + rig.id);
+    ri::core::LogInfo("  Name: " + rig.displayName);
+    ri::core::LogInfo("  Output: " + output.string());
+    ri::core::LogInfo("  Bones: " + std::to_string(rig.bones.size()));
+    ri::core::LogInfo("  Humanoid convention: " + std::to_string(report.humanoidMatchedBoneCount) + "/" +
+                      std::to_string(report.humanoidRequiredBoneCount));
+}
+
+void ValidateRig(const ri::core::CommandLine& commandLine) {
+    const auto pathArg = commandLine.GetValue("--rig-validate");
+    if (!pathArg.has_value() || pathArg->empty()) {
+        throw std::runtime_error("Missing --rig-validate <file.ri_rig.json>.");
+    }
+    const fs::path path = fs::path(*pathArg);
+    const std::optional<ri::scene::RigDefinition> rig = ri::scene::LoadRigDefinition(path);
+    if (!rig.has_value()) {
+        throw std::runtime_error("Could not parse RawIron rig: " + path.string());
+    }
+    const ri::scene::RigValidationReport report = ri::scene::ValidateRigDefinition(*rig);
+    ri::core::LogInfo("RawIron rig validation:");
+    ri::core::LogInfo("  Input: " + path.string());
+    ri::core::LogInfo("  Id: " + rig->id);
+    ri::core::LogInfo("  Bones: " + std::to_string(rig->bones.size()));
+    ri::core::LogInfo("  Roots: " + std::to_string(report.rootBoneCount));
+    if (rig->profile == ri::scene::RigProfile::Humanoid) {
+        ri::core::LogInfo("  Humanoid convention: " + std::to_string(report.humanoidMatchedBoneCount) + "/" +
+                          std::to_string(report.humanoidRequiredBoneCount));
+    }
+    for (const std::string& warning : report.warnings) {
+        ri::core::LogInfo("  Warning: " + warning);
+    }
+    if (!report.valid) {
+        for (const std::string& error : report.errors) {
+            ri::core::LogInfo("  Error: " + error);
+        }
+        throw std::runtime_error("RawIron rig validation failed.");
+    }
+    ri::core::LogInfo("  Result: valid");
 }
 
 fs::path ResolveProjectRootOption(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
@@ -1938,11 +2048,27 @@ int main(int argc, char** argv) {
             ri::core::LogInfo("  .ri_asset.json  (single unified document for mesh/material/texture/audio/scene/behavior)");
             ri::core::LogInfo("  .ri_package.json  (portable asset/resource package manifest)");
             ri::core::LogInfo("  .ripak  (ZIP-compatible RawIron package archive containing package.ri_package.json)");
+            ri::core::LogInfo("  .ri_rig.json  (portable skeleton/rest-pose source with humanoid validation)");
             ri::core::LogInfo("  .riscript  (RawIron-owned Lua-like scripting language for behavior/config/tests)");
             ri::core::LogInfo("Third-party authoring/import inputs:");
             ri::core::LogInfo("  .blend  (Blender authoring source; export/rebuild into RawIron mesh/material outputs before shipping)");
             ri::core::LogInfo("Legacy/experimental aliases:");
             ri::core::LogInfo("  .ri_model .ri_mesh .ri_scene .ri_mat .ri_tex .ri_audio .ri_meshc");
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--rig-toolchain-report")) {
+            PrintRigToolchainReport();
+            return 0;
+        }
+
+        if (commandLine.GetValue("--rig-create-humanoid").has_value()) {
+            CreateHumanoidRig(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.GetValue("--rig-validate").has_value()) {
+            ValidateRig(commandLine);
             return 0;
         }
 
@@ -2044,6 +2170,9 @@ int main(int argc, char** argv) {
         ri::core::LogInfo("  ri_tool --scaffold-project --game <id> | --game-root <path>");
         ri::core::LogInfo("  ri_tool --ensure-workspace");
         ri::core::LogInfo("  ri_tool --formats");
+        ri::core::LogInfo("  ri_tool --rig-toolchain-report");
+        ri::core::LogInfo("  ri_tool --rig-create-humanoid <rig-id> [--name <display>] [--output <file.ri_rig.json>] [--overwrite]");
+        ri::core::LogInfo("  ri_tool --rig-validate <file.ri_rig.json>");
         ri::core::LogInfo("  ri_tool --scenekit-targets");
         ri::core::LogInfo("  ri_tool --scenekit-checks [--output-dir <path>] [--width <px>] [--height <px>]");
         ri::core::LogInfo("  ri_tool --scenekit-example <slug> [--output <path>] [--width <px>] [--height <px>]");

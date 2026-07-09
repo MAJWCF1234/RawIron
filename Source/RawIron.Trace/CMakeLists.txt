@@ -38,4 +38,10 @@ if (RAWIRON_BUILD_TESTS)
   )
   target_link_libraries(CompetitiveWeaponSimulatorSmoke PRIVATE RawIron::Trace)
   add_test(NAME RawIron.Trace.CompetitiveWeaponSimulatorSmoke COMMAND CompetitiveWeaponSimulatorSmoke)
+
+  add_executable(ObjectPhysicsDurationSmoke
+    ${CMAKE_SOURCE_DIR}/Tests/ObjectPhysicsDurationSmoke.cpp
+  )
+  target_link_libraries(ObjectPhysicsDurationSmoke PRIVATE RawIron::Trace)
+  add_test(NAME RawIron.Trace.ObjectPhysicsDurationSmoke COMMAND ObjectPhysicsDurationSmoke)
 endif()

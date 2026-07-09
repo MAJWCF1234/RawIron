@@ -52,6 +52,7 @@ if (RAWIRON_BUILD_TESTS)
     "List Projects"
     "Workspace Check"
     "Asset Formats"
+    "Rigging Toolkit"
     "Kind: captured"
   )
   set(rawiron_visual_shell_projects_expected

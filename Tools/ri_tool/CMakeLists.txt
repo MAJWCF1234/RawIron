@@ -47,6 +47,13 @@ if (RAWIRON_BUILD_TESTS)
     ".ri_model"
     ".ri_meshc"
   )
+  set(rawiron_tool_rig_report_expected
+    "RawIron modeling and rigging toolchain:"
+    "Authoring source: .ri_rig.json"
+    "Baseline: --rig-create-humanoid"
+    "Mesh inputs: OBJ, glTF/GLB, and FBX"
+    "Editor workflow: save rigs under Assets/Source/rigs"
+  )
   file(TO_NATIVE_PATH "${PROJECT_SOURCE_DIR}" RAWIRON_TOOL_WORKSPACE_ROOT_NATIVE)
   file(TO_NATIVE_PATH "${PROJECT_SOURCE_DIR}/Assets/Source" RAWIRON_TOOL_WORKSPACE_ASSETS_NATIVE)
   file(TO_NATIVE_PATH "${PROJECT_SOURCE_DIR}/Projects/Sandbox/Scenes" RAWIRON_TOOL_WORKSPACE_SCENES_NATIVE)
@@ -223,6 +230,17 @@ if (RAWIRON_BUILD_TESTS)
       "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
       "-DCOMMAND_ARGS=--formats"
       "-DEXPECTED_STRINGS=${rawiron_tool_format_expected}"
+      "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
+    NAME RawIron.Tool.RigToolchainReport
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--rig-toolchain-report;--root;${PROJECT_SOURCE_DIR}"
+      "-DEXPECTED_STRINGS=${rawiron_tool_rig_report_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
       "${rawiron_tool_runtime_dll_arg}"
       -P "${rawiron_verify_command_output}"

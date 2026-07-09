@@ -2,6 +2,7 @@
 
 #include "RawIron/Content/GameManifest.h"
 #include "RawIron/Core/Detail/JsonScan.h"
+#include "RawIron/Scene/RigAuthoring.h"
 
 #include <optional>
 #include <system_error>
@@ -27,6 +28,27 @@ ResourceDocumentData LoadResourceDocument(const WorkspaceResourceEntry& entry) {
             document.manifestIssues = ri::content::ValidateGameProjectFormat(*manifest);
         } else {
             document.manifestIssues.push_back("Unable to parse manifest.json.");
+        }
+    }
+
+    const std::string filename = document.absolutePath.filename().string();
+    if (filename.ends_with(".ri_rig.json")) {
+        const std::optional<ri::scene::RigDefinition> rig = ri::scene::LoadRigDefinition(document.absolutePath);
+        if (!rig.has_value()) {
+            document.auxMessage = "Rig asset could not be parsed. Use the RawIron rig validator before binding it to a model.";
+        } else {
+            const ri::scene::RigValidationReport report = ri::scene::ValidateRigDefinition(*rig);
+            document.auxMessage = "Rig: " + rig->displayName + " | " + std::to_string(rig->bones.size())
+                + " bones | " + (report.valid ? "valid" : "invalid");
+            if (rig->profile == ri::scene::RigProfile::Humanoid) {
+                document.auxMessage += " | humanoid " + std::to_string(report.humanoidMatchedBoneCount)
+                    + "/" + std::to_string(report.humanoidRequiredBoneCount);
+            }
+            if (!report.errors.empty()) {
+                document.auxMessage += " | first error: " + report.errors.front();
+            } else if (!report.warnings.empty()) {
+                document.auxMessage += " | first warning: " + report.warnings.front();
+            }
         }
     }
 
