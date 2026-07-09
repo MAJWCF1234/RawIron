@@ -115,6 +115,9 @@ RenderCommandReader::RenderCommandReader(std::span<const std::uint8_t> bytes) no
 
 bool RenderCommandReader::Next(RenderCommandView& outView) noexcept {
     if (!SizeAddWithin(cursor_, sizeof(RenderCommandHeader), bytes_.size())) {
+        // A trailing partial header is malformed input, not a recoverable empty packet. Consume it
+        // so callers that drive parsing with `Exhausted()` cannot retry the same bytes forever.
+        cursor_ = bytes_.size();
         return false;
     }
 

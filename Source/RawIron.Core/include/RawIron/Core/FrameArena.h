@@ -20,6 +20,8 @@ public:
     [[nodiscard]] std::size_t Mark() const noexcept;
     void Rewind(std::size_t mark) noexcept;
 
+    /// Allocates a contiguous frame-lifetime block. Alignment must be a power of two no greater
+    /// than `alignof(std::max_align_t)`; over-aligned types require a dedicated allocator.
     [[nodiscard]] void* Allocate(std::size_t bytes, std::size_t alignment = alignof(std::max_align_t));
 
     template <typename T>
@@ -37,7 +39,10 @@ public:
     }
 
 private:
-    std::vector<std::uint8_t> storage_;
+    // `std::vector<uint8_t>` only promises byte alignment. Keep the backing allocation aligned for
+    // every fundamental type so the default `Allocate` alignment is guaranteed by the standard.
+    std::vector<std::max_align_t> storage_;
+    std::size_t capacityBytes_ = 0;
     std::size_t cursor_ = 0;
 };
 

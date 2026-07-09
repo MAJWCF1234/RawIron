@@ -11,3 +11,11 @@ add_test(NAME RawIron.Core.CommandLineSmoke COMMAND CommandLineSmoke)
 add_executable(FixedStepAccumulatorSmoke FixedStepAccumulatorSmoke.cpp)
 target_link_libraries(FixedStepAccumulatorSmoke PRIVATE RawIron::Core)
 add_test(NAME RawIron.Core.FixedStepAccumulatorSmoke COMMAND FixedStepAccumulatorSmoke)
+
+add_executable(RenderCommandStreamSmoke RenderCommandStreamSmoke.cpp)
+target_link_libraries(RenderCommandStreamSmoke PRIVATE RawIron::Core)
+add_test(NAME RawIron.Core.RenderCommandStreamSmoke COMMAND RenderCommandStreamSmoke)
+
+add_executable(FrameArenaSmoke FrameArenaSmoke.cpp)
+target_link_libraries(FrameArenaSmoke PRIVATE RawIron::Core)
+add_test(NAME RawIron.Core.FrameArenaSmoke COMMAND FrameArenaSmoke)
