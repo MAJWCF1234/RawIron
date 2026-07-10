@@ -16,6 +16,15 @@ enum class PluginSourceKind {
     External,
 };
 
+struct PluginEntryResolution {
+    PluginSourceKind sourceKind = PluginSourceKind::Project;
+    std::filesystem::path resolvedPath{};
+    bool valid = false;
+    bool exists = false;
+    bool remoteReference = false;
+    std::string issue{};
+};
+
 /// Inventory row from `plugins/manifest.plugins`.
 struct PluginManifestEntry {
     std::string id;
@@ -23,6 +32,11 @@ struct PluginManifestEntry {
     std::string category;
     std::string entryPath;
     PluginSourceKind sourceKind = PluginSourceKind::Project;
+    std::filesystem::path resolvedEntryPath{};
+    /// Defaults preserve manually assembled `PluginProjectData`; disk-loaded manifests always overwrite these.
+    bool entryPathValid = true;
+    bool entryExists = true;
+    bool entryIsRemote = false;
     bool blockedByPolicy = false;
     std::string policyBlockReason;
 };
@@ -81,6 +95,10 @@ struct PluginProjectData {
 };
 
 [[nodiscard]] PluginProjectData LoadPluginProjectData(const std::filesystem::path& gameRoot);
+
+/// Resolves a manifest entry without allowing project/mod paths to escape `gameRoot`.
+[[nodiscard]] PluginEntryResolution ResolvePluginEntryPath(const std::filesystem::path& gameRoot,
+                                                           std::string_view entryPath);
 
 [[nodiscard]] std::vector<ActivePlugin> BuildActivePlugins(const PluginProjectData& data);
 

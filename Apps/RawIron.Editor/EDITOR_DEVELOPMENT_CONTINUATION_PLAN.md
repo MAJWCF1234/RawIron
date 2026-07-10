@@ -68,7 +68,8 @@ This comes before substantially expanding direct-edit controls.
 
 ### 4. Connect Forge assets to the editor
 
-- open a selected Forge asset directly in an editor preview/import context
+- Forge assets now open directly in the Files inspector with the same shared model/rig validation
+- next, add scene import/preview actions from that handoff context
 - show importer validation and dependency status in the resource inspector
 - bind `.ri_rig.json` assets to imported skinned meshes
 - preserve source, generated asset, rig, material, and animation ownership links

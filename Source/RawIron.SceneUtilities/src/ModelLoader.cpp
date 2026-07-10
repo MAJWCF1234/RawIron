@@ -419,6 +419,45 @@ int AddModelNode(Scene& scene, const ImportedModelOptions& options, std::string*
     return kInvalidHandle;
 }
 
+ModelSourceValidationReport ValidateModelSource(const std::filesystem::path& sourcePath) {
+    ModelSourceValidationReport report{};
+    const std::string extension = Lowercase(sourcePath.extension());
+    if (extension == ".blend") {
+        report.summary = "Blender source is authoring-only. Export it to glTF, GLB, or FBX for Raw Iron import.";
+        return report;
+    }
+    if (extension != ".obj" && extension != ".gltf" && extension != ".glb" && extension != ".fbx") {
+        report.summary = "The selected file is not a recognized runtime model source.";
+        return report;
+    }
+
+    report.runtimeImportable = true;
+    Scene validationScene{"ModelSourceValidation"};
+    const int root = validationScene.CreateNode("ValidationRoot");
+    std::string importError;
+    const int imported = AddModelNode(
+        validationScene,
+        ImportedModelOptions{
+            .sourcePath = sourcePath,
+            .nodeName = "ValidatedModel",
+            .parent = root,
+            .lockToPrimaryBackend = true,
+            .createPlaceholderOnFailure = false,
+        },
+        &importError);
+    report.nodeCount = validationScene.NodeCount();
+    report.meshCount = validationScene.MeshCount();
+    report.materialCount = validationScene.MaterialCount();
+    report.valid = imported != kInvalidHandle && report.meshCount > 0U;
+    if (!report.valid) {
+        report.summary = importError.empty() ? "Importer returned no renderable mesh geometry." : importError;
+        return report;
+    }
+    report.summary = "Import valid | " + std::to_string(report.nodeCount) + " nodes | "
+        + std::to_string(report.meshCount) + " meshes | " + std::to_string(report.materialCount) + " materials";
+    return report;
+}
+
 int AddWavefrontObjNode(Scene& scene, const ModelNodeOptions& options, std::string* error) {
     std::string localError;
     const int rootHandle = ImportUfbxSceneFile(

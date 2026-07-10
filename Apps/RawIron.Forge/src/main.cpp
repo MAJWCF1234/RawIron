@@ -1,12 +1,14 @@
 #include "ForgeCatalog.h"
 
 #include "RawIron/Core/CommandLine.h"
+#include "RawIron/Content/AuthoringHandoff.h"
 
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <optional>
 #include <string>
+#include <vector>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -75,6 +77,27 @@ void PrintHeadlessSummary(const ri::forge::AssetCatalog& catalog) {
     std::cout << "Invalid rigs: " << catalog.invalidRigCount << "\n";
 }
 
+int PrintHandoffProbe(const fs::path& workspaceRoot, const fs::path& assetPath) {
+    const ri::content::AuthoringHandoffReport report = ri::content::BuildAuthoringHandoff({
+        .workspaceRoot = workspaceRoot,
+        .assetPath = assetPath,
+    });
+    std::cout << "Forge handoff: " << (report.valid ? "ready" : "rejected") << "\n";
+    std::cout << "Asset kind: " << ri::content::ToString(report.assetKind) << "\n";
+    std::cout << "Asset: " << report.assetPath.string() << "\n";
+    if (!report.editorArguments.empty()) {
+        std::cout << "Editor args:";
+        for (const std::string& argument : report.editorArguments) {
+            std::cout << " " << argument;
+        }
+        std::cout << "\n";
+    }
+    for (const std::string& issue : report.issues) {
+        std::cout << "Issue: " << issue << "\n";
+    }
+    return report.valid ? 0 : 1;
+}
+
 #if defined(_WIN32)
 
 std::wstring Widen(const std::string& value) {
@@ -96,7 +119,33 @@ enum ControlId : int {
     kNewHumanoid = 102,
     kValidate = 103,
     kOpenSource = 104,
+    kOpenInEditor = 105,
 };
+
+fs::path ResolveEditorExecutable() {
+    const fs::path forgeExecutable = ResolveExecutablePath();
+    const fs::path configuration = forgeExecutable.parent_path().filename();
+    return forgeExecutable.parent_path().parent_path().parent_path()
+        / "RawIron.Editor" / configuration / "RawIron.Editor.exe";
+}
+
+std::wstring QuoteArgument(const std::string& value) {
+    std::wstring quoted = L"\"";
+    quoted += Widen(value);
+    quoted += L"\"";
+    return quoted;
+}
+
+std::wstring JoinArguments(const std::vector<std::string>& arguments) {
+    std::wstring joined{};
+    for (const std::string& argument : arguments) {
+        if (!joined.empty()) {
+            joined += L' ';
+        }
+        joined += QuoteArgument(argument);
+    }
+    return joined;
+}
 
 class ForgeWindow {
 public:
@@ -201,6 +250,7 @@ private:
         newRigButton_ = CreateControl(L"BUTTON", L"New Humanoid Rig", BS_PUSHBUTTON, kNewHumanoid);
         validateButton_ = CreateControl(L"BUTTON", L"Validate Asset", BS_PUSHBUTTON, kValidate);
         openButton_ = CreateControl(L"BUTTON", L"Open Source", BS_PUSHBUTTON, kOpenSource);
+        editorButton_ = CreateControl(L"BUTTON", L"Open in Editor", BS_PUSHBUTTON, kOpenInEditor);
         assetList_ = CreateControl(
             L"LISTBOX",
             L"",
@@ -237,6 +287,8 @@ private:
         MoveWindow(validateButton_, buttonX, headerHeight + 4, 122, toolbarHeight, TRUE);
         buttonX += 130;
         MoveWindow(openButton_, buttonX, headerHeight + 4, 116, toolbarHeight, TRUE);
+        buttonX += 124;
+        MoveWindow(editorButton_, buttonX, headerHeight + 4, 132, toolbarHeight, TRUE);
 
         MoveWindow(assetList_, margin, contentTop, listWidth, contentBottom - contentTop, TRUE);
         MoveWindow(detailHeading_, detailLeft + 16, contentTop + 14, detailWidth - 32, 24, TRUE);
@@ -297,6 +349,7 @@ private:
         if (asset == nullptr) {
             SetWindowTextW(detail_, L"No supported model or rig sources were found under Assets/Source.");
             EnableWindow(validateButton_, FALSE);
+            EnableWindow(editorButton_, FALSE);
             return;
         }
 
@@ -312,6 +365,7 @@ private:
         }
         SetWindowTextW(detail_, Widen(text).c_str());
         EnableWindow(validateButton_, TRUE);
+        EnableWindow(editorButton_, TRUE);
     }
 
     void CreateHumanoidRig() {
@@ -361,6 +415,37 @@ private:
         }
     }
 
+    void OpenSelectedInEditor() const {
+        const ri::forge::AssetEntry* asset = SelectedAsset();
+        if (asset == nullptr) {
+            return;
+        }
+        const ri::content::AuthoringHandoffReport handoff = ri::content::BuildAuthoringHandoff({
+            .workspaceRoot = workspaceRoot_,
+            .assetPath = asset->absolutePath,
+        });
+        if (!handoff.valid) {
+            const std::string issue = handoff.issues.empty() ? "Unknown handoff validation failure."
+                                                             : handoff.issues.front();
+            MessageBoxW(hwnd_, Widen(issue).c_str(), L"Forge to Editor", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const fs::path editor = ResolveEditorExecutable();
+        std::error_code error{};
+        if (!fs::is_regular_file(editor, error)) {
+            MessageBoxW(hwnd_, L"RawIron.Editor.exe was not found in this build configuration.",
+                        L"Forge to Editor", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::wstring parameters = JoinArguments(handoff.editorArguments);
+        const HINSTANCE result = ShellExecuteW(
+            hwnd_, L"open", editor.c_str(), parameters.c_str(), workspaceRoot_.c_str(), SW_SHOWNORMAL);
+        if (reinterpret_cast<INT_PTR>(result) <= 32) {
+            MessageBoxW(hwnd_, L"Windows could not launch RawIron.Editor.",
+                        L"Forge to Editor", MB_OK | MB_ICONERROR);
+        }
+    }
+
     void Paint() const {
         PAINTSTRUCT paint{};
         HDC dc = BeginPaint(hwnd_, &paint);
@@ -402,6 +487,8 @@ private:
                     ValidateSelectedAsset();
                 } else if (id == kOpenSource) {
                     OpenSelectedSource();
+                } else if (id == kOpenInEditor) {
+                    OpenSelectedInEditor();
                 } else if (id == kAssetList && notification == LBN_SELCHANGE) {
                     UpdateInspector();
                 } else if (id == kAssetList && notification == LBN_DBLCLK) {
@@ -465,6 +552,7 @@ private:
     HWND newRigButton_ = nullptr;
     HWND validateButton_ = nullptr;
     HWND openButton_ = nullptr;
+    HWND editorButton_ = nullptr;
     HWND assetList_ = nullptr;
     HWND detailHeading_ = nullptr;
     HWND detail_ = nullptr;
@@ -486,6 +574,10 @@ int main(int argc, char** argv) {
         const ri::core::CommandLine commandLine(argc, argv);
         const fs::path workspaceRoot = ResolveWorkspaceRoot(commandLine);
         const ri::forge::AssetCatalog catalog = ri::forge::ScanAssetCatalog(workspaceRoot);
+        if (const std::optional<std::string> handoffAsset = commandLine.GetValue("--handoff-probe");
+            handoffAsset.has_value() && !handoffAsset->empty()) {
+            return PrintHandoffProbe(workspaceRoot, fs::path(*handoffAsset));
+        }
         if (commandLine.HasFlag("--headless")) {
             PrintHeadlessSummary(catalog);
             return 0;

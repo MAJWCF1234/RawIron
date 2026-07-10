@@ -125,6 +125,7 @@ RawIron loads plugins as **declarative project data** — not native DLLs. The C
 | API | Role |
 |-----|------|
 | `LoadPluginProjectData(gameRoot)` | Parses manifest, registry, hooks, policy; classifies plugin source kind; annotates policy-blocked entries; validates cross-references; builds active plugin list |
+| `ResolvePluginEntryPath(gameRoot, entry)` | Resolves local entries, rejects game-root escapes, and reports local file existence without conflating remote references |
 | `BuildActivePlugins(data)` | Resolves enabled plugins in load-order with attached hooks |
 | `CollectHooksForPhase(data, phase)` | Returns hooks for `startup`, `runtime`, etc. sorted by priority |
 | `GamePluginRuntimeSession` | Game-loop holder: `Bootstrap()` + throttled `TickRuntime()` |
@@ -182,6 +183,15 @@ flowchart TB
 5. **Handlers** apply experience changes: ambient gain ticks, quest marker refresh, AI policy bridges, cinematic triggers — without recompiling the executable.
 
 `LoadPluginProjectData()` now classifies each manifest row as `project`, `mod`, or `external`, and records `policyBlockReason` on entries that are present in project data but not allowed to execute. `BuildActivePlugins()` excludes those blocked entries instead of silently treating policy as informational.
+
+It also rejects project/mod traversal paths and excludes missing local entry files. Use these commands before launching a project:
+
+```powershell
+ri_tool --plugins-list --game liminal-hall --root O:/RawIron
+ri_tool --plugins-doctor --game liminal-hall --root O:/RawIron
+ri_tool --plugin-handlers
+ri_tool --extension-validate Plugins/Store/rawiron.quest-beacons/package.riplugin.json
+```
 
 ## Plugin Store (editor)
 

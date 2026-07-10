@@ -4,6 +4,7 @@ rawiron_add_app(
     src/main.cpp
     src/ForgeCatalog.cpp
   LIBRARIES
+    RawIron::Content
     RawIron::Core
     RawIron::SceneUtilities
   WIN32_LIBRARIES
@@ -27,7 +28,19 @@ if (RAWIRON_BUILD_TESTS)
     src/ForgeCatalog.cpp
   )
   target_include_directories(RawIron.Forge.CatalogSmoke PRIVATE src)
-  target_link_libraries(RawIron.Forge.CatalogSmoke PRIVATE RawIron::SceneUtilities)
+  target_link_libraries(RawIron.Forge.CatalogSmoke PRIVATE RawIron::Content RawIron::SceneUtilities)
   target_compile_features(RawIron.Forge.CatalogSmoke PRIVATE cxx_std_20)
   add_test(NAME RawIron.Forge.Catalog COMMAND RawIron.Forge.CatalogSmoke)
+
+  rawiron_runtime_dll_test_arg(rawiron_forge_runtime_dll_arg RawIron.Forge)
+  add_test(
+    NAME RawIron.Forge.HandoffProbe
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:RawIron.Forge>"
+      "-DCOMMAND_ARGS=--handoff-probe;${PROJECT_SOURCE_DIR}/Assets/Source/models/scenekit_triangle.gltf;--workspace-root;${PROJECT_SOURCE_DIR}"
+      "-DEXPECTED_STRINGS=Forge handoff: ready;Asset kind: model-source;--open-asset"
+      "-DFORBIDDEN_STRINGS=rejected;failed;exception"
+      "${rawiron_forge_runtime_dll_arg}"
+      -P "${PROJECT_SOURCE_DIR}/Tests/cmake/VerifyCommandOutput.cmake"
+  )
 endif()

@@ -106,6 +106,14 @@ void AppendUniqueIssue(std::vector<PluginValidationIssue>& issues, const std::st
     return PluginSourceKind::Project;
 }
 
+[[nodiscard]] bool RelativePathEscapesRoot(const fs::path& relative) {
+    if (relative.empty() || relative.is_absolute()) {
+        return true;
+    }
+    const auto first = relative.begin();
+    return first != relative.end() && *first == "..";
+}
+
 [[nodiscard]] bool IsPluginTreatedAsUnsigned(const PluginManifestEntry& entry) {
     return ClassifyPluginSource(entry) == PluginSourceKind::External;
 }
@@ -262,7 +270,17 @@ void ValidatePluginProjectDataInternal(PluginProjectData& data) {
     }
 
     for (PluginManifestEntry& entry : data.manifestEntries) {
-        entry.sourceKind = ClassifyPluginSource(entry);
+        const PluginEntryResolution resolution = ResolvePluginEntryPath(data.gameRoot, entry.entryPath);
+        entry.sourceKind = resolution.sourceKind;
+        entry.resolvedEntryPath = resolution.resolvedPath;
+        entry.entryPathValid = resolution.valid;
+        entry.entryExists = resolution.exists;
+        entry.entryIsRemote = resolution.remoteReference;
+        if (!resolution.valid) {
+            AppendUniqueIssue(data.issues, "Plugin entry rejected: " + entry.id + " (" + resolution.issue + ")");
+        } else if (!resolution.remoteReference && !resolution.exists) {
+            AppendUniqueIssue(data.issues, "Plugin entry file missing: " + entry.id + " (" + entry.entryPath + ")");
+        }
         entry.policyBlockReason = PolicyBlockReason(data.policy, entry);
         entry.blockedByPolicy = !entry.policyBlockReason.empty();
         if (entry.blockedByPolicy) {
@@ -295,6 +313,63 @@ PluginProjectData LoadPluginProjectData(const fs::path& gameRoot) {
     return data;
 }
 
+PluginEntryResolution ResolvePluginEntryPath(const fs::path& gameRoot, const std::string_view entryPath) {
+    PluginEntryResolution resolution{};
+    const std::string entry(entryPath);
+    if (entry.empty()) {
+        resolution.issue = "entry path is empty";
+        return resolution;
+    }
+
+    const std::string normalizedToken = NormalizePathToken(entry);
+    if (normalizedToken.find("://") != std::string::npos) {
+        resolution.sourceKind = PluginSourceKind::External;
+        resolution.remoteReference = true;
+        resolution.valid = true;
+        return resolution;
+    }
+
+    const fs::path rawPath(entry);
+    if (rawPath.is_absolute() || normalizedToken.find(':') != std::string::npos) {
+        resolution.sourceKind = PluginSourceKind::External;
+        std::error_code error{};
+        resolution.resolvedPath = fs::weakly_canonical(rawPath, error);
+        if (error) {
+            resolution.resolvedPath = rawPath.lexically_normal();
+        }
+        resolution.exists = fs::is_regular_file(resolution.resolvedPath, error);
+        resolution.valid = true;
+        return resolution;
+    }
+
+    const fs::path normalizedRelative = rawPath.lexically_normal();
+    if (RelativePathEscapesRoot(normalizedRelative)) {
+        resolution.issue = "relative entry escapes the game root";
+        return resolution;
+    }
+    PluginManifestEntry classificationProbe{};
+    classificationProbe.entryPath = normalizedRelative.generic_string();
+    resolution.sourceKind = ClassifyPluginSource(classificationProbe);
+
+    std::error_code error{};
+    const fs::path canonicalRoot = fs::weakly_canonical(gameRoot, error);
+    if (error || canonicalRoot.empty()) {
+        resolution.issue = "game root cannot be resolved";
+        return resolution;
+    }
+    const fs::path candidate = fs::weakly_canonical(canonicalRoot / normalizedRelative, error);
+    resolution.resolvedPath = error ? (canonicalRoot / normalizedRelative).lexically_normal() : candidate;
+    error.clear();
+    const fs::path relativeToRoot = fs::relative(resolution.resolvedPath, canonicalRoot, error);
+    if (error || RelativePathEscapesRoot(relativeToRoot)) {
+        resolution.issue = "resolved entry escapes the game root";
+        return resolution;
+    }
+    resolution.exists = fs::is_regular_file(resolution.resolvedPath, error);
+    resolution.valid = true;
+    return resolution;
+}
+
 std::vector<ActivePlugin> BuildActivePlugins(const PluginProjectData& data) {
     const std::map<std::string, int, std::less<>> loadOrder =
         LoadPluginLoadOrder(data.gameRoot / "plugins" / "load_order.cfg");
@@ -311,6 +386,9 @@ std::vector<ActivePlugin> BuildActivePlugins(const PluginProjectData& data) {
             continue;
         }
         if (IsPluginBlockedByPolicy(manifest)) {
+            continue;
+        }
+        if (!manifest.entryPathValid || (!manifest.entryIsRemote && !manifest.entryExists)) {
             continue;
         }
         ActivePlugin plugin{

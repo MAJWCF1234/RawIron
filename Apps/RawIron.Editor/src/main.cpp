@@ -1,5 +1,6 @@
 #include "RawIron/Content/EngineAssets.h"
 #include "RawIron/Content/GameManifest.h"
+#include "RawIron/Content/AuthoringHandoff.h"
 #include "RawIron/Content/GameRuntimeSupport.h"
 #include "RawIron/Content/ScriptScalars.h"
 #include "RawIron/Core/CommandLine.h"
@@ -235,6 +236,7 @@ struct EditorSceneConfig {
     std::string windowTitle = "RawIron Editor";
     std::string workspaceLabel = "Authoring (no game manifest)";
     std::string statusMessage;
+    fs::path startupAssetPath;
 };
 
 bool LooksLikeWorkspaceRoot(const fs::path& path) {
@@ -727,6 +729,10 @@ EditorSceneConfig ResolveSceneConfig(const ri::core::CommandLine& commandLine) {
     }
 
     config.workspaceRoot = ResolveEditorWorkspaceRoot(defaultWorkspaceRoot, manifest, explicitGameRoot);
+    if (const std::optional<std::string> startupAsset = commandLine.GetValue("--open-asset");
+        startupAsset.has_value() && !startupAsset->empty()) {
+        config.startupAssetPath = NormalizePathForConfig(*startupAsset);
+    }
     config.sceneStatePath = BuildEditorSceneStatePath(config.workspaceRoot, "starter");
 
     if (!manifest.has_value()) {
@@ -1055,6 +1061,20 @@ public:
             ri::core::LogInfo(sceneConfig_.statusMessage);
         }
         ri::core::LogInfo("Workspace root: " + sceneConfig_.workspaceRoot.string());
+        if (!sceneConfig_.startupAssetPath.empty()) {
+            const ri::content::AuthoringHandoffReport handoff = ri::content::BuildAuthoringHandoff({
+                .workspaceRoot = sceneConfig_.workspaceRoot,
+                .assetPath = sceneConfig_.startupAssetPath,
+                .gameId = sceneConfig_.gameManifest.has_value() ? sceneConfig_.gameManifest->id : std::string{},
+            });
+            ri::core::LogInfo(std::string("Authoring handoff: ") + (handoff.valid ? "ready" : "rejected"));
+            if (handoff.valid) {
+                ri::core::LogInfo("Handoff asset kind: " + std::string(ri::content::ToString(handoff.assetKind)));
+                ri::core::LogInfo("Handoff asset: " + handoff.assetPath.string());
+            } else if (!handoff.issues.empty()) {
+                ri::core::LogInfo("Handoff issue: " + handoff.issues.front());
+            }
+        }
         if (sceneConfig_.gameManifest.has_value()) {
             ri::core::LogInfo("Game root: " + sceneConfig_.gameManifest->rootPath.string());
         }
@@ -1815,6 +1835,7 @@ public:
             lastIoStatus_ += "  (--gpu-viewport: experimental Vulkan viewport enabled)";
         }
         RefreshWorkspaceGamesAndResources();
+        OpenStartupAssetHandoff();
         RebuildFilteredHierarchyOrder();
         EnsureEditorTrashFolder();
         LoadCreatorPolicyFromDisk();
@@ -3705,6 +3726,44 @@ enum class UiWorkbenchTextEditTarget {
         SelectWorkspaceResourceRow(rowIndex);
         const EditorLayout layout = ComputeLayout();
         EnsureSelectedResourceVisible(layout.hierarchyInner);
+    }
+
+    void OpenStartupAssetHandoff() {
+        if (sceneConfig_.startupAssetPath.empty()) {
+            return;
+        }
+        const ri::content::AuthoringHandoffReport handoff = ri::content::BuildAuthoringHandoff({
+            .workspaceRoot = sceneConfig_.workspaceRoot,
+            .assetPath = sceneConfig_.startupAssetPath,
+            .gameId = sceneConfig_.gameManifest.has_value() ? sceneConfig_.gameManifest->id : std::string{},
+        });
+        if (!handoff.valid) {
+            lastIoStatus_ += "  Forge handoff rejected: "
+                + (handoff.issues.empty() ? std::string("unknown validation error") : handoff.issues.front());
+            return;
+        }
+
+        int rowIndex = -1;
+        for (int index = 0; index < static_cast<int>(resourceCatalogEntries_.size()); ++index) {
+            if (resourceCatalogEntries_[static_cast<std::size_t>(index)].absolutePath == handoff.assetPath) {
+                rowIndex = index;
+                break;
+            }
+        }
+        if (rowIndex < 0) {
+            resourceCatalogEntries_.insert(resourceCatalogEntries_.begin(), ri::editor::WorkspaceResourceEntry{
+                .absolutePath = handoff.assetPath,
+                .relativePathUtf8 = handoff.workspaceRelativePath.generic_string(),
+                .category = ri::editor::WorkspaceResourceCategory::Asset,
+            });
+            rowIndex = 0;
+            RebuildFilteredResourceRows();
+        }
+        leftPanelMode_ = LeftPanelMode::Resources;
+        SelectWorkspaceResourceRow(rowIndex);
+        inspectorPanel_ = InspectorPanel::Files;
+        lastIoStatus_ = "Forge handoff opened " + handoff.workspaceRelativePath.generic_string()
+            + " (" + std::string(ri::content::ToString(handoff.assetKind)) + ").";
     }
 
     void SelectWorkspaceResourceRow(const int rowIndex) {

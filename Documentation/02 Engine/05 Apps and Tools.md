@@ -23,6 +23,8 @@ RawIron ships multiple native hosts and workspace tools.
 
 `Tools/ri_tool` is the optional command-line workspace utility target. Its source shows that it understands workspace layout, content folders, saved folders, package and asset document support, scene utilities, preview helpers, and Vulkan tooling discovery.
 
+Run `ri_tool --help` for grouped commands. Plugin/mod tooling includes project inventory, doctor diagnostics, registered-hook discovery, and shared extension-descriptor validation.
+
 ## Editor-facing game hooks
 
 The editor inspects game projects for:

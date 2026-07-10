@@ -1,4 +1,5 @@
 add_library(RawIron.Content
+  src/AuthoringHandoff.cpp
   src/AssetDocument.cpp
   src/AssetPackageManifest.cpp
   src/DeclarativeModelDefinition.cpp
@@ -49,6 +50,10 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(ExtensionDescriptorSmoke ${CMAKE_SOURCE_DIR}/Tests/ExtensionDescriptorSmoke.cpp)
   target_link_libraries(ExtensionDescriptorSmoke PRIVATE RawIron::Content)
   add_test(NAME RawIron.Content.ExtensionDescriptorSmoke COMMAND ExtensionDescriptorSmoke)
+
+  add_executable(AuthoringHandoffSmoke ${CMAKE_SOURCE_DIR}/Tests/AuthoringHandoffSmoke.cpp)
+  target_link_libraries(AuthoringHandoffSmoke PRIVATE RawIron::Content)
+  add_test(NAME RawIron.Content.AuthoringHandoffSmoke COMMAND AuthoringHandoffSmoke)
 
   add_test(
     NAME RawIron.Content.PluginProjectData

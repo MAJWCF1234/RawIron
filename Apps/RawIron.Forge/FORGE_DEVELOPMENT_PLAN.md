@@ -11,6 +11,7 @@ Forge is the model, rig, and animation companion app launched from the existing 
 - distinguishes Blender authoring containers from runtime-importable exports
 - creates collision-safe baseline humanoid rig files
 - opens selected source assets in their associated authoring application
+- opens a selected model or rig directly in the editor through the shared validated handoff API
 - has headless catalog/import regression coverage
 
 ## Active Backlog
@@ -52,7 +53,8 @@ Forge is the model, rig, and animation companion app launched from the existing 
 
 ### 6. Editor handoff
 
-- open/import selected Forge output in `RawIron.Editor`
+- selected Forge sources now open in the editor Files inspector with shared rig/model validation
+- next, import prepared model output directly into the active scene
 - preserve source/model/rig/material/animation ownership links
 - surface the same validation results in both apps
 

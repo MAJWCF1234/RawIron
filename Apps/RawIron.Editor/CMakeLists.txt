@@ -111,6 +111,17 @@ if (RAWIRON_BUILD_TESTS)
       -P "${rawiron_verify_command_output}"
   )
 
+  add_test(
+    NAME RawIron.Editor.AuthoringHandoff
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:RawIron.Editor>"
+      "-DCOMMAND_ARGS=--headless;--frames;1;--no-scene-dump;--workspace-root;${PROJECT_SOURCE_DIR};--open-asset;${PROJECT_SOURCE_DIR}/Assets/Source/models/scenekit_triangle.gltf"
+      "-DEXPECTED_STRINGS=Authoring handoff: ready;Handoff asset kind: model-source;scenekit_triangle.gltf"
+      "-DFORBIDDEN_STRINGS=rejected;failed;exception"
+      "${rawiron_editor_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
   set(rawiron_editor_mps_expected
     "[Editor Startup]"
     "Opened game project 'RawIron Multiplayer Sandbox'"

@@ -3,7 +3,11 @@
 #include "RawIron/Content/GameManifest.h"
 #include "RawIron/Core/Detail/JsonScan.h"
 #include "RawIron/Scene/RigAuthoring.h"
+#include "RawIron/Scene/ModelLoader.h"
 
+#include <algorithm>
+#include <cctype>
+#include <cstdint>
 #include <optional>
 #include <system_error>
 
@@ -14,6 +18,14 @@ namespace fs = std::filesystem;
 namespace {
 
 constexpr std::size_t kMaxResourceFileBytes = 512U * 1024U;
+constexpr std::uintmax_t kMaxModelValidationBytes = 64U * 1024U * 1024U;
+
+std::string LowerAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](const unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
 
 } // namespace
 
@@ -51,18 +63,36 @@ ResourceDocumentData LoadResourceDocument(const WorkspaceResourceEntry& entry) {
             }
         }
     }
-
     std::error_code ec{};
     const std::uintmax_t fileSize = fs::file_size(document.absolutePath, ec);
-    if (ec || fileSize > static_cast<std::uintmax_t>(kMaxResourceFileBytes)) {
-        document.auxMessage =
-            ec ? std::string("Unable to read file metadata.") : std::string("File too large for embedded editor.");
+    if (ec) {
+        document.auxMessage = "Unable to read file metadata.";
+        return document;
+    }
+
+    const std::string extension = LowerAscii(document.absolutePath.extension().string());
+    const bool modelSource = extension == ".obj" || extension == ".gltf" || extension == ".glb"
+        || extension == ".fbx" || extension == ".blend";
+    if (modelSource) {
+        if (fileSize <= kMaxModelValidationBytes) {
+            const ri::scene::ModelSourceValidationReport report = ri::scene::ValidateModelSource(document.absolutePath);
+            document.auxMessage = report.summary;
+        } else {
+            document.auxMessage = "Model source exceeds the inline validation limit; use Forge Validate Asset.";
+        }
+    }
+
+    if (fileSize > static_cast<std::uintmax_t>(kMaxResourceFileBytes)) {
+        if (document.auxMessage.empty()) {
+            document.auxMessage = "File too large for embedded editor.";
+        }
         return document;
     }
 
     if (!IsLikelyTextResourcePath(document.absolutePath)) {
-        document.auxMessage =
-            "Binary / unknown extension - use Explorer to open beside the workspace.";
+        if (document.auxMessage.empty()) {
+            document.auxMessage = "Binary / unknown extension - use Explorer to open beside the workspace.";
+        }
         return document;
     }
 

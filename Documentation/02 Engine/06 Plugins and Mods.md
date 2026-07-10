@@ -47,6 +47,10 @@ RawIron now treats extension classes as distinct, even when they share some cont
 
 Store packages can now declare an explicit `extension` descriptor so tooling can reason about `kind`, `scope`, `host`, `entry`, and capability tags without inferring everything from plugin-only fields.
 
+Local project/mod entry paths are resolved by `ResolvePluginEntryPath`. Entries that escape the game root or point at a missing local file are reported and excluded from the active plugin list. Remote and absolute references remain external/unsigned inputs governed by project policy.
+
+CLI inspection is available through `ri_tool --plugins-list`, `--plugins-doctor`, `--plugin-handlers`, and `--extension-validate`.
+
 ## Project ownership
 
 Plugins and mods are not hidden internal features. They are first-class authored project content and are included in the shipped workspace.

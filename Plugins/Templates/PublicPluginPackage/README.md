@@ -20,6 +20,7 @@ The public contract is intentionally simple:
 - deterministic load order
 - project-relative paths only
 - no private internal-engine assumptions
+- local entries must resolve inside the game root and exist before the plugin becomes active
 
 Current public hook bindings:
 
@@ -39,5 +40,6 @@ Before an internal RawIron plugin/mod is exported for public RawIron:
 - Confirm load order is deterministic.
 - Confirm the package can be disabled from `plugins/registry.json`.
 - Confirm scripts use public `.riscript` markers or stubs.
+- Run `ri_tool --extension-validate <package.riplugin.json>` and `ri_tool --plugins-doctor --game <id>` after installation.
 
 Internal RawIron exporters should target this shape when producing public-compatible plugin/mod packages.

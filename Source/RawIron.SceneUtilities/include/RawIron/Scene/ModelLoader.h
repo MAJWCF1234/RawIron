@@ -57,12 +57,24 @@ struct ImportedModelOptions {
     bool importLights = false;
 };
 
+struct ModelSourceValidationReport {
+    bool valid = false;
+    bool runtimeImportable = false;
+    std::size_t nodeCount = 0;
+    std::size_t meshCount = 0;
+    std::size_t materialCount = 0;
+    std::string summary{};
+};
+
 /// Returns normalized backend attempt order for model imports (extension/backend resolution + optional fallbacks).
 [[nodiscard]] std::vector<ModelImportBackend> BuildExternalModelCandidateTypes(const ImportedModelOptions& options,
                                                                                 std::string* error = nullptr);
 
 /// Loads a supported model file under a single entry point, dispatching by extension unless `backend` is explicit.
 int AddModelNode(Scene& scene, const ImportedModelOptions& options, std::string* error = nullptr);
+
+/// Runs the real importer without placeholders and reports the resulting scene payload.
+[[nodiscard]] ModelSourceValidationReport ValidateModelSource(const std::filesystem::path& sourcePath);
 
 struct GltfModelOptions {
     std::filesystem::path sourcePath;

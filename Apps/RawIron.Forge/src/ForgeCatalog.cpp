@@ -143,40 +143,14 @@ AssetCatalog ScanAssetCatalog(const fs::path& workspaceRoot) {
 }
 
 ModelSourceValidationReport ValidateModelSource(const fs::path& sourcePath) {
+    const ri::scene::ModelSourceValidationReport shared = ri::scene::ValidateModelSource(sourcePath);
     ModelSourceValidationReport report{};
-    if (!IsModelSourcePath(sourcePath)) {
-        report.summary = "The selected file is not a recognized model source.";
-        return report;
-    }
-    if (LowerAscii(sourcePath.extension().string()) == ".blend") {
-        report.summary = "Blender source is authoring-only. Export it to glTF, GLB, or FBX for Raw Iron import.";
-        return report;
-    }
-
-    report.runtimeImportable = true;
-    ri::scene::Scene validationScene{"ForgeModelValidation"};
-    const int root = validationScene.CreateNode("ValidationRoot");
-    std::string importError;
-    const int imported = ri::scene::AddModelNode(
-        validationScene,
-        ri::scene::ImportedModelOptions{
-            .sourcePath = sourcePath,
-            .nodeName = "ValidatedModel",
-            .parent = root,
-            .lockToPrimaryBackend = true,
-            .createPlaceholderOnFailure = false,
-        },
-        &importError);
-    report.nodeCount = validationScene.NodeCount();
-    report.meshCount = validationScene.MeshCount();
-    report.materialCount = validationScene.MaterialCount();
-    report.valid = imported != ri::scene::kInvalidHandle && report.meshCount > 0U;
-    if (!report.valid) {
-        report.summary = importError.empty() ? "Importer returned no renderable mesh geometry." : importError;
-        return report;
-    }
-    report.summary = "Import valid | " + std::to_string(report.nodeCount) + " nodes | "
-        + std::to_string(report.meshCount) + " meshes | " + std::to_string(report.materialCount) + " materials";
+    report.valid = shared.valid;
+    report.runtimeImportable = shared.runtimeImportable;
+    report.nodeCount = shared.nodeCount;
+    report.meshCount = shared.meshCount;
+    report.materialCount = shared.materialCount;
+    report.summary = shared.summary;
     return report;
 }
 

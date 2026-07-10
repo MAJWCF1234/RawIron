@@ -1,5 +1,8 @@
 #include "RawIron/Core/CommandLine.h"
 #include "RawIron/Content/GameManifest.h"
+#include "RawIron/Content/ExtensionDescriptor.h"
+#include "RawIron/Content/PluginProjectData.h"
+#include "RawIron/Content/PluginRuntime.h"
 #include "RawIron/Content/AssetDocument.h"
 #include "RawIron/Content/AssetPackageManifest.h"
 #include "RawIron/Core/Detail/JsonScan.h"
@@ -1623,6 +1626,108 @@ bool DoctorRawIronProject(const ProjectCommandContext& context) {
     return false;
 }
 
+bool InspectProjectPlugins(const ProjectCommandContext& context, const bool doctorMode) {
+    const ri::content::PluginProjectData data = ri::content::LoadPluginProjectData(context.manifest.rootPath);
+    ri::core::LogInfo(std::string(doctorMode ? "Plugin doctor project: " : "Plugin project: ") + context.manifest.id);
+    ri::core::LogInfo("Plugin summary: " + ri::content::SummarizePluginProjectData(data));
+    for (const ri::content::PluginManifestEntry& manifest : data.manifestEntries) {
+        const bool active = std::any_of(data.activePlugins.begin(), data.activePlugins.end(), [&](const auto& plugin) {
+            return plugin.manifest.id == manifest.id;
+        });
+        const auto registry = std::find_if(data.registryEntries.begin(), data.registryEntries.end(), [&](const auto& entry) {
+            return entry.id == manifest.id;
+        });
+        std::string status = "INACTIVE";
+        if (active) {
+            status = "ACTIVE";
+        } else if (manifest.blockedByPolicy) {
+            status = "BLOCKED";
+        } else if (!manifest.entryPathValid) {
+            status = "REJECTED";
+        } else if (!manifest.entryIsRemote && !manifest.entryExists) {
+            status = "MISSING";
+        } else if (registry != data.registryEntries.end() && !registry->enabled) {
+            status = "DISABLED";
+        }
+        ri::core::LogInfo("[" + status + "] " + manifest.id + " version=" + manifest.version
+                          + " source=" + std::string(ri::content::ToString(manifest.sourceKind))
+                          + " entry=" + manifest.entryPath);
+        if (!manifest.resolvedEntryPath.empty()) {
+            ri::core::LogInfo("  resolved=" + manifest.resolvedEntryPath.string());
+        }
+        if (manifest.blockedByPolicy) {
+            ri::core::LogInfo("  policy=" + manifest.policyBlockReason);
+        }
+    }
+    if (data.issues.empty()) {
+        ri::core::LogInfo(std::string(doctorMode ? "Plugin doctor result: healthy" : "Plugin validation: pass"));
+        return true;
+    }
+    ri::core::LogInfo(std::string(doctorMode ? "Plugin doctor result: unhealthy" : "Plugin validation: fail")
+                      + " (" + std::to_string(data.issues.size()) + " issues)");
+    for (const ri::content::PluginValidationIssue& issue : data.issues) {
+        ri::core::LogInfo("  - " + issue.message);
+    }
+    return false;
+}
+
+void PrintPluginHandlers() {
+    const std::vector<std::string> handlers = ri::content::RegisteredPluginHookHandlerNames();
+    ri::core::LogInfo("Registered Raw Iron plugin hook handlers:");
+    for (const std::string& handler : handlers) {
+        ri::core::LogInfo("  " + handler);
+    }
+    ri::core::LogInfo("Handler count: " + std::to_string(handlers.size()));
+}
+
+bool ValidateExtensionFile(const ri::core::CommandLine& commandLine) {
+    const std::optional<std::string> pathArg = commandLine.GetValue("--extension-validate");
+    if (!pathArg.has_value() || pathArg->empty()) {
+        throw std::runtime_error("--extension-validate requires a descriptor or package JSON path.");
+    }
+    const fs::path path(*pathArg);
+    const std::string text = ri::core::detail::ReadTextFile(path);
+    if (text.empty()) {
+        throw std::runtime_error("Unable to read extension descriptor: " + path.string());
+    }
+    std::optional<ri::content::ExtensionDescriptor> descriptor = ri::content::ExtractExtensionDescriptor(text);
+    if (!descriptor.has_value()) {
+        descriptor = ri::content::ParseExtensionDescriptor(text);
+    }
+    if (!descriptor.has_value()) {
+        ri::core::LogInfo("Extension validation: fail (descriptor could not be parsed)");
+        return false;
+    }
+    const ri::content::ExtensionValidationReport report = ri::content::ValidateExtensionDescriptor(*descriptor);
+    ri::core::LogInfo("Extension id: " + descriptor->id);
+    ri::core::LogInfo("Extension kind: " + std::string(ri::content::ToString(descriptor->kind)));
+    ri::core::LogInfo("Extension host: " + std::string(ri::content::ToString(descriptor->host)));
+    ri::core::LogInfo(std::string("Extension validation: ") + (report.valid ? "pass" : "fail"));
+    for (const std::string& issue : report.issues) {
+        ri::core::LogInfo("  - " + issue);
+    }
+    return report.valid;
+}
+
+void PrintToolHelp() {
+    ri::core::LogInfo("Usage: ri_tool <command> [options]");
+    ri::core::LogInfo("Workspace and projects:");
+    ri::core::LogInfo("  --workspace | --ensure-workspace | --list-projects");
+    ri::core::LogInfo("  --create-project <id> | --describe-project | --doctor-project | --scaffold-project");
+    ri::core::LogInfo("  --list-project-resources [--resource-category <name>]");
+    ri::core::LogInfo("Plugins, mods, and extensions:");
+    ri::core::LogInfo("  --plugins-list --game <id> | --plugins-doctor --game <id>");
+    ri::core::LogInfo("  --plugin-handlers | --extension-validate <package.riplugin.json>");
+    ri::core::LogInfo("Assets and authoring:");
+    ri::core::LogInfo("  --formats | --asset-standardize <path> | --asset-standardize-dir <dir>");
+    ri::core::LogInfo("  --asset-package-build | --asset-package-validate | --asset-package-import | --asset-package-install");
+    ri::core::LogInfo("  --rig-toolchain-report | --rig-create-humanoid <id> | --rig-validate <path>");
+    ri::core::LogInfo("Rendering and diagnostics:");
+    ri::core::LogInfo("  --scenekit-targets | --scenekit-checks | --scenekit-example <slug>");
+    ri::core::LogInfo("  --postprocess-presets | --vulkan-diagnostics | --render-cube | --sample-scene");
+    ri::core::LogInfo("General options: --root <workspace> --game <id> --game-root <path> --help --version");
+}
+
 void ScaffoldRawIronProject(const ProjectCommandContext& context) {
     std::size_t createdCount = 0;
     std::vector<std::string> createdFiles;
@@ -1978,6 +2083,19 @@ int main(int argc, char** argv) {
         ri::core::LogSection("ri_tool");
         ri::core::LogInfo(std::string(ri::core::kEngineName) + " tools bootstrap");
 
+        if (commandLine.HasFlag("--help") || commandLine.HasFlag("-h")) {
+            PrintToolHelp();
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--version") && !commandLine.GetValue("--version").has_value()) {
+            ri::core::LogInfo(std::string(ri::core::kEngineName) + " "
+                              + std::to_string(ri::core::kVersionMajor) + "."
+                              + std::to_string(ri::core::kVersionMinor) + "."
+                              + std::to_string(ri::core::kVersionPatch));
+            return 0;
+        }
+
         if (commandLine.HasFlag("--workspace")) {
             PrintWorkspace(workspace);
             return 0;
@@ -2055,6 +2173,27 @@ int main(int argc, char** argv) {
             ri::core::LogInfo("Legacy/experimental aliases:");
             ri::core::LogInfo("  .ri_model .ri_mesh .ri_scene .ri_mat .ri_tex .ri_audio .ri_meshc");
             return 0;
+        }
+
+        if (commandLine.HasFlag("--plugins-list") || commandLine.HasFlag("--plugins-doctor")) {
+            std::string error;
+            const std::optional<ProjectCommandContext> context =
+                ResolveProjectCommandContext(commandLine, workspace, error);
+            if (!context.has_value()) {
+                throw std::runtime_error(error);
+            }
+            const bool doctorMode = commandLine.HasFlag("--plugins-doctor");
+            const bool healthy = InspectProjectPlugins(*context, doctorMode);
+            return doctorMode && !healthy ? 1 : 0;
+        }
+
+        if (commandLine.HasFlag("--plugin-handlers")) {
+            PrintPluginHandlers();
+            return 0;
+        }
+
+        if (commandLine.GetValue("--extension-validate").has_value()) {
+            return ValidateExtensionFile(commandLine) ? 0 : 1;
         }
 
         if (commandLine.HasFlag("--rig-toolchain-report")) {
@@ -2160,33 +2299,7 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        ri::core::LogInfo("Planned commands:");
-        ri::core::LogInfo("  ri_tool --workspace");
-        ri::core::LogInfo("  ri_tool --list-projects [--root <workspace-root>]");
-        ri::core::LogInfo("  ri_tool --create-project <slug-id> [--name <display>] [--author <label>] [--type <game|test-game|experience>] [--version <semver>] [--description <text>] [--game-root <path>]");
-        ri::core::LogInfo("  ri_tool --describe-project --game <id> | --game-root <path>");
-        ri::core::LogInfo("  ri_tool --doctor-project --game <id> | --game-root <path>");
-        ri::core::LogInfo("  ri_tool --list-project-resources --game <id> | --game-root <path> [--resource-category <name>]");
-        ri::core::LogInfo("  ri_tool --scaffold-project --game <id> | --game-root <path>");
-        ri::core::LogInfo("  ri_tool --ensure-workspace");
-        ri::core::LogInfo("  ri_tool --formats");
-        ri::core::LogInfo("  ri_tool --rig-toolchain-report");
-        ri::core::LogInfo("  ri_tool --rig-create-humanoid <rig-id> [--name <display>] [--output <file.ri_rig.json>] [--overwrite]");
-        ri::core::LogInfo("  ri_tool --rig-validate <file.ri_rig.json>");
-        ri::core::LogInfo("  ri_tool --scenekit-targets");
-        ri::core::LogInfo("  ri_tool --scenekit-checks [--output-dir <path>] [--width <px>] [--height <px>]");
-        ri::core::LogInfo("  ri_tool --scenekit-example <slug> [--output <path>] [--width <px>] [--height <px>]");
-        ri::core::LogInfo("  ri_tool --vulkan-diagnostics");
-        ri::core::LogInfo("  ri_tool --render-cube [--output <path>] [--width <px>] [--height <px>]");
-        ri::core::LogInfo("  ri_tool --sample-scene");
-        ri::core::LogInfo("  ri_tool --save-scene-state [--state-file <path>]");
-        ri::core::LogInfo("  ri_tool --load-scene-state [--state-file <path>]");
-        ri::core::LogInfo("  ri_tool --asset-standardize <source-path> [--output <file.ri_asset.json>]");
-        ri::core::LogInfo("  ri_tool --asset-standardize-dir <source-dir> [--output-dir <directory>]");
-        ri::core::LogInfo("  ri_tool --asset-package-build <source-dir> [--output-dir <package-dir-or-file.ripak>] [--package <file.ripak-or-manifest>]");
-        ri::core::LogInfo("  ri_tool --asset-package-validate <file.ripak-or-package-dir-or-manifest>");
-        ri::core::LogInfo("  ri_tool --asset-package-import <file.ripak-or-package-dir-or-manifest> [--project <project-root>] [--output-dir <mounted-package-dir>]");
-        ri::core::LogInfo("  ri_tool --asset-package-install <file.ripak-or-package-dir-or-manifest> [--project <project-root>]");
+        PrintToolHelp();
         return 0;
     } catch (const std::exception& exception) {
         ri::core::LogSection("ri_tool Failure");

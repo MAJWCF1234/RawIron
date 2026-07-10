@@ -54,6 +54,38 @@ if (RAWIRON_BUILD_TESTS)
     "Mesh inputs: OBJ, glTF/GLB, and FBX"
     "Editor workflow: save rigs under Assets/Source/rigs"
   )
+  set(rawiron_tool_help_expected
+    "Usage: ri_tool <command> [options]"
+    "Plugins, mods, and extensions:"
+    "--plugins-doctor"
+    "--extension-validate"
+  )
+  set(rawiron_tool_plugin_list_expected
+    "Plugin project: liminal-hall"
+    "Plugin summary: 3 active / 3 manifest"
+    "[ACTIVE] liminal.telemetry"
+    "[ACTIVE] liminal.ai.bridge"
+    "[ACTIVE] liminal.cinematics"
+    "Plugin validation: pass"
+  )
+  set(rawiron_tool_plugin_doctor_expected
+    "Plugin doctor project: liminal-hall"
+    "Plugin summary: 3 active / 3 manifest"
+    "Plugin doctor result: healthy"
+  )
+  set(rawiron_tool_plugin_handlers_expected
+    "Registered Raw Iron plugin hook handlers:"
+    "bootstrap"
+    "frame_sample"
+    "zone_cutscene_trigger"
+    "Handler count: 9"
+  )
+  set(rawiron_tool_extension_validate_expected
+    "Extension id: rawiron.quest-beacons"
+    "Extension kind: plugin"
+    "Extension host: runtime"
+    "Extension validation: pass"
+  )
   file(TO_NATIVE_PATH "${PROJECT_SOURCE_DIR}" RAWIRON_TOOL_WORKSPACE_ROOT_NATIVE)
   file(TO_NATIVE_PATH "${PROJECT_SOURCE_DIR}/Assets/Source" RAWIRON_TOOL_WORKSPACE_ASSETS_NATIVE)
   file(TO_NATIVE_PATH "${PROJECT_SOURCE_DIR}/Projects/Sandbox/Scenes" RAWIRON_TOOL_WORKSPACE_SCENES_NATIVE)
@@ -231,6 +263,61 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--formats"
       "-DEXPECTED_STRINGS=${rawiron_tool_format_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
+    NAME RawIron.Tool.Help
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--help"
+      "-DEXPECTED_STRINGS=${rawiron_tool_help_expected}"
+      "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
+    NAME RawIron.Tool.PluginList
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--plugins-list;--game;liminal-hall;--root;${PROJECT_SOURCE_DIR}"
+      "-DEXPECTED_STRINGS=${rawiron_tool_plugin_list_expected}"
+      "-DFORBIDDEN_STRINGS=failed;exception;Plugin validation: fail"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
+    NAME RawIron.Tool.PluginHandlers
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--plugin-handlers"
+      "-DEXPECTED_STRINGS=${rawiron_tool_plugin_handlers_expected}"
+      "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
+    NAME RawIron.Tool.PluginDoctor
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--plugins-doctor;--game;liminal-hall;--root;${PROJECT_SOURCE_DIR}"
+      "-DEXPECTED_STRINGS=${rawiron_tool_plugin_doctor_expected}"
+      "-DFORBIDDEN_STRINGS=failed;exception;unhealthy"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
+    NAME RawIron.Tool.ExtensionValidate
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--extension-validate;${PROJECT_SOURCE_DIR}/Plugins/Store/rawiron.quest-beacons/package.riplugin.json;--root;${PROJECT_SOURCE_DIR}"
+      "-DEXPECTED_STRINGS=${rawiron_tool_extension_validate_expected}"
+      "-DFORBIDDEN_STRINGS=failed;exception;Extension validation: fail"
       "${rawiron_tool_runtime_dll_arg}"
       -P "${rawiron_verify_command_output}"
   )
