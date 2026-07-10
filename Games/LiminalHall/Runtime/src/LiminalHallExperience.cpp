@@ -39,6 +39,7 @@
 #include "RawIron/World/WorldLogicBridge.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -600,6 +601,8 @@ struct RuntimeState {
     ri::ui::UiFlowSession runtimePauseSession{};
     HWND menuOverlayHwnd = nullptr;
     std::vector<RECT> menuOptionHitRects{};
+    std::array<bool, 256> keyWasDown{};
+    bool keyEdgesInitialized = false;
     ri::games::GamePluginRuntimeHost pluginHost{};
     bool pluginRenderBoostActive = false;
     ri::games::GameTextOverlayHost textOverlay{};
@@ -653,6 +656,33 @@ struct RuntimeUiVisibleScreen {
     RuntimeUiFlowKind kind = RuntimeUiFlowKind::None;
     std::vector<RuntimeUiOption> options{};
 };
+
+struct RuntimeInputEdges {
+    std::array<bool, 256> pressed{};
+
+    [[nodiscard]] bool IsPressed(const int virtualKey) const noexcept {
+        return virtualKey >= 0 && virtualKey < static_cast<int>(pressed.size())
+            && pressed[static_cast<std::size_t>(virtualKey)];
+    }
+};
+
+[[nodiscard]] RuntimeInputEdges CaptureRuntimeInputEdges(RuntimeState& state) {
+    RuntimeInputEdges edges{};
+    static constexpr std::array<int, 17> kEdgeTrackedKeys{
+        VK_ESCAPE, 'L', VK_F1, VK_F2, VK_SPACE, VK_RETURN, VK_TAB, VK_BACK,
+        '1', '2', '3', '4', '5', '6', '7', '8', '9',
+    };
+    for (const int virtualKey : kEdgeTrackedKeys) {
+        const bool down = (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+        if (state.keyEdgesInitialized) {
+            edges.pressed[static_cast<std::size_t>(virtualKey)] =
+                down && !state.keyWasDown[static_cast<std::size_t>(virtualKey)];
+        }
+        state.keyWasDown[static_cast<std::size_t>(virtualKey)] = down;
+    }
+    state.keyEdgesInitialized = true;
+    return edges;
+}
 
 [[nodiscard]] std::string RuntimeUiFlowLabel(const RuntimeUiFlowKind kind) {
     switch (kind) {
@@ -963,6 +993,10 @@ void DeactivateRuntimeUiFlow(RuntimeState& state, const char* reason) {
                           + (reason != nullptr && *reason != '\0' ? std::string(" (") + reason + ")" : std::string{}));
     }
     HideMenuOverlay(state);
+    if (!state.runtimeUiHeadless && state.hwnd != nullptr) {
+        SetForegroundWindow(state.hwnd);
+        SetFocus(state.hwnd);
+    }
 }
 
 bool ActivateRuntimeUiFlow(RuntimeState& state, const RuntimeUiFlowKind kind, const char* reason) {
@@ -1056,7 +1090,7 @@ bool ApplyRuntimeUiAction(RuntimeState& state, const ri::ui::UiAction& action) {
     return applied;
 }
 
-void TickRuntimeUiFlow(RuntimeState& state, const float dt) {
+void TickRuntimeUiFlow(RuntimeState& state, const float dt, const RuntimeInputEdges& inputEdges) {
     RuntimeUiVisibleScreen visible = ResolveRuntimeUiVisibleScreen(state);
     if (visible.screen == nullptr || visible.session == nullptr) {
         DeactivateRuntimeUiFlow(state, "missing screen");
@@ -1065,17 +1099,17 @@ void TickRuntimeUiFlow(RuntimeState& state, const float dt) {
 
     PublishRuntimeUiScreen(state, visible, false);
     state.runtimeUiScreenElapsedSeconds += dt;
-    const bool spacePressed = (GetAsyncKeyState(VK_SPACE) & 0x0001) != 0;
-    const bool enterPressed = (GetAsyncKeyState(VK_RETURN) & 0x0001) != 0;
-    const bool clickPressed = (GetAsyncKeyState(VK_LBUTTON) & 0x0001) != 0 || state.runtimeUiClickAdvancePending;
+    const bool spacePressed = inputEdges.IsPressed(VK_SPACE);
+    const bool enterPressed = inputEdges.IsPressed(VK_RETURN);
+    const bool clickPressed = state.runtimeUiClickAdvancePending;
     const bool wheelMoved = state.runtimeUiWheelAdvancePending;
     state.runtimeUiClickAdvancePending = false;
     state.runtimeUiWheelAdvancePending = false;
 
-    if ((GetAsyncKeyState(VK_TAB) & 0x0001) != 0 && !visible.options.empty()) {
+    if (inputEdges.IsPressed(VK_TAB) && !visible.options.empty()) {
         SetRuntimeUiSelection(state, visible, (state.runtimeUiSelectedOption + 1U) % visible.options.size());
     }
-    if ((GetAsyncKeyState(VK_BACK) & 0x0001) != 0) {
+    if (inputEdges.IsPressed(VK_BACK)) {
         if (!ApplyRuntimeUiAction(state, ri::ui::UiAction{.kind = ri::ui::UiActionKind::Back})) {
             DeactivateRuntimeUiFlow(state, "back");
         }
@@ -1083,7 +1117,7 @@ void TickRuntimeUiFlow(RuntimeState& state, const float dt) {
     }
 
     for (int digit = 1; digit <= 9; ++digit) {
-        if ((GetAsyncKeyState('0' + digit) & 0x0001) == 0) {
+        if (!inputEdges.IsPressed('0' + digit)) {
             continue;
         }
         const std::size_t optionIndex = static_cast<std::size_t>(digit - 1);
@@ -1642,7 +1676,7 @@ void EnsureMenuOverlayWindow(RuntimeState& state) {
         return;
     }
     state.menuOverlayHwnd = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         kMenuOverlayWindowClassName,
         L"RawIron Menu Overlay",
         WS_POPUP,
@@ -2360,7 +2394,8 @@ void TickLogicDemo(RuntimeState& state, const float dt) {
 }
 
 void TickStandaloneFrame(RuntimeState& state) {
-    if ((GetAsyncKeyState(VK_ESCAPE) & 0x0001) != 0) {
+    const RuntimeInputEdges inputEdges = CaptureRuntimeInputEdges(state);
+    if (inputEdges.IsPressed(VK_ESCAPE)) {
         if (state.runtimeUiFlowActive) {
             const RuntimeUiFlowKind activeFlow = ActiveRuntimeUiFlowKind(state);
             if (activeFlow == RuntimeUiFlowKind::PauseMenu) {
@@ -2379,7 +2414,7 @@ void TickStandaloneFrame(RuntimeState& state) {
     }
     const bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
     const bool shiftHeld = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-    if (((GetAsyncKeyState('L') & 0x0001) != 0) && ctrlHeld && shiftHeld) {
+    if (inputEdges.IsPressed('L') && ctrlHeld && shiftHeld) {
         state.diagnosticsVisible = !state.diagnosticsVisible;
         SetRuntimeDiagnosticsVisible(state, state.diagnosticsVisible);
         SetLogicLayerVisible(state, state.diagnosticsVisible);
@@ -2388,14 +2423,14 @@ void TickStandaloneFrame(RuntimeState& state) {
                                  ? "visible (Ctrl+Shift+L): helpers + logic nodes/wires ON"
                                  : "hidden (Ctrl+Shift+L): helpers + logic nodes/wires OFF"));
     }
-    if (state.runtimeUiHotkeysEnabled && (GetAsyncKeyState(VK_F1) & 0x0001) != 0) {
+    if (state.runtimeUiHotkeysEnabled && inputEdges.IsPressed(VK_F1)) {
         if (ActiveRuntimeUiFlowKind(state) == RuntimeUiFlowKind::MainMenu) {
             DeactivateRuntimeUiFlow(state, "toggle main menu");
         } else if (!ActivateRuntimeUiFlow(state, RuntimeUiFlowKind::MainMenu, "toggle main menu")) {
             ri::core::LogInfo("Runtime UI: game-local main menu manifest is unavailable.");
         }
     }
-    if (state.runtimeUiHotkeysEnabled && (GetAsyncKeyState(VK_F2) & 0x0001) != 0) {
+    if (state.runtimeUiHotkeysEnabled && inputEdges.IsPressed(VK_F2)) {
         if (ActiveRuntimeUiFlowKind(state) == RuntimeUiFlowKind::VisualNovel) {
             DeactivateRuntimeUiFlow(state, "toggle VN flow");
         } else if (!ActivateRuntimeUiFlow(state, RuntimeUiFlowKind::VisualNovel, "toggle VN flow")) {
@@ -2411,7 +2446,7 @@ void TickStandaloneFrame(RuntimeState& state) {
     state.lastSimulationDeltaSeconds = dt;
 
     if (state.runtimeUiFlowActive) {
-        TickRuntimeUiFlow(state, dt);
+        TickRuntimeUiFlow(state, dt, inputEdges);
         return;
     }
 
