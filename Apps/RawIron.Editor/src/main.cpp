@@ -9301,6 +9301,44 @@ enum class UiWorkbenchTextEditTarget {
                 model.boundsCenterLine = bounds.has_value()
                     ? "Bounds center: " + ri::math::ToString(ri::scene::GetBoundsCenter(*bounds))
                     : "Bounds center: n/a";
+                if (!node.structuralBrush.brushId.empty()) {
+                    const ri::scene::StructuralBrushMetadata& metadata = node.structuralBrush;
+                    const ri::scene::StructuralBrushValidationReport validation =
+                        ri::scene::ValidateStructuralBrushMetadata(metadata);
+                    model.hasStructuralMetadata = true;
+                    model.structuralMetadataValid = validation.valid && validation.warnings.empty();
+                    model.semanticIdentityLine = "Id: " + metadata.brushId + "  |  role "
+                        + ri::scene::ToString(metadata.role) + "  |  region "
+                        + (metadata.region.empty() ? "(none)" : metadata.region);
+                    model.semanticPolicyLine = "Op " + ri::scene::ToString(metadata.operation)
+                        + "  |  collision " + ri::scene::ToString(metadata.collision)
+                        + "  |  nav " + ri::scene::ToString(metadata.navigation);
+                    model.semanticChannelsLine = "Channels: "
+                        + std::string(ri::scene::StructuralBrushParticipatesInChannel(
+                                          metadata, ri::scene::StructuralBrushChannel::VisualMesh)
+                                          ? "M"
+                                          : "-")
+                        + (ri::scene::StructuralBrushParticipatesInChannel(
+                               metadata, ri::scene::StructuralBrushChannel::PhysicsMesh)
+                               ? "P"
+                               : "-")
+                        + (ri::scene::StructuralBrushParticipatesInChannel(
+                               metadata, ri::scene::StructuralBrushChannel::QueryMesh)
+                               ? "Q"
+                               : "-")
+                        + (ri::scene::StructuralBrushParticipatesInChannel(
+                               metadata, ri::scene::StructuralBrushChannel::InformationLayer)
+                               ? "I"
+                               : "-")
+                        + "  |  rebuild " + ri::scene::ToString(metadata.rebuildScope);
+                    if (!validation.errors.empty()) {
+                        model.semanticValidationLine = "Invalid: " + validation.errors.front();
+                    } else if (!validation.warnings.empty()) {
+                        model.semanticValidationLine = "Warning: " + validation.warnings.front();
+                    } else {
+                        model.semanticValidationLine = "Validated: structural ownership is complete.";
+                    }
+                }
                 RenderBrushInspectorPanel(
                     dc,
                     inspectorInner,

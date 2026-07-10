@@ -63,6 +63,22 @@ bool ValidHalfExtents(const ri::math::Vec3& halfExtents) {
         && halfExtents.x > 1e-6f && halfExtents.y > 1e-6f && halfExtents.z > 1e-6f;
 }
 
+bool FiniteVec3(const ri::math::Vec3& value) {
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+ri::math::Vec3 SanitizeVec3(const ri::math::Vec3& value, const ri::math::Vec3& fallback = {}) {
+    return {
+        std::isfinite(value.x) ? value.x : fallback.x,
+        std::isfinite(value.y) ? value.y : fallback.y,
+        std::isfinite(value.z) ? value.z : fallback.z,
+    };
+}
+
+bool ValidAabb(const ri::spatial::Aabb& bounds) {
+    return !ri::spatial::IsEmpty(bounds) && FiniteVec3(bounds.min) && FiniteVec3(bounds.max);
+}
+
 constexpr std::size_t kMaxKinematicDurationSlices = 128;
 
 } // namespace
@@ -70,21 +86,77 @@ constexpr std::size_t kMaxKinematicDurationSlices = 128;
 ri::spatial::Aabb ComputeOrientedBoxWorldBounds(const ri::math::Vec3& center,
                                                const ri::math::Vec3& halfExtents,
                                                const ri::math::Vec3& orientationDegrees) {
-    return OrientedBoxWorldBounds(center, halfExtents, orientationDegrees);
+    if (!FiniteVec3(center) || !ValidHalfExtents(halfExtents)) {
+        return ri::spatial::MakeEmptyAabb();
+    }
+    return OrientedBoxWorldBounds(center, halfExtents, SanitizeVec3(orientationDegrees));
+}
+
+KinematicPhysicsOptions SanitizeKinematicPhysicsOptions(const KinematicPhysicsOptions& options) {
+    KinematicPhysicsOptions sanitized = options;
+    const KinematicPhysicsOptions defaults{};
+    const auto finiteOr = [](const float value, const float fallback) {
+        return std::isfinite(value) ? value : fallback;
+    };
+    const auto nonNegativeOr = [&](const float value, const float fallback) {
+        return std::max(0.0f, finiteOr(value, fallback));
+    };
+    sanitized.gravity = nonNegativeOr(options.gravity, defaults.gravity);
+    sanitized.gravityScale = finiteOr(options.gravityScale, defaults.gravityScale);
+    sanitized.fallGravityMultiplier = nonNegativeOr(options.fallGravityMultiplier, defaults.fallGravityMultiplier);
+    sanitized.maxFallSpeed = nonNegativeOr(options.maxFallSpeed, defaults.maxFallSpeed);
+    sanitized.bounciness = finiteOr(options.bounciness, defaults.bounciness);
+    sanitized.linearDamping = finiteOr(options.linearDamping, defaults.linearDamping);
+    sanitized.angularDamping = finiteOr(options.angularDamping, defaults.angularDamping);
+    sanitized.surfaceFriction = finiteOr(options.surfaceFriction, defaults.surfaceFriction);
+    sanitized.rollingResistance = finiteOr(options.rollingResistance, defaults.rollingResistance);
+    sanitized.airDrag = finiteOr(options.airDrag, defaults.airDrag);
+    sanitized.bounceThreshold = nonNegativeOr(options.bounceThreshold, defaults.bounceThreshold);
+    sanitized.angularImpactScale = finiteOr(options.angularImpactScale, defaults.angularImpactScale);
+    sanitized.groundClearance = nonNegativeOr(options.groundClearance, defaults.groundClearance);
+    sanitized.maxStepUpHeight = nonNegativeOr(options.maxStepUpHeight, defaults.maxStepUpHeight);
+    sanitized.minVelocity = nonNegativeOr(options.minVelocity, defaults.minVelocity);
+    sanitized.impactNotifyCooldownSeconds =
+        nonNegativeOr(options.impactNotifyCooldownSeconds, defaults.impactNotifyCooldownSeconds);
+    sanitized.maxSubsteps = std::clamp<std::size_t>(options.maxSubsteps, 1U, kKinematicMaxSubstepsPerSlice);
+    return sanitized;
+}
+
+KinematicVolumeModifiers SanitizeKinematicVolumeModifiers(const KinematicVolumeModifiers& modifiers) {
+    KinematicVolumeModifiers sanitized = modifiers;
+    const KinematicVolumeModifiers defaults{};
+    const auto finiteOr = [](const float value, const float fallback) {
+        return std::isfinite(value) ? value : fallback;
+    };
+    sanitized.gravityScale = finiteOr(modifiers.gravityScale, defaults.gravityScale);
+    sanitized.drag = std::max(0.0f, finiteOr(modifiers.drag, defaults.drag));
+    sanitized.buoyancy = finiteOr(modifiers.buoyancy, defaults.buoyancy);
+    sanitized.flow = SanitizeVec3(modifiers.flow);
+    sanitized.jumpScale = std::max(0.0f, finiteOr(modifiers.jumpScale, defaults.jumpScale));
+    return sanitized;
 }
 
 KinematicStepResult SimulateKinematicBodyStep(
     const TraceScene& traceScene,
     const KinematicBodyState& state,
     float deltaSeconds,
-    const KinematicPhysicsOptions& options,
-    const KinematicVolumeModifiers& modifiers,
+    const KinematicPhysicsOptions& rawOptions,
+    const KinematicVolumeModifiers& rawModifiers,
     const KinematicConstraintState& constraints) {
     KinematicStepResult result{};
     result.state = state;
-    if (ri::spatial::IsEmpty(result.state.bounds) || !std::isfinite(deltaSeconds) || deltaSeconds <= 0.0f) {
+    result.state.velocity = SanitizeVec3(result.state.velocity);
+    result.state.angularVelocity = SanitizeVec3(result.state.angularVelocity);
+    result.state.impactNotifyCooldownRemaining = std::max(
+        0.0f,
+        std::isfinite(result.state.impactNotifyCooldownRemaining)
+            ? result.state.impactNotifyCooldownRemaining
+            : 0.0f);
+    if (!ValidAabb(result.state.bounds) || !std::isfinite(deltaSeconds) || deltaSeconds <= 0.0f) {
         return result;
     }
+    const KinematicPhysicsOptions options = SanitizeKinematicPhysicsOptions(rawOptions);
+    const KinematicVolumeModifiers modifiers = SanitizeKinematicVolumeModifiers(rawModifiers);
     deltaSeconds = std::min(deltaSeconds, kKinematicMaxSimulationSliceSeconds);
 
     if (options.impactNotifyCooldownSeconds > 0.0f) {
@@ -367,19 +439,28 @@ OrientedKinematicStepResult SimulateOrientedKinematicBodyStep(
     const TraceScene& traceScene,
     const OrientedKinematicBodyState& state,
     float deltaSeconds,
-    const KinematicPhysicsOptions& options,
-    const KinematicVolumeModifiers& modifiers,
+    const KinematicPhysicsOptions& rawOptions,
+    const KinematicVolumeModifiers& rawModifiers,
     const KinematicConstraintState& constraints) {
     OrientedKinematicStepResult result{};
     result.state = state;
-    result.worldBounds =
-        OrientedBoxWorldBounds(result.state.center, result.state.halfExtents, result.state.orientationDegrees);
-
+    result.state.orientationDegrees = SanitizeVec3(result.state.orientationDegrees);
+    result.state.velocity = SanitizeVec3(result.state.velocity);
+    result.state.angularVelocity = SanitizeVec3(result.state.angularVelocity);
+    result.state.impactNotifyCooldownRemaining = std::max(
+        0.0f,
+        std::isfinite(result.state.impactNotifyCooldownRemaining)
+            ? result.state.impactNotifyCooldownRemaining
+            : 0.0f);
     if (!ValidHalfExtents(result.state.halfExtents) || !std::isfinite(deltaSeconds) || deltaSeconds <= 0.0f
-        || !std::isfinite(result.state.center.x) || !std::isfinite(result.state.center.y)
-        || !std::isfinite(result.state.center.z)) {
+        || !FiniteVec3(result.state.center)) {
+        result.worldBounds = ri::spatial::MakeEmptyAabb();
         return result;
     }
+    const KinematicPhysicsOptions options = SanitizeKinematicPhysicsOptions(rawOptions);
+    const KinematicVolumeModifiers modifiers = SanitizeKinematicVolumeModifiers(rawModifiers);
+    result.worldBounds =
+        OrientedBoxWorldBounds(result.state.center, result.state.halfExtents, result.state.orientationDegrees);
 
     deltaSeconds = std::min(deltaSeconds, kKinematicMaxSimulationSliceSeconds);
 
@@ -581,7 +662,7 @@ OrientedKinematicStepResult SimulateOrientedKinematicBodyForDuration(
     OrientedKinematicStepResult combined{};
     combined.state = state;
     combined.worldBounds =
-        OrientedBoxWorldBounds(combined.state.center, combined.state.halfExtents, combined.state.orientationDegrees);
+        ComputeOrientedBoxWorldBounds(combined.state.center, combined.state.halfExtents, combined.state.orientationDegrees);
     if (!std::isfinite(totalDeltaSeconds) || totalDeltaSeconds <= 0.0f) {
         return combined;
     }

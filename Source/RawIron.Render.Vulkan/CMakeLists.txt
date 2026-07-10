@@ -32,6 +32,7 @@ add_library(RawIron.Render.Vulkan
   src/VulkanCommandList.cpp
   src/VulkanCommandRecorder.cpp
   src/VulkanFrameSubmission.cpp
+  src/VulkanFrameTuning.cpp
   src/VulkanIntentStaging.cpp
   src/VulkanPipelineStateCache.cpp
   src/VulkanBootstrap.cpp
@@ -87,6 +88,9 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(VulkanCommandPipelineSmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanCommandPipelineSmoke.cpp)
   target_link_libraries(VulkanCommandPipelineSmoke PRIVATE RawIron::RenderVulkan)
   add_test(NAME RawIron.Render.Vulkan.CommandPipelineSmoke COMMAND VulkanCommandPipelineSmoke)
+  add_executable(VulkanFrameTuningSmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanFrameTuningSmoke.cpp)
+  target_link_libraries(VulkanFrameTuningSmoke PRIVATE RawIron::RenderVulkan)
+  add_test(NAME RawIron.Render.Vulkan.FrameTuningSmoke COMMAND VulkanFrameTuningSmoke)
   add_test(
     NAME RawIron.Render.Vulkan.NativeScenePreviewDetailNormalSmoke
     COMMAND ${CMAKE_COMMAND}

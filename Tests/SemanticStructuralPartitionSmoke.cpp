@@ -451,6 +451,19 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // Cache identity includes BSP build options. Reusing a tree built with stale split settings makes
+    // runtime tuning ineffective even when the scene itself has not changed.
+    const ri::spatial::SpatialIndexOptions tighterIndex{.maxLeafSize = 1, .maxDepth = 3};
+    if (!cache.NeedsRebuild(scene, tighterIndex)) {
+        return EXIT_FAILURE;
+    }
+    const ri::scene::SemanticStructuralPartition& retunedCache = cache.GetOrRebuild(scene, tighterIndex);
+    if (cache.RebuildCount() != 6
+        || cache.NeedsRebuild(scene, tighterIndex)
+        || retunedCache.Metrics().lastRebuildSubpartitionsRebuilt == 0) {
+        return EXIT_FAILURE;
+    }
+
     // Duplicate entry ids (e.g. two scene nodes sharing a name) must stay individually queryable:
     // queries resolve candidates by index, not by id round-trips.
     ri::scene::StructuralBrushMetadata dupWall = wall;

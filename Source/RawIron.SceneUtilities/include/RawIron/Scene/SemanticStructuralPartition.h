@@ -245,6 +245,9 @@ public:
     void Invalidate() noexcept;
     [[nodiscard]] bool IsDirty() const noexcept;
     [[nodiscard]] bool NeedsRebuild(const Scene& scene) const;
+    /// Includes spatial split settings in the dirty check. Use this before changing BSP options at runtime.
+    [[nodiscard]] bool NeedsRebuild(const Scene& scene,
+                                    ri::spatial::SpatialIndexOptions indexOptions) const;
     [[nodiscard]] std::size_t RebuildCount() const noexcept;
     [[nodiscard]] std::size_t ReuseCount() const noexcept;
 
@@ -254,6 +257,8 @@ private:
     std::size_t rebuildCount_ = 0;
     std::size_t reuseCount_ = 0;
     std::uint64_t sceneSignature_ = 0;
+    ri::spatial::SpatialIndexOptions indexOptions_{};
+    bool hasIndexOptions_ = false;
 };
 
 [[nodiscard]] std::vector<SemanticStructuralPartitionEntry> BuildSemanticStructuralPartitionEntries(

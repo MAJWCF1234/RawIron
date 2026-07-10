@@ -729,6 +729,7 @@ void LogicGraph::Reset() {
     }
     nowMs_ = 0;
     nextTieBreak_ = 0;
+    runtimeMetrics_ = {};
     dispatchDepth_ = 0;
     RebuildRoutes();
     SeedNodes();
@@ -936,7 +937,9 @@ void LogicGraph::PulseEmitActiveWhileHeld() {
 void LogicGraph::AdvanceTime(std::uint64_t deltaMs) {
     constexpr std::uint64_t kSpinLimit = 4096;
     std::uint64_t spins = 0;
-    nowMs_ += deltaMs;
+    nowMs_ = deltaMs > std::numeric_limits<std::uint64_t>::max() - nowMs_
+        ? std::numeric_limits<std::uint64_t>::max()
+        : nowMs_ + deltaMs;
     PulseEmitActiveWhileHeld();
     ExpirePulseHolds();
     ExpireFlowDebouncers();
@@ -1410,6 +1413,10 @@ std::vector<LogicCircuitNodeProbe> LogicGraph::ProbeCircuitNodes() const {
 }
 
 void LogicGraph::DispatchInput(std::string_view nodeId, std::string_view inputName, LogicContext context) {
+    if (dispatchDepth_ >= static_cast<int>(kLogicMaxImmediateDispatchDepth)) {
+        ++runtimeMetrics_.droppedImmediateDispatchCount;
+        return;
+    }
     struct DepthGuard {
         LogicGraph* graph = nullptr;
         explicit DepthGuard(LogicGraph* g) : graph(g) { ++graph->dispatchDepth_; }
@@ -1420,6 +1427,10 @@ void LogicGraph::DispatchInput(std::string_view nodeId, std::string_view inputNa
         }
     };
     DepthGuard depthGuard(this);
+    ++runtimeMetrics_.immediateDispatchCount;
+    runtimeMetrics_.maxImmediateDispatchDepth = std::max(
+        runtimeMetrics_.maxImmediateDispatchDepth,
+        static_cast<std::size_t>(dispatchDepth_));
 
     const std::string id(nodeId);
     const std::string normalizedIn = NormalizeName(inputName);
@@ -1651,8 +1662,11 @@ void LogicGraph::EmitOutputNormalized(const std::string& sourceId,
         if (d == 0) {
             DispatchInput(target.targetId, target.inputName, std::move(next));
         } else {
+            const std::uint64_t fireAt = d > std::numeric_limits<std::uint64_t>::max() - nowMs_
+                ? std::numeric_limits<std::uint64_t>::max()
+                : nowMs_ + d;
             pending_.push(
-                PendingDelivery{nowMs_ + d, nextTieBreak_++, target.targetId, target.inputName, std::move(next)});
+                PendingDelivery{fireAt, nextTieBreak_++, target.targetId, target.inputName, std::move(next)});
         }
     }
 }

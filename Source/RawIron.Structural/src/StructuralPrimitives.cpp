@@ -2158,6 +2158,8 @@ CompiledMesh CreateHandrailSegmentMesh(const StructuralPrimitiveOptions& options
 } // namespace
 
 bool IsNativeStructuralPrimitive(std::string_view type) {
+    const std::string normalizedType = NormalizeStructuralPrimitiveTypeKey(type);
+    type = normalizedType;
     return type == "box"
         || type == "plane"
         || type == "arch"
@@ -2234,7 +2236,10 @@ bool IsNativeStructuralPrimitive(std::string_view type) {
 }
 
 std::optional<ConvexSolid> CreateConvexPrimitiveSolid(std::string_view type,
-                                                      const StructuralPrimitiveOptions& options) {
+                                                      const StructuralPrimitiveOptions& rawOptions) {
+    const std::string normalizedType = NormalizeStructuralPrimitiveTypeKey(type);
+    type = normalizedType;
+    const StructuralPrimitiveOptions options = SanitizeStructuralPrimitiveOptions(rawOptions);
     if (type == "box") {
         return CreateAxisAlignedBoxSolid();
     }
@@ -2296,7 +2301,10 @@ std::optional<ConvexSolid> CreateConvexPrimitiveSolid(std::string_view type,
     return std::nullopt;
 }
 
-CompiledMesh BuildPrimitiveMesh(std::string_view type, const StructuralPrimitiveOptions& options) {
+CompiledMesh BuildPrimitiveMesh(std::string_view type, const StructuralPrimitiveOptions& rawOptions) {
+    const std::string normalizedType = NormalizeStructuralPrimitiveTypeKey(type);
+    type = normalizedType;
+    const StructuralPrimitiveOptions options = SanitizeStructuralPrimitiveOptions(rawOptions);
     if (type == "rounded_box") {
         return CreateRoundedBoxMesh(options);
     }
@@ -2488,6 +2496,8 @@ CompiledMesh BuildConvexHullCompiledMeshFromPoints(const std::vector<ri::math::V
 }
 
 bool StructuralPrimitiveHasConvexSolidSupport(std::string_view type) {
+    const std::string normalizedType = NormalizeStructuralPrimitiveTypeKey(type);
+    type = normalizedType;
     if (type == "box" || type == "hollow_box") {
         return true;
     }
@@ -2509,6 +2519,122 @@ std::string NormalizeStructuralPrimitiveTypeKey(std::string_view type) {
         out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(type[i]))));
     }
     return out;
+}
+
+StructuralPrimitiveOptions SanitizeStructuralPrimitiveOptions(const StructuralPrimitiveOptions& options) {
+    StructuralPrimitiveOptions sanitized = options;
+    const StructuralPrimitiveOptions defaults{};
+    const auto finiteOr = [](const float value, const float fallback) {
+        return std::isfinite(value) ? value : fallback;
+    };
+
+    sanitized.thickness = finiteOr(options.thickness, defaults.thickness);
+    sanitized.depth = finiteOr(options.depth, defaults.depth);
+    sanitized.strutRadius = finiteOr(options.strutRadius, defaults.strutRadius);
+    sanitized.topRadius = finiteOr(options.topRadius, defaults.topRadius);
+    sanitized.bottomRadius = finiteOr(options.bottomRadius, defaults.bottomRadius);
+    sanitized.length = finiteOr(options.length, defaults.length);
+    sanitized.exponentX = finiteOr(options.exponentX, defaults.exponentX);
+    sanitized.exponentY = finiteOr(options.exponentY, defaults.exponentY);
+    sanitized.exponentZ = finiteOr(options.exponentZ, defaults.exponentZ);
+    sanitized.spanDegrees = finiteOr(options.spanDegrees, defaults.spanDegrees);
+    sanitized.sweepDegrees = finiteOr(options.sweepDegrees, defaults.sweepDegrees);
+    sanitized.startDegrees = finiteOr(options.startDegrees, defaults.startDegrees);
+    sanitized.ridgeRatio = finiteOr(options.ridgeRatio, defaults.ridgeRatio);
+    sanitized.bevelRadius = finiteOr(options.bevelRadius, defaults.bevelRadius);
+
+    const auto finitePoint = [](const ri::math::Vec3& point) {
+        return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
+    };
+    std::erase_if(sanitized.points, [&](const ri::math::Vec3& point) { return !finitePoint(point); });
+    std::erase_if(sanitized.vertices, [&](const ri::math::Vec3& point) { return !finitePoint(point); });
+    for (float& sample : sanitized.heightfieldSamples) {
+        if (!std::isfinite(sample)) {
+            sample = 0.0f;
+        }
+    }
+    return sanitized;
+}
+
+StructuralPrimitiveValidationReport ValidateStructuralPrimitive(
+    const std::string_view type,
+    const StructuralPrimitiveOptions& options) {
+    StructuralPrimitiveValidationReport report{};
+    report.normalizedType = NormalizeStructuralPrimitiveTypeKey(type);
+    report.nativeType = IsNativeStructuralPrimitive(report.normalizedType);
+    if (!report.nativeType) {
+        report.errors.push_back("Unknown structural primitive type: '" + report.normalizedType + "'.");
+    }
+
+    const auto requireFinite = [&](const float value, const char* field) {
+        if (!std::isfinite(value)) {
+            report.errors.push_back(std::string(field) + " must be finite.");
+        }
+    };
+    requireFinite(options.thickness, "thickness");
+    requireFinite(options.depth, "depth");
+    requireFinite(options.strutRadius, "strutRadius");
+    requireFinite(options.topRadius, "topRadius");
+    requireFinite(options.bottomRadius, "bottomRadius");
+    requireFinite(options.length, "length");
+    requireFinite(options.exponentX, "exponentX");
+    requireFinite(options.exponentY, "exponentY");
+    requireFinite(options.exponentZ, "exponentZ");
+    requireFinite(options.spanDegrees, "spanDegrees");
+    requireFinite(options.sweepDegrees, "sweepDegrees");
+    requireFinite(options.startDegrees, "startDegrees");
+    requireFinite(options.ridgeRatio, "ridgeRatio");
+    requireFinite(options.bevelRadius, "bevelRadius");
+
+    const auto checkPoints = [&](const std::vector<ri::math::Vec3>& points, const char* field) {
+        for (std::size_t index = 0; index < points.size(); ++index) {
+            const ri::math::Vec3& point = points[index];
+            if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) {
+                report.errors.push_back(
+                    std::string(field) + " contains a non-finite point at index " + std::to_string(index) + ".");
+                break;
+            }
+        }
+    };
+    checkPoints(options.points, "points");
+    checkPoints(options.vertices, "vertices");
+    for (std::size_t index = 0; index < options.heightfieldSamples.size(); ++index) {
+        if (!std::isfinite(options.heightfieldSamples[index])) {
+            report.errors.push_back(
+                "heightfieldSamples contains a non-finite value at index " + std::to_string(index) + ".");
+            break;
+        }
+    }
+
+    if (!options.heightfieldSamples.empty()) {
+        if (options.cellsX <= 0 || options.cellsZ <= 0) {
+            report.errors.push_back("Sampled heightfields require positive cellsX and cellsZ.");
+        } else {
+            const std::uint64_t expected = (static_cast<std::uint64_t>(options.cellsX) + 1U)
+                * (static_cast<std::uint64_t>(options.cellsZ) + 1U);
+            if (expected != options.heightfieldSamples.size()) {
+                report.errors.push_back(
+                    "heightfieldSamples count does not match (cellsX+1)*(cellsZ+1).");
+            }
+        }
+    }
+    if (report.normalizedType == "convex_hull" && !options.points.empty() && options.points.size() < 4U) {
+        report.warnings.push_back("convex_hull has fewer than four points and will use its box fallback.");
+    }
+    if (report.normalizedType == "hexahedron" && !options.vertices.empty() && options.vertices.size() != 8U) {
+        report.warnings.push_back("hexahedron expects eight vertices and may use its box fallback.");
+    }
+
+    if (report.nativeType) {
+        const StructuralPrimitiveOptions sanitized = SanitizeStructuralPrimitiveOptions(options);
+        report.convexSolidSupported = StructuralPrimitiveHasConvexSolidSupport(report.normalizedType);
+        const CompiledMesh preview = BuildPrimitiveMesh(report.normalizedType, sanitized);
+        if (preview.positions.empty()) {
+            report.errors.push_back("Primitive did not generate renderable triangle geometry.");
+        }
+    }
+    report.valid = report.errors.empty();
+    return report;
 }
 
 } // namespace ri::structural

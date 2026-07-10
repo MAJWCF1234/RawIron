@@ -12,6 +12,7 @@ namespace ri::trace {
 
 /// Maximum simulated time per single `SimulateKinematicBodyStep` / `SimulateOrientedKinematicBodyStep` call.
 inline constexpr float kKinematicMaxSimulationSliceSeconds = 0.25f;
+inline constexpr std::size_t kKinematicMaxSubstepsPerSlice = 64;
 
 struct KinematicPhysicsOptions {
     float gravity = 25.0f;
@@ -49,6 +50,12 @@ struct KinematicVolumeModifiers {
     /// When true and airborne, skips integrated gravity for this step (proto coyote hang).
     bool suppressAirGravity = false;
 };
+
+/// Converts non-finite tuning to deterministic defaults and caps per-slice work.
+[[nodiscard]] KinematicPhysicsOptions SanitizeKinematicPhysicsOptions(
+    const KinematicPhysicsOptions& options);
+[[nodiscard]] KinematicVolumeModifiers SanitizeKinematicVolumeModifiers(
+    const KinematicVolumeModifiers& modifiers);
 
 struct KinematicConstraintState {
     bool lockX = false;

@@ -38,6 +38,10 @@ if (RAWIRON_BUILD_TESTS)
   target_link_libraries(LogicSenseSmoke PRIVATE RawIron::Logic)
   add_test(NAME RawIron.Logic.SenseSmoke COMMAND LogicSenseSmoke)
 
+  add_executable(LogicDispatchBudgetSmoke ${CMAKE_SOURCE_DIR}/Tests/LogicDispatchBudgetSmoke.cpp)
+  target_link_libraries(LogicDispatchBudgetSmoke PRIVATE RawIron::Logic)
+  add_test(NAME RawIron.Logic.DispatchBudgetSmoke COMMAND LogicDispatchBudgetSmoke)
+
   add_test(
     NAME RawIron.LogicKit.FactoryAudit
     COMMAND ${CMAKE_COMMAND}

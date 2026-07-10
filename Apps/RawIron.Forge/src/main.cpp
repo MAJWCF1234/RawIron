@@ -199,7 +199,7 @@ private:
         summary_ = CreateControl(L"STATIC", L"", SS_LEFT, 0);
         refreshButton_ = CreateControl(L"BUTTON", L"Refresh", BS_PUSHBUTTON, kRefresh);
         newRigButton_ = CreateControl(L"BUTTON", L"New Humanoid Rig", BS_PUSHBUTTON, kNewHumanoid);
-        validateButton_ = CreateControl(L"BUTTON", L"Validate Rig", BS_PUSHBUTTON, kValidate);
+        validateButton_ = CreateControl(L"BUTTON", L"Validate Asset", BS_PUSHBUTTON, kValidate);
         openButton_ = CreateControl(L"BUTTON", L"Open Source", BS_PUSHBUTTON, kOpenSource);
         assetList_ = CreateControl(
             L"LISTBOX",
@@ -311,7 +311,7 @@ private:
                 "animation retargeting, and runtime validation.";
         }
         SetWindowTextW(detail_, Widen(text).c_str());
-        EnableWindow(validateButton_, asset->kind == ri::forge::AssetKind::Rig);
+        EnableWindow(validateButton_, TRUE);
     }
 
     void CreateHumanoidRig() {
@@ -325,17 +325,29 @@ private:
         RefreshCatalog(output);
     }
 
-    void ValidateSelectedRig() const {
+    void ValidateSelectedAsset() const {
         const ri::forge::AssetEntry* asset = SelectedAsset();
-        if (asset == nullptr || asset->kind != ri::forge::AssetKind::Rig) {
+        if (asset == nullptr) {
             return;
         }
-        const std::wstring message = Widen(asset->relativePath + "\r\n\r\n" + asset->summary);
+        bool valid = asset->valid;
+        std::string summary = asset->summary;
+        const wchar_t* title = valid ? L"Rig validation passed" : L"Rig validation failed";
+        if (asset->kind == ri::forge::AssetKind::ModelSource) {
+            const ri::forge::ModelSourceValidationReport report =
+                ri::forge::ValidateModelSource(asset->absolutePath);
+            valid = report.valid;
+            summary = report.summary;
+            title = report.valid ? L"Model import validation passed"
+                                 : (report.runtimeImportable ? L"Model import validation failed"
+                                                             : L"Model export required");
+        }
+        const std::wstring message = Widen(asset->relativePath + "\r\n\r\n" + summary);
         MessageBoxW(
             hwnd_,
             message.c_str(),
-            asset->valid ? L"Rig validation passed" : L"Rig validation failed",
-            MB_OK | (asset->valid ? MB_ICONINFORMATION : MB_ICONWARNING));
+            title,
+            MB_OK | (valid ? MB_ICONINFORMATION : MB_ICONWARNING));
     }
 
     void OpenSelectedSource() const {
@@ -387,7 +399,7 @@ private:
                 } else if (id == kNewHumanoid) {
                     CreateHumanoidRig();
                 } else if (id == kValidate) {
-                    ValidateSelectedRig();
+                    ValidateSelectedAsset();
                 } else if (id == kOpenSource) {
                     OpenSelectedSource();
                 } else if (id == kAssetList && notification == LBN_SELCHANGE) {

@@ -538,6 +538,52 @@ void RenderBrushInspectorPanel(HDC dc,
                                  RGB(208, 228, 208),
                                  smallFont,
                                  DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+
+    if (model.hasStructuralMetadata) {
+        infoTop = boundsCard.bottom + 10;
+        RECT semanticCard{inspectorInner.left + 10, infoTop, inspectorInner.right - 10, infoTop + 104};
+        DrawInspectorCard(dc,
+                          semanticCard,
+                          RGB(48, 58, 62),
+                          RGB(146, 170, 174),
+                          RGB(18, 24, 26),
+                          model.structuralMetadataValid ? RGB(92, 170, 126) : RGB(214, 118, 68));
+        EditorRenderer::DrawTextLine(dc,
+                                     RECT{semanticCard.left + 10, semanticCard.top + 8,
+                                          semanticCard.right - 10, semanticCard.top + 26},
+                                     "Structural M/P/Q/I",
+                                     RGB(216, 238, 232),
+                                     bodyFont,
+                                     DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        EditorRenderer::DrawTextLine(dc,
+                                     RECT{semanticCard.left + 10, semanticCard.top + 28,
+                                          semanticCard.right - 10, semanticCard.top + 44},
+                                     model.semanticIdentityLine,
+                                     RGB(212, 224, 230),
+                                     smallFont,
+                                     DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+        EditorRenderer::DrawTextLine(dc,
+                                     RECT{semanticCard.left + 10, semanticCard.top + 46,
+                                          semanticCard.right - 10, semanticCard.top + 62},
+                                     model.semanticPolicyLine,
+                                     RGB(204, 218, 224),
+                                     smallFont,
+                                     DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+        EditorRenderer::DrawTextLine(dc,
+                                     RECT{semanticCard.left + 10, semanticCard.top + 64,
+                                          semanticCard.right - 10, semanticCard.top + 80},
+                                     model.semanticChannelsLine,
+                                     RGB(196, 214, 220),
+                                     smallFont,
+                                     DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+        EditorRenderer::DrawTextLine(dc,
+                                     RECT{semanticCard.left + 10, semanticCard.top + 82,
+                                          semanticCard.right - 10, semanticCard.bottom - 6},
+                                     model.semanticValidationLine,
+                                     model.structuralMetadataValid ? RGB(156, 226, 172) : RGB(255, 174, 118),
+                                     smallFont,
+                                     DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+    }
 }
 
 void RenderPluginStorePanel(HDC dc,

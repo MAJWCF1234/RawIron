@@ -1410,10 +1410,11 @@ VkShaderModule CreateShaderModule(VkDevice device, const fs::path& path) {
 }
 
 ri::math::Vec3 ClampColor(const ri::math::Vec3& color) {
+    const auto safe = [](const float value) { return std::isfinite(value) ? value : 0.0f; };
     return ri::math::Vec3{
-        std::clamp(color.x, 0.0f, 1.0f),
-        std::clamp(color.y, 0.0f, 1.0f),
-        std::clamp(color.z, 0.0f, 1.0f),
+        std::clamp(safe(color.x), 0.0f, 1.0f),
+        std::clamp(safe(color.y), 0.0f, 1.0f),
+        std::clamp(safe(color.z), 0.0f, 1.0f),
     };
 }
 
@@ -2159,9 +2160,10 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
     if (!ok) {
         return false;
     }
+    const VulkanNativeSceneResolvedTuning resolvedTuning = ResolveVulkanNativeSceneTuning(frame);
     if (frame.useEnvironmentClear) {
-        const ri::math::Vec3 horizon = ClampColor(frame.environmentClearBottom);
-        const ri::math::Vec3 zenith = ClampColor(frame.environmentClearTop);
+        const ri::math::Vec3 horizon = resolvedTuning.environmentBottom;
+        const ri::math::Vec3 zenith = resolvedTuning.environmentTop;
         outData->skyUseAuthoredGradient = 1;
         outData->skyHorizonColor = {horizon.x, horizon.y, horizon.z, 1.0f};
         outData->skyZenithColor = {zenith.x, zenith.y, zenith.z, 1.0f};
@@ -2170,19 +2172,18 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
         outData->skyHorizonColor = {0.82f, 0.82f, 0.80f, 1.0f};
         outData->skyZenithColor = {0.54f, 0.56f, 0.57f, 1.0f};
     }
-    const float fogStart = std::max(0.0f, frame.renderFogStart);
-    const float fogEnd = std::max(fogStart + 0.001f, frame.renderFogEnd);
-    const bool linearFog = frame.renderFogEnd > frame.renderFogStart + 0.001f;
+    const float fogStart = resolvedTuning.fogStart;
+    const float fogEnd = resolvedTuning.fogEnd;
+    const bool linearFog = resolvedTuning.linearFog;
     outData->renderTuning = {
-        std::clamp(frame.renderExposure, 0.5f, 2.5f),
-        std::clamp(frame.renderContrast, 0.7f, 1.6f),
-        std::clamp(frame.renderSaturation, 0.0f, 1.8f),
-        linearFog ? std::clamp(frame.renderFogStrength, 0.0f, 1.0f)
-                  : std::clamp(frame.renderFogDensity, 0.0f, 0.05f),
+        resolvedTuning.exposure,
+        resolvedTuning.contrast,
+        resolvedTuning.saturation,
+        resolvedTuning.fogAmount,
     };
-    const ri::math::Vec3 fogNear = ClampColor(frame.nativeFogColorNear);
-    const ri::math::Vec3 fogFar = ClampColor(frame.nativeFogColorFar);
-    const ri::math::Vec3 ambient = ClampColor(frame.nativeAmbientLight);
+    const ri::math::Vec3 fogNear = resolvedTuning.fogColorNear;
+    const ri::math::Vec3 fogFar = resolvedTuning.fogColorFar;
+    const ri::math::Vec3 ambient = resolvedTuning.ambientLight;
     const ri::render::PostProcessParameters sanitizedPost = ri::render::SanitizePostProcessParameters(frame.postProcess);
     outData->postProcessPrimary = {
         sanitizedPost.noiseAmount,

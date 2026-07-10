@@ -35,6 +35,7 @@ The first foundation is in place:
 - Semantic structural partition is a partition family: one spatial subpartition per authored region plus a regionless bucket, all sharing the authored entry list.
 - Region-scoped queries resolve against the region's own subpartition instead of walking every tree; metrics report how many queries were region-scoped.
 - Partition rebuilds keep the spatial tree of any subpartition whose content (ids, bounds, order) is unchanged, so a single brush edit re-splits only the affected region; metrics report reused vs rebuilt subpartitions per rebuild.
+- Partition caches treat BSP split options as cache identity, so runtime tuning cannot accidentally reuse a tree built with stale leaf/depth settings.
 - Metadata-only edits (roles, policies, channels) never force a spatial re-split because tree content signatures cover only ids and bounds.
 - The partition cache rebuilds in place, so cache-driven refreshes inherit subpartition reuse.
 - Partition metrics report matched-versus-scanned candidate counts for box and ray queries so semantic filter savings are measurable.
@@ -56,6 +57,9 @@ The first foundation is in place:
 - Camera-plot placement now raycasts exact mesh geometry rather than stopping at renderable AABBs.
 - Liminal Hall has semantic structural smoke coverage for authored structural rows.
 - Compiled CSG fragments retain stable structural M/P/Q/I metadata, including their authored source relation, so generated geometry participates in semantic trace feeds instead of becoming anonymous render-only meshes.
+- Primitive entry points normalize authoring type keys consistently, sanitize non-finite parameters before mesh generation, and expose validation reports for unknown types and malformed sampled geometry.
+- Structural metadata validation reports incomplete M/P/Q/I ownership and conflicting semantic policies.
+- The editor Brush inspector shows structural identity, policies, active M/P/Q/I channels, rebuild scope, and the first validation issue.
 
 ## Developer Fulfillment Workflow
 
@@ -98,7 +102,7 @@ Done means every additional consumer proves its filtering benefit before it adds
 
 ### 3. Deliver Editor-First Structural Authoring
 
-- Add inspector controls for role, region, operation, collision, visibility, navigation, rebuild scope, and M/P/Q/I channel flags.
+- Add editable inspector controls for role, region, operation, collision, visibility, navigation, rebuild scope, and M/P/Q/I channel flags; read-only validation diagnostics now ship.
 - Add overlays for semantic regions, query/collision participants, visibility candidates, and dirty rebuild bounds.
 - Resolve a generated CSG fragment selection to its authored structural owner.
 - Warn on missing ids, degenerate bounds, unknown policies, and disabled required channels.
@@ -144,6 +148,7 @@ Structural primitive work is acceptable only when:
 - `Source/RawIron.SceneUtilities/include/RawIron/Scene/SceneStructuralTraceFeed.h`: structural trace feed API.
 - `Source/RawIron.SceneUtilities/src/SceneStructuralTraceFeed.cpp`: structural trace feed implementation and metrics.
 - `Tests/StructuralBrushMetadataSmoke.cpp`: metadata and M/P/Q/I coverage.
+- `Tests/StructuralPrimitiveValidationSmoke.cpp`: normalized type dispatch and poisoned authoring-input coverage.
 - `Tests/SemanticStructuralPartitionSmoke.cpp`: partition filtering, metrics, cache, and picking coverage.
 - `Tests/SceneSubtreeCollidersSmoke.cpp`: collider policy, Q-mesh, and tag coverage.
 - `Tests/SceneStructuralTraceFeedSmoke.cpp`: trace feed, trace scene, filter reason, and ratio coverage.

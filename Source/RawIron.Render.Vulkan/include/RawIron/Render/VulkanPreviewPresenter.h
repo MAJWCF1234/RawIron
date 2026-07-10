@@ -115,6 +115,25 @@ struct VulkanNativeSceneFrame {
     ri::render::PostProcessParameters postProcess{};
 };
 
+struct VulkanNativeSceneResolvedTuning {
+    float exposure = 1.0f;
+    float contrast = 1.0f;
+    float saturation = 1.0f;
+    float fogAmount = 0.0095f;
+    float fogStart = 2.0f;
+    float fogEnd = 48.0f;
+    bool linearFog = true;
+    ri::math::Vec3 environmentTop{0.20f, 0.29f, 0.34f};
+    ri::math::Vec3 environmentBottom{0.05f, 0.08f, 0.06f};
+    ri::math::Vec3 fogColorNear{0.34f, 0.39f, 0.42f};
+    ri::math::Vec3 fogColorFar{0.40f, 0.47f, 0.54f};
+    ri::math::Vec3 ambientLight{0.14f, 0.17f, 0.12f};
+};
+
+/// Prevents NaN/Inf authoring or script values from reaching Vulkan uniform buffers.
+[[nodiscard]] VulkanNativeSceneResolvedTuning ResolveVulkanNativeSceneTuning(
+    const VulkanNativeSceneFrame& frame);
+
 using VulkanNativeSceneFrameCallback = std::function<bool(VulkanNativeSceneFrame& frame, std::string* error)>;
 
 bool PresentPreviewImageWindow(const PreviewImageData& image,

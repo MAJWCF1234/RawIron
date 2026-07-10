@@ -113,6 +113,12 @@ struct BrushInspectorPanelModel {
     std::string meshAttachedLine;
     std::string boundsSizeLine;
     std::string boundsCenterLine;
+    bool hasStructuralMetadata = false;
+    bool structuralMetadataValid = false;
+    std::string semanticIdentityLine;
+    std::string semanticPolicyLine;
+    std::string semanticChannelsLine;
+    std::string semanticValidationLine;
 };
 
 struct GameplayInspectorPanelModel {

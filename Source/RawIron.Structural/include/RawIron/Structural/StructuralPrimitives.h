@@ -44,6 +44,23 @@ struct StructuralPrimitiveOptions {
     std::vector<float> heightfieldSamples{};
 };
 
+struct StructuralPrimitiveValidationReport {
+    bool valid = false;
+    std::string normalizedType{};
+    bool nativeType = false;
+    bool convexSolidSupported = false;
+    std::vector<std::string> errors{};
+    std::vector<std::string> warnings{};
+};
+
+/// Replaces non-finite scalar/vector samples with deterministic defaults before mesh generation.
+[[nodiscard]] StructuralPrimitiveOptions SanitizeStructuralPrimitiveOptions(
+    const StructuralPrimitiveOptions& options);
+/// Authoring diagnostics for unknown types, non-finite parameters, and malformed sampled geometry.
+[[nodiscard]] StructuralPrimitiveValidationReport ValidateStructuralPrimitive(
+    std::string_view type,
+    const StructuralPrimitiveOptions& options = {});
+
 /// True when `type` is implemented by `BuildPrimitiveMesh` / collision solids in this module.
 /// The `protoengine` browser preview only implements a small dispatch set; `displacement` / `voronoi_fracture` / `metaball_cluster` / `lsystem_branch` / full heightfield samples are **native** here.
 [[nodiscard]] bool IsNativeStructuralPrimitive(std::string_view type);

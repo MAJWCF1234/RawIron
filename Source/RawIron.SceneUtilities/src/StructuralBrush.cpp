@@ -284,6 +284,52 @@ ri::math::Vec3 EstimateStructuralBrushHalfExtents(const StructuralBrushSpawnOpti
     };
 }
 
+StructuralBrushValidationReport ValidateStructuralBrushMetadata(const StructuralBrushMetadata& metadata) {
+    StructuralBrushValidationReport report{};
+    if (metadata.brushId.empty()) {
+        report.errors.push_back("Structural brush id is required.");
+    }
+    if (metadata.visualMesh.renderable && metadata.visualMesh.meshId.empty()) {
+        report.errors.push_back("Renderable M-mesh is missing its mesh id.");
+    }
+    if (metadata.physicsMesh.participatesInSimulation && metadata.physicsMesh.meshId.empty()) {
+        report.errors.push_back("Simulated P-mesh is missing its mesh id.");
+    }
+    const bool hasQueryPurpose = metadata.queryMesh.raycastable || metadata.queryMesh.traceable
+        || metadata.queryMesh.placeable || metadata.queryMesh.interactable;
+    if (hasQueryPurpose && metadata.queryMesh.meshId.empty()) {
+        report.errors.push_back("Active Q-mesh is missing its mesh id.");
+    }
+    if (metadata.informationLayer.reportable && metadata.informationLayer.semanticGraphId.empty()) {
+        report.warnings.push_back("Reportable I-layer has no semantic graph id.");
+    }
+    if (metadata.collision != StructuralBrushCollisionPolicy::None
+        && metadata.collision != StructuralBrushCollisionPolicy::Query
+        && !metadata.physicsMesh.participatesInSimulation) {
+        report.warnings.push_back("Collision policy requires a participating P-mesh.");
+    }
+    if (metadata.collision == StructuralBrushCollisionPolicy::Query && !hasQueryPurpose) {
+        report.warnings.push_back("Query-only collision policy has no enabled Q-mesh purpose.");
+    }
+    if ((metadata.visibility == StructuralBrushVisibilityPolicy::Occluder
+         || metadata.visibility == StructuralBrushVisibilityPolicy::Portal
+         || metadata.visibility == StructuralBrushVisibilityPolicy::AntiPortal)
+        && !metadata.visualMesh.renderable) {
+        report.warnings.push_back("Visibility policy is active while the M-mesh is disabled.");
+    }
+    if (metadata.navigation != StructuralBrushNavigationPolicy::Ignored
+        && !metadata.physicsMesh.participatesInSimulation && !hasQueryPurpose) {
+        report.warnings.push_back("Navigation policy has neither P-mesh nor Q-mesh participation.");
+    }
+    if ((metadata.role == StructuralBrushSemanticRole::Trigger
+         || metadata.role == StructuralBrushSemanticRole::Volume)
+        && !metadata.queryMesh.interactable) {
+        report.warnings.push_back("Interactive semantic role has interaction queries disabled.");
+    }
+    report.valid = report.errors.empty();
+    return report;
+}
+
 int AddStructuralBrushNode(Scene& scene, const StructuralBrushSpawnOptions& options) {
     const ri::structural::CompiledMesh compiled = BuildStructuralPrimitiveCompiledMesh(options);
     if (compiled.positions.empty()) {

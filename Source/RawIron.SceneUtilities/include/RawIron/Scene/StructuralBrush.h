@@ -71,6 +71,16 @@ struct StructuralPrimitiveAssemblyResult {
     std::vector<std::string> compileWarnings;
 };
 
+struct StructuralBrushValidationReport {
+    bool valid = false;
+    std::vector<std::string> errors{};
+    std::vector<std::string> warnings{};
+};
+
+/// Validates M/P/Q/I ownership and semantic-policy combinations for editor/build diagnostics.
+[[nodiscard]] StructuralBrushValidationReport ValidateStructuralBrushMetadata(
+    const StructuralBrushMetadata& metadata);
+
 [[nodiscard]] ri::structural::StructuralNode MakeStructuralPrimitiveSolid(std::string id,
                                                                           std::string_view structuralType,
                                                                           ri::math::Vec3 position,

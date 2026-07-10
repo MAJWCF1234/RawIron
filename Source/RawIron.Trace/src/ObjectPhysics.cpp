@@ -10,8 +10,20 @@
 namespace ri::trace {
 namespace {
 
+bool FiniteVec3(const ri::math::Vec3& value) {
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+bool ValidBounds(const ri::spatial::Aabb& bounds) {
+    return FiniteVec3(bounds.min) && FiniteVec3(bounds.max) && !ri::spatial::IsEmpty(bounds);
+}
+
+float FiniteOr(const float value, const float fallback) {
+    return std::isfinite(value) ? value : fallback;
+}
+
 ri::math::Vec3 ResolveForward(const ri::math::Vec3& holderForward) {
-    if (ri::math::LengthSquared(holderForward) < 1e-10f) {
+    if (!FiniteVec3(holderForward) || ri::math::LengthSquared(holderForward) < 1e-10f) {
         return ri::math::Vec3{0.0f, 0.0f, 1.0f};
     }
     return ri::math::Normalize(holderForward);
@@ -66,8 +78,9 @@ ObjectPhysicsBatchResult StepKinematicObjectBatch(
         // Object batches are commonly stepped from presentation frame deltas. Unlike the single-step API, the batch
         // must not discard time after a hitch; the duration wrapper keeps the same bounded integrator while consuming
         // every safe slice.
-        KinematicStepResult step =
-            SimulateKinematicBodyForDuration(scene, slot.state, deltaSeconds, merged, modifiers, constraints);
+        KinematicAdvanceStats advanceStats{};
+        KinematicStepResult step = SimulateKinematicBodyForDuration(
+            scene, slot.state, deltaSeconds, merged, modifiers, constraints, &advanceStats);
         slot.state = step.state;
         outStep = std::move(step);
         result.simulatedCount += 1;
@@ -79,13 +92,16 @@ ObjectPhysicsBatchResult StepKinematicObjectBatch(
         if (batchOptions.enableSleep) {
             const float linearSpeed = ri::math::Length(slot.state.velocity);
             const float angularSpeed = ri::math::Length(slot.state.angularVelocity);
-            const bool atRestRates = linearSpeed < batchOptions.sleepLinearThreshold
-                && angularSpeed < batchOptions.sleepAngularThreshold;
+            const float sleepLinearThreshold = std::max(0.0f, FiniteOr(batchOptions.sleepLinearThreshold, 0.05f));
+            const float sleepAngularThreshold = std::max(0.0f, FiniteOr(batchOptions.sleepAngularThreshold, 0.05f));
+            const float calmSecondsBeforeSleep = std::max(0.0f, FiniteOr(batchOptions.calmSecondsBeforeSleep, 0.4f));
+            const bool atRestRates = linearSpeed < sleepLinearThreshold && angularSpeed < sleepAngularThreshold;
             const bool onGround = outStep.onGround;
 
             if (atRestRates && onGround) {
-                slot.calmSeconds += deltaSeconds;
-                if (slot.calmSeconds >= batchOptions.calmSecondsBeforeSleep) {
+                slot.calmSeconds = std::max(0.0f, FiniteOr(slot.calmSeconds, 0.0f));
+                slot.calmSeconds += advanceStats.consumedSeconds;
+                if (slot.calmSeconds >= calmSecondsBeforeSleep) {
                     slot.sleeping = true;
                 }
             } else {
@@ -107,17 +123,20 @@ bool TryPickupNearestKinematicObject(
     if (heldState.heldObjectIndex.has_value()) {
         return false;
     }
+    if (!FiniteVec3(holderPosition)) {
+        return false;
+    }
 
     const ri::math::Vec3 forward = ResolveForward(holderForward);
-    const float maxDistance = std::max(0.1f, options.maxPickupDistance);
-    const float minAimDot = std::clamp(options.minPickupAimDot, -1.0f, 1.0f);
+    const float maxDistance = std::max(0.1f, FiniteOr(options.maxPickupDistance, 2.5f));
+    const float minAimDot = std::clamp(FiniteOr(options.minPickupAimDot, 0.25f), -1.0f, 1.0f);
 
     std::optional<std::size_t> bestIndex;
     float bestDistance = std::numeric_limits<float>::infinity();
     float bestAimDot = -1.0f;
     for (std::size_t index = 0; index < objects.size(); ++index) {
         const KinematicObjectSlot& slot = objects[index];
-        if (ri::spatial::IsEmpty(slot.state.bounds)) {
+        if (!ValidBounds(slot.state.bounds)) {
             continue;
         }
 
@@ -163,26 +182,29 @@ bool UpdateHeldKinematicObject(
     if (!heldState.heldObjectIndex.has_value()) {
         return false;
     }
+    if (!FiniteVec3(holderPosition)) {
+        return false;
+    }
     if (*heldState.heldObjectIndex >= objects.size()) {
         heldState.heldObjectIndex.reset();
         return false;
     }
 
     KinematicObjectSlot& held = objects[*heldState.heldObjectIndex];
-    if (ri::spatial::IsEmpty(held.state.bounds)) {
+    if (!ValidBounds(held.state.bounds)) {
         heldState.heldObjectIndex.reset();
         return false;
     }
 
     const ri::math::Vec3 forward = ResolveForward(holderForward);
     const ri::math::Vec3 targetCenter = holderPosition
-        + (forward * std::max(0.25f, options.holdDistance))
-        + ri::math::Vec3{0.0f, options.holdHeightOffset, 0.0f};
+        + (forward * std::max(0.25f, FiniteOr(options.holdDistance, 1.4f)))
+        + ri::math::Vec3{0.0f, FiniteOr(options.holdHeightOffset, 0.25f), 0.0f};
     const ri::math::Vec3 currentCenter = ri::spatial::Center(held.state.bounds);
 
     float alpha = 1.0f;
     if (std::isfinite(deltaSeconds) && deltaSeconds > 0.0f) {
-        const float response = std::max(0.0f, options.holdFollowResponsiveness);
+        const float response = std::max(0.0f, FiniteOr(options.holdFollowResponsiveness, 18.0f));
         alpha = 1.0f - std::exp(-response * deltaSeconds);
         alpha = std::clamp(alpha, 0.0f, 1.0f);
     }
@@ -212,10 +234,11 @@ bool ThrowHeldKinematicObject(
 
     KinematicObjectSlot& held = objects[*heldState.heldObjectIndex];
     const ri::math::Vec3 forward = ResolveForward(holderForward);
+    const ri::math::Vec3 safeHolderVelocity = FiniteVec3(holderVelocity) ? holderVelocity : ri::math::Vec3{};
     const ri::math::Vec3 throwVelocity =
-        (forward * std::max(0.0f, options.throwSpeed))
-        + (holderVelocity * std::max(0.0f, options.throwInheritHolderVelocityScale))
-        + ri::math::Vec3{0.0f, std::max(0.0f, options.throwUpwardBoost), 0.0f};
+        (forward * std::max(0.0f, FiniteOr(options.throwSpeed, 10.0f)))
+        + (safeHolderVelocity * std::max(0.0f, FiniteOr(options.throwInheritHolderVelocityScale, 0.5f)))
+        + ri::math::Vec3{0.0f, std::max(0.0f, FiniteOr(options.throwUpwardBoost, 1.25f)), 0.0f};
 
     held.state.velocity = throwVelocity;
     held.sleeping = false;

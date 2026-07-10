@@ -24,4 +24,9 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(ConvexClipperSmoke ${CMAKE_SOURCE_DIR}/Tests/ConvexClipperSmoke.cpp)
   target_link_libraries(ConvexClipperSmoke PRIVATE RawIron::Structural)
   add_test(NAME RawIron.Structural.ConvexClipperSmoke COMMAND ConvexClipperSmoke)
+
+  add_executable(StructuralPrimitiveValidationSmoke
+    ${CMAKE_SOURCE_DIR}/Tests/StructuralPrimitiveValidationSmoke.cpp)
+  target_link_libraries(StructuralPrimitiveValidationSmoke PRIVATE RawIron::Structural)
+  add_test(NAME RawIron.Structural.PrimitiveValidationSmoke COMMAND StructuralPrimitiveValidationSmoke)
 endif()

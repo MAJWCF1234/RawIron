@@ -4,6 +4,7 @@
 #include "RawIron/Logic/LogicTypes.h"
 
 #include <cstdint>
+#include <cstddef>
 #include <functional>
 #include <queue>
 #include <string>
@@ -12,6 +13,14 @@
 #include <vector>
 
 namespace ri::logic {
+
+inline constexpr std::size_t kLogicMaxImmediateDispatchDepth = 256;
+
+struct LogicGraphRuntimeMetrics {
+    std::size_t immediateDispatchCount = 0;
+    std::size_t droppedImmediateDispatchCount = 0;
+    std::size_t maxImmediateDispatchDepth = 0;
+};
 
 /// Directed event graph executor: nodes, routes with optional delay, monotonic clock.
 class LogicGraph {
@@ -30,6 +39,8 @@ public:
     void SetInputDispatchHandler(InputDispatchHandler handler) { inputDispatchHandler_ = std::move(handler); }
 
     [[nodiscard]] std::uint64_t NowMs() const { return nowMs_; }
+    [[nodiscard]] LogicGraphRuntimeMetrics RuntimeMetrics() const noexcept { return runtimeMetrics_; }
+    void ResetRuntimeMetrics() noexcept { runtimeMetrics_ = {}; }
 
     void AdvanceTime(std::uint64_t deltaMs);
 
@@ -76,6 +87,7 @@ private:
     InputDispatchHandler inputDispatchHandler_;
     std::uint64_t nowMs_ = 0;
     std::uint64_t nextTieBreak_ = 0;
+    LogicGraphRuntimeMetrics runtimeMetrics_{};
 
     using RouteMap = std::unordered_map<std::string, std::vector<LogicRouteTarget>>;
     RouteMap routes_;

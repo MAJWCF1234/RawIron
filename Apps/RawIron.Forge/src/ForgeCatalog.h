@@ -29,9 +29,20 @@ struct AssetCatalog {
     std::size_t invalidRigCount = 0;
 };
 
+struct ModelSourceValidationReport {
+    bool valid = false;
+    bool runtimeImportable = false;
+    std::size_t nodeCount = 0;
+    std::size_t meshCount = 0;
+    std::size_t materialCount = 0;
+    std::string summary{};
+};
+
 [[nodiscard]] bool IsModelSourcePath(const std::filesystem::path& path);
 [[nodiscard]] bool IsRigPath(const std::filesystem::path& path);
 [[nodiscard]] AssetCatalog ScanAssetCatalog(const std::filesystem::path& workspaceRoot);
+/// Runs the real engine importer for OBJ/glTF/GLB/FBX sources. Blend files are reported as export-required.
+[[nodiscard]] ModelSourceValidationReport ValidateModelSource(const std::filesystem::path& sourcePath);
 [[nodiscard]] std::filesystem::path CreateUniqueHumanoidRig(
     const std::filesystem::path& workspaceRoot,
     std::string* errorMessage = nullptr);

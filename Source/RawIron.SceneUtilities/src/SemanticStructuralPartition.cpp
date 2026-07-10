@@ -579,11 +579,16 @@ const SemanticStructuralPartition& SemanticStructuralPartitionCache::GetOrRebuil
     const Scene& scene,
     ri::spatial::SpatialIndexOptions indexOptions) {
     const std::uint64_t sceneSignature = ComputeSemanticStructuralSceneSignature(scene);
-    if (dirty_ || sceneSignature != sceneSignature_) {
+    const bool indexOptionsChanged = !hasIndexOptions_
+        || indexOptions.maxLeafSize != indexOptions_.maxLeafSize
+        || indexOptions.maxDepth != indexOptions_.maxDepth;
+    if (dirty_ || sceneSignature != sceneSignature_ || indexOptionsChanged) {
         // Rebuild in place so region subpartitions whose content did not change keep their
         // spatial trees; a single brush edit re-splits only the affected region.
         partition_.Rebuild(BuildSemanticStructuralPartitionEntries(scene), indexOptions);
         sceneSignature_ = sceneSignature;
+        indexOptions_ = indexOptions;
+        hasIndexOptions_ = true;
         dirty_ = false;
         ++rebuildCount_;
     } else {
@@ -602,6 +607,14 @@ bool SemanticStructuralPartitionCache::IsDirty() const noexcept {
 
 bool SemanticStructuralPartitionCache::NeedsRebuild(const Scene& scene) const {
     return dirty_ || ComputeSemanticStructuralSceneSignature(scene) != sceneSignature_;
+}
+
+bool SemanticStructuralPartitionCache::NeedsRebuild(
+    const Scene& scene,
+    const ri::spatial::SpatialIndexOptions indexOptions) const {
+    return NeedsRebuild(scene) || !hasIndexOptions_
+        || indexOptions.maxLeafSize != indexOptions_.maxLeafSize
+        || indexOptions.maxDepth != indexOptions_.maxDepth;
 }
 
 std::size_t SemanticStructuralPartitionCache::RebuildCount() const noexcept {

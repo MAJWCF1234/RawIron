@@ -62,6 +62,20 @@ int main() {
         || metadata.informationLayer.relations[0] != "supports:atrium_ceiling") {
         return EXIT_FAILURE;
     }
+    const ri::scene::StructuralBrushValidationReport validMetadata =
+        ri::scene::ValidateStructuralBrushMetadata(metadata);
+    if (!validMetadata.valid || !validMetadata.errors.empty()) {
+        return EXIT_FAILURE;
+    }
+
+    ri::scene::StructuralBrushMetadata brokenMetadata = metadata;
+    brokenMetadata.visualMesh.meshId.clear();
+    brokenMetadata.queryMesh.meshId.clear();
+    const ri::scene::StructuralBrushValidationReport brokenReport =
+        ri::scene::ValidateStructuralBrushMetadata(brokenMetadata);
+    if (brokenReport.valid || brokenReport.errors.size() < 2U) {
+        return EXIT_FAILURE;
+    }
 
     if (ri::scene::ToString(metadata.role) != "wall"
         || ri::scene::ToString(metadata.collision) != "player"
