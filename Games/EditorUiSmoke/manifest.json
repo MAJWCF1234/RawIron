@@ -2,10 +2,10 @@
   "id": "editor-ui-smoke",
   "name": "Editor UI Smoke",
   "format": "rawiron-game-v1.3.7",
-  "type": "game",
-  "entry": "RawIron.EditorUISmokeGame",
+  "type": "experience",
+  "entry": "RawIron.Editor",
   "runtimeContract": "rawiron-runtime-v1",
-  "runtimeModule": "RawIron.Game.EditorUISmoke",
+  "runtimeModule": "RawIron.EditorPreview.AuthoredProject",
   "runtimeHost": "RuntimeCore",
   "runtimeServices": [
     "lifecycle",
@@ -18,7 +18,7 @@
   "author": "RawIron Editor",
   "editorProjectArg": "--game=editor-ui-smoke",
   "primaryLevel": "levels/assembly.primitives.csv",
-  "description": "Smoke test game created via ri_tool in Games/.",
+  "description": "Editor-hosted authored-project regression experience for viewport import, workbench UI, focus, inspectors, and handoff flows.",
   "editorPreviewScene": "editor-ui-smoke",
   "controls": {
     "move": "WASD",
