@@ -1,0 +1,2 @@
+trigger_id,event_type,min_x,min_y,min_z,max_x,max_y,max_z,param
+Trigger_spawn_zone,generic_trigger_volume,-1,0,-1,1,2,1,player_spawn

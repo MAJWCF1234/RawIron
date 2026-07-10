@@ -20,6 +20,7 @@ target_link_libraries(RawIron.Game.CubeTest
     RawIron::SceneUtilities
     RawIron::Trace
     RawIron::EditorPreview
+    RawIron::Game.RuntimeDiagnosticsDraw
 )
 
 if (WIN32)

@@ -1,0 +1,5 @@
+# Cube Test boot profile.
+warmup_frames=2
+precache_enabled=1
+preload_streaming_cells=1
+compile_logic_graph_on_boot=1

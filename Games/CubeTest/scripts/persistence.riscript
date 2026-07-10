@@ -1,0 +1,5 @@
+# Persistence is available for contract testing but autosave is disabled by streaming policy.
+autosave_interval_seconds=300
+checkpoint_ring_size=2
+persistence_flush_on_checkpoint=1
+save_slot_count=1

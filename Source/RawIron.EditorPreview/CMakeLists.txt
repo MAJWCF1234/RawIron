@@ -11,6 +11,7 @@ target_include_directories(RawIron.EditorPreview
 
 target_link_libraries(RawIron.EditorPreview
   PUBLIC
+    RawIron::Content
     RawIron::RenderSoftware
     RawIron::SceneUtilities
 )

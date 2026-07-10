@@ -1,0 +1,4 @@
+# Loopback-safe network defaults for automated material tests.
+network_tick_hz=60
+network_snapshot_rate=20
+network_timeout_seconds=15

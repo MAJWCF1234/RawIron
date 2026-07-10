@@ -1,0 +1,3 @@
+# ui smoke test
+assert.flow=ui/main.ui.json
+assert.vn=ui/vn_intro.ui.json

@@ -9,18 +9,21 @@
   "runtimeHost": "RuntimeCore",
   "runtimeServices": [
     "lifecycle",
+    "events",
+    "services",
     "paths",
     "frame-clock"
   ],
   "version": "1.3.7",
   "author": "RawIron Team",
   "editorProjectArg": "--game=cube-test",
-  "primaryLevel": "levels/cube-test.primitives.csv",
+  "primaryLevel": "levels/assembly.primitives.csv",
   "description": "Minimal first-person material and structural primitive test: walk around one fully mapped cube on a structural platform.",
   "editorPreviewScene": "cube-test",
   "controls": {
     "move": "WASD",
     "look": "Right mouse drag or arrow keys",
+    "jump": "Space",
     "sprint": "Shift",
     "quit": "Esc"
   },

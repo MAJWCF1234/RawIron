@@ -1,3 +1,11 @@
 name,primitive,parent,px,py,pz,rx,ry,rz,sx,sy,sz,material,texture,tx,ty,r,g,b,a
-floor,plane,,0,0,0,0,0,0,12,1,12,starter_floor,smooth_stone.png,4,4,0.72,0.74,0.78,1
-spawn_block,cube,,0,1,0,0,0,0,1,1,1,starter_block,iron_block.png,1,1,0.55,0.58,0.62,1
+floor,plane,,0,0,0,0,0,0,20,1,20,ui_smoke_floor,smooth_stone.png,6,6,0.18,0.20,0.24,1
+spawn_block,cube,,0,0.55,0,0,20,0,1.1,1.1,1.1,selection_subject,iron_block.png,1,1,0.62,0.66,0.72,1
+transform_x,cube,,-3.0,0.12,2.5,0,0,0,4.0,0.18,0.18,axis_x,-,1,1,0.92,0.20,0.18,1
+transform_y,cube,,-4.9,2.0,2.5,0,0,0,0.18,4.0,0.18,axis_y,-,1,1,0.20,0.92,0.34,1
+transform_z,cube,,-4.9,0.12,4.4,0,0,0,0.18,0.18,4.0,axis_z,-,1,1,0.22,0.46,0.96,1
+material_warm,cube,,3.0,0.55,-1.4,0,-18,0,1.1,1.1,1.1,swatch_warm,copper_block.png,1,1,0.92,0.48,0.22,1
+material_cool,cube,,5.0,0.55,-1.4,0,18,0,1.1,1.1,1.1,swatch_cool,diamond_block.png,1,1,0.28,0.76,0.94,0.72
+modal_frame_left,cube,,-3.4,2.4,7.0,0,0,0,0.25,4.8,0.35,modal_frame,-,1,1,0.68,0.42,0.94,1
+modal_frame_right,cube,,3.4,2.4,7.0,0,0,0,0.25,4.8,0.35,modal_frame,-,1,1,0.68,0.42,0.94,1
+modal_frame_top,cube,,0,4.65,7.0,0,0,0,7.0,0.30,0.35,modal_frame,-,1,1,0.68,0.42,0.94,1

@@ -25,6 +25,9 @@ struct AssemblyPrimitivesImportResult {
 };
 
 /// Spawns cube/plane primitives under \p worldRootNodeHandle from assembly CSV rows.
+/// Column names are resolved from either a normal header or a commented `# name,...` header,
+/// allowing editor exports, scaffold projects, and legacy bundled-game assemblies to share the
+/// same engine importer without per-game parsing code.
 [[nodiscard]] bool TryImportAssemblyPrimitivesCsv(Scene& scene,
                                                     int worldRootNodeHandle,
                                                     const std::filesystem::path& inputPath,

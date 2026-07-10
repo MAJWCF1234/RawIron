@@ -1,5 +1,6 @@
 #include "RawIron/Games/CubeTest/CubeTestWorld.h"
 
+#include "RawIron/Content/GameManifest.h"
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Scene/StructuralBrush.h"
 
@@ -17,7 +18,8 @@ namespace fs = std::filesystem;
 constexpr const char* kLrtPackageRelativePath = "Assets\\Packages\\LRT - Texture Pack - RT28.8 - 128x";
 
 std::string PackageTexture(const std::string_view relativePath) {
-    return (fs::current_path() / fs::path(kLrtPackageRelativePath) / fs::path(relativePath)).lexically_normal().string();
+    const fs::path workspaceRoot = ri::content::DetectWorkspaceRoot(fs::current_path());
+    return (workspaceRoot / fs::path(kLrtPackageRelativePath) / fs::path(relativePath)).lexically_normal().string();
 }
 
 ri::scene::PrimitiveNodeOptions CubeMaterialOptions(const int parent) {

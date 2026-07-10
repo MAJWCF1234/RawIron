@@ -8,9 +8,12 @@
 #include "RawIron/Scene/SceneUtils.h"
 
 #include <cmath>
+#include <cctype>
 #include <fstream>
 #include <iomanip>
+#include <optional>
 #include <sstream>
+#include <unordered_map>
 #include <vector>
 
 namespace ri::scene {
@@ -157,6 +160,48 @@ std::vector<std::string> SplitCsvLine(const std::string& line) {
     }
 }
 
+[[nodiscard]] std::string NormalizeColumnName(std::string_view value) {
+    std::string normalized;
+    normalized.reserve(value.size());
+    for (const unsigned char character : value) {
+        if (std::isalnum(character) != 0) {
+            normalized.push_back(static_cast<char>(std::tolower(character)));
+        }
+    }
+    return normalized;
+}
+
+using CsvColumnMap = std::unordered_map<std::string, std::size_t>;
+
+[[nodiscard]] CsvColumnMap BuildColumnMap(const std::vector<std::string>& tokens) {
+    CsvColumnMap columns;
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        const std::string name = NormalizeColumnName(tokens[index]);
+        if (!name.empty()) {
+            columns.try_emplace(name, index);
+        }
+    }
+    return columns;
+}
+
+[[nodiscard]] std::optional<std::size_t> FindColumn(
+    const CsvColumnMap& columns,
+    const std::initializer_list<std::string_view> aliases) {
+    for (const std::string_view alias : aliases) {
+        const auto found = columns.find(std::string(alias));
+        if (found != columns.end()) {
+            return found->second;
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] bool IsAssemblyHeader(const CsvColumnMap& columns) {
+    return FindColumn(columns, {"name", "id"}).has_value()
+        && FindColumn(columns, {"type", "primitive"}).has_value()
+        && FindColumn(columns, {"x", "px", "posx", "positionx"}).has_value();
+}
+
 [[nodiscard]] bool NodeNameExists(const Scene& scene, std::string_view name) {
     for (const Node& node : scene.Nodes()) {
         if (node.name == name) {
@@ -259,18 +304,51 @@ bool TryImportAssemblyPrimitivesCsv(Scene& scene,
     }
 
     AssemblyPrimitivesImportResult localResult{};
+    CsvColumnMap columns{};
     std::string line{};
     while (std::getline(input, line)) {
-        if (line.empty() || line[0] == '#') {
+        if (line.empty()) {
+            continue;
+        }
+        if (line[0] == '#') {
+            std::string headerCandidate = line.substr(1);
+            const std::size_t firstText = headerCandidate.find_first_not_of(" \t");
+            if (firstText != std::string::npos) {
+                headerCandidate.erase(0, firstText);
+                const CsvColumnMap candidate = BuildColumnMap(SplitCsvLine(headerCandidate));
+                if (IsAssemblyHeader(candidate)) {
+                    columns = candidate;
+                }
+            }
             continue;
         }
         const std::vector<std::string> tokens = SplitCsvLine(line);
-        if (tokens.size() < 11U) {
+        const CsvColumnMap possibleHeader = BuildColumnMap(tokens);
+        if (IsAssemblyHeader(possibleHeader)) {
+            columns = possibleHeader;
+            continue;
+        }
+        if (tokens.size() < 2U) {
             localResult.skippedRows += 1;
             continue;
         }
 
-        std::string nodeName = tokens[0];
+        const auto column = [&columns, &tokens](const std::initializer_list<std::string_view> aliases,
+                                                const std::size_t fallback) {
+            const std::optional<std::size_t> mapped = FindColumn(columns, aliases);
+            if (mapped.has_value()) {
+                return *mapped;
+            }
+            return columns.empty() ? fallback : tokens.size();
+        };
+        const std::size_t nameIndex = column({"name", "id"}, 0U);
+        const std::size_t typeIndex = column({"type", "primitive"}, 1U);
+        if (nameIndex >= tokens.size() || typeIndex >= tokens.size()) {
+            localResult.skippedRows += 1;
+            continue;
+        }
+
+        std::string nodeName = tokens[nameIndex];
         if (nodeName.empty()) {
             localResult.skippedRows += 1;
             continue;
@@ -280,11 +358,11 @@ bool TryImportAssemblyPrimitivesCsv(Scene& scene,
             localResult.renamedCount += 1;
         }
 
-        const std::string& typeToken = tokens[1];
+        const std::string& typeToken = tokens[typeIndex];
         const PrimitiveType primitive =
             (typeToken == "plane") ? PrimitiveType::Plane : PrimitiveType::Cube;
 
-        auto readFloat = [&](std::size_t index, float fallback) {
+        const auto readFloat = [&](const std::size_t index, const float fallback) {
             float value = fallback;
             if (index < tokens.size()) {
                 (void)ParseFloatToken(tokens[index], value);
@@ -296,41 +374,46 @@ bool TryImportAssemblyPrimitivesCsv(Scene& scene,
         options.parent = worldRootNodeHandle;
         options.nodeName = nodeName;
         options.primitive = primitive;
-        options.materialName = "import_" + nodeName;
+        const std::size_t materialIndex = column({"material", "materialname"}, tokens.size());
+        options.materialName = materialIndex < tokens.size() && !tokens[materialIndex].empty()
+            ? tokens[materialIndex]
+            : "import_" + nodeName;
         options.transform.position = ri::math::Vec3{
-            readFloat(2U, 0.0f),
-            readFloat(3U, 0.0f),
-            readFloat(4U, 0.0f),
+            readFloat(column({"x", "px", "posx", "positionx"}, 2U), 0.0f),
+            readFloat(column({"y", "py", "posy", "positiony"}, 3U), 0.0f),
+            readFloat(column({"z", "pz", "posz", "positionz"}, 4U), 0.0f),
         };
         options.transform.scale = ri::math::Vec3{
-            std::max(readFloat(5U, 1.0f), 0.01f),
-            std::max(readFloat(6U, 1.0f), 0.01f),
-            std::max(readFloat(7U, 1.0f), 0.01f),
+            std::max(readFloat(column({"sx", "scalex"}, 5U), 1.0f), 0.01f),
+            std::max(readFloat(column({"sy", "scaley"}, 6U), 1.0f), 0.01f),
+            std::max(readFloat(column({"sz", "scalez"}, 7U), 1.0f), 0.01f),
         };
         options.baseColor = ri::math::Vec3{
-            readFloat(8U, 0.7f),
-            readFloat(9U, 0.7f),
-            readFloat(10U, 0.7f),
+            readFloat(column({"r", "colorr", "colorred"}, 8U), 0.7f),
+            readFloat(column({"g", "colorg", "colorgreen"}, 9U), 0.7f),
+            readFloat(column({"b", "colorb", "colorblue"}, 10U), 0.7f),
         };
-        if (tokens.size() > 11U && tokens[11] == "unlit") {
+        const std::size_t shadingIndex = column({"shading", "shadingmodel"}, 11U);
+        if (shadingIndex < tokens.size() && tokens[shadingIndex] == "unlit") {
             options.shadingModel = ShadingModel::Unlit;
         }
-        if (tokens.size() > 12U && !tokens[12].empty() && tokens[12] != "-") {
-            options.baseColorTexture = tokens[12];
+        const std::size_t textureIndex = column({"texture", "basecolortexture"}, 12U);
+        if (textureIndex < tokens.size() && !tokens[textureIndex].empty() && tokens[textureIndex] != "-") {
+            options.baseColorTexture = tokens[textureIndex];
         }
-        if (tokens.size() > 14U) {
+        const std::size_t tileXIndex = column({"tx", "tilex", "tilingx"}, 13U);
+        const std::size_t tileYIndex = column({"ty", "tiley", "tilingy"}, 14U);
+        if (tileXIndex < tokens.size() || tileYIndex < tokens.size()) {
             options.textureTiling = ri::math::Vec2{
-                std::max(readFloat(13U, 1.0f), 0.01f),
-                std::max(readFloat(14U, 1.0f), 0.01f),
+                std::max(readFloat(tileXIndex, 1.0f), 0.01f),
+                std::max(readFloat(tileYIndex, 1.0f), 0.01f),
             };
         }
-        if (tokens.size() > 17U) {
-            options.transform.rotationDegrees = ri::math::Vec3{
-                readFloat(15U, 0.0f),
-                readFloat(16U, 0.0f),
-                readFloat(17U, 0.0f),
-            };
-        }
+        options.transform.rotationDegrees = ri::math::Vec3{
+            readFloat(column({"rx", "rotx", "rotationx"}, 15U), 0.0f),
+            readFloat(column({"ry", "roty", "rotationy"}, 16U), 0.0f),
+            readFloat(column({"rz", "rotz", "rotationz"}, 17U), 0.0f),
+        };
 
         (void)AddPrimitiveNode(scene, options);
         localResult.spawnedCount += 1;

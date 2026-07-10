@@ -1,0 +1,7 @@
+# Cube Test physics profile.
+global_gravity_scale=1.0
+global_drag_scale=1.0
+global_jump_scale=1.0
+global_air_control_scale=1.0
+movement_gravity=26.0
+movement_fall_gravity_multiplier=1.30

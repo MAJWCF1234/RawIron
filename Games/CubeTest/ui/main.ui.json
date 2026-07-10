@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "startScreen": "title",
+  "screens": [
+    {
+      "id": "title",
+      "title": "Cube Test",
+      "background": {
+        "tint": [0.04, 0.05, 0.10, 0.98]
+      },
+      "blocks": [
+        { "type": "heading", "text": "Cube Test", "align": "center" },
+        { "type": "spacer", "height": 24 },
+        { "type": "paragraph", "text": "A compact engine laboratory for structural ownership, PBR response, traces, plugins, and native Vulkan presentation.", "align": "center" },
+        { "type": "spacer", "height": 32 },
+        { "type": "button", "label": "Play", "action": { "type": "emit", "id": "game.start" } },
+        { "type": "button", "label": "Test Brief", "action": { "type": "navigate", "target": "story_intro" } },
+        { "type": "button", "label": "Quit", "action": { "type": "emit", "id": "app.quit" } }
+      ]
+    },
+    {
+      "id": "story_intro",
+      "title": "Material Lab Brief",
+      "background": {
+        "tint": [0.06, 0.04, 0.08, 0.96]
+      },
+      "advance": {
+        "onSpace": true,
+        "onClick": true,
+        "onEnter": true,
+        "action": { "type": "navigate", "target": "title" }
+      },
+      "blocks": [
+        { "type": "historyNote", "text": "Validation pass", "backlogOnly": true },
+        { "type": "say", "speaker": "Lab", "text": "Circle the platform and compare quartz, gold, copper, iron, and transparent crystal under the same moving lights." },
+        { "type": "spacer", "height": 16 },
+        { "type": "narration", "text": "The same authored assembly opens in the editor, while the runtime keeps M/P/Q/I structural metadata and project plugins on engine-owned paths.", "align": "left" },
+        { "type": "spacer", "height": 20 },
+        { "type": "label", "text": "Space or click to return", "align": "center" }
+      ]
+    }
+  ]
+}

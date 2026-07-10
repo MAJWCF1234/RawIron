@@ -19,3 +19,15 @@ add_test(NAME RawIron.Core.RenderCommandStreamSmoke COMMAND RenderCommandStreamS
 add_executable(FrameArenaSmoke FrameArenaSmoke.cpp)
 target_link_libraries(FrameArenaSmoke PRIVATE RawIron::Core)
 add_test(NAME RawIron.Core.FrameArenaSmoke COMMAND FrameArenaSmoke)
+
+add_executable(BundledGameExperiencesSmoke BundledGameExperiencesSmoke.cpp)
+target_link_libraries(BundledGameExperiencesSmoke
+  PRIVATE
+    RawIron::Content
+    RawIron::EditorPreview
+    RawIron::SceneUtilities
+)
+add_test(
+  NAME RawIron.Games.BundledExperiencesSmoke
+  COMMAND BundledGameExperiencesSmoke ${CMAKE_SOURCE_DIR}
+)

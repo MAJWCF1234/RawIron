@@ -11,7 +11,7 @@
       "blocks": [
         { "type": "heading", "text": "RawIron Multiplayer Sandbox", "align": "center" },
         { "type": "spacer", "height": 18 },
-        { "type": "paragraph", "text": "Shared menu flow for the network proving ground.", "align": "center" },
+        { "type": "paragraph", "text": "Inspect the engine primitive/material catalog while exercising dedicated, listen, hybrid, client, bot-swarm, and simulated-network paths.", "align": "center" },
         { "type": "spacer", "height": 24 },
         { "type": "button", "label": "Open Catalog", "action": { "type": "emit", "id": "game.start" } },
         { "type": "button", "label": "Session Notes", "action": { "type": "navigate", "target": "session_notes" } },
@@ -20,7 +20,7 @@
     },
     {
       "id": "session_notes",
-      "title": "Session notes",
+      "title": "Session Modes",
       "background": {
         "tint": [0.05, 0.06, 0.08, 0.96]
       },
@@ -32,9 +32,9 @@
       },
       "blocks": [
         { "type": "historyNote", "text": "Sandbox boot", "backlogOnly": true },
-        { "type": "say", "speaker": "Ops", "text": "This game-local menu flow belongs to the sandbox project, not a repo-wide sample." },
+        { "type": "say", "speaker": "Ops", "text": "Listen mode is the fastest local check; dedicated mode validates authority; hybrid mode adds the peer side-plane; client mode joins an issued code or direct token." },
         { "type": "spacer", "height": 14 },
-        { "type": "narration", "text": "Use it for mode notes, host/client guidance, or network session walkthroughs.", "align": "left" },
+        { "type": "narration", "text": "Bots and delay, jitter, and loss simulation run through RawIron.Runtime modules; the game project only supplies scenario policy and the structural proving-ground scene.", "align": "left" },
         { "type": "label", "text": "Space or click to return", "align": "center" }
       ]
     }

@@ -1,5 +1,23 @@
-# Cube Test gameplay script notes
-set game.id cube-test
-set player.spawn "0 1.62 -6"
-set player.controls "WASD move, Shift sprint, right mouse drag look, Esc quit"
-set structural.goal "validate M/P/Q/I primitive ownership on one cube and platform"
+# Cube Test gameplay tuning. The shared runtime consumes these values.
+walk_speed=4.2
+sprint_speed=7.5
+air_speed=6.0
+jump_speed=7.2
+ground_acceleration=72.0
+air_acceleration=18.0
+ground_friction=7.0
+stop_speed=1.0
+air_control=0.30
+coyote_time=0.14
+jump_buffer_time=0.16
+low_jump_gravity_multiplier=1.35
+max_fall_speed=30.0
+camera_height=1.62
+mouse_sensitivity=0.12
+spawn_x=0.0
+spawn_y=0.20
+spawn_z=-7.4
+spawn_yaw=0.0
+spawn_pitch=-5.0
+bsp_max_leaf_size=8
+bsp_max_depth=8

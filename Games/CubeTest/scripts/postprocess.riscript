@@ -1,4 +1,13 @@
-# Cube Test postprocess notes
-set post.exposure 1.02
-set post.contrast 1.08
-set post.saturation 1.0
+# Cube Test post-process profile keeps material response easy to compare.
+postprocess_quality=2
+postprocess_tint_strength=0.0
+bloom_strength=0.12
+vignette_strength=0.02
+sharpen_amount=0.08
+native_exposure=1.02
+native_contrast=1.08
+native_saturation=1.0
+native_fog_density=0.002
+fov_base=72.0
+fov_sprint_add=2.0
+fov_lerp_per_second=10.0

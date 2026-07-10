@@ -1,5 +1,19 @@
-# Cube Test rendering script notes
-set render.quality cinematic
-set render.hybrid_hdr default_on
-set render.material_test "diamond full-map cube"
-set render.texture_policy "albedo normal spec detail through normal engine rendering"
+# Cube Test neutral-light material comparison profile.
+clear_top_r=0.50
+clear_top_g=0.62
+clear_top_b=0.70
+clear_bottom_r=0.30
+clear_bottom_g=0.34
+clear_bottom_b=0.34
+fog_r=0.50
+fog_g=0.55
+fog_b=0.58
+ambient_r=0.34
+ambient_g=0.36
+ambient_b=0.34
+fog_start=22.0
+fog_end=96.0
+fog_strength=0.20
+fov_base=72.0
+fov_sprint_add=2.0
+fov_lerp_per_second=10.0

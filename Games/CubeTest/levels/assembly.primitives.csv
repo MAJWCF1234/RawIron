@@ -1,0 +1,9 @@
+# Cube Test editor assembly, matching the runtime material laboratory.
+# name,type,posX,posY,posZ,scaleX,scaleY,scaleZ,colorR,colorG,colorB,shading,texture,tileX,tileY,rotX,rotY,rotZ
+CubeTest_Platform,cube,0,-0.12,0,16,0.24,16,0.62,0.66,0.62,lit,-,8,8,0,0,0
+CubeTest_MappedCube,cube,0,1.1,0,2,2,2,1,1,1,lit,tile/RT_chiseled_quartz_block.png,1,1,0,28,0
+CubeTest_GoldSpecSample,cube,-3.35,0.55,1.85,0.95,0.95,0.95,1,0.82,0.28,lit,tile/rt2_gold_block.png,1,1,0,-18,0
+CubeTest_CopperNormalSample,cube,3.35,0.55,1.85,0.95,0.95,0.95,0.92,0.52,0.28,lit,tile/rt2_chiseled_copper.png,1,1,0,-18,0
+CubeTest_IronRoughnessSample,cube,0,0.45,3.85,0.78,0.78,0.78,0.68,0.70,0.72,lit,tile/rt2_iron_block.png,1,1,0,-18,0
+CubeTest_CrystalGlassSample,cube,-3.35,0.45,-2.15,0.82,0.82,0.82,0.62,0.90,1.0,lit,tile/rt2_diamond_block.png,1,1,0,-18,0
+CubeTest_PortalBrush,cube,4.8,1.35,-1.6,1.4,2.6,0.22,0.72,0.88,0.96,unlit,-,1,1,0,-24,0

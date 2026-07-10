@@ -1,0 +1,3 @@
+# Silent laboratory profile; values still exercise the engine audio contract.
+audio_master_gain=0.75
+audio_environment_blend=0.25

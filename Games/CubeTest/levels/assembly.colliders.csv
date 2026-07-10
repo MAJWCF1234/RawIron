@@ -1,0 +1,4 @@
+# Cube Test authored collision/Q-mesh mirror.
+# id,centerX,centerY,centerZ,extentX,extentY,extentZ
+cube-test-platform,0,-0.11,0,8.0,0.13,8.0
+cube-test-query-cube,0,1.1,0,1.0,1.0,1.0
