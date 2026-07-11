@@ -7,6 +7,15 @@
 namespace ri::events {
 namespace {
 
+constexpr double kMaxEventDelayMs = 86'400'000.0;
+
+double NormalizeDelayMs(double delayMs) {
+    if (!std::isfinite(delayMs)) {
+        return 0.0;
+    }
+    return std::clamp(std::max(0.0, delayMs), 0.0, kMaxEventDelayMs);
+}
+
 std::optional<std::size_t> NormalizeMaxRuns(const std::optional<std::size_t>& maxRuns) {
     if (!maxRuns.has_value() || *maxRuns == 0) {
         return std::nullopt;
@@ -231,16 +240,25 @@ bool EventEngine::EvaluateConditions(const EventConditions& conditions,
         }
     }
     for (const auto& [key, value] : conditions.valuesAtLeast) {
+        if (!std::isfinite(value)) {
+            return false;
+        }
         if (GetWorldValue(key) < value) {
             return false;
         }
     }
     for (const auto& [key, value] : conditions.valuesAtMost) {
+        if (!std::isfinite(value)) {
+            return false;
+        }
         if (GetWorldValue(key) > value) {
             return false;
         }
     }
     for (const auto& [key, value] : conditions.valuesEqual) {
+        if (!std::isfinite(value)) {
+            return false;
+        }
         if (!NearlyEqualDouble(GetWorldValue(key), value)) {
             return false;
         }
@@ -294,6 +312,7 @@ bool EventEngine::RunHook(std::string_view hookName,
         return false;
     }
 
+    const double safeNowMs = std::isfinite(nowMs) ? std::max(0.0, nowMs) : 0.0;
     bool consumed = false;
     for (const EventDefinition& event : events_) {
         if (event.hook != hookName) {
@@ -307,7 +326,7 @@ bool EventEngine::RunHook(std::string_view hookName,
         }
 
         EventRuntimeState& runtime = GetEventRuntimeState(event);
-        if (runtime.cooldownUntilMs > nowMs) {
+        if (runtime.cooldownUntilMs > safeNowMs) {
             continue;
         }
         if (event.maxRuns.has_value() && runtime.runCount >= *event.maxRuns) {
@@ -321,9 +340,11 @@ bool EventEngine::RunHook(std::string_view hookName,
             completedEventIds_.insert(event.resolvedId);
         }
         runtime.runCount += 1;
-        runtime.cooldownUntilMs = event.cooldownMs > 0 ? nowMs + static_cast<double>(event.cooldownMs) : 0.0;
+        runtime.cooldownUntilMs = event.cooldownMs > 0
+            ? safeNowMs + static_cast<double>(event.cooldownMs)
+            : 0.0;
 
-        RunActions(event.actions, context, executor, nowMs, nullptr, extraEvaluator);
+        RunActions(event.actions, context, executor, safeNowMs, nullptr, extraEvaluator);
         if (event.consumeInteraction) {
             consumed = true;
         }
@@ -349,6 +370,7 @@ void EventEngine::RunActions(const std::vector<EventAction>& actions,
 void EventEngine::Tick(double nowMs,
                        const ActionExecutor& executor,
                        ExtraConditionEvaluator extraEvaluator) {
+    const double safeNowMs = std::isfinite(nowMs) ? std::max(0.0, nowMs) : 0.0;
     std::stable_sort(timers_.begin(), timers_.end(), [](const TimerRecord& lhs, const TimerRecord& rhs) {
         return lhs.triggerTimeMs < rhs.triggerTimeMs;
     });
@@ -357,7 +379,7 @@ void EventEngine::Tick(double nowMs,
     pending.swap(timers_);
 
     for (TimerRecord& timer : pending) {
-        if (timer.triggerTimeMs > nowMs) {
+        if (timer.triggerTimeMs > safeNowMs) {
             timers_.push_back(std::move(timer));
             continue;
         }
@@ -370,7 +392,7 @@ void EventEngine::Tick(double nowMs,
             activeNamedTimerGenerations_.erase(found);
         }
 
-        RunActions(timer.actions, timer.context, executor, nowMs, nullptr, extraEvaluator);
+        RunActions(timer.actions, timer.context, executor, safeNowMs, nullptr, extraEvaluator);
     }
 }
 
@@ -561,8 +583,9 @@ bool EventEngine::HandleRunSequenceAction(const EventAction& action,
     double elapsedMs = 0.0;
     for (std::size_t index = 0; index < found->second.size(); ++index) {
         const EventSequenceStep& step = found->second[index];
-        elapsedMs += std::max(0.0, step.delayMs);
-        ScheduleNamedActions(timerPrefix + std::to_string(index), step.actions, context, nowMs + elapsedMs, true);
+        elapsedMs += NormalizeDelayMs(step.delayMs);
+        const double safeNowMs = std::isfinite(nowMs) ? std::max(0.0, nowMs) : 0.0;
+        ScheduleNamedActions(timerPrefix + std::to_string(index), step.actions, context, safeNowMs + elapsedMs, true);
     }
     return true;
 }
@@ -593,7 +616,7 @@ bool EventEngine::HandleDelayAction(const EventAction& action,
     ScheduleNamedActions(action.timerId,
                          action.actions,
                          context,
-                         nowMs + std::max(0.0, action.delayMs),
+                         (std::isfinite(nowMs) ? std::max(0.0, nowMs) : 0.0) + NormalizeDelayMs(action.delayMs),
                          action.replaceExisting);
     return true;
 }

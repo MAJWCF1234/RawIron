@@ -14,7 +14,9 @@
 
 namespace ri::logic {
 
-inline constexpr std::size_t kLogicMaxImmediateDispatchDepth = 256;
+// Keep the synchronous safety budget bounded below typical Windows thread
+// stack limits; each dispatch frame owns a sizeable local context.
+inline constexpr std::size_t kLogicMaxImmediateDispatchDepth = 64;
 
 struct LogicGraphRuntimeMetrics {
     std::size_t immediateDispatchCount = 0;
