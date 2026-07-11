@@ -43,5 +43,28 @@ int main() {
     if (graph.NowMs() != std::numeric_limits<std::uint64_t>::max()) {
         return EXIT_FAILURE;
     }
+
+    ri::logic::LogicGraphSpec debounceSpec{};
+    debounceSpec.nodes.push_back(ri::logic::FlowDbncNode{.id = "debounce", .def = {}});
+    ri::logic::LogicGraph debounceGraph(std::move(debounceSpec));
+    std::size_t debouncedOutputCount = 0U;
+    debounceGraph.SetOutputHandler([&](const ri::logic::LogicOutputEvent& event) {
+        if (event.outputName == "out") {
+            ++debouncedOutputCount;
+        }
+    });
+    debounceGraph.DispatchInput("debounce", "Ms", {.parameter = std::numeric_limits<double>::max()});
+    debounceGraph.DispatchInput("debounce", "In", {.analogSignal = 1.0});
+    if (debouncedOutputCount != 0U) {
+        return EXIT_FAILURE;
+    }
+    debounceGraph.AdvanceTime(ri::logic::kMaxLogicDelayMs - 1U);
+    if (debouncedOutputCount != 0U) {
+        return EXIT_FAILURE;
+    }
+    debounceGraph.AdvanceTime(1U);
+    if (debouncedOutputCount != 1U) {
+        return EXIT_FAILURE;
+    }
     return EXIT_SUCCESS;
 }

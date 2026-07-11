@@ -25,6 +25,21 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    ri::render::software::SoftwareImage image{
+        .width = 16,
+        .height = 16,
+        .pixels = std::vector<std::uint8_t>(16U * 16U * 3U, 0U),
+    };
+    std::vector<float> depthBuffer(16U * 16U, std::numeric_limits<float>::infinity());
+    ri::render::software::DrawWireBoxOverlayIntoScenePreview(
+        image,
+        depthBuffer,
+        scene,
+        cameraNode,
+        {.width = 16, .height = 16},
+        {0.0f, 0.0f, 1.0f},
+        {1'000'000.0f, 0.1f, 0.1f});
+
     scene.GetNode(cameraNode).camera = 99;
     if (ri::render::software::BuildCameraViewRay(plot, 320, 240, scene, cameraNode).has_value()) {
         return EXIT_FAILURE;

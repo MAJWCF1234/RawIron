@@ -112,6 +112,16 @@ void FillIoAudioDonePayload(LogicContext& out, bool playing, double volume, cons
     return x;
 }
 
+[[nodiscard]] std::uint32_t ClampDelayInputMs(const double value) {
+    if (!std::isfinite(value) || value <= 0.0) {
+        return 0U;
+    }
+    if (value >= static_cast<double>(kMaxLogicDelayMs)) {
+        return static_cast<std::uint32_t>(kMaxLogicDelayMs);
+    }
+    return static_cast<std::uint32_t>(value);
+}
+
 [[nodiscard]] std::optional<double> TryFieldDouble(const LogicContext& ctx, const char* key) {
     const auto it = ctx.fields.find(key);
     if (it == ctx.fields.end()) {
@@ -3497,8 +3507,7 @@ void LogicGraph::HandleFlowDbnc(const std::string& selfId, NodeSlot& n, std::str
     if (in == "ms") {
         const double v = ScalarPulseValue(ctx);
         if (v >= 0.0 && std::isfinite(v)) {
-            n.flowDbnc.debounceMs =
-                static_cast<std::uint32_t>(std::min<std::uint64_t>(static_cast<std::uint64_t>(v), kMaxLogicDelayMs));
+            n.flowDbnc.debounceMs = ClampDelayInputMs(v);
         }
         return;
     }
@@ -3544,8 +3553,7 @@ void LogicGraph::HandleFlowOneshot(const std::string& selfId, NodeSlot& n, std::
     if (in == "ms") {
         const double v = ScalarPulseValue(ctx);
         if (v >= 0.0 && std::isfinite(v)) {
-            const std::uint32_t pm =
-                static_cast<std::uint32_t>(std::min<std::uint64_t>(static_cast<std::uint64_t>(v), kMaxLogicDelayMs));
+            const std::uint32_t pm = ClampDelayInputMs(v);
             n.flowOneshot.pulseMs = std::max<std::uint32_t>(1u, pm);
         }
         return;
@@ -3573,8 +3581,7 @@ void LogicGraph::HandleTimeDelay(const std::string& selfId, NodeSlot& n, std::st
     if (in == "set_ms") {
         const double v = ScalarPulseValue(ctx);
         if (v >= 0.0 && std::isfinite(v)) {
-            n.timeDelay.delayMs =
-                static_cast<std::uint32_t>(std::min<std::uint64_t>(static_cast<std::uint64_t>(v), kMaxLogicDelayMs));
+            n.timeDelay.delayMs = ClampDelayInputMs(v);
         }
         return;
     }
@@ -3717,8 +3724,7 @@ void LogicGraph::HandleMemChatter(const std::string& selfId, NodeSlot& n, std::s
     if (in == "ms") {
         const double v = ScalarPulseValue(ctx);
         if (v >= 0.0 && std::isfinite(v)) {
-            n.memChatter.debounceMs =
-                static_cast<std::uint32_t>(std::min<std::uint64_t>(static_cast<std::uint64_t>(v), kMaxLogicDelayMs));
+            n.memChatter.debounceMs = ClampDelayInputMs(v);
         }
         return;
     }

@@ -60,6 +60,26 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    ri::trace::KinematicBodyState extremeVelocityState = objects.front().state;
+    extremeVelocityState.velocity = {
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max(),
+    };
+    ri::trace::KinematicPhysicsOptions extremePhysics = physics;
+    extremePhysics.gravity = std::numeric_limits<float>::max();
+    const ri::trace::KinematicStepResult extremeVelocityStep = ri::trace::SimulateKinematicBodyStep(
+        scene,
+        extremeVelocityState,
+        0.25f,
+        extremePhysics,
+        {.flow = {std::numeric_limits<float>::max(), 0.0f, 0.0f}});
+    if (!std::isfinite(extremeVelocityStep.state.velocity.x)
+        || !std::isfinite(extremeVelocityStep.state.velocity.y)
+        || !std::isfinite(ri::spatial::Center(extremeVelocityStep.state.bounds).x)) {
+        return EXIT_FAILURE;
+    }
+
     const ri::spatial::Aabb invalidOriented = ri::trace::ComputeOrientedBoxWorldBounds(
         {std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f},
         {0.5f, 0.5f, 0.5f},

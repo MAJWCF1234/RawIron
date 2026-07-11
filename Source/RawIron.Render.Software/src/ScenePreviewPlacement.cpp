@@ -183,20 +183,62 @@ void DrawDepthLine(SoftwareImage& image,
                    const ScenePreviewScreenVertex& start,
                    const ScenePreviewScreenVertex& end,
                    const ri::math::Vec3& lineColor) {
-    if (!start.visible || !end.visible) {
+    if (!start.visible || !end.visible || image.width <= 0 || image.height <= 0
+        || !std::isfinite(start.x) || !std::isfinite(start.y) || !std::isfinite(start.depth)
+        || !std::isfinite(end.x) || !std::isfinite(end.y) || !std::isfinite(end.depth)) {
         return;
     }
-    const float dx = end.x - start.x;
-    const float dy = end.y - start.y;
-    const float dz = end.depth - start.depth;
+
+    const float sourceDx = end.x - start.x;
+    const float sourceDy = end.y - start.y;
+    const float sourceDz = end.depth - start.depth;
+    if (!std::isfinite(sourceDx) || !std::isfinite(sourceDy) || !std::isfinite(sourceDz)) {
+        return;
+    }
+    float beginT = 0.0f;
+    float endT = 1.0f;
+    const std::array<float, 4> p = {-sourceDx, sourceDx, -sourceDy, sourceDy};
+    const std::array<float, 4> q = {
+        start.x,
+        static_cast<float>(image.width - 1) - start.x,
+        start.y,
+        static_cast<float>(image.height - 1) - start.y,
+    };
+    for (std::size_t index = 0; index < p.size(); ++index) {
+        if (std::fabs(p[index]) <= 1.0e-6f) {
+            if (q[index] < 0.0f) {
+                return;
+            }
+            continue;
+        }
+        const float ratio = q[index] / p[index];
+        if (p[index] < 0.0f) {
+            beginT = std::max(beginT, ratio);
+        } else {
+            endT = std::min(endT, ratio);
+        }
+        if (beginT > endT) {
+            return;
+        }
+    }
+
+    const float startX = start.x + (sourceDx * beginT);
+    const float startY = start.y + (sourceDy * beginT);
+    const float startDepth = start.depth + (sourceDz * beginT);
+    const float endX = start.x + (sourceDx * endT);
+    const float endY = start.y + (sourceDy * endT);
+    const float endDepth = start.depth + (sourceDz * endT);
+    const float dx = endX - startX;
+    const float dy = endY - startY;
+    const float dz = endDepth - startDepth;
     const int steps = std::max(1, static_cast<int>(std::ceil(std::max(std::fabs(dx), std::fabs(dy)))));
     for (int step = 0; step <= steps; ++step) {
         const float t = static_cast<float>(step) / static_cast<float>(steps);
         PlotOverlayPixel(image,
                          depthBuffer,
-                         static_cast<int>(std::lround(start.x + dx * t)),
-                         static_cast<int>(std::lround(start.y + dy * t)),
-                         start.depth + dz * t,
+                         static_cast<int>(std::lround(startX + dx * t)),
+                         static_cast<int>(std::lround(startY + dy * t)),
+                         startDepth + dz * t,
                          lineColor);
     }
 }

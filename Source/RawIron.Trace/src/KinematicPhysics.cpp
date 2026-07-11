@@ -75,6 +75,39 @@ ri::math::Vec3 SanitizeVec3(const ri::math::Vec3& value, const ri::math::Vec3& f
     };
 }
 
+constexpr float kMaxKinematicVectorMagnitude = 1'000'000.0f;
+
+ri::math::Vec3 ClampVectorMagnitude(const ri::math::Vec3& value, const float maxMagnitude = kMaxKinematicVectorMagnitude) {
+    ri::math::Vec3 finite = SanitizeVec3(value);
+    const float maxComponent = std::max({std::fabs(finite.x), std::fabs(finite.y), std::fabs(finite.z)});
+    if (maxComponent <= 0.0f) {
+        return {};
+    }
+    if (maxComponent > maxMagnitude) {
+        finite = finite * (maxMagnitude / maxComponent);
+    }
+    const float lengthSquared = ri::math::LengthSquared(finite);
+    if (!std::isfinite(lengthSquared) || lengthSquared <= 0.0f) {
+        return {};
+    }
+    const float length = std::sqrt(lengthSquared);
+    if (length <= maxMagnitude) {
+        return finite;
+    }
+    return finite * (maxMagnitude / length);
+}
+
+std::size_t ComputeKinematicSubstepCount(const ri::math::Vec3& velocity,
+                                         const float deltaSeconds,
+                                         const std::size_t maxSubsteps) {
+    const float speed = ri::math::Length(velocity);
+    const float requested = std::ceil((speed * deltaSeconds) / 0.12f);
+    if (!std::isfinite(requested) || requested >= static_cast<float>(maxSubsteps)) {
+        return maxSubsteps;
+    }
+    return std::max<std::size_t>(1U, static_cast<std::size_t>(std::max(1.0f, requested)));
+}
+
 bool ValidAabb(const ri::spatial::Aabb& bounds) {
     return !ri::spatial::IsEmpty(bounds) && FiniteVec3(bounds.min) && FiniteVec3(bounds.max);
 }
@@ -98,13 +131,17 @@ KinematicPhysicsOptions SanitizeKinematicPhysicsOptions(const KinematicPhysicsOp
     const auto finiteOr = [](const float value, const float fallback) {
         return std::isfinite(value) ? value : fallback;
     };
-    const auto nonNegativeOr = [&](const float value, const float fallback) {
-        return std::max(0.0f, finiteOr(value, fallback));
+    const auto boundedOr = [&](const float value, const float fallback) {
+        return std::clamp(finiteOr(value, fallback), -kMaxKinematicVectorMagnitude, kMaxKinematicVectorMagnitude);
     };
-    sanitized.gravity = nonNegativeOr(options.gravity, defaults.gravity);
-    sanitized.gravityScale = finiteOr(options.gravityScale, defaults.gravityScale);
-    sanitized.fallGravityMultiplier = nonNegativeOr(options.fallGravityMultiplier, defaults.fallGravityMultiplier);
-    sanitized.maxFallSpeed = nonNegativeOr(options.maxFallSpeed, defaults.maxFallSpeed);
+    const auto nonNegativeOr = [&](const float value, const float fallback) {
+        return std::max(0.0f, boundedOr(value, fallback));
+    };
+    sanitized.gravity = std::min(nonNegativeOr(options.gravity, defaults.gravity), kMaxKinematicVectorMagnitude);
+    sanitized.gravityScale = boundedOr(options.gravityScale, defaults.gravityScale);
+    sanitized.fallGravityMultiplier = std::min(
+        nonNegativeOr(options.fallGravityMultiplier, defaults.fallGravityMultiplier), kMaxKinematicVectorMagnitude);
+    sanitized.maxFallSpeed = std::min(nonNegativeOr(options.maxFallSpeed, defaults.maxFallSpeed), kMaxKinematicVectorMagnitude);
     sanitized.bounciness = finiteOr(options.bounciness, defaults.bounciness);
     sanitized.linearDamping = finiteOr(options.linearDamping, defaults.linearDamping);
     sanitized.angularDamping = finiteOr(options.angularDamping, defaults.angularDamping);
@@ -112,7 +149,7 @@ KinematicPhysicsOptions SanitizeKinematicPhysicsOptions(const KinematicPhysicsOp
     sanitized.rollingResistance = finiteOr(options.rollingResistance, defaults.rollingResistance);
     sanitized.airDrag = finiteOr(options.airDrag, defaults.airDrag);
     sanitized.bounceThreshold = nonNegativeOr(options.bounceThreshold, defaults.bounceThreshold);
-    sanitized.angularImpactScale = finiteOr(options.angularImpactScale, defaults.angularImpactScale);
+    sanitized.angularImpactScale = boundedOr(options.angularImpactScale, defaults.angularImpactScale);
     sanitized.groundClearance = nonNegativeOr(options.groundClearance, defaults.groundClearance);
     sanitized.maxStepUpHeight = nonNegativeOr(options.maxStepUpHeight, defaults.maxStepUpHeight);
     sanitized.minVelocity = nonNegativeOr(options.minVelocity, defaults.minVelocity);
@@ -128,11 +165,14 @@ KinematicVolumeModifiers SanitizeKinematicVolumeModifiers(const KinematicVolumeM
     const auto finiteOr = [](const float value, const float fallback) {
         return std::isfinite(value) ? value : fallback;
     };
-    sanitized.gravityScale = finiteOr(modifiers.gravityScale, defaults.gravityScale);
-    sanitized.drag = std::max(0.0f, finiteOr(modifiers.drag, defaults.drag));
-    sanitized.buoyancy = finiteOr(modifiers.buoyancy, defaults.buoyancy);
-    sanitized.flow = SanitizeVec3(modifiers.flow);
-    sanitized.jumpScale = std::max(0.0f, finiteOr(modifiers.jumpScale, defaults.jumpScale));
+    const auto boundedOr = [&](const float value, const float fallback) {
+        return std::clamp(finiteOr(value, fallback), -kMaxKinematicVectorMagnitude, kMaxKinematicVectorMagnitude);
+    };
+    sanitized.gravityScale = boundedOr(modifiers.gravityScale, defaults.gravityScale);
+    sanitized.drag = std::max(0.0f, boundedOr(modifiers.drag, defaults.drag));
+    sanitized.buoyancy = boundedOr(modifiers.buoyancy, defaults.buoyancy);
+    sanitized.flow = ClampVectorMagnitude(modifiers.flow);
+    sanitized.jumpScale = std::max(0.0f, boundedOr(modifiers.jumpScale, defaults.jumpScale));
     return sanitized;
 }
 
@@ -145,8 +185,8 @@ KinematicStepResult SimulateKinematicBodyStep(
     const KinematicConstraintState& constraints) {
     KinematicStepResult result{};
     result.state = state;
-    result.state.velocity = SanitizeVec3(result.state.velocity);
-    result.state.angularVelocity = SanitizeVec3(result.state.angularVelocity);
+    result.state.velocity = ClampVectorMagnitude(result.state.velocity);
+    result.state.angularVelocity = ClampVectorMagnitude(result.state.angularVelocity);
     result.state.impactNotifyCooldownRemaining = std::max(
         0.0f,
         std::isfinite(result.state.impactNotifyCooldownRemaining)
@@ -197,13 +237,10 @@ KinematicStepResult SimulateKinematicBodyStep(
         }
         result.state.velocity.y -= options.gravity * netGravityScale * fallMult * deltaSeconds;
     }
-    result.state.velocity = result.state.velocity + (modifiers.flow * deltaSeconds);
+    result.state.velocity = ClampVectorMagnitude(result.state.velocity + (modifiers.flow * deltaSeconds));
 
-    const float speed = ri::math::Length(result.state.velocity);
     const std::size_t maxSteps = std::max<std::size_t>(options.maxSubsteps, 1U);
-    const std::size_t substeps = std::min<std::size_t>(
-        maxSteps,
-        std::max<std::size_t>(1U, static_cast<std::size_t>(std::ceil((speed * deltaSeconds) / 0.12f))));
+    const std::size_t substeps = ComputeKinematicSubstepCount(result.state.velocity, deltaSeconds, maxSteps);
     const float substepSeconds = deltaSeconds / static_cast<float>(substeps);
 
     for (std::size_t step = 0; step < substeps; ++step) {
@@ -300,6 +337,7 @@ KinematicStepResult SimulateKinematicBodyStep(
             }
             result.state.angularVelocity = result.state.angularVelocity
                 + (ri::math::Cross(incomingVelocity, hit.normal) * options.angularImpactScale);
+            result.state.angularVelocity = ClampVectorMagnitude(result.state.angularVelocity);
             if (!result.impact.has_value() && impactSpeed > 0.1f) {
                 const bool cooldownAllows = options.impactNotifyCooldownSeconds <= 0.0f
                     || result.state.impactNotifyCooldownRemaining <= 0.0f;
@@ -446,8 +484,8 @@ OrientedKinematicStepResult SimulateOrientedKinematicBodyStep(
     OrientedKinematicStepResult result{};
     result.state = state;
     result.state.orientationDegrees = SanitizeVec3(result.state.orientationDegrees);
-    result.state.velocity = SanitizeVec3(result.state.velocity);
-    result.state.angularVelocity = SanitizeVec3(result.state.angularVelocity);
+    result.state.velocity = ClampVectorMagnitude(result.state.velocity);
+    result.state.angularVelocity = ClampVectorMagnitude(result.state.angularVelocity);
     result.state.impactNotifyCooldownRemaining = std::max(
         0.0f,
         std::isfinite(result.state.impactNotifyCooldownRemaining)
@@ -506,13 +544,10 @@ OrientedKinematicStepResult SimulateOrientedKinematicBodyStep(
         }
         result.state.velocity.y -= options.gravity * netG * fallMult * deltaSeconds;
     }
-    result.state.velocity = result.state.velocity + (modifiers.flow * deltaSeconds);
+    result.state.velocity = ClampVectorMagnitude(result.state.velocity + (modifiers.flow * deltaSeconds));
 
-    const float speed = ri::math::Length(result.state.velocity);
     const std::size_t maxSteps = std::max<std::size_t>(options.maxSubsteps, 1U);
-    const std::size_t substeps = std::min<std::size_t>(
-        maxSteps,
-        std::max<std::size_t>(1U, static_cast<std::size_t>(std::ceil((speed * deltaSeconds) / 0.12f))));
+    const std::size_t substeps = ComputeKinematicSubstepCount(result.state.velocity, deltaSeconds, maxSteps);
     const float substepSeconds = deltaSeconds / static_cast<float>(substeps);
 
     for (std::size_t step = 0; step < substeps; ++step) {
@@ -544,6 +579,7 @@ OrientedKinematicStepResult SimulateOrientedKinematicBodyStep(
             }
             result.state.angularVelocity = result.state.angularVelocity
                 + (ri::math::Cross(incomingVelocity, hit.normal) * options.angularImpactScale);
+            result.state.angularVelocity = ClampVectorMagnitude(result.state.angularVelocity);
             if (!result.impact.has_value() && impactSpeed > 0.1f) {
                 const bool cooldownAllows = options.impactNotifyCooldownSeconds <= 0.0f
                     || result.state.impactNotifyCooldownRemaining <= 0.0f;

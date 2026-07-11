@@ -1,8 +1,10 @@
 #include "RawIron/Content/PluginRuntime.h"
 
 #include <cstdlib>
+#include <atomic>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 int main() {
@@ -45,6 +47,29 @@ int main() {
     }
     if (context.results[1].handled || context.results[1].message.find("fixture failure") == std::string::npos
         || events[1].handled) {
+        return EXIT_FAILURE;
+    }
+
+    ri::content::ClearPluginHookHandlers();
+    std::atomic<bool> registrationFailed = false;
+    std::vector<std::thread> workers;
+    for (int index = 0; index < 8; ++index) {
+        workers.emplace_back([index, &registrationFailed] {
+            const std::string name = "parallel_test_" + std::to_string(index);
+            ri::content::RegisterPluginHookHandler(
+                name,
+                [](ri::content::PluginHookContext&, const ri::content::PluginHookInvocation&) { return true; });
+            if (!ri::content::IsPluginHookHandlerRegistered(name)) {
+                registrationFailed.store(true);
+            }
+        });
+    }
+    for (std::thread& worker : workers) {
+        worker.join();
+    }
+    const std::vector<std::string> names = ri::content::RegisteredPluginHookHandlerNames();
+    ri::content::ClearPluginHookHandlers();
+    if (registrationFailed || names.size() < 17U) {
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;
