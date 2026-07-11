@@ -1,0 +1,51 @@
+#include "RawIron/Content/PluginRuntime.h"
+
+#include <cstdlib>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+int main() {
+    ri::content::ClearPluginHookHandlers();
+    ri::content::RegisterPluginHookHandler(
+        "decline_test",
+        [](ri::content::PluginHookContext&, const ri::content::PluginHookInvocation&) {
+            return false;
+        });
+    ri::content::RegisterPluginHookHandler(
+        "throw_test",
+        [](ri::content::PluginHookContext&, const ri::content::PluginHookInvocation&) -> bool {
+            throw std::runtime_error("fixture failure");
+        });
+
+    ri::content::PluginProjectData data{};
+    data.activePlugins.push_back(ri::content::ActivePlugin{
+        .manifest = {.id = "runtime.test", .category = "test"},
+        .registry = {.id = "runtime.test", .enabled = true},
+        .hooks = {
+            {.hookPhase = "runtime", .pluginId = "runtime.test", .eventName = "decline_test", .priority = 0},
+            {.hookPhase = "runtime", .pluginId = "runtime.test", .eventName = "throw_test", .priority = 1},
+        },
+    });
+
+    std::vector<ri::content::PluginRuntimeEvent> events;
+    ri::content::PluginHookContext context{
+        .projectData = &data,
+        .eventSink = [&](const ri::content::PluginRuntimeEvent& event) { events.push_back(event); },
+    };
+    const std::size_t executed = ri::content::DispatchPluginHooks(context, "runtime");
+    ri::content::ClearPluginHookHandlers();
+
+    if (executed != 2U || context.results.size() != 2U || events.size() != 2U) {
+        return EXIT_FAILURE;
+    }
+    if (context.results[0].handled || context.results[0].message.find("declined") == std::string::npos
+        || events[0].handled) {
+        return EXIT_FAILURE;
+    }
+    if (context.results[1].handled || context.results[1].message.find("fixture failure") == std::string::npos
+        || events[1].handled) {
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
+}

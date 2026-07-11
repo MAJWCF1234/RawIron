@@ -40,6 +40,9 @@ CommandLine::CommandLine(int argc, char** argv) {
 
 bool CommandLine::HasFlag(std::string_view flag) const {
     for (const std::string& arg : args_) {
+        if (arg == "--") {
+            break;
+        }
         if (arg == flag) {
             return true;
         }
@@ -54,10 +57,13 @@ std::optional<std::string> CommandLine::GetValue(std::string_view option) const 
     const std::string prefix = std::string(option) + "=";
     for (std::size_t index = 0; index < args_.size(); ++index) {
         const std::string& arg = args_[index];
+        if (arg == "--") {
+            break;
+        }
         if (arg == option) {
             if ((index + 1U) < args_.size()) {
                 const std::string& value = args_[index + 1U];
-                if (!LooksLikeLongOption(value)) {
+                if (value != "--" && !LooksLikeLongOption(value)) {
                     return value;
                 }
             }

@@ -86,5 +86,24 @@ int main() {
         || held.heldObjectIndex != 1U) {
         return EXIT_FAILURE;
     }
+
+    ri::trace::TraceScene impactScene({ri::trace::TraceCollider{
+        .id = "wall",
+        .bounds = {.min = {1.5f, -2.0f, -2.0f}, .max = {2.0f, 2.0f, 2.0f}},
+        .structural = true,
+    }});
+    ri::trace::KinematicBodyState impactState{
+        .bounds = {.min = {0.0f, 0.0f, -0.5f}, .max = {1.0f, 1.0f, 0.5f}},
+        .velocity = {10.0f, 0.0f, 0.0f},
+    };
+    ri::trace::KinematicPhysicsOptions impactOptions = physics;
+    impactOptions.bounciness = 0.0f;
+    impactOptions.bounceThreshold = 100.0f;
+    const ri::trace::KinematicStepResult impactStep =
+        ri::trace::SimulateKinematicBodyStep(impactScene, impactState, 0.1f, impactOptions);
+    if (!impactStep.impact.has_value() || impactStep.impact->colliderId != "wall"
+        || impactStep.impact->speed < 9.9f || impactStep.impact->velocity.x < 9.9f) {
+        return EXIT_FAILURE;
+    }
     return EXIT_SUCCESS;
 }

@@ -55,6 +55,10 @@ if(RAWIRON_BUILD_TESTS)
   target_link_libraries(AuthoringHandoffSmoke PRIVATE RawIron::Content)
   add_test(NAME RawIron.Content.AuthoringHandoffSmoke COMMAND AuthoringHandoffSmoke)
 
+  add_executable(PluginRuntimeSmoke ${CMAKE_SOURCE_DIR}/Tests/PluginRuntimeSmoke.cpp)
+  target_link_libraries(PluginRuntimeSmoke PRIVATE RawIron::Content)
+  add_test(NAME RawIron.Content.PluginRuntimeSmoke COMMAND PluginRuntimeSmoke)
+
   add_test(
     NAME RawIron.Content.PluginProjectData
     COMMAND ${CMAKE_COMMAND}

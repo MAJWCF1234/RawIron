@@ -4,6 +4,86 @@ namespace ri::render::vulkan {
 
 namespace {
 
+bool ValidateSubmissionPlan(const std::vector<VulkanCommandIntent>& intents,
+                            const VulkanIntentStagingPlan& plan) {
+    if (plan.status != VulkanIntentStagingStatus::Ok || plan.totalIntents != intents.size()) {
+        return false;
+    }
+
+    bool inBatch = false;
+    std::size_t rangeIndex = 0U;
+    std::size_t stagedIntents = 0U;
+    std::size_t activeIntentCount = 0U;
+    std::size_t activeClearCount = 0U;
+    std::size_t activeViewProjectionCount = 0U;
+    std::size_t activeDrawCount = 0U;
+
+    for (std::size_t intentIndex = 0; intentIndex < intents.size(); ++intentIndex) {
+        const VulkanCommandIntent& intent = intents[intentIndex];
+        switch (intent.type) {
+        case VulkanCommandIntentType::BeginBatch: {
+            if (inBatch || rangeIndex >= plan.ranges.size()) {
+                return false;
+            }
+            const VulkanIntentRange& range = plan.ranges[rangeIndex];
+            if (range.passIndex != intent.passIndex
+                || range.pipelineBucket != intent.pipelineBucket
+                || range.firstIntentIndex != intentIndex + 1U) {
+                return false;
+            }
+            inBatch = true;
+            activeIntentCount = 0U;
+            activeClearCount = 0U;
+            activeViewProjectionCount = 0U;
+            activeDrawCount = 0U;
+            break;
+        }
+        case VulkanCommandIntentType::EndBatch: {
+            if (!inBatch || rangeIndex >= plan.ranges.size()) {
+                return false;
+            }
+            const VulkanIntentRange& range = plan.ranges[rangeIndex];
+            if (range.passIndex != intent.passIndex
+                || range.pipelineBucket != intent.pipelineBucket
+                || range.intentCount != activeIntentCount
+                || range.clearCount != activeClearCount
+                || range.setViewProjectionCount != activeViewProjectionCount
+                || range.drawCount != activeDrawCount) {
+                return false;
+            }
+            inBatch = false;
+            ++rangeIndex;
+            break;
+        }
+        case VulkanCommandIntentType::ClearColor:
+        case VulkanCommandIntentType::SetViewProjection:
+        case VulkanCommandIntentType::DrawMesh: {
+            if (!inBatch || rangeIndex >= plan.ranges.size()) {
+                return false;
+            }
+            const VulkanIntentRange& range = plan.ranges[rangeIndex];
+            if (intent.passIndex != range.passIndex || intent.pipelineBucket != range.pipelineBucket) {
+                return false;
+            }
+            ++activeIntentCount;
+            ++stagedIntents;
+            if (intent.type == VulkanCommandIntentType::ClearColor) {
+                ++activeClearCount;
+            } else if (intent.type == VulkanCommandIntentType::SetViewProjection) {
+                ++activeViewProjectionCount;
+            } else {
+                ++activeDrawCount;
+            }
+            break;
+        }
+        default:
+            return false;
+        }
+    }
+
+    return !inBatch && rangeIndex == plan.ranges.size() && stagedIntents == plan.stagedIntents;
+}
+
 bool ReplayIntent(const VulkanCommandIntent& intent, VulkanBackendRecorder& recorder) {
     switch (intent.type) {
     case VulkanCommandIntentType::ClearColor:
@@ -45,7 +125,7 @@ bool ExecuteVulkanFrameSubmission(const std::vector<VulkanCommandIntent>& intent
         }
     };
 
-    if (plan.status != VulkanIntentStagingStatus::Ok) {
+    if (!ValidateSubmissionPlan(intents, plan)) {
         flushStats();
         return false;
     }
@@ -56,11 +136,6 @@ bool ExecuteVulkanFrameSubmission(const std::vector<VulkanCommandIntent>& intent
         if (range.passIndex < filter.minPassIndex || range.passIndex > filter.maxPassIndex) {
             continue;
         }
-        if (range.firstIntentIndex + range.intentCount > intents.size()) {
-            flushStats();
-            return false;
-        }
-
         if (!recorder.BeginBatch(range.passIndex, range.pipelineBucket)) {
             flushStats();
             return false;
@@ -101,7 +176,7 @@ bool ExecuteVulkanFrameSubmissionWithPipelineCache(
         }
     };
 
-    if (plan.status != VulkanIntentStagingStatus::Ok) {
+    if (!ValidateSubmissionPlan(intents, plan)) {
         flushStats();
         return false;
     }
@@ -112,11 +187,6 @@ bool ExecuteVulkanFrameSubmissionWithPipelineCache(
         if (range.passIndex < filter.minPassIndex || range.passIndex > filter.maxPassIndex) {
             continue;
         }
-        if (range.firstIntentIndex + range.intentCount > intents.size()) {
-            flushStats();
-            return false;
-        }
-
         if (!recorder.BeginBatch(range.passIndex, range.pipelineBucket)) {
             flushStats();
             return false;

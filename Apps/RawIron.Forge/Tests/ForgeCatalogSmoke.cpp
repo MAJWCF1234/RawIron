@@ -54,8 +54,12 @@ int main() {
         return 5;
     }
 
-    std::string createError;
+    std::string createError = "stale error";
     const fs::path first = ri::forge::CreateUniqueHumanoidRig(root, &createError);
+    if (!createError.empty()) {
+        fs::remove_all(root, error);
+        return 6;
+    }
     const fs::path second = ri::forge::CreateUniqueHumanoidRig(root, &createError);
     if (first.empty() || second.empty() || first == second || !fs::exists(first) || !fs::exists(second)) {
         fs::remove_all(root, error);

@@ -162,8 +162,8 @@ bool EventEngine::AddWorldValue(std::string_view key, double amount) {
     if (key.empty() || !std::isfinite(amount)) {
         return false;
     }
-    worldValues_[std::string(key)] = GetWorldValue(key) + amount;
-    return true;
+    const double result = GetWorldValue(key) + amount;
+    return SetWorldValue(key, result);
 }
 
 double EventEngine::GetWorldValue(std::string_view key) const {

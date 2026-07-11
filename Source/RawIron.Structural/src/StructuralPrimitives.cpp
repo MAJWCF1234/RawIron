@@ -2524,33 +2524,50 @@ std::string NormalizeStructuralPrimitiveTypeKey(std::string_view type) {
 StructuralPrimitiveOptions SanitizeStructuralPrimitiveOptions(const StructuralPrimitiveOptions& options) {
     StructuralPrimitiveOptions sanitized = options;
     const StructuralPrimitiveOptions defaults{};
+    constexpr float kMaxAuthoringMagnitude = 1.0e6f;
     const auto finiteOr = [](const float value, const float fallback) {
         return std::isfinite(value) ? value : fallback;
     };
+    const auto boundedFiniteOr = [&](const float value, const float fallback) {
+        return std::clamp(finiteOr(value, fallback), -kMaxAuthoringMagnitude, kMaxAuthoringMagnitude);
+    };
 
-    sanitized.thickness = finiteOr(options.thickness, defaults.thickness);
-    sanitized.depth = finiteOr(options.depth, defaults.depth);
-    sanitized.strutRadius = finiteOr(options.strutRadius, defaults.strutRadius);
-    sanitized.topRadius = finiteOr(options.topRadius, defaults.topRadius);
-    sanitized.bottomRadius = finiteOr(options.bottomRadius, defaults.bottomRadius);
-    sanitized.length = finiteOr(options.length, defaults.length);
-    sanitized.exponentX = finiteOr(options.exponentX, defaults.exponentX);
-    sanitized.exponentY = finiteOr(options.exponentY, defaults.exponentY);
-    sanitized.exponentZ = finiteOr(options.exponentZ, defaults.exponentZ);
-    sanitized.spanDegrees = finiteOr(options.spanDegrees, defaults.spanDegrees);
-    sanitized.sweepDegrees = finiteOr(options.sweepDegrees, defaults.sweepDegrees);
-    sanitized.startDegrees = finiteOr(options.startDegrees, defaults.startDegrees);
-    sanitized.ridgeRatio = finiteOr(options.ridgeRatio, defaults.ridgeRatio);
-    sanitized.bevelRadius = finiteOr(options.bevelRadius, defaults.bevelRadius);
+    sanitized.thickness = boundedFiniteOr(options.thickness, defaults.thickness);
+    sanitized.depth = boundedFiniteOr(options.depth, defaults.depth);
+    sanitized.strutRadius = boundedFiniteOr(options.strutRadius, defaults.strutRadius);
+    sanitized.topRadius = boundedFiniteOr(options.topRadius, defaults.topRadius);
+    sanitized.bottomRadius = boundedFiniteOr(options.bottomRadius, defaults.bottomRadius);
+    sanitized.length = boundedFiniteOr(options.length, defaults.length);
+    sanitized.exponentX = std::clamp(finiteOr(options.exponentX, defaults.exponentX), 0.05f, 16.0f);
+    sanitized.exponentY = std::clamp(finiteOr(options.exponentY, defaults.exponentY), 0.05f, 16.0f);
+    sanitized.exponentZ = std::clamp(finiteOr(options.exponentZ, defaults.exponentZ), 0.05f, 16.0f);
+    sanitized.spanDegrees = boundedFiniteOr(options.spanDegrees, defaults.spanDegrees);
+    sanitized.sweepDegrees = boundedFiniteOr(options.sweepDegrees, defaults.sweepDegrees);
+    sanitized.startDegrees = boundedFiniteOr(options.startDegrees, defaults.startDegrees);
+    sanitized.ridgeRatio = boundedFiniteOr(options.ridgeRatio, defaults.ridgeRatio);
+    sanitized.bevelRadius = boundedFiniteOr(options.bevelRadius, defaults.bevelRadius);
 
     const auto finitePoint = [](const ri::math::Vec3& point) {
         return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
     };
     std::erase_if(sanitized.points, [&](const ri::math::Vec3& point) { return !finitePoint(point); });
     std::erase_if(sanitized.vertices, [&](const ri::math::Vec3& point) { return !finitePoint(point); });
+    const auto clampPoint = [&](ri::math::Vec3& point) {
+        point.x = std::clamp(point.x, -kMaxAuthoringMagnitude, kMaxAuthoringMagnitude);
+        point.y = std::clamp(point.y, -kMaxAuthoringMagnitude, kMaxAuthoringMagnitude);
+        point.z = std::clamp(point.z, -kMaxAuthoringMagnitude, kMaxAuthoringMagnitude);
+    };
+    for (ri::math::Vec3& point : sanitized.points) {
+        clampPoint(point);
+    }
+    for (ri::math::Vec3& point : sanitized.vertices) {
+        clampPoint(point);
+    }
     for (float& sample : sanitized.heightfieldSamples) {
         if (!std::isfinite(sample)) {
             sample = 0.0f;
+        } else {
+            sample = std::clamp(sample, -kMaxAuthoringMagnitude, kMaxAuthoringMagnitude);
         }
     }
     return sanitized;
@@ -2585,6 +2602,14 @@ StructuralPrimitiveValidationReport ValidateStructuralPrimitive(
     requireFinite(options.startDegrees, "startDegrees");
     requireFinite(options.ridgeRatio, "ridgeRatio");
     requireFinite(options.bevelRadius, "bevelRadius");
+    const auto requirePositiveExponent = [&](const float value, const char* field) {
+        if (std::isfinite(value) && (value <= 0.0f || value > 16.0f)) {
+            report.errors.push_back(std::string(field) + " must be greater than 0 and no greater than 16.");
+        }
+    };
+    requirePositiveExponent(options.exponentX, "exponentX");
+    requirePositiveExponent(options.exponentY, "exponentY");
+    requirePositiveExponent(options.exponentZ, "exponentZ");
 
     const auto checkPoints = [&](const std::vector<ri::math::Vec3>& points, const char* field) {
         for (std::size_t index = 0; index < points.size(); ++index) {
@@ -2631,6 +2656,17 @@ StructuralPrimitiveValidationReport ValidateStructuralPrimitive(
         const CompiledMesh preview = BuildPrimitiveMesh(report.normalizedType, sanitized);
         if (preview.positions.empty()) {
             report.errors.push_back("Primitive did not generate renderable triangle geometry.");
+        } else {
+            const auto finitePoint = [](const ri::math::Vec3& point) {
+                return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
+            };
+            const bool finitePositions = std::all_of(preview.positions.begin(), preview.positions.end(), finitePoint);
+            const bool finiteNormals = std::all_of(preview.normals.begin(), preview.normals.end(), finitePoint);
+            const bool finiteBounds = !preview.hasBounds
+                || (finitePoint(preview.boundsMin) && finitePoint(preview.boundsMax));
+            if (!finitePositions || !finiteNormals || !finiteBounds) {
+                report.errors.push_back("Primitive generated non-finite render geometry.");
+            }
         }
     }
     report.valid = report.errors.empty();

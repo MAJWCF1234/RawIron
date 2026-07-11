@@ -15,3 +15,9 @@ target_link_libraries(RawIron.Events
 )
 
 target_compile_features(RawIron.Events PUBLIC cxx_std_20)
+
+if (RAWIRON_BUILD_TESTS)
+  add_executable(EventEngineSmoke ${CMAKE_SOURCE_DIR}/Tests/EventEngineSmoke.cpp)
+  target_link_libraries(EventEngineSmoke PRIVATE RawIron::Events)
+  add_test(NAME RawIron.Events.EventEngineSmoke COMMAND EventEngineSmoke)
+endif()

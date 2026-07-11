@@ -35,5 +35,23 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    char separator[] = "--";
+    char hiddenFlag[] = "--hidden";
+    char hiddenValue[] = "--width=640";
+    char* terminatedArgv[] = {app, verbose, separator, hiddenFlag, hiddenValue};
+    ri::core::CommandLine terminated(5, terminatedArgv);
+    if (!Expect(terminated.HasFlag("--verbose"))
+        || !Expect(!terminated.HasFlag("--hidden"))
+        || !Expect(!terminated.GetValue("--width").has_value())) {
+        return EXIT_FAILURE;
+    }
+
+    char missing[] = "--output";
+    char* separatorValueArgv[] = {app, missing, separator, hiddenFlag};
+    ri::core::CommandLine separatorValue(4, separatorValueArgv);
+    if (!Expect(!separatorValue.GetValue("--output").has_value())) {
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }

@@ -34,13 +34,13 @@ struct CameraViewBasis {
                                                                   const ri::scene::Scene& scene,
                                                                   const int cameraNodeHandle) {
     if (plot.right <= plot.left + 4 || plot.bottom <= plot.top + 4
-        || cameraNodeHandle == ri::scene::kInvalidHandle
+        || cameraNodeHandle < 0
         || cameraNodeHandle >= static_cast<int>(scene.NodeCount())) {
         return std::nullopt;
     }
 
     const ri::scene::Node& cameraNode = scene.GetNode(cameraNodeHandle);
-    if (cameraNode.camera == ri::scene::kInvalidHandle) {
+    if (cameraNode.camera < 0 || cameraNode.camera >= static_cast<int>(scene.CameraCount())) {
         return std::nullopt;
     }
 
@@ -55,8 +55,10 @@ struct CameraViewBasis {
         ri::scene::ResolvePhotoModeFieldOfViewDegrees(camera.fieldOfViewDegrees, {}, basis.aspectRatio);
     basis.tanHalfFovY = std::tan(ri::math::DegreesToRadians(fieldOfViewDegrees * 0.5f));
     basis.tanHalfFovX = basis.tanHalfFovY * basis.aspectRatio;
-    basis.nearClip = std::max(camera.nearClip, 0.01f);
-    basis.farClip = std::max(basis.nearClip + 0.01f, camera.farClip);
+    basis.nearClip = std::isfinite(camera.nearClip) ? std::max(camera.nearClip, 0.01f) : 0.05f;
+    basis.farClip = std::isfinite(camera.farClip)
+        ? std::max(basis.nearClip + 0.01f, camera.farClip)
+        : 1000.0f;
 
     const ri::math::Mat4 worldMatrix = scene.ComputeWorldMatrix(cameraNodeHandle);
     basis.position = ri::math::ExtractTranslation(worldMatrix);
@@ -90,12 +92,12 @@ struct ScenePreviewCameraBasis {
     const ri::scene::Scene& scene,
     const int cameraNodeHandle,
     const ScenePreviewOptions& options) {
-    if (options.width <= 0 || options.height <= 0 || cameraNodeHandle == ri::scene::kInvalidHandle
+    if (options.width <= 0 || options.height <= 0 || cameraNodeHandle < 0
         || cameraNodeHandle >= static_cast<int>(scene.NodeCount())) {
         return std::nullopt;
     }
     const ri::scene::Node& cameraNode = scene.GetNode(cameraNodeHandle);
-    if (cameraNode.camera == ri::scene::kInvalidHandle) {
+    if (cameraNode.camera < 0 || cameraNode.camera >= static_cast<int>(scene.CameraCount())) {
         return std::nullopt;
     }
     const ri::scene::Camera& camera = scene.GetCamera(cameraNode.camera);
@@ -106,8 +108,10 @@ struct ScenePreviewCameraBasis {
     const float fieldOfViewDegrees = ri::scene::ResolvePhotoModeFieldOfViewDegrees(
         camera.fieldOfViewDegrees, options.photoMode, basis.aspectRatio);
     basis.focalLength = 1.0f / std::tan(ri::math::DegreesToRadians(fieldOfViewDegrees * 0.5f));
-    basis.nearClip = std::max(0.01f, camera.nearClip);
-    basis.farClip = std::max(basis.nearClip + 0.01f, camera.farClip);
+    basis.nearClip = std::isfinite(camera.nearClip) ? std::max(0.01f, camera.nearClip) : 0.05f;
+    basis.farClip = std::isfinite(camera.farClip)
+        ? std::max(basis.nearClip + 0.01f, camera.farClip)
+        : 1000.0f;
     const ri::math::Mat4 worldMatrix = scene.ComputeWorldMatrix(cameraNodeHandle);
     basis.position = ri::math::ExtractTranslation(worldMatrix);
     basis.right = ri::math::ExtractRight(worldMatrix);
@@ -215,7 +219,8 @@ std::optional<ri::math::Vec3> PickPlacementPointInCameraView(const CameraViewRec
     bool found = false;
     if (const std::optional<ri::scene::RaycastHit> meshHit =
             ri::scene::RaycastSceneNearest(scene, cameraRay->ray);
-        meshHit.has_value() && meshHit->distance <= cameraRay->farClip) {
+        meshHit.has_value() && meshHit->distance >= cameraRay->nearClip
+        && meshHit->distance <= cameraRay->farClip) {
         bestDistance = meshHit->distance;
         bestPoint = meshHit->position;
         found = true;
@@ -224,7 +229,8 @@ std::optional<ri::math::Vec3> PickPlacementPointInCameraView(const CameraViewRec
     constexpr float kGroundPlaneY = 0.0f;
     if (std::abs(cameraRay->ray.direction.y) > 1.0e-5f) {
         const float groundT = (kGroundPlaneY - cameraRay->ray.origin.y) / cameraRay->ray.direction.y;
-        if (groundT > 0.0f && groundT < cameraRay->farClip && (!found || groundT < bestDistance)) {
+        if (groundT >= cameraRay->nearClip && groundT <= cameraRay->farClip
+            && (!found || groundT < bestDistance)) {
             bestPoint = cameraRay->ray.origin + cameraRay->ray.direction * groundT;
             found = true;
         }

@@ -288,9 +288,10 @@ KinematicStepResult SimulateKinematicBodyStep(
 
         if (!slide.hits.empty()) {
             const TraceHit& hit = slide.hits.front();
-            const float dot = ri::math::Dot(result.state.velocity, hit.normal);
+            const ri::math::Vec3 incomingVelocity = result.state.velocity;
+            const float dot = ri::math::Dot(incomingVelocity, hit.normal);
+            const float impactSpeed = dot < 0.0f ? std::fabs(dot) : 0.0f;
             if (dot < 0.0f) {
-                const float impactSpeed = std::fabs(dot);
                 const float bounce = impactSpeed < options.bounceThreshold ? 0.0f : Clamp(options.bounciness, 0.0f, 1.0f);
                 result.state.velocity = result.state.velocity - (hit.normal * (dot * (1.0f + bounce)));
                 if (bounce <= 0.0f && std::fabs(hit.normal.y) > 0.5f) {
@@ -298,16 +299,16 @@ KinematicStepResult SimulateKinematicBodyStep(
                 }
             }
             result.state.angularVelocity = result.state.angularVelocity
-                + (ri::math::Cross(result.state.velocity, hit.normal) * options.angularImpactScale);
-            if (!result.impact.has_value() && ri::math::Length(result.state.velocity) > 0.1f) {
+                + (ri::math::Cross(incomingVelocity, hit.normal) * options.angularImpactScale);
+            if (!result.impact.has_value() && impactSpeed > 0.1f) {
                 const bool cooldownAllows = options.impactNotifyCooldownSeconds <= 0.0f
                     || result.state.impactNotifyCooldownRemaining <= 0.0f;
                 if (cooldownAllows) {
                     result.impact = KinematicImpact{
                         .position = hit.point,
                         .normal = hit.normal,
-                        .velocity = result.state.velocity,
-                        .speed = ri::math::Length(result.state.velocity),
+                        .velocity = incomingVelocity,
+                        .speed = impactSpeed,
                         .colliderId = hit.id,
                     };
                     if (options.impactNotifyCooldownSeconds > 0.0f) {
@@ -529,9 +530,10 @@ OrientedKinematicStepResult SimulateOrientedKinematicBodyStep(
 
         if (!slide.hits.empty()) {
             const TraceHit& hit = slide.hits.front();
-            const float dot = ri::math::Dot(result.state.velocity, hit.normal);
+            const ri::math::Vec3 incomingVelocity = result.state.velocity;
+            const float dot = ri::math::Dot(incomingVelocity, hit.normal);
+            const float impactSpeed = dot < 0.0f ? std::fabs(dot) : 0.0f;
             if (dot < 0.0f) {
-                const float impactSpeed = std::fabs(dot);
                 const float bounce =
                     impactSpeed < options.bounceThreshold ? 0.0f : Clamp(options.bounciness, 0.0f, 1.0f);
                 result.state.velocity =
@@ -541,16 +543,16 @@ OrientedKinematicStepResult SimulateOrientedKinematicBodyStep(
                 }
             }
             result.state.angularVelocity = result.state.angularVelocity
-                + (ri::math::Cross(result.state.velocity, hit.normal) * options.angularImpactScale);
-            if (!result.impact.has_value() && ri::math::Length(result.state.velocity) > 0.1f) {
+                + (ri::math::Cross(incomingVelocity, hit.normal) * options.angularImpactScale);
+            if (!result.impact.has_value() && impactSpeed > 0.1f) {
                 const bool cooldownAllows = options.impactNotifyCooldownSeconds <= 0.0f
                     || result.state.impactNotifyCooldownRemaining <= 0.0f;
                 if (cooldownAllows) {
                     result.impact = KinematicImpact{
                         .position = hit.point,
                         .normal = hit.normal,
-                        .velocity = result.state.velocity,
-                        .speed = ri::math::Length(result.state.velocity),
+                        .velocity = incomingVelocity,
+                        .speed = impactSpeed,
                         .colliderId = hit.id,
                     };
                     if (options.impactNotifyCooldownSeconds > 0.0f) {

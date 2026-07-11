@@ -1,6 +1,7 @@
 #include "RawIron/Content/PluginRuntime.h"
 
 #include <algorithm>
+#include <exception>
 #include <set>
 #include <unordered_map>
 
@@ -241,12 +242,25 @@ std::size_t DispatchPluginHooks(PluginHookContext& context, const std::string_vi
         };
         if (handlerIt != g_handlers.end() && handlerIt->second) {
             const std::size_t resultsBefore = context.results.size();
-            (void)handlerIt->second(context, invocation);
-            if (context.results.size() > resultsBefore) {
-                result = context.results.back();
-            } else {
-                result.handled = true;
-                result.message = "Handler completed for " + hook.pluginId;
+            try {
+                const bool handled = handlerIt->second(context, invocation);
+                if (context.results.size() > resultsBefore) {
+                    result = context.results.back();
+                } else {
+                    result.handled = handled;
+                    result.message = handled
+                        ? "Handler completed for " + hook.pluginId
+                        : "Handler declined event '" + hook.eventName + "' for " + hook.pluginId;
+                    context.results.push_back(result);
+                }
+            } catch (const std::exception& error) {
+                context.results.resize(resultsBefore);
+                result.message = "Handler threw for event '" + hook.eventName + "': " + error.what();
+                context.results.push_back(result);
+            } catch (...) {
+                context.results.resize(resultsBefore);
+                result.message = "Handler threw for event '" + hook.eventName + "'.";
+                context.results.push_back(result);
             }
         } else {
             context.results.push_back(result);

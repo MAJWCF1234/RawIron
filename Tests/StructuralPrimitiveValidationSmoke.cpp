@@ -42,5 +42,21 @@ int main() {
     if (!ri::structural::ValidateStructuralPrimitive("box", {}).valid) {
         return EXIT_FAILURE;
     }
+
+    ri::structural::StructuralPrimitiveOptions extremeSuperellipsoid{};
+    extremeSuperellipsoid.exponentX = -1000.0f;
+    extremeSuperellipsoid.exponentY = std::numeric_limits<float>::max();
+    const ri::structural::StructuralPrimitiveValidationReport extremeReport =
+        ri::structural::ValidateStructuralPrimitive("superellipsoid", extremeSuperellipsoid);
+    if (extremeReport.valid || extremeReport.errors.size() < 2U) {
+        return EXIT_FAILURE;
+    }
+    const ri::structural::CompiledMesh safeExtremeMesh =
+        ri::structural::BuildPrimitiveMesh("superellipsoid", extremeSuperellipsoid);
+    for (const ri::math::Vec3& point : safeExtremeMesh.positions) {
+        if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) {
+            return EXIT_FAILURE;
+        }
+    }
     return EXIT_SUCCESS;
 }

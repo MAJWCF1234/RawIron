@@ -27,6 +27,10 @@ Assets/Source/**/*.sln
 
 # Local scratch captures (do not commit)
 Saved/TestScratch/
+/Saved/Cache/
+/Saved/Editor/
+/Saved/Previews/
+/Saved/visual_checks/
 
 # Local split-zip release drops (Scripts/Publish-FullWorkspaceSplitZip.ps1)
 /ReleaseArtifacts/

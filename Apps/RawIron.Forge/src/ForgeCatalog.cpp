@@ -155,6 +155,9 @@ ModelSourceValidationReport ValidateModelSource(const fs::path& sourcePath) {
 }
 
 fs::path CreateUniqueHumanoidRig(const fs::path& workspaceRoot, std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
     const fs::path rigFolder = workspaceRoot / "Assets" / "Source" / "rigs";
     std::error_code folderError{};
     fs::create_directories(rigFolder, folderError);

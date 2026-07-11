@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <optional>
 #include <vector>
 
@@ -270,6 +271,19 @@ bool TestFrameSubmissionRoundTrip() {
     VulkanIntentStagingPlan truncatedPlan = plan;
     truncatedPlan.ranges[1].intentCount += 100;
     RI_REQUIRE(!ExecuteVulkanFrameSubmission(source.Intents(), truncatedPlan, untouched, {}, &stats));
+    RI_REQUIRE(untouched.Intents().empty());
+
+    // Overflowing range arithmetic and stale plans must fail before the recorder is mutated.
+    VulkanIntentStagingPlan overflowPlan = plan;
+    overflowPlan.ranges[0].firstIntentIndex = std::numeric_limits<std::size_t>::max() - 1U;
+    overflowPlan.ranges[0].intentCount = 8U;
+    RI_REQUIRE(!ExecuteVulkanFrameSubmission(source.Intents(), overflowPlan, untouched, {}, &stats));
+    RI_REQUIRE(untouched.Intents().empty());
+
+    VulkanIntentStagingPlan mismatchedPlan = plan;
+    mismatchedPlan.ranges[1].passIndex = 99U;
+    RI_REQUIRE(!ExecuteVulkanFrameSubmission(source.Intents(), mismatchedPlan, untouched, {}, &stats));
+    RI_REQUIRE(untouched.Intents().empty());
     return true;
 }
 
