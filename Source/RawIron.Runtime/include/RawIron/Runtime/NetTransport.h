@@ -21,6 +21,8 @@ struct NetEndpoint {
 };
 
 struct NetPacket {
+    /// Transport-assigned sender identity. Outbound callers may leave this at zero.
+    std::size_t peerId = 0;
     std::uint32_t channel = 0;
     bool reliable = false;
     std::vector<std::uint8_t> payload;
@@ -45,10 +47,13 @@ public:
 
     virtual bool Send(std::size_t peerId, const NetPacket& packet) = 0;
     virtual std::vector<NetPacket> PollReceive(std::size_t maxPackets) = 0;
+    [[nodiscard]] virtual std::vector<std::size_t> ConnectedPeers() const = 0;
     [[nodiscard]] virtual NetTransportStats Stats() const noexcept = 0;
 };
 
 /// Builds the ENet-backed transport when enabled at build-time; otherwise returns nullptr.
+/// Callers must treat a null result as an unavailable networking feature, never as an
+/// in-process simulation.
 [[nodiscard]] std::unique_ptr<INetTransport> CreateEnetTransport();
 
 } // namespace ri::runtime

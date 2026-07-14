@@ -66,6 +66,7 @@ public:
             net.joinCodeToResolve = *code;
         }
         net.enableP2PPlane = (net.mode == ri::runtime::NetMode::HybridP2P);
+        net.enabled = !commandLine.HasFlag("--offline");
         net.tickRate = commandLine.GetIntOr("--net-tick", 60);
         net.serverTickRate = commandLine.GetIntOr("--server-tick", 125);
         net.maxPeers = commandLine.GetIntOr("--max-peers", 128);

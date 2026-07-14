@@ -25,7 +25,7 @@ if (RAWIRON_BUILD_TESTS)
     NAME RawIron.BotClient.Smoke
     COMMAND ${CMAKE_COMMAND}
       "-DEXECUTABLE=$<TARGET_FILE:RawIron.BotClient>"
-      "-DCOMMAND_ARGS=--frames;2;--net-mode;client;--rendezvous;direct;--bots;2"
+      "-DCOMMAND_ARGS=--frames;2;--offline;--bots;2"
       "-DEXPECTED_STRINGS=${rawiron_bot_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
       "${rawiron_bot_runtime_dll_arg}"

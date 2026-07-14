@@ -48,6 +48,7 @@ public:
         net.maxPeers = commandLine.GetIntOr("--max-peers", 128);
         net.dedicatedServerFirst = !commandLine.HasFlag("--allow-listen-first");
         net.enableP2PPlane = commandLine.HasFlag("--enable-p2p-side-plane");
+        net.enabled = !commandLine.HasFlag("--offline");
         net.latencySimulation.enabled = commandLine.HasFlag("--sim-net");
         net.latencySimulation.baseDelayMs = commandLine.GetIntOr("--sim-delay-ms", 0);
         net.latencySimulation.jitterMs = commandLine.GetIntOr("--sim-jitter-ms", 0);

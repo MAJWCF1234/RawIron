@@ -56,3 +56,9 @@ if (RAWIRON_USE_EOS)
 endif()
 
 target_compile_features(RawIron.Runtime PUBLIC cxx_std_20)
+
+if(RAWIRON_BUILD_TESTS)
+  add_executable(RuntimeNetcodeSmoke ${CMAKE_SOURCE_DIR}/Tests/RuntimeNetcodeSmoke.cpp)
+  target_link_libraries(RuntimeNetcodeSmoke PRIVATE RawIron::Runtime)
+  add_test(NAME RawIron.Runtime.NetcodeSmoke COMMAND RuntimeNetcodeSmoke)
+endif()

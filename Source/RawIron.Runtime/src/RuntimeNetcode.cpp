@@ -5,9 +5,64 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace ri::runtime {
 namespace {
+
+constexpr std::uint8_t kSnapshotPacketMarker = 0xA7U;
+constexpr std::uint8_t kSnapshotPacketVersion = 1U;
+constexpr std::size_t kSnapshotPacketHeaderSize = 14U;
+constexpr std::size_t kMaxSnapshotPayloadBytes = 4U * 1024U * 1024U;
+
+void WriteU32(std::vector<std::uint8_t>& out, const std::uint32_t value) {
+    out.push_back(static_cast<std::uint8_t>(value & 0xFFU));
+    out.push_back(static_cast<std::uint8_t>((value >> 8U) & 0xFFU));
+    out.push_back(static_cast<std::uint8_t>((value >> 16U) & 0xFFU));
+    out.push_back(static_cast<std::uint8_t>((value >> 24U) & 0xFFU));
+}
+
+bool ReadU32(const std::vector<std::uint8_t>& in, const std::size_t offset, std::uint32_t& value) {
+    if (offset > in.size() || in.size() - offset < 4U) {
+        return false;
+    }
+    value = static_cast<std::uint32_t>(in[offset]) |
+            (static_cast<std::uint32_t>(in[offset + 1U]) << 8U) |
+            (static_cast<std::uint32_t>(in[offset + 2U]) << 16U) |
+            (static_cast<std::uint32_t>(in[offset + 3U]) << 24U);
+    return true;
+}
+
+NetPacket EncodeSnapshotPacket(const SnapshotDeltaPacket& snapshot) {
+    NetPacket packet{};
+    packet.channel = 1U;
+    packet.reliable = false;
+    packet.payload.reserve(kSnapshotPacketHeaderSize + snapshot.encodedOps.size());
+    packet.payload.push_back(kSnapshotPacketMarker);
+    packet.payload.push_back(kSnapshotPacketVersion);
+    WriteU32(packet.payload, snapshot.baseTick);
+    WriteU32(packet.payload, snapshot.targetTick);
+    WriteU32(packet.payload, static_cast<std::uint32_t>(snapshot.encodedOps.size()));
+    packet.payload.insert(packet.payload.end(), snapshot.encodedOps.begin(), snapshot.encodedOps.end());
+    return packet;
+}
+
+std::optional<SnapshotDeltaPacket> DecodeSnapshotPacket(const NetPacket& packet) {
+    if (packet.payload.size() < kSnapshotPacketHeaderSize || packet.payload[0] != kSnapshotPacketMarker ||
+        packet.payload[1] != kSnapshotPacketVersion) {
+        return std::nullopt;
+    }
+    SnapshotDeltaPacket snapshot{};
+    std::uint32_t encodedSize = 0U;
+    if (!ReadU32(packet.payload, 2U, snapshot.baseTick) || !ReadU32(packet.payload, 6U, snapshot.targetTick) ||
+        !ReadU32(packet.payload, 10U, encodedSize) || encodedSize > kMaxSnapshotPayloadBytes ||
+        static_cast<std::size_t>(encodedSize) != packet.payload.size() - kSnapshotPacketHeaderSize) {
+        return std::nullopt;
+    }
+    snapshot.encodedOps.assign(packet.payload.begin() + static_cast<std::ptrdiff_t>(kSnapshotPacketHeaderSize),
+                               packet.payload.end());
+    return snapshot;
+}
 
 std::vector<std::uint8_t> EncodeAuthoritativePosition(const std::uint32_t tick, const float x) {
     const std::int32_t qx = static_cast<std::int32_t>(std::lround(static_cast<double>(x) * 1000.0));
@@ -41,8 +96,10 @@ bool DecodeAuthoritativePosition(const std::vector<std::uint8_t>& bytes, std::ui
 
 } // namespace
 
-AuthoritativeNetModule::AuthoritativeNetModule(AuthoritativeNetConfig config)
+AuthoritativeNetModule::AuthoritativeNetModule(AuthoritativeNetConfig config,
+                                               std::unique_ptr<INetTransport> authorityTransport)
     : config_(std::move(config)),
+      authorityTransport_(std::move(authorityTransport)),
       latencySimulator_(0xBADC0DEu),
       netGraph_(512),
       rewindBuffer_(config_.rewindFrames),
@@ -53,7 +110,19 @@ std::string_view AuthoritativeNetModule::Name() const noexcept {
 }
 
 bool AuthoritativeNetModule::OnRuntimeStartup(RuntimeContext& context, const ri::core::CommandLine&) {
-    authorityTransport_ = CreateEnetTransport();
+    if (!config_.enabled) {
+        config_.role = NetRole::None;
+        ri::core::LogInfo("Net: offline mode enabled; authoritative transport is disabled.");
+        EmitMigrationState(context, HostMigrationState::Idle, "offline");
+        return true;
+    }
+    if (authorityTransport_ == nullptr) {
+        authorityTransport_ = CreateEnetTransport();
+    }
+    if (authorityTransport_ == nullptr) {
+        context.Fail("AuthoritativeNetModule: networking is unavailable; rebuild with RAWIRON_USE_ENET=ON.");
+        return false;
+    }
     rendezvous_ = CreateRendezvousProvider(config_.rendezvousProvider);
     if (rendezvous_ != nullptr && !rendezvous_->Startup()) {
         ri::core::LogInfo("Rendezvous provider unavailable; falling back to DirectToken join code provider.");
@@ -66,6 +135,10 @@ bool AuthoritativeNetModule::OnRuntimeStartup(RuntimeContext& context, const ri:
     latencySimulator_.Configure(config_.latencySimulation);
     if (config_.enableP2PPlane && config_.mode == NetMode::HybridP2P) {
         p2pTransport_ = CreateEnetTransport();
+        if (p2pTransport_ == nullptr) {
+            context.Fail("AuthoritativeNetModule: P2P side-channel requested but networking is unavailable.");
+            return false;
+        }
     }
 
     ri::core::LogInfo(std::string("Net mode: ") + ModeName(config_.mode));
@@ -155,15 +228,6 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
     }
 
     const std::uint64_t nowMs = static_cast<std::uint64_t>(std::max(0.0, frame.realtimeSeconds * 1000.0));
-    const auto inbound = authorityTransport_->PollReceive(128);
-    serverTelemetry_.inboundPackets += inbound.size();
-    for (const NetPacket& p : inbound) {
-        (void)latencySimulator_.Enqueue(nowMs, p);
-    }
-    while (latencySimulator_.TryPopReady(nowMs).has_value()) {
-        // Placeholder: hook command processing / snapshot ingest here.
-    }
-
     if (config_.role == NetRole::Client) {
         const float dt = static_cast<float>(frame.deltaSeconds);
         const float syntheticInput = std::sin(static_cast<float>(frame.frameIndex) * 0.05f);
@@ -175,6 +239,61 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
         }
     }
 
+    const auto inbound = authorityTransport_->PollReceive(128);
+    serverTelemetry_.inboundPackets += inbound.size();
+    for (const NetPacket& p : inbound) {
+        (void)latencySimulator_.Enqueue(nowMs, p);
+    }
+    while (const auto ready = latencySimulator_.TryPopReady(nowMs)) {
+        if (config_.role == NetRole::Client) {
+            const auto snapshotPacket = DecodeSnapshotPacket(*ready);
+            if (!snapshotPacket.has_value()) {
+                RuntimeEvent ignored{};
+                ignored.fields["peer"] = std::to_string(ready->peerId);
+                ignored.fields["reason"] = "unknown_or_malformed_packet";
+                context.Events().Emit("net.packet.ignored", std::move(ignored));
+                continue;
+            }
+            const SnapshotBlob fallback{};
+            const auto rebuilt = snapshotReplicator_.ApplyFromServer(ready->peerId, fallback, *snapshotPacket);
+            if (!rebuilt.has_value()) {
+                RuntimeEvent rejected{};
+                rejected.fields["peer"] = std::to_string(ready->peerId);
+                rejected.fields["tick"] = std::to_string(snapshotPacket->targetTick);
+                context.Events().Emit("net.snapshot.rejected", std::move(rejected));
+                continue;
+            }
+            std::uint32_t authTick = 0U;
+            float authX = 0.0f;
+            if (!DecodeAuthoritativePosition(rebuilt->bytes, authTick, authX)) {
+                continue;
+            }
+            auto it = std::find_if(predictedHistory_.begin(), predictedHistory_.end(),
+                                   [authTick](const auto& state) { return state.first == authTick; });
+            if (it != predictedHistory_.end()) {
+                const double error = std::abs(static_cast<double>(it->second - authX));
+                predictionTelemetry_.avgPositionError =
+                    (predictionTelemetry_.avgPositionError * 0.9) + (error * 0.1);
+                predictionTelemetry_.maxPositionError = std::max(predictionTelemetry_.maxPositionError, error);
+                if (error > 0.01) {
+                    ++predictionTelemetry_.correctionCount;
+                    predictedPositionX_ = authX;
+                }
+                ++predictionTelemetry_.reconciledFrames;
+            }
+            RuntimeEvent applied{};
+            applied.fields["peer"] = std::to_string(ready->peerId);
+            applied.fields["tick"] = std::to_string(authTick);
+            context.Events().Emit("net.snapshot.applied", std::move(applied));
+        } else {
+            RuntimeEvent command{};
+            command.fields["peer"] = std::to_string(ready->peerId);
+            command.fields["channel"] = std::to_string(ready->channel);
+            command.fields["bytes"] = std::to_string(ready->payload.size());
+            context.Events().Emit("net.command.received", std::move(command));
+        }
+    }
+
     if (config_.role == NetRole::DedicatedServer || config_.role == NetRole::ListenServer) {
         // Time-based server snapshot cadence.
         snapshotCadenceAccumulatorSeconds_ += frame.deltaSeconds;
@@ -182,37 +301,24 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
         while (snapshotCadenceAccumulatorSeconds_ >= snapshotStep) {
             snapshotCadenceAccumulatorSeconds_ -= snapshotStep;
             lastBroadcastTick_ = static_cast<std::uint32_t>(frame.frameIndex);
-            serverTelemetry_.snapshotsBroadcast += 1;
             serverTelemetry_.lastSnapshotTick = lastBroadcastTick_;
             SnapshotBlob snapshot{};
             snapshot.tick = static_cast<std::uint32_t>(frame.frameIndex);
             const float authorityX = static_cast<float>(std::sin(static_cast<float>(frame.frameIndex) * 0.05f) * 10.0f);
             snapshot.bytes = EncodeAuthoritativePosition(snapshot.tick, authorityX);
             bool usedDelta = false;
-            const SnapshotDeltaPacket packet = snapshotReplicator_.BuildForPeer(0U, snapshot, usedDelta);
-            if (config_.role == NetRole::ListenServer) {
-                const SnapshotBlob fallback{};
-                const auto rebuilt = snapshotReplicator_.ApplyFromServer(1U, fallback, packet);
-                if (rebuilt.has_value()) {
-                    std::uint32_t authTick = 0;
-                    float authX = 0.0f;
-                    if (DecodeAuthoritativePosition(rebuilt->bytes, authTick, authX)) {
-                        auto it = std::find_if(predictedHistory_.begin(), predictedHistory_.end(),
-                                               [authTick](const auto& s) { return s.first == authTick; });
-                        if (it != predictedHistory_.end()) {
-                            const double err = std::abs(static_cast<double>(it->second - authX));
-                            predictionTelemetry_.avgPositionError =
-                                (predictionTelemetry_.avgPositionError * 0.9) + (err * 0.1);
-                            predictionTelemetry_.maxPositionError =
-                                std::max(predictionTelemetry_.maxPositionError, err);
-                            if (err > 0.01) {
-                                ++predictionTelemetry_.correctionCount;
-                                predictedPositionX_ = authX;
-                            }
-                            ++predictionTelemetry_.reconciledFrames;
-                        }
-                    }
+            bool broadcasted = false;
+            for (const std::size_t peerId : authorityTransport_->ConnectedPeers()) {
+                bool usedPeerDelta = false;
+                const SnapshotDeltaPacket packet = snapshotReplicator_.BuildForPeer(peerId, snapshot, usedPeerDelta);
+                if (authorityTransport_->Send(peerId, EncodeSnapshotPacket(packet))) {
+                    ++serverTelemetry_.outboundPackets;
+                    broadcasted = true;
+                    usedDelta = usedDelta || usedPeerDelta;
                 }
+            }
+            if (broadcasted) {
+                ++serverTelemetry_.snapshotsBroadcast;
             }
             RuntimeEvent ev{};
             ev.fields["tick"] = std::to_string(frame.frameIndex);

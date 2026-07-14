@@ -43,6 +43,8 @@ struct AuthoritativeNetConfig {
     LatencySimulationConfig latencySimulation{};
     std::size_t rewindFrames = 128;
     bool enableP2PPlane = false;
+    /// Explicitly disables all networking for local/offline runtime workflows.
+    bool enabled = true;
     bool dedicatedServerFirst = true;
     bool enableHostMigration = true;
     RendezvousProviderKind rendezvousProvider = RendezvousProviderKind::EpicOnlineServices;
@@ -67,7 +69,8 @@ struct ServerNetTelemetry {
 
 class AuthoritativeNetModule final : public RuntimeModule {
 public:
-    explicit AuthoritativeNetModule(AuthoritativeNetConfig config);
+    explicit AuthoritativeNetModule(AuthoritativeNetConfig config,
+                                    std::unique_ptr<INetTransport> authorityTransport = {});
 
     [[nodiscard]] std::string_view Name() const noexcept override;
     bool OnRuntimeStartup(RuntimeContext& context, const ri::core::CommandLine& commandLine) override;

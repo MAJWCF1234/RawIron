@@ -25,7 +25,7 @@ if (RAWIRON_BUILD_TESTS)
     NAME RawIron.DedicatedServer.Smoke
     COMMAND ${CMAKE_COMMAND}
       "-DEXECUTABLE=$<TARGET_FILE:RawIron.DedicatedServer>"
-      "-DCOMMAND_ARGS=--frames;2;--port;27125;--rendezvous;direct;--issue-join-code"
+      "-DCOMMAND_ARGS=--frames;2;--offline"
       "-DEXPECTED_STRINGS=${rawiron_dedicated_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
       "${rawiron_dedicated_runtime_dll_arg}"
