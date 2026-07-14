@@ -1,5 +1,6 @@
 #include "RawIron/Audio/AudioBackendMiniaudio.h"
 #include "RawIron/Audio/AudioManager.h"
+#include "RawIron/Content/GameManifest.h"
 #include "RawIron/Core/CommandLine.h"
 #include "RawIron/Core/CrashDiagnostics.h"
 #include "RawIron/Core/Host.h"
@@ -8,6 +9,7 @@
 #include "RawIron/Math/Vec3.h"
 #include "RawIron/Render/VulkanBootstrap.h"
 #include "RawIron/Scene/ScriptedCameraReview.h"
+#include "RawIron/Scene/PrimitivesCsvIO.h"
 #include "RawIron/Scene/WorkspaceSandbox.h"
 #include "RawIron/Scene/SceneUtils.h"
 
@@ -16,8 +18,10 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -27,6 +31,23 @@ double ResolveFixedDeltaSeconds(const ri::core::CommandLine& commandLine, int fa
         return 1.0 / static_cast<double>(fallbackTickHz);
     }
     return 1.0 / static_cast<double>(*tickHz);
+}
+
+[[nodiscard]] std::optional<ri::content::GameManifest> ResolveMountedGame(
+    const ri::core::CommandLine& commandLine) {
+    const std::optional<std::string> gameRootArg = commandLine.GetValue("--game-root");
+    if (gameRootArg.has_value() && !gameRootArg->empty()) {
+        return ri::content::LoadGameManifest(std::filesystem::path(*gameRootArg) / "manifest.json");
+    }
+    const std::optional<std::string> gameId = commandLine.GetValue("--game");
+    if (!gameId.has_value() || gameId->empty()) {
+        return std::nullopt;
+    }
+    const std::optional<std::string> workspaceArg = commandLine.GetValue("--workspace-root");
+    const std::filesystem::path workspaceRoot = workspaceArg.has_value() && !workspaceArg->empty()
+        ? std::filesystem::path(*workspaceArg)
+        : ri::content::DetectWorkspaceRoot(std::filesystem::current_path());
+    return ri::content::ResolveGameManifest(workspaceRoot, *gameId);
 }
 
 class PlayerHost final : public ri::core::Host {
@@ -47,7 +68,15 @@ public:
         starterScene_ = ri::scene::BuildStarterScene("PlayerSandbox");
 
         ri::core::LogSection("Player Startup");
-        ri::core::LogInfo(headless_ ? "Running headless player stub." : "Running player stub.");
+        ri::core::LogInfo(headless_ ? "Running headless player runtime." : "Running player runtime.");
+        if (const std::optional<ri::content::GameManifest> mountedGame = ResolveMountedGame(commandLine);
+            mountedGame.has_value()) {
+            MountGame(*mountedGame);
+        } else if (commandLine.GetValue("--game").has_value() || commandLine.GetValue("--game-root").has_value()) {
+            throw std::runtime_error("Unable to resolve game manifest from --game or --game-root.");
+        } else {
+            ri::core::LogInfo("No game requested; using the starter sandbox scene.");
+        }
         if (!headless_) {
             std::string audioError;
             std::shared_ptr<ri::audio::AudioBackend> backend = ri::audio::CreateMiniaudioAudioBackend(&audioError);
@@ -167,6 +196,34 @@ public:
     }
 
 private:
+    void MountGame(const ri::content::GameManifest& manifest) {
+        const std::vector<std::string> issues = ri::content::ValidateGameProjectFormat(manifest);
+        if (!issues.empty()) {
+            throw std::runtime_error("Game manifest validation failed: " + issues.front());
+        }
+        const std::filesystem::path levelPath = ri::content::ResolveGameAssetPath(manifest.rootPath, manifest.primaryLevel);
+        if (levelPath.empty()) {
+            throw std::runtime_error("Game primary level escapes the game root.");
+        }
+        ri::scene::AssemblyPrimitivesImportResult importResult{};
+        std::string importError;
+        if (!ri::scene::TryImportAssemblyPrimitivesCsv(
+                starterScene_.scene,
+                starterScene_.handles.root,
+                levelPath,
+                &importResult,
+                &importError)) {
+            throw std::runtime_error("Could not import game primary level: " + importError);
+        }
+        mountedGame_ = manifest;
+        ri::core::LogInfo("Mounted game: " + manifest.name + " (" + manifest.id + ")");
+        ri::core::LogInfo("Imported level: " + std::to_string(importResult.spawnedCount) + " primitives from " +
+                          manifest.primaryLevel + ".");
+        if (importResult.skippedRows > 0) {
+            ri::core::LogInfo("Level import skipped " + std::to_string(importResult.skippedRows) + " invalid row(s).");
+        }
+    }
+
     std::shared_ptr<ri::audio::AudioManager> audioManager_{};
     bool scriptedReviewRequested_ = false;
     ri::scene::ScriptedCameraReviewPlayer scriptedReview_{};
@@ -176,6 +233,7 @@ private:
     bool logEveryFrame_ = false;
     ri::render::vulkan::VulkanBootstrapSummary vulkanSummary_{};
     ri::scene::StarterScene starterScene_{};
+    std::optional<ri::content::GameManifest> mountedGame_{};
 };
 
 } // namespace

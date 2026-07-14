@@ -5,6 +5,7 @@ add_executable(RawIron.Player
 target_link_libraries(RawIron.Player
   PRIVATE
     RawIron::Audio
+    RawIron::Content
     RawIron::Core
     RawIron::RenderVulkan
     RawIron::SceneUtilities
@@ -20,7 +21,8 @@ if (RAWIRON_BUILD_TESTS)
   set(rawiron_player_expected
     "[Player Startup]"
     "[Player Vulkan]"
-    "Renderable nodes: 6"
+    "Mounted game: Cube Test (cube-test)"
+    "Imported level: 7 primitives from levels/assembly.primitives.csv."
     "Orbit camera path: World/OrbitRig/OrbitSwivel/MainCamera"
     "Player simulation tick 0 crate=(0.00, 0.50, 0.00)"
     "[Player Shutdown]"
@@ -41,7 +43,7 @@ if (RAWIRON_BUILD_TESTS)
     NAME RawIron.Player.Smoke
     COMMAND ${CMAKE_COMMAND}
       "-DEXECUTABLE=$<TARGET_FILE:RawIron.Player>"
-      "-DCOMMAND_ARGS=--frames;1;--no-scene-dump"
+      "-DCOMMAND_ARGS=--frames;1;--no-scene-dump;--game;cube-test"
       "-DEXPECTED_STRINGS=${rawiron_player_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
       "${rawiron_player_runtime_dll_arg}"
