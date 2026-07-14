@@ -50,6 +50,16 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    ri::content::PluginHookContext throwingSinkContext{
+        .projectData = &data,
+        .eventSink = [](const ri::content::PluginRuntimeEvent&) { throw std::runtime_error("sink failure"); },
+    };
+    const std::size_t throwingSinkExecuted = ri::content::DispatchPluginHooks(throwingSinkContext, "runtime");
+    if (throwingSinkExecuted != 2U || throwingSinkContext.results.size() != 2U
+        || throwingSinkContext.eventSinkFailures != 2U) {
+        return EXIT_FAILURE;
+    }
+
     ri::content::ClearPluginHookHandlers();
     std::atomic<bool> registrationFailed = false;
     std::vector<std::thread> workers;

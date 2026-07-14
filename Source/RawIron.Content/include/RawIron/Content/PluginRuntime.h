@@ -47,6 +47,8 @@ struct PluginHookContext {
     std::vector<PluginHookResult> results;
     ScriptScalarMap runtimeScalars;
     PluginRuntimeEventSink eventSink;
+    /// Counts event-sink callback failures isolated by the runtime boundary.
+    std::size_t eventSinkFailures = 0;
 };
 
 struct GamePluginBootstrap {

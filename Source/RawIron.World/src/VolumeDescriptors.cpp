@@ -10,6 +10,8 @@
 namespace ri::world {
 namespace {
 
+constexpr float kMaxRuntimeVolumeExtent = 1.0e6f;
+
 std::string NormalizeToken(std::string_view value) {
     std::string normalized;
     normalized.reserve(value.size());
@@ -48,7 +50,7 @@ ri::math::Vec3 SanitizeVector(const ri::math::Vec3& value, const ri::math::Vec3&
 }
 
 float PositiveExtent(float value) {
-    return std::fabs(std::isfinite(value) ? value : 0.0f);
+    return std::clamp(std::fabs(std::isfinite(value) ? value : 0.0f), 0.0f, kMaxRuntimeVolumeExtent);
 }
 
 std::optional<ClipVolumeMode> ParseClipVolumeModeToken(std::string_view token) {
@@ -387,7 +389,7 @@ RuntimeVolume CreateRuntimeVolume(const RuntimeVolumeSeed& data, const VolumeDef
     volume.id = data.id.empty() ? ri::runtime::CreateRuntimeId(defaults.runtimeId) : data.id;
     volume.type = data.type.empty() ? defaults.type : data.type;
     volume.debugVisible = data.debugVisible.value_or(true);
-    volume.position = data.position.value_or(ri::math::Vec3{0.0f, 0.0f, 0.0f});
+    volume.position = SanitizeVector(data.position.value_or(ri::math::Vec3{0.0f, 0.0f, 0.0f}));
     volume.shape = data.shape.value_or(defaults.shape);
 
     const ri::math::Vec3 rawSize = data.size.value_or(defaults.size);
@@ -399,8 +401,8 @@ RuntimeVolume CreateRuntimeVolume(const RuntimeVolumeSeed& data, const VolumeDef
 
     const float defaultRadius = std::max(volume.size.x, volume.size.z) * 0.5f;
     const float rawHeight = volume.size.y > 0.0f ? volume.size.y : 2.0f;
-    volume.radius = std::max(0.25f, data.radius.value_or(defaultRadius));
-    volume.height = std::max(0.25f, data.height.value_or(rawHeight));
+    volume.radius = ClampFiniteFloat(data.radius.value_or(defaultRadius), defaultRadius, 0.25f, kMaxRuntimeVolumeExtent);
+    volume.height = ClampFiniteFloat(data.height.value_or(rawHeight), rawHeight, 0.25f, kMaxRuntimeVolumeExtent);
     return volume;
 }
 
@@ -412,7 +414,9 @@ AuthoringRuntimeVolumeRecord BuildAuthoringRuntimeVolumeRecord(const RuntimeVolu
     record.type = base.type;
     record.shape = base.shape;
     record.position = base.position;
-    record.rotationRadians = data.rotationRadians;
+    if (data.rotationRadians.has_value()) {
+        record.rotationRadians = SanitizeVector(*data.rotationRadians);
+    }
     record.size = base.size;
     record.radius = base.radius;
     record.height = base.height;

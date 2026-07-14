@@ -14,6 +14,23 @@ namespace ri::scene {
 
 namespace {
 
+constexpr int kMaxCoarseOcclusionGridDimension = 1024;
+
+float FiniteOr(const float value, const float fallback) {
+    return std::isfinite(value) ? value : fallback;
+}
+
+bool IsFiniteMatrix(const ri::math::Mat4& matrix) {
+    for (int row = 0; row < 4; ++row) {
+        for (int column = 0; column < 4; ++column) {
+            if (!std::isfinite(matrix.m[row][column])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 void WriteMat4ColumnMajor(const ri::math::Mat4& matrix, float* destination) {
     if (destination == nullptr) {
         return;
@@ -29,6 +46,9 @@ void WriteMat4ColumnMajor(const ri::math::Mat4& matrix, float* destination) {
 
 ri::math::Mat4 BuildViewMatrix(const ri::scene::Scene& scene, int cameraNodeHandle) {
     const ri::math::Mat4 world = scene.ComputeWorldMatrix(cameraNodeHandle);
+    if (!IsFiniteMatrix(world)) {
+        return ri::math::IdentityMatrix();
+    }
     const ri::math::Vec3 right = ri::math::ExtractRight(world);
     const ri::math::Vec3 up = ri::math::ExtractUp(world);
     const ri::math::Vec3 forward = ri::math::ExtractForward(world);
@@ -53,10 +73,11 @@ ri::math::Mat4 BuildViewMatrix(const ri::scene::Scene& scene, int cameraNodeHand
 }
 
 ri::math::Mat4 BuildPerspectiveMatrix(float fieldOfViewDegrees, float nearClip, float farClip, float aspectRatio) {
-    const float safeAspect = std::max(aspectRatio, 0.001f);
-    const float safeNear = std::max(nearClip, 0.001f);
-    const float safeFar = std::max(farClip, safeNear + 0.001f);
-    const float focalLength = 1.0f / std::tan(ri::math::DegreesToRadians(fieldOfViewDegrees * 0.5f));
+    const float safeAspect = std::clamp(FiniteOr(aspectRatio, 1.0f), 0.001f, 1000.0f);
+    const float safeNear = std::clamp(FiniteOr(nearClip, 0.1f), 0.001f, 1.0e6f);
+    const float safeFar = std::clamp(FiniteOr(farClip, 1000.0f), safeNear + 0.001f, 1.0e9f);
+    const float safeFieldOfView = std::clamp(FiniteOr(fieldOfViewDegrees, 60.0f), 1.0f, 179.0f);
+    const float focalLength = 1.0f / std::tan(ri::math::DegreesToRadians(safeFieldOfView * 0.5f));
 
     ri::math::Mat4 projection{};
     projection.m[0][0] = focalLength / safeAspect;
@@ -74,6 +95,9 @@ std::uint16_t ResolvePipelineBucket(const Scene& scene,
         return options.litPipelineBucket;
     }
 
+    if (node.material < 0 || static_cast<std::size_t>(node.material) >= scene.MaterialCount()) {
+        return options.litPipelineBucket;
+    }
     const Material& material = scene.GetMaterial(node.material);
     if (material.additiveBlend || material.transparent || material.opacity < 0.999f) {
         return options.transparentPipelineBucket;
@@ -93,6 +117,15 @@ std::uint16_t ResolveDepthBucket(const ri::math::Mat4& viewMatrix, const ri::mat
 std::uint16_t ResolveTransparentDepthBucket(const ri::math::Mat4& viewMatrix, const ri::math::Vec3& worldPosition) {
     const std::uint16_t opaqueDepth = ResolveDepthBucket(viewMatrix, worldPosition);
     return static_cast<std::uint16_t>(std::numeric_limits<std::uint16_t>::max() - opaqueDepth);
+}
+
+std::uint16_t ResolveStableMaterialBucket(const Scene& scene, const int materialHandle) {
+    if (materialHandle < 0 || static_cast<std::size_t>(materialHandle) >= scene.MaterialCount()) {
+        return 0U;
+    }
+    const std::size_t bucket = static_cast<std::size_t>(materialHandle) + 1U;
+    return static_cast<std::uint16_t>(
+        std::min(bucket, static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max())));
 }
 
 std::uint32_t ResolveMeshIndexCount(const Mesh& mesh) {
@@ -332,14 +365,20 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
         ComputeCameraViewProjection(scene, *resolvedCamera, aspectRatio, &options.photoMode);
     const int cameraHandle = scene.GetNode(*resolvedCamera).camera;
     const Camera& camera = scene.GetCamera(cameraHandle);
-    const float fieldOfViewDegrees =
-        ResolvePhotoModeFieldOfViewDegrees(camera.fieldOfViewDegrees, options.photoMode, aspectRatio);
+    const float fieldOfViewDegrees = std::clamp(
+        FiniteOr(ResolvePhotoModeFieldOfViewDegrees(camera.fieldOfViewDegrees, options.photoMode, aspectRatio), 60.0f),
+        1.0f,
+        179.0f);
+    const float nearClip = std::clamp(FiniteOr(camera.nearClip, 0.1f), 0.001f, 1.0e6f);
+    const float farClip = std::clamp(FiniteOr(camera.farClip, 1000.0f), nearClip + 0.001f, 1.0e9f);
     const float tanHalfFovY =
-        std::tan(ri::math::DegreesToRadians(std::clamp(fieldOfViewDegrees, 1.0f, 179.0f) * 0.5f));
+        std::tan(ri::math::DegreesToRadians(fieldOfViewDegrees * 0.5f));
     const float tanHalfFovX = tanHalfFovY * std::max(aspectRatio, 0.001f);
     std::vector<std::optional<MeshCullBounds>> meshCullCache(scene.MeshCount());
-    const int coarseOcclusionGridWidth = std::max(1, options.coarseOcclusionGridWidth);
-    const int coarseOcclusionGridHeight = std::max(1, options.coarseOcclusionGridHeight);
+    const int coarseOcclusionGridWidth =
+        std::clamp(options.coarseOcclusionGridWidth, 1, kMaxCoarseOcclusionGridDimension);
+    const int coarseOcclusionGridHeight =
+        std::clamp(options.coarseOcclusionGridHeight, 1, kMaxCoarseOcclusionGridDimension);
     std::vector<float> coarseOcclusionMinDepth(
         static_cast<std::size_t>(coarseOcclusionGridWidth) * static_cast<std::size_t>(coarseOcclusionGridHeight),
         std::numeric_limits<float>::infinity());
@@ -347,10 +386,10 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
     submission.commands.EmitSorted(
         ri::core::RenderCommandType::ClearColor,
         ri::core::ClearColorCommand{
-            .r = options.clearColor.x,
-            .g = options.clearColor.y,
-            .b = options.clearColor.z,
-            .a = options.clearAlpha,
+            .r = FiniteOr(options.clearColor.x, 0.05f),
+            .g = FiniteOr(options.clearColor.y, 0.07f),
+            .b = FiniteOr(options.clearColor.z, 0.10f),
+            .a = FiniteOr(options.clearAlpha, 1.0f),
         },
         ri::core::PackRenderSortKey(options.clearPassIndex, options.utilityPipelineBucket, 0U, 0U));
 
@@ -363,7 +402,7 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
 
     for (const int nodeHandle : scene.GetRenderableNodeHandles()) {
         const Node& node = scene.GetNode(nodeHandle);
-        if (node.mesh == kInvalidHandle) {
+        if (node.mesh < 0 || static_cast<std::size_t>(node.mesh) >= scene.MeshCount()) {
             submission.stats.skippedNodes += 1U;
             continue;
         }
@@ -376,6 +415,10 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
         }
 
         const ri::math::Mat4 world = scene.ComputeWorldMatrix(nodeHandle);
+        if (!IsFiniteMatrix(world)) {
+            submission.stats.skippedNodes += 1U;
+            continue;
+        }
         const ri::math::Vec3 worldPosition = ri::math::ExtractTranslation(world);
         const ri::math::Vec3 viewPosition = ri::math::TransformPoint(viewMatrix, worldPosition);
         const std::uint16_t pipelineBucket = ResolvePipelineBucket(scene, node, options);
@@ -412,7 +455,7 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
                 const float maxScale = std::max({std::fabs(worldScale.x), std::fabs(worldScale.y), std::fabs(worldScale.z)});
                 const float worldRadius = cull.radius * std::max(maxScale, 0.0001f);
                 if (!IsSphereVisibleInView(
-                        viewCullCenter, worldRadius, camera.nearClip, camera.farClip, tanHalfFovY, tanHalfFovX)) {
+                        viewCullCenter, worldRadius, nearClip, farClip, tanHalfFovY, tanHalfFovX)) {
                     submission.stats.skippedNodes += 1U;
                     continue;
                 }
@@ -427,10 +470,7 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
         draw.instanceCount = 1U;
         WriteMat4ColumnMajor(world, draw.model);
 
-        const std::uint16_t stableMaterialBucket = static_cast<std::uint16_t>(
-            std::clamp(node.material == kInvalidHandle ? 0 : node.material + 1,
-                       0,
-                       static_cast<int>(std::numeric_limits<std::uint16_t>::max())));
+        const std::uint16_t stableMaterialBucket = ResolveStableMaterialBucket(scene, node.material);
         const bool isTransparent = pipelineBucket == options.transparentPipelineBucket;
         if (options.enableCoarseOcclusion && !isTransparent) {
             std::size_t cellIndex = 0;
@@ -471,8 +511,12 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
 
     for (std::size_t batchIndex = 0; batchIndex < scene.MeshInstanceBatchCount(); ++batchIndex) {
         const MeshInstanceBatch& batch = scene.GetMeshInstanceBatch(static_cast<int>(batchIndex));
-        if (batch.mesh == kInvalidHandle || batch.transforms.empty()) {
-            submission.stats.skippedNodes += batch.transforms.empty() ? 1U : 0U;
+        if (batch.transforms.empty()) {
+            submission.stats.skippedNodes += 1U;
+            continue;
+        }
+        if (batch.mesh < 0 || static_cast<std::size_t>(batch.mesh) >= scene.MeshCount()) {
+            submission.stats.skippedNodes += batch.transforms.size();
             continue;
         }
 
@@ -485,7 +529,7 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
 
         const ri::math::Mat4 parentWorld = ResolveBatchParentWorldMatrix(scene, batch);
         const std::uint16_t pipelineBucket = [&]() {
-            if (batch.material == kInvalidHandle) {
+            if (batch.material < 0 || static_cast<std::size_t>(batch.material) >= scene.MaterialCount()) {
                 return options.litPipelineBucket;
             }
             const Material& material = scene.GetMaterial(batch.material);
@@ -498,10 +542,7 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
             return options.litPipelineBucket;
         }();
 
-        const std::uint16_t stableMaterialBucket = static_cast<std::uint16_t>(
-            std::clamp(batch.material == kInvalidHandle ? 0 : batch.material + 1,
-                       0,
-                       static_cast<int>(std::numeric_limits<std::uint16_t>::max())));
+        const std::uint16_t stableMaterialBucket = ResolveStableMaterialBucket(scene, batch.material);
         const bool isTransparent = pipelineBucket == options.transparentPipelineBucket;
 
         std::vector<std::size_t> instanceOrder;
@@ -527,6 +568,10 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
 
         for (const std::size_t instanceIndex : instanceOrder) {
             const ri::math::Mat4 world = ri::math::Multiply(parentWorld, batch.transforms[instanceIndex].LocalMatrix());
+            if (!IsFiniteMatrix(world)) {
+                submission.stats.skippedNodes += 1U;
+                continue;
+            }
             const ri::math::Vec3 worldPosition = ri::math::ExtractTranslation(world);
             const ri::math::Vec3 viewPosition = ri::math::TransformPoint(viewMatrix, worldPosition);
             if (options.enableFarHorizon) {
@@ -562,7 +607,7 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
                         std::max({std::fabs(worldScale.x), std::fabs(worldScale.y), std::fabs(worldScale.z)});
                     const float worldRadius = cull.radius * std::max(maxScale, 0.0001f);
                     if (!IsSphereVisibleInView(
-                            viewCullCenter, worldRadius, camera.nearClip, camera.farClip, tanHalfFovY, tanHalfFovX)) {
+                            viewCullCenter, worldRadius, nearClip, farClip, tanHalfFovY, tanHalfFovX)) {
                         submission.stats.skippedNodes += 1U;
                         continue;
                     }

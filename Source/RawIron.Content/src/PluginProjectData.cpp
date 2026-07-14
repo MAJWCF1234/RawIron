@@ -243,6 +243,9 @@ void ValidatePluginProjectDataInternal(PluginProjectData& data) {
 
     std::map<std::string, PluginRegistryEntry, std::less<>> registryById{};
     for (const PluginRegistryEntry& entry : data.registryEntries) {
+        if (registryById.contains(entry.id)) {
+            AppendUniqueIssue(data.issues, "Duplicate registry plugin id: " + entry.id);
+        }
         registryById[entry.id] = entry;
     }
 
@@ -375,12 +378,22 @@ std::vector<ActivePlugin> BuildActivePlugins(const PluginProjectData& data) {
         LoadPluginLoadOrder(data.gameRoot / "plugins" / "load_order.cfg");
 
     std::map<std::string, PluginRegistryEntry, std::less<>> registryById{};
+    std::map<std::string, std::size_t, std::less<>> registryIdCounts{};
     for (const PluginRegistryEntry& entry : data.registryEntries) {
         registryById[entry.id] = entry;
+        registryIdCounts[entry.id] += 1U;
+    }
+
+    std::map<std::string, std::size_t, std::less<>> manifestIdCounts{};
+    for (const PluginManifestEntry& entry : data.manifestEntries) {
+        manifestIdCounts[entry.id] += 1U;
     }
 
     std::vector<ActivePlugin> active{};
     for (const PluginManifestEntry& manifest : data.manifestEntries) {
+        if (manifestIdCounts[manifest.id] != 1U || registryIdCounts[manifest.id] != 1U) {
+            continue;
+        }
         const auto registryIt = registryById.find(manifest.id);
         if (registryIt == registryById.end() || !registryIt->second.enabled) {
             continue;

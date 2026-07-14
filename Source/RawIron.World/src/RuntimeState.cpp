@@ -745,34 +745,46 @@ void UpdateTriggerFamily(std::vector<TVolume>& volumes,
 } // namespace
 
 ri::spatial::Aabb BuildRuntimeVolumeBounds(const RuntimeVolume& volume) {
+    constexpr float kMaxVolumeExtent = 1.0e6f;
+    const auto finitePositionComponent = [](const float value) {
+        return std::clamp(std::isfinite(value) ? value : 0.0f, -1.0e9f, 1.0e9f);
+    };
+    const auto finiteExtent = [](const float value, const float fallback) {
+        return std::clamp(std::fabs(std::isfinite(value) ? value : fallback), 0.001f, kMaxVolumeExtent);
+    };
+    const ri::math::Vec3 position{
+        finitePositionComponent(volume.position.x),
+        finitePositionComponent(volume.position.y),
+        finitePositionComponent(volume.position.z),
+    };
     switch (volume.shape) {
     case VolumeShape::Box: {
         const ri::math::Vec3 halfExtents{
-            std::max(0.001f, std::fabs(volume.size.x) * 0.5f),
-            std::max(0.001f, std::fabs(volume.size.y) * 0.5f),
-            std::max(0.001f, std::fabs(volume.size.z) * 0.5f),
+            finiteExtent(volume.size.x * 0.5f, 0.5f),
+            finiteExtent(volume.size.y * 0.5f, 0.5f),
+            finiteExtent(volume.size.z * 0.5f, 0.5f),
         };
         return {
-            .min = volume.position - halfExtents,
-            .max = volume.position + halfExtents,
+            .min = position - halfExtents,
+            .max = position + halfExtents,
         };
     }
     case VolumeShape::Cylinder: {
-        const float radius = std::max(0.001f, std::fabs(std::isfinite(volume.radius) ? volume.radius : 0.5f));
-        const float halfHeight = std::max(0.001f, std::fabs(std::isfinite(volume.height) ? volume.height : volume.size.y) * 0.5f);
+        const float radius = finiteExtent(volume.radius, 0.5f);
+        const float halfHeight = finiteExtent(volume.height * 0.5f, 0.5f);
         const ri::math::Vec3 extents{radius, halfHeight, radius};
         return {
-            .min = volume.position - extents,
-            .max = volume.position + extents,
+            .min = position - extents,
+            .max = position + extents,
         };
     }
     case VolumeShape::Sphere:
     default: {
-        const float radius = std::max(0.001f, std::fabs(std::isfinite(volume.radius) ? volume.radius : 0.5f));
+        const float radius = finiteExtent(volume.radius, 0.5f);
         const ri::math::Vec3 extents{radius, radius, radius};
         return {
-            .min = volume.position - extents,
-            .max = volume.position + extents,
+            .min = position - extents,
+            .max = position + extents,
         };
     }
     }

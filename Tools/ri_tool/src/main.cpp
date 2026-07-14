@@ -1728,6 +1728,63 @@ void PrintToolHelp() {
     ri::core::LogInfo("General options: --root <workspace> --game <id> --game-root <path> --help --version");
 }
 
+bool CommandRequested(const ri::core::CommandLine& commandLine, const std::string_view command) {
+    return commandLine.HasFlag(command) || commandLine.GetValue(command).has_value();
+}
+
+void ValidateSinglePrimaryCommand(const ri::core::CommandLine& commandLine) {
+    static constexpr std::array<std::string_view, 31> commands = {{
+        "--workspace",
+        "--list-projects",
+        "--ensure-workspace",
+        "--create-project",
+        "--describe-project",
+        "--doctor-project",
+        "--list-project-resources",
+        "--scaffold-project",
+        "--formats",
+        "--plugins-list",
+        "--plugins-doctor",
+        "--plugin-handlers",
+        "--extension-validate",
+        "--rig-toolchain-report",
+        "--rig-create-humanoid",
+        "--rig-validate",
+        "--asset-standardize",
+        "--asset-standardize-dir",
+        "--asset-package-build",
+        "--asset-package-validate",
+        "--asset-package-import",
+        "--asset-package-install",
+        "--scenekit-targets",
+        "--postprocess-presets",
+        "--scenekit-checks",
+        "--scenekit-example",
+        "--vulkan-diagnostics",
+        "--render-cube",
+        "--sample-scene",
+        "--save-scene-state",
+        "--load-scene-state",
+    }};
+    std::vector<std::string_view> requested{};
+    for (const std::string_view command : commands) {
+        if (CommandRequested(commandLine, command)
+            && std::find(requested.begin(), requested.end(), command) == requested.end()) {
+            requested.push_back(command);
+        }
+    }
+    if (requested.size() <= 1U) {
+        return;
+    }
+    std::string message = "Multiple primary commands were provided:";
+    for (const std::string_view command : requested) {
+        message += " ";
+        message += command;
+    }
+    message += ". Run one command at a time.";
+    throw std::runtime_error(message);
+}
+
 void ScaffoldRawIronProject(const ProjectCommandContext& context) {
     std::size_t createdCount = 0;
     std::vector<std::string> createdFiles;
@@ -2096,6 +2153,8 @@ int main(int argc, char** argv) {
             return 0;
         }
 
+        ValidateSinglePrimaryCommand(commandLine);
+
         if (commandLine.HasFlag("--workspace")) {
             PrintWorkspace(workspace);
             return 0;
@@ -2113,7 +2172,7 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        if (commandLine.GetValue("--create-project").has_value()) {
+        if (CommandRequested(commandLine, "--create-project")) {
             CreateRawIronProject(workspace, commandLine);
             return 0;
         }
@@ -2129,7 +2188,7 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        if (commandLine.GetValue("--doctor-project").has_value()) {
+        if (CommandRequested(commandLine, "--doctor-project")) {
             std::string error;
             const std::optional<ProjectCommandContext> context =
                 ResolveProjectCommandContext(commandLine, workspace, error);
@@ -2192,7 +2251,7 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        if (commandLine.GetValue("--extension-validate").has_value()) {
+        if (CommandRequested(commandLine, "--extension-validate")) {
             return ValidateExtensionFile(commandLine) ? 0 : 1;
         }
 
@@ -2201,42 +2260,42 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        if (commandLine.GetValue("--rig-create-humanoid").has_value()) {
+        if (CommandRequested(commandLine, "--rig-create-humanoid")) {
             CreateHumanoidRig(workspace, commandLine);
             return 0;
         }
 
-        if (commandLine.GetValue("--rig-validate").has_value()) {
+        if (CommandRequested(commandLine, "--rig-validate")) {
             ValidateRig(commandLine);
             return 0;
         }
 
-        if (commandLine.GetValue("--asset-standardize").has_value()) {
+        if (CommandRequested(commandLine, "--asset-standardize")) {
             StandardizeSingleAsset(workspace, commandLine);
             return 0;
         }
 
-        if (commandLine.GetValue("--asset-standardize-dir").has_value()) {
+        if (CommandRequested(commandLine, "--asset-standardize-dir")) {
             StandardizeAssetDirectory(workspace, commandLine);
             return 0;
         }
 
-        if (commandLine.GetValue("--asset-package-build").has_value()) {
+        if (CommandRequested(commandLine, "--asset-package-build")) {
             BuildAssetPackage(workspace, commandLine);
             return 0;
         }
 
-        if (commandLine.GetValue("--asset-package-validate").has_value()) {
+        if (CommandRequested(commandLine, "--asset-package-validate")) {
             ValidateAssetPackage(commandLine);
             return 0;
         }
 
-        if (commandLine.GetValue("--asset-package-import").has_value()) {
+        if (CommandRequested(commandLine, "--asset-package-import")) {
             ImportAssetPackage(workspace, commandLine);
             return 0;
         }
 
-        if (commandLine.GetValue("--asset-package-install").has_value()) {
+        if (CommandRequested(commandLine, "--asset-package-install")) {
             InstallAssetPackage(workspace, commandLine);
             return 0;
         }
@@ -2256,7 +2315,7 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        if (commandLine.GetValue("--scenekit-example").has_value()) {
+        if (CommandRequested(commandLine, "--scenekit-example")) {
             RenderSceneKitExampleToFile(workspace, commandLine);
             return 0;
         }

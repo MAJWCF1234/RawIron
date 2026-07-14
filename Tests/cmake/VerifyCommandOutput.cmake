@@ -72,11 +72,18 @@ if(WIN32)
   string(REPLACE "\\" "/" command_output_normalized "${command_output_normalized}")
 endif()
 
-if(NOT command_result EQUAL 0)
-  message(FATAL_ERROR
-    "Command failed with exit code ${command_result}\n"
-    "Command: ${EXECUTABLE} ${COMMAND_ARGS}\n"
-    "Output:\n${command_output}")
+if(DEFINED EXPECT_NONZERO AND EXPECT_NONZERO)
+  if(command_result EQUAL 0)
+    message(FATAL_ERROR
+      "Command unexpectedly succeeded\n"
+      "Command: ${EXECUTABLE} ${COMMAND_ARGS}\n"
+      "Output:\n${command_output}")
+  endif()
+elseif(NOT command_result EQUAL 0)
+    message(FATAL_ERROR
+      "Command failed with exit code ${command_result}\n"
+      "Command: ${EXECUTABLE} ${COMMAND_ARGS}\n"
+      "Output:\n${command_output}")
 endif()
 
 foreach(expected IN LISTS EXPECTED_STRINGS)

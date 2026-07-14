@@ -35,4 +35,8 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(ScenePreviewPlacementSmoke ${CMAKE_SOURCE_DIR}/Tests/ScenePreviewPlacementSmoke.cpp)
   target_link_libraries(ScenePreviewPlacementSmoke PRIVATE RawIron::RenderSoftware)
   add_test(NAME RawIron.Render.Software.ScenePreviewPlacementSmoke COMMAND ScenePreviewPlacementSmoke)
+
+  add_executable(ScenePreviewRayTraceSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/ScenePreviewRayTraceSafetySmoke.cpp)
+  target_link_libraries(ScenePreviewRayTraceSafetySmoke PRIVATE RawIron::RenderSoftware)
+  add_test(NAME RawIron.Render.Software.ScenePreviewRayTraceSafetySmoke COMMAND ScenePreviewRayTraceSafetySmoke)
 endif()

@@ -23,8 +23,10 @@ bool Expect(bool condition) {
 
 int main() {
     const fs::path root = fs::temp_directory_path() / "rawiron_plugin_project_data_smoke";
+    const fs::path duplicateRoot = fs::temp_directory_path() / "rawiron_plugin_project_duplicate_smoke";
     std::error_code ec{};
     fs::remove_all(root, ec);
+    fs::remove_all(duplicateRoot, ec);
 
     WriteTextFile(root / "plugins" / "manifest.plugins",
                   "legacy.telemetry,1.0,telemetry,plugins/hooks.riplugin\n"
@@ -109,11 +111,33 @@ int main() {
             && blocked->sourceKind == ri::content::PluginSourceKind::External;
     }
 
-    fs::remove_all(root, ec);
     if (!Expect(sawUnsignedPolicyIssue) || !Expect(sawLegacyBootstrap) || !Expect(sawTemplateRuntime)
         || !Expect(sawDescriptorHook) || !Expect(sawBlockedManifest) || !Expect(sawMissingEntry)
         || !Expect(sawRejectedEscape)) {
         return EXIT_FAILURE;
     }
+
+    WriteTextFile(duplicateRoot / "plugins" / "manifest.plugins",
+                  "duplicate.test,1.0,utility,plugins/hooks.riplugin\n");
+    WriteTextFile(duplicateRoot / "plugins" / "load_order.cfg", "duplicate.test=10\n");
+    WriteTextFile(duplicateRoot / "plugins" / "registry.json",
+                  "{\"plugins\":[{\"id\":\"duplicate.test\",\"enabled\":false},"
+                  "{\"id\":\"duplicate.test\",\"enabled\":true}]}\n");
+    WriteTextFile(duplicateRoot / "plugins" / "hooks.riplugin",
+                  "runtime,duplicate.test,frame_sample,10\n");
+    WriteTextFile(duplicateRoot / "config" / "plugins.policy", "allow_project_plugins=1\n");
+
+    const ri::content::PluginProjectData duplicateData = ri::content::LoadPluginProjectData(duplicateRoot);
+    bool sawDuplicateRegistryIssue = false;
+    for (const ri::content::PluginValidationIssue& issue : duplicateData.issues) {
+        sawDuplicateRegistryIssue = sawDuplicateRegistryIssue
+            || issue.message.find("Duplicate registry plugin id: duplicate.test") != std::string::npos;
+    }
+    if (!sawDuplicateRegistryIssue || !duplicateData.activePlugins.empty()) {
+        return EXIT_FAILURE;
+    }
+
+    fs::remove_all(root, ec);
+    fs::remove_all(duplicateRoot, ec);
     return EXIT_SUCCESS;
 }

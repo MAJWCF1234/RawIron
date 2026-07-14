@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -23,6 +24,103 @@ namespace ri::render::software {
 namespace {
 
 namespace fs = std::filesystem;
+
+constexpr std::uint64_t kGeometryHashOffset = 14695981039346656037ULL;
+constexpr std::uint64_t kGeometryHashPrime = 1099511628211ULL;
+
+bool IsValidNodeHandle(const ri::scene::Scene& scene, const int handle) {
+    return handle >= 0 && static_cast<std::size_t>(handle) < scene.NodeCount();
+}
+
+bool IsValidMeshHandle(const ri::scene::Scene& scene, const int handle) {
+    return handle >= 0 && static_cast<std::size_t>(handle) < scene.MeshCount();
+}
+
+bool IsValidMaterialHandle(const ri::scene::Scene& scene, const int handle) {
+    return handle >= 0 && static_cast<std::size_t>(handle) < scene.MaterialCount();
+}
+
+bool IsValidCameraNodeHandle(const ri::scene::Scene& scene, const int handle) {
+    if (!IsValidNodeHandle(scene, handle)) {
+        return false;
+    }
+    const int camera = scene.GetNode(handle).camera;
+    return camera >= 0 && static_cast<std::size_t>(camera) < scene.CameraCount();
+}
+
+bool IsFinite(const ri::math::Vec2 value) {
+    return std::isfinite(value.x) && std::isfinite(value.y);
+}
+
+bool IsFinite(const ri::math::Vec3 value) {
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+bool IsFinite(const ri::math::Mat4& matrix) {
+    for (int row = 0; row < 4; ++row) {
+        for (int column = 0; column < 4; ++column) {
+            if (!std::isfinite(matrix.m[row][column])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+float FiniteOr(const float value, const float fallback) {
+    return std::isfinite(value) ? value : fallback;
+}
+
+void HashUint(std::uint64_t& hash, std::uint64_t value) {
+    for (int byte = 0; byte < 8; ++byte) {
+        hash ^= value & 0xffU;
+        hash *= kGeometryHashPrime;
+        value >>= 8U;
+    }
+}
+
+void HashFloat(std::uint64_t& hash, const float value) {
+    HashUint(hash, std::bit_cast<std::uint32_t>(value));
+}
+
+void HashVec2(std::uint64_t& hash, const ri::math::Vec2 value) {
+    HashFloat(hash, value.x);
+    HashFloat(hash, value.y);
+}
+
+void HashVec3(std::uint64_t& hash, const ri::math::Vec3 value) {
+    HashFloat(hash, value.x);
+    HashFloat(hash, value.y);
+    HashFloat(hash, value.z);
+}
+
+void HashMatrix(std::uint64_t& hash, const ri::math::Mat4& matrix) {
+    for (int row = 0; row < 4; ++row) {
+        for (int column = 0; column < 4; ++column) {
+            HashFloat(hash, matrix.m[row][column]);
+        }
+    }
+}
+
+void HashMesh(std::uint64_t& hash, const ri::scene::Mesh& mesh) {
+    HashUint(hash, static_cast<std::uint64_t>(mesh.primitive));
+    HashUint(hash, mesh.positions.size());
+    for (const ri::math::Vec3 value : mesh.positions) {
+        HashVec3(hash, value);
+    }
+    HashUint(hash, mesh.normals.size());
+    for (const ri::math::Vec3 value : mesh.normals) {
+        HashVec3(hash, value);
+    }
+    HashUint(hash, mesh.texCoords.size());
+    for (const ri::math::Vec2 value : mesh.texCoords) {
+        HashVec2(hash, value);
+    }
+    HashUint(hash, mesh.indices.size());
+    for (const int index : mesh.indices) {
+        HashUint(hash, static_cast<std::uint64_t>(static_cast<std::int64_t>(index)));
+    }
+}
 
 struct CameraBasis {
     ri::math::Vec3 position{0.0f, 0.0f, 0.0f};
@@ -95,7 +193,7 @@ constexpr std::array<ri::math::Vec3, 4> kPlaneVertices = {{
 }};
 
 float Clamp01(float value) {
-    return std::clamp(value, 0.0f, 1.0f);
+    return std::clamp(FiniteOr(value, 0.0f), 0.0f, 1.0f);
 }
 
 std::uint8_t ToByte(float value) {
@@ -223,7 +321,11 @@ bool IsHiddenPreviewNode(const ri::scene::Scene& scene, int nodeHandle, const Sc
         return false;
     }
     int current = nodeHandle;
-    while (current != ri::scene::kInvalidHandle) {
+    std::size_t remainingParents = scene.NodeCount();
+    while (current != ri::scene::kInvalidHandle && remainingParents-- > 0U) {
+        if (!IsValidNodeHandle(scene, current)) {
+            return false;
+        }
         if (std::find(options.hiddenNodeHandles.begin(), options.hiddenNodeHandles.end(), current)
             != options.hiddenNodeHandles.end()) {
             return true;
@@ -240,16 +342,23 @@ CameraBasis BuildCameraBasis(const ri::scene::Scene& scene, int cameraNodeHandle
     basis.aspectRatio = aspectRatio;
     const ri::scene::Node& cameraNode = scene.GetNode(cameraNodeHandle);
     const ri::scene::Camera& camera = scene.GetCamera(cameraNode.camera);
-    const float fieldOfViewDegrees =
-        ri::scene::ResolvePhotoModeFieldOfViewDegrees(camera.fieldOfViewDegrees, options.photoMode, aspectRatio);
+    const float fieldOfViewDegrees = std::clamp(
+        FiniteOr(ri::scene::ResolvePhotoModeFieldOfViewDegrees(
+                     camera.fieldOfViewDegrees, options.photoMode, aspectRatio),
+                 60.0f),
+        1.0f,
+        179.0f);
     const ri::math::Mat4 world = scene.ComputeWorldMatrix(cameraNodeHandle);
     basis.position = ri::math::ExtractTranslation(world);
     basis.right = ri::math::ExtractRight(world);
     basis.up = ri::math::ExtractUp(world);
     basis.forward = ri::math::ExtractForward(world);
+    if (!IsFinite(world)) {
+        return CameraBasis{};
+    }
     basis.focalLength = 1.0f / std::tan(ri::math::DegreesToRadians(fieldOfViewDegrees * 0.5f));
-    basis.nearClip = std::max(0.01f, camera.nearClip);
-    basis.farClip = std::max(basis.nearClip + 0.01f, camera.farClip);
+    basis.nearClip = std::clamp(FiniteOr(camera.nearClip, 0.1f), 0.01f, 1.0e6f);
+    basis.farClip = std::clamp(FiniteOr(camera.farClip, 1000.0f), basis.nearClip + 0.01f, 1.0e9f);
     return basis;
 }
 
@@ -257,33 +366,81 @@ std::vector<ResolvedLight> ResolveLights(const ri::scene::Scene& scene) {
     std::vector<ResolvedLight> lights;
     for (const int lightNodeHandle : ri::scene::CollectLightNodes(scene)) {
         const ri::scene::Node& node = scene.GetNode(lightNodeHandle);
+        if (node.light < 0 || static_cast<std::size_t>(node.light) >= scene.LightCount()) {
+            continue;
+        }
         const ri::scene::Light& light = scene.GetLight(node.light);
         const ri::math::Mat4 world = scene.ComputeWorldMatrix(lightNodeHandle);
+        if (!IsFinite(world)) {
+            continue;
+        }
         lights.push_back(ResolvedLight{
             .type = light.type,
             .position = ri::math::ExtractTranslation(world),
             .direction = ri::math::ExtractForward(world),
-            .color = light.color,
-            .intensity = light.intensity,
-            .range = light.range,
-            .spotAngleDegrees = light.spotAngleDegrees,
+            .color = IsFinite(light.color) ? light.color : ri::math::Vec3{1.0f, 1.0f, 1.0f},
+            .intensity = std::clamp(FiniteOr(light.intensity, 1.0f), 0.0f, 1.0e6f),
+            .range = std::clamp(FiniteOr(light.range, 10.0f), 0.0f, 1.0e9f),
+            .spotAngleDegrees = std::clamp(FiniteOr(light.spotAngleDegrees, 45.0f), 1.0f, 179.0f),
         });
     }
     return lights;
 }
 
 std::uint64_t ComputeSceneGeometryStamp(const ri::scene::Scene& scene, const ScenePreviewOptions& options) {
-    std::uint64_t stamp = static_cast<std::uint64_t>(scene.NodeCount())
-        ^ (static_cast<std::uint64_t>(scene.MeshCount()) << 16U)
-        ^ (static_cast<std::uint64_t>(scene.MeshInstanceBatchCount()) << 32U);
+    std::uint64_t stamp = kGeometryHashOffset;
+    HashUint(stamp, scene.NodeCount());
+    HashUint(stamp, scene.MeshCount());
+    HashUint(stamp, scene.MeshInstanceBatchCount());
+    for (const int hiddenHandle : options.hiddenNodeHandles) {
+        HashUint(stamp, static_cast<std::uint64_t>(static_cast<std::int64_t>(hiddenHandle)));
+    }
+    std::vector<bool> hashedMeshes(scene.MeshCount(), false);
+    std::vector<bool> hashedMaterials(scene.MaterialCount(), false);
+    const auto hashResources = [&](const int meshHandle, const int materialHandle) {
+        if (IsValidMeshHandle(scene, meshHandle)) {
+            const std::size_t index = static_cast<std::size_t>(meshHandle);
+            if (!hashedMeshes[index]) {
+                hashedMeshes[index] = true;
+                HashUint(stamp, index);
+                HashMesh(stamp, scene.GetMesh(meshHandle));
+            }
+        }
+        if (IsValidMaterialHandle(scene, materialHandle)) {
+            const std::size_t index = static_cast<std::size_t>(materialHandle);
+            if (!hashedMaterials[index]) {
+                hashedMaterials[index] = true;
+                HashUint(stamp, index);
+                const ri::scene::Material& material = scene.GetMaterial(materialHandle);
+                HashVec2(stamp, material.textureTiling);
+                HashUint(stamp, material.additiveBlend ? 1U : 0U);
+            }
+        }
+    };
     for (const int nodeHandle : scene.GetRenderableNodeHandles()) {
         if (IsHiddenPreviewNode(scene, nodeHandle, options)) {
             continue;
         }
         const ri::scene::Node& node = scene.GetNode(nodeHandle);
-        stamp ^= static_cast<std::uint64_t>(nodeHandle) * 0x9e3779b97f4a7c15ULL;
-        stamp ^= static_cast<std::uint64_t>(node.mesh) << 7U;
-        stamp ^= static_cast<std::uint64_t>(node.material) << 13U;
+        HashUint(stamp, static_cast<std::uint64_t>(nodeHandle));
+        HashUint(stamp, static_cast<std::uint64_t>(static_cast<std::int64_t>(node.mesh)));
+        HashUint(stamp, static_cast<std::uint64_t>(static_cast<std::int64_t>(node.material)));
+        hashResources(node.mesh, node.material);
+        HashMatrix(stamp, scene.ComputeWorldMatrix(nodeHandle));
+    }
+    for (std::size_t batchIndex = 0; batchIndex < scene.MeshInstanceBatchCount(); ++batchIndex) {
+        const ri::scene::MeshInstanceBatch& batch = scene.GetMeshInstanceBatch(static_cast<int>(batchIndex));
+        HashUint(stamp, batchIndex);
+        HashUint(stamp, static_cast<std::uint64_t>(static_cast<std::int64_t>(batch.mesh)));
+        HashUint(stamp, static_cast<std::uint64_t>(static_cast<std::int64_t>(batch.material)));
+        hashResources(batch.mesh, batch.material);
+        if (IsValidNodeHandle(scene, batch.parent)) {
+            HashMatrix(stamp, scene.ComputeWorldMatrix(batch.parent));
+        }
+        HashUint(stamp, batch.transforms.size());
+        for (const ri::scene::Transform& transform : batch.transforms) {
+            HashMatrix(stamp, transform.LocalMatrix());
+        }
     }
     return stamp;
 }
@@ -367,7 +524,9 @@ void AppendMeshTriangles(ScenePreviewRayTraceScene& accel,
                          const ri::scene::Material& material,
                          const ri::math::Mat4& world,
                          const int materialHandle) {
-    const ri::math::Vec2 tiling = material.textureTiling;
+    const ri::math::Vec2 tiling = IsFinite(material.textureTiling)
+        ? material.textureTiling
+        : ri::math::Vec2{1.0f, 1.0f};
     const bool hasExplicitNormals = mesh.normals.size() == mesh.positions.size();
     const bool needsSmoothNormals = mesh.primitive == ri::scene::PrimitiveType::Sphere && !hasExplicitNormals;
     const std::vector<ri::math::Vec3> vertexNormals =
@@ -385,13 +544,30 @@ void AppendMeshTriangles(ScenePreviewRayTraceScene& accel,
         const ri::math::Vec3 worldA = ri::math::TransformPoint(world, localA);
         const ri::math::Vec3 worldB = ri::math::TransformPoint(world, localB);
         const ri::math::Vec3 worldC = ri::math::TransformPoint(world, localC);
-        ri::math::Vec3 n0 = ri::math::Normalize(ri::math::Cross(worldB - worldA, worldC - worldA));
+        if (!IsFinite(worldA) || !IsFinite(worldB) || !IsFinite(worldC)
+            || !IsFinite(uvA) || !IsFinite(uvB) || !IsFinite(uvC)) {
+            return;
+        }
+        const ri::math::Vec3 faceNormal = ri::math::Normalize(ri::math::Cross(worldB - worldA, worldC - worldA));
+        if (!IsFinite(faceNormal) || ri::math::LengthSquared(faceNormal) <= 1e-8f) {
+            return;
+        }
+        ri::math::Vec3 n0 = faceNormal;
         ri::math::Vec3 n1 = n0;
         ri::math::Vec3 n2 = n0;
         if (localNormalA != nullptr && localNormalB != nullptr && localNormalC != nullptr) {
             n0 = ri::math::Normalize(ri::math::TransformVector(world, *localNormalA));
             n1 = ri::math::Normalize(ri::math::TransformVector(world, *localNormalB));
             n2 = ri::math::Normalize(ri::math::TransformVector(world, *localNormalC));
+            if (!IsFinite(n0) || ri::math::LengthSquared(n0) <= 1e-8f) {
+                n0 = faceNormal;
+            }
+            if (!IsFinite(n1) || ri::math::LengthSquared(n1) <= 1e-8f) {
+                n1 = faceNormal;
+            }
+            if (!IsFinite(n2) || ri::math::LengthSquared(n2) <= 1e-8f) {
+                n2 = faceNormal;
+            }
         }
         PushTriangle(accel,
                        worldA,
@@ -496,40 +672,45 @@ void BuildRayTraceScene(const ri::scene::Scene& scene,
             continue;
         }
         const ri::scene::Node& node = scene.GetNode(nodeHandle);
-        if (node.mesh == ri::scene::kInvalidHandle || node.material == ri::scene::kInvalidHandle) {
+        if (!IsValidMeshHandle(scene, node.mesh) || !IsValidMaterialHandle(scene, node.material)) {
             continue;
         }
         if (scene.GetMaterial(node.material).additiveBlend) {
             continue;
         }
-        AppendMeshTriangles(accel,
-                            scene.GetMesh(node.mesh),
-                            scene.GetMaterial(node.material),
-                            scene.ComputeWorldMatrix(nodeHandle),
-                            node.material);
+        const ri::math::Mat4 world = scene.ComputeWorldMatrix(nodeHandle);
+        if (IsFinite(world)) {
+            AppendMeshTriangles(
+                accel, scene.GetMesh(node.mesh), scene.GetMaterial(node.material), world, node.material);
+        }
     }
     for (std::size_t batchIndex = 0; batchIndex < scene.MeshInstanceBatchCount(); ++batchIndex) {
         const ri::scene::MeshInstanceBatch& batch = scene.GetMeshInstanceBatch(static_cast<int>(batchIndex));
         if (IsHiddenPreviewNode(scene, batch.parent, options)) {
             continue;
         }
-        if (batch.mesh == ri::scene::kInvalidHandle || batch.material == ri::scene::kInvalidHandle) {
+        if (!IsValidMeshHandle(scene, batch.mesh) || !IsValidMaterialHandle(scene, batch.material)) {
             continue;
         }
         if (scene.GetMaterial(batch.material).additiveBlend) {
             continue;
         }
+        if (batch.parent != ri::scene::kInvalidHandle && !IsValidNodeHandle(scene, batch.parent)) {
+            continue;
+        }
         const ri::math::Mat4 parentWorld = batch.parent != ri::scene::kInvalidHandle
             ? scene.ComputeWorldMatrix(batch.parent)
             : ri::math::IdentityMatrix();
+        if (!IsFinite(parentWorld)) {
+            continue;
+        }
         const ri::scene::Mesh& mesh = scene.GetMesh(batch.mesh);
         const ri::scene::Material& material = scene.GetMaterial(batch.material);
         for (const ri::scene::Transform& transform : batch.transforms) {
-            AppendMeshTriangles(accel,
-                                mesh,
-                                material,
-                                ri::math::Multiply(parentWorld, transform.LocalMatrix()),
-                                batch.material);
+            const ri::math::Mat4 world = ri::math::Multiply(parentWorld, transform.LocalMatrix());
+            if (IsFinite(world)) {
+                AppendMeshTriangles(accel, mesh, material, world, batch.material);
+            }
         }
     }
 }
@@ -736,53 +917,88 @@ RayHit TraceScene(const ScenePreviewRayTraceScene& accel,
 
 using TextureCache = std::unordered_map<std::string, RgbaImage>;
 
-const RgbaImage* ResolveTexture(TextureCache& cache,
-                                const fs::path& textureRoot,
-                                const ScenePreviewOptions& options,
-                                const ri::scene::Material& material) {
+std::string ResolveBaseColorTextureName(const ScenePreviewOptions& options,
+                                        const ri::scene::Material& material) {
     std::string textureName = material.baseColorTexture;
     if (!material.baseColorTextureFrames.empty()) {
         std::size_t frameIndex = 0;
         if (material.baseColorTextureFramesPerSecond > 0.0f && material.baseColorTextureFrames.size() > 1U) {
-            const double frameCursor =
-                std::floor(std::max(0.0, options.animationTimeSeconds) * material.baseColorTextureFramesPerSecond);
-            frameIndex = static_cast<std::size_t>(
-                static_cast<long long>(frameCursor) % static_cast<long long>(material.baseColorTextureFrames.size()));
+            const double safeAnimationTime = std::isfinite(options.animationTimeSeconds)
+                ? std::max(0.0, options.animationTimeSeconds)
+                : 0.0;
+            const double frameCursor = std::floor(safeAnimationTime * material.baseColorTextureFramesPerSecond);
+            if (std::isfinite(frameCursor)
+                && frameCursor <= static_cast<double>(std::numeric_limits<long long>::max())) {
+                frameIndex = static_cast<std::size_t>(
+                    static_cast<long long>(frameCursor) % static_cast<long long>(material.baseColorTextureFrames.size()));
+            }
         }
         textureName = material.baseColorTextureFrames[frameIndex];
         if (textureName.empty()) {
             textureName = material.baseColorTexture;
         }
     }
-    if (textureName.empty()) {
-        return nullptr;
+    return textureName;
+}
+
+void PreloadTexture(TextureCache& cache, const fs::path& textureRoot, const std::string& textureName) {
+    if (textureName.empty() || textureRoot.empty()) {
+        return;
     }
     const fs::path path = textureRoot / textureName;
     const std::string key = path.generic_string();
-    const auto it = cache.find(key);
-    if (it != cache.end()) {
-        return it->second.Valid() ? &it->second : nullptr;
+    if (!cache.contains(key)) {
+        cache.emplace(key, LoadRgbaImageFile(path));
     }
-    RgbaImage loaded = LoadRgbaImageFile(path);
-    const auto inserted = cache.emplace(key, std::move(loaded));
-    return inserted.first->second.Valid() ? &inserted.first->second : nullptr;
 }
 
-const RgbaImage* ResolveNormalTexture(TextureCache& cache,
-                                      const fs::path& textureRoot,
-                                      const ri::scene::Material& material) {
-    if (material.normalTexture.empty() || textureRoot.empty()) {
+const RgbaImage* FindTexture(const TextureCache& cache,
+                             const fs::path& textureRoot,
+                             const std::string& textureName) {
+    if (textureName.empty() || textureRoot.empty()) {
         return nullptr;
     }
-    const fs::path path = textureRoot / material.normalTexture;
-    const std::string key = path.generic_string();
-    const auto it = cache.find(key);
-    if (it != cache.end()) {
-        return it->second.Valid() ? &it->second : nullptr;
+    const auto it = cache.find((textureRoot / textureName).generic_string());
+    return it != cache.end() && it->second.Valid() ? &it->second : nullptr;
+}
+
+const RgbaImage* ResolveTexture(const TextureCache& cache,
+                                const fs::path& textureRoot,
+                                const ScenePreviewOptions& options,
+                                const ri::scene::Material& material) {
+    return FindTexture(cache, textureRoot, ResolveBaseColorTextureName(options, material));
+}
+
+const RgbaImage* ResolveNormalTexture(const TextureCache& cache,
+                                      const fs::path& textureRoot,
+                                      const ri::scene::Material& material) {
+    return FindTexture(cache, textureRoot, material.normalTexture);
+}
+
+void PreloadRayTraceTextures(TextureCache& cache,
+                             const fs::path& textureRoot,
+                             const ri::scene::Scene& scene,
+                             const ScenePreviewRayTraceScene& accel,
+                             const ScenePreviewOptions& options) {
+    if (textureRoot.empty()) {
+        return;
     }
-    RgbaImage loaded = LoadRgbaImageFile(path);
-    const auto inserted = cache.emplace(key, std::move(loaded));
-    return inserted.first->second.Valid() ? &inserted.first->second : nullptr;
+    std::vector<bool> loadedMaterials(scene.MaterialCount(), false);
+    for (const int materialHandle : accel.triMaterial) {
+        if (!IsValidMaterialHandle(scene, materialHandle)) {
+            continue;
+        }
+        const std::size_t index = static_cast<std::size_t>(materialHandle);
+        if (loadedMaterials[index]) {
+            continue;
+        }
+        loadedMaterials[index] = true;
+        const ri::scene::Material& material = scene.GetMaterial(materialHandle);
+        PreloadTexture(cache, textureRoot, ResolveBaseColorTextureName(options, material));
+        if (options.rayTracingNormalMaps) {
+            PreloadTexture(cache, textureRoot, material.normalTexture);
+        }
+    }
 }
 
 [[nodiscard]] std::size_t WrapTexturePixelIndex(const RgbaImage& texture, int x, int y) {
@@ -953,7 +1169,7 @@ ri::math::Vec3 ShadeHit(const ri::scene::Scene& scene,
                         const std::vector<ResolvedLight>& lights,
                         const SunSkyContext& sun,
                         const ScenePreviewOptions& options,
-                        TextureCache& textureCache,
+                        const TextureCache& textureCache,
                         const fs::path& textureRoot,
                         const int pixelX,
                         const int pixelY,
@@ -1111,7 +1327,7 @@ TracePrimaryResult TracePrimaryRay(const ri::scene::Scene& scene,
                                    const std::vector<ResolvedLight>& lights,
                                    const SunSkyContext& sun,
                                    const ScenePreviewOptions& options,
-                                   TextureCache& textureCache,
+                                   const TextureCache& textureCache,
                                    const fs::path& textureRoot,
                                    const int pixelX,
                                    const int pixelY) {
@@ -1153,7 +1369,7 @@ void TracePixelRow(const int y,
                    const std::vector<ResolvedLight>& lights,
                    const SunSkyContext& sun,
                    const ScenePreviewOptions& options,
-                   TextureCache& textureCache,
+                   const TextureCache& textureCache,
                    const fs::path& textureRoot,
                    SoftwareImage& traceImage,
                    std::vector<float>& traceDepth) {
@@ -1279,13 +1495,24 @@ void RenderScenePreviewRayTraceInto(const ri::scene::Scene& scene,
     options.width = std::clamp(options.width, 64, 2048);
     options.height = std::clamp(options.height, 64, 2048);
     options.orderedDither = false;
+    options.rayTracingResolutionScale =
+        std::clamp(FiniteOr(options.rayTracingResolutionScale, 0.68f), 0.25f, 1.0f);
+    options.rayTracingMaxBounces = std::clamp(options.rayTracingMaxBounces, 0, 4);
+    options.rayTracingShadowRays = std::clamp(options.rayTracingShadowRays, 1, 16);
+    options.rayTracingSunRadius = std::clamp(FiniteOr(options.rayTracingSunRadius, 0.045f), 0.0f, 0.5f);
+    options.rayTracingAmbientOcclusionRays = std::clamp(options.rayTracingAmbientOcclusionRays, 1, 8);
+    options.rayTracingAmbientOcclusionRadius =
+        std::clamp(FiniteOr(options.rayTracingAmbientOcclusionRadius, 0.55f), 0.05f, 1000.0f);
+    options.rayTracingAmbientOcclusionStrength =
+        std::clamp(FiniteOr(options.rayTracingAmbientOcclusionStrength, 0.42f), 0.0f, 1.0f);
+    options.rayTracingParallelRowsThreshold = std::clamp(options.rayTracingParallelRowsThreshold, 32, 2048);
 
     outImage.width = options.width;
     outImage.height = options.height;
     outImage.pixels.resize(static_cast<std::size_t>(options.width * options.height * 3), 0);
     FillGradientBackground(outImage, options);
 
-    if (cameraNodeHandle == ri::scene::kInvalidHandle) {
+    if (!IsValidCameraNodeHandle(scene, cameraNodeHandle)) {
         return;
     }
 
@@ -1308,8 +1535,10 @@ void RenderScenePreviewRayTraceInto(const ri::scene::Scene& scene,
     TextureCache localTextureCache{};
     TextureCache& textureCache = cache != nullptr ? cache->textures : localTextureCache;
     const fs::path textureRoot = ResolveTextureRoot(options);
+    PreloadRayTraceTextures(textureCache, textureRoot, scene, accel, options);
+    const TextureCache& frozenTextureCache = textureCache;
 
-    const float scale = std::clamp(options.rayTracingResolutionScale, 0.25f, 1.0f);
+    const float scale = options.rayTracingResolutionScale;
     const int traceWidth = std::max(16, static_cast<int>(std::lround(static_cast<float>(options.width) * scale)));
     const int traceHeight = std::max(16, static_cast<int>(std::lround(static_cast<float>(options.height) * scale)));
 
@@ -1339,7 +1568,7 @@ void RenderScenePreviewRayTraceInto(const ri::scene::Scene& scene,
                           lights,
                           sun,
                           options,
-                          textureCache,
+                          frozenTextureCache,
                           textureRoot,
                           traceImage,
                           traceDepth);
@@ -1363,7 +1592,7 @@ void RenderScenePreviewRayTraceInto(const ri::scene::Scene& scene,
                                   lights,
                                   sun,
                                   options,
-                                  textureCache,
+                                  frozenTextureCache,
                                   textureRoot,
                                   traceImage,
                                   traceDepth);

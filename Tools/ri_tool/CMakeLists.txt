@@ -279,6 +279,28 @@ if (RAWIRON_BUILD_TESTS)
   )
 
   add_test(
+    NAME RawIron.Tool.AmbiguousCommandRejected
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--formats;--workspace"
+      "-DEXPECTED_STRINGS=Multiple primary commands were provided:;--workspace;--formats;Run one command at a time."
+      "-DEXPECT_NONZERO=ON"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
+    NAME RawIron.Tool.MissingCommandValueRejected
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--extension-validate"
+      "-DEXPECTED_STRINGS=--extension-validate requires a descriptor or package JSON path."
+      "-DEXPECT_NONZERO=ON"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
     NAME RawIron.Tool.PluginList
     COMMAND ${CMAKE_COMMAND}
       "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"

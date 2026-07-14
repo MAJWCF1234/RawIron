@@ -84,13 +84,52 @@ namespace {
 
 constexpr float kRadiansToDegrees = 57.29577951308232f;
 constexpr float kPi = 3.14159265358979323846f;
+constexpr float kMaxAuthoringMagnitude = 1.0e6f;
+
+float BoundedFiniteOr(const float value, const float fallback) {
+    if (!std::isfinite(value)) {
+        return fallback;
+    }
+    return std::clamp(value, -kMaxAuthoringMagnitude, kMaxAuthoringMagnitude);
+}
+
+float UnitFiniteOr(const float value, const float fallback) {
+    if (!std::isfinite(value)) {
+        return fallback;
+    }
+    return std::clamp(value, 0.0f, 1.0f);
+}
+
+ri::math::Vec2 SanitizeVec2(const ri::math::Vec2 value, const ri::math::Vec2 fallback) {
+    return {
+        BoundedFiniteOr(value.x, fallback.x),
+        BoundedFiniteOr(value.y, fallback.y),
+    };
+}
+
+ri::math::Vec3 SanitizeVec3(const ri::math::Vec3 value, const ri::math::Vec3 fallback) {
+    return {
+        BoundedFiniteOr(value.x, fallback.x),
+        BoundedFiniteOr(value.y, fallback.y),
+        BoundedFiniteOr(value.z, fallback.z),
+    };
+}
+
+Transform SanitizeTransform(const Transform& value) {
+    const Transform fallback{};
+    return Transform{
+        .position = SanitizeVec3(value.position, fallback.position),
+        .rotationDegrees = SanitizeVec3(value.rotationDegrees, fallback.rotationDegrees),
+        .scale = SanitizeVec3(value.scale, fallback.scale),
+    };
+}
 
 float ClampPositive(float value, float fallback) {
     constexpr float kMinimum = 0.001f;
-    if (value <= 0.0f) {
-        return std::max(fallback, kMinimum);
+    if (!std::isfinite(value) || value <= 0.0f) {
+        return std::clamp(fallback, kMinimum, kMaxAuthoringMagnitude);
     }
-    return std::max(value, kMinimum);
+    return std::clamp(value, kMinimum, kMaxAuthoringMagnitude);
 }
 
 Mesh MakeProceduralTerrainMesh(const ProceduralTerrainOptions& options, const std::string& name) {
@@ -98,10 +137,11 @@ Mesh MakeProceduralTerrainMesh(const ProceduralTerrainOptions& options, const st
     const int resolutionZ = std::clamp(options.resolutionZ, 8, 512);
     const float sizeX = ClampPositive(options.sizeX, 420.0f);
     const float sizeZ = ClampPositive(options.sizeZ, 420.0f);
-    const float amp = std::max(0.0f, options.heightAmplitude);
-    const float freq = std::max(0.0001f, options.heightFrequency);
-    const float detailAmp = std::max(0.0f, options.detailAmplitude);
-    const float detailFreq = std::max(0.0001f, options.detailFrequency);
+    const float amp = std::clamp(BoundedFiniteOr(options.heightAmplitude, 3.4f), 0.0f, kMaxAuthoringMagnitude);
+    const float freq = std::clamp(BoundedFiniteOr(options.heightFrequency, 0.026f), 0.0001f, 1000.0f);
+    const float detailAmp =
+        std::clamp(BoundedFiniteOr(options.detailAmplitude, 0.95f), 0.0f, kMaxAuthoringMagnitude);
+    const float detailFreq = std::clamp(BoundedFiniteOr(options.detailFrequency, 0.11f), 0.0001f, 1000.0f);
 
     Mesh mesh{};
     mesh.name = name;
@@ -207,16 +247,17 @@ int AddPrimitiveNode(Scene& scene, const PrimitiveNodeOptions& options) {
         .shadingModel = options.shadingModel,
         .materialStyle = options.materialStyle,
         .materialWorkflow = options.materialWorkflow,
-        .baseColor = options.baseColor,
+        .baseColor = SanitizeVec3(options.baseColor, {1.0f, 1.0f, 1.0f}),
         .baseColorTexture = options.baseColorTexture,
         .baseColorTextureFrames = options.baseColorTextureFrames,
-        .baseColorTextureFramesPerSecond = options.baseColorTextureFramesPerSecond,
-        .textureTiling = options.textureTiling,
-        .emissiveColor = options.emissiveColor,
-        .metallic = options.metallic,
-        .roughness = options.roughness,
-        .opacity = options.opacity,
-        .alphaCutoff = options.alphaCutoff,
+        .baseColorTextureFramesPerSecond =
+            std::clamp(BoundedFiniteOr(options.baseColorTextureFramesPerSecond, 0.0f), 0.0f, 1000.0f),
+        .textureTiling = SanitizeVec2(options.textureTiling, {1.0f, 1.0f}),
+        .emissiveColor = SanitizeVec3(options.emissiveColor, {0.0f, 0.0f, 0.0f}),
+        .metallic = UnitFiniteOr(options.metallic, 0.0f),
+        .roughness = UnitFiniteOr(options.roughness, 1.0f),
+        .opacity = UnitFiniteOr(options.opacity, 1.0f),
+        .alphaCutoff = UnitFiniteOr(options.alphaCutoff, 0.5f),
         .doubleSided = options.doubleSided,
         .transparent = options.transparent,
         .additiveBlend = options.additiveBlend,
@@ -231,7 +272,7 @@ int AddPrimitiveNode(Scene& scene, const PrimitiveNodeOptions& options) {
     });
     const int mesh = scene.AddMesh(MakePrimitiveMesh(options.primitive, options.nodeName + "Mesh"));
     const int node = scene.CreateNode(options.nodeName, options.parent);
-    scene.GetNode(node).localTransform = options.transform;
+    scene.GetNode(node).localTransform = SanitizeTransform(options.transform);
     scene.AttachMesh(node, mesh, material);
     return node;
 }
@@ -242,12 +283,12 @@ int AddProceduralTerrainNode(Scene& scene, const ProceduralTerrainOptions& optio
         .shadingModel = options.shadingModel,
         .materialStyle = options.materialStyle,
         .materialWorkflow = options.materialWorkflow,
-        .baseColor = options.baseColor,
+        .baseColor = SanitizeVec3(options.baseColor, {0.44f, 0.49f, 0.40f}),
         .baseColorTexture = options.baseColorTexture,
-        .textureTiling = options.textureTiling,
+        .textureTiling = SanitizeVec2(options.textureTiling, {24.0f, 24.0f}),
         .emissiveColor = ri::math::Vec3{0.0f, 0.0f, 0.0f},
         .metallic = 0.0f,
-        .roughness = options.roughness,
+        .roughness = UnitFiniteOr(options.roughness, 0.88f),
         .opacity = 1.0f,
         .alphaCutoff = 1.0f,
         .doubleSided = false,
@@ -260,7 +301,7 @@ int AddProceduralTerrainNode(Scene& scene, const ProceduralTerrainOptions& optio
     });
     const int mesh = scene.AddMesh(MakeProceduralTerrainMesh(options, options.nodeName + "Mesh"));
     const int node = scene.CreateNode(options.nodeName, options.parent);
-    scene.GetNode(node).localTransform = options.transform;
+    scene.GetNode(node).localTransform = SanitizeTransform(options.transform);
     scene.AttachMesh(node, mesh, material);
     return node;
 }
@@ -268,7 +309,7 @@ int AddProceduralTerrainNode(Scene& scene, const ProceduralTerrainOptions& optio
 int AddLightNode(Scene& scene, const LightNodeOptions& options) {
     const int light = scene.AddLight(options.light);
     const int node = scene.CreateNode(options.nodeName, options.parent);
-    scene.GetNode(node).localTransform = options.transform;
+    scene.GetNode(node).localTransform = SanitizeTransform(options.transform);
     scene.AttachLight(node, light);
     return node;
 }
@@ -290,7 +331,7 @@ int AddGridHelper(Scene& scene, const GridHelperOptions& options) {
 AxesHelperHandles AddAxesHelper(Scene& scene, const AxesHelperOptions& options) {
     AxesHelperHandles handles{};
     handles.root = scene.CreateNode(options.nodeName, options.parent);
-    scene.GetNode(handles.root).localTransform = options.transform;
+    scene.GetNode(handles.root).localTransform = SanitizeTransform(options.transform);
 
     const float axisLength = ClampPositive(options.axisLength, 1.0f);
     const float axisThickness = ClampPositive(options.axisThickness, 0.05f);
@@ -346,7 +387,10 @@ OrbitCameraHandles AddOrbitCamera(Scene& scene, const OrbitCameraOptions& option
 
 void SetOrbitCameraState(Scene& scene, OrbitCameraHandles& handles, const OrbitCameraState& orbitState) {
     OrbitCameraState sanitized = orbitState;
+    sanitized.target = SanitizeVec3(orbitState.target, {0.0f, 0.0f, 0.0f});
     sanitized.distance = ClampPositive(orbitState.distance, 6.0f);
+    sanitized.yawDegrees = BoundedFiniteOr(orbitState.yawDegrees, 180.0f);
+    sanitized.pitchDegrees = BoundedFiniteOr(orbitState.pitchDegrees, -10.0f);
     handles.orbit = sanitized;
 
     Node& root = scene.GetNode(handles.root);
@@ -364,6 +408,12 @@ void SetOrbitCameraState(Scene& scene, OrbitCameraHandles& handles, const OrbitC
 
 std::optional<OrbitCameraState> ComputeOrbitCameraStateFromPosition(const ri::math::Vec3& cameraPosition,
                                                                     const ri::math::Vec3& target) {
+    const auto finiteVec3 = [](const ri::math::Vec3 value) {
+        return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+    };
+    if (!finiteVec3(cameraPosition) || !finiteVec3(target)) {
+        return std::nullopt;
+    }
     const ri::math::Vec3 offset = cameraPosition - target;
     const float distance = ri::math::Length(offset);
     if (distance <= 0.001f) {

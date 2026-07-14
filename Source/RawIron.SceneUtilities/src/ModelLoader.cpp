@@ -20,6 +20,30 @@ namespace ri::scene {
 namespace {
 
 using UfbxScenePtr = std::unique_ptr<ufbx_scene, decltype(&ufbx_free_scene)>;
+constexpr float kMaxModelTransformMagnitude = 1.0e6f;
+
+float SanitizeTransformComponent(const float value, const float fallback) {
+    if (!std::isfinite(value)) {
+        return fallback;
+    }
+    return std::clamp(value, -kMaxModelTransformMagnitude, kMaxModelTransformMagnitude);
+}
+
+Transform SanitizeModelTransform(const Transform& value) {
+    const Transform fallback{};
+    const auto sanitizeVec3 = [](const ri::math::Vec3 input, const ri::math::Vec3 safe) {
+        return ri::math::Vec3{
+            SanitizeTransformComponent(input.x, safe.x),
+            SanitizeTransformComponent(input.y, safe.y),
+            SanitizeTransformComponent(input.z, safe.z),
+        };
+    };
+    return Transform{
+        .position = sanitizeVec3(value.position, fallback.position),
+        .rotationDegrees = sanitizeVec3(value.rotationDegrees, fallback.rotationDegrees),
+        .scale = sanitizeVec3(value.scale, fallback.scale),
+    };
+}
 
 std::string Lowercase(std::filesystem::path value) {
     std::string text = value.generic_string();
@@ -80,7 +104,7 @@ int AddPlaceholderModelNode(Scene& scene, const ImportedModelOptions& options) {
         .primitive = PrimitiveType::Cube,
     });
     const int node = scene.CreateNode(options.nodeName.empty() ? "MissingModelPlaceholder" : options.nodeName, options.parent);
-    scene.GetNode(node).localTransform = options.transform;
+    scene.GetNode(node).localTransform = SanitizeModelTransform(options.transform);
     scene.AttachMesh(node, meshHandle, material);
     return node;
 }
@@ -476,11 +500,12 @@ int AddWavefrontObjNode(Scene& scene, const ModelNodeOptions& options, std::stri
         return kInvalidHandle;
     }
 
+    const Transform safeTransform = SanitizeModelTransform(options.transform);
     scene.GetNode(rootHandle).localTransform =
-        CombineTransforms(options.transform, scene.GetNode(rootHandle).localTransform);
+        SanitizeModelTransform(CombineTransforms(safeTransform, scene.GetNode(rootHandle).localTransform));
 
     if (options.snapMeshBaseToGround) {
-        SnapNodeMeshBaseToGround(scene, rootHandle, options.transform.position.y);
+        SnapNodeMeshBaseToGround(scene, rootHandle, safeTransform.position.y);
     }
 
     if (error != nullptr) {
@@ -508,7 +533,9 @@ int AddGltfModelNode(Scene& scene, const GltfModelOptions& options, std::string*
         return kInvalidHandle;
     }
 
-    scene.GetNode(rootHandle).localTransform = CombineTransforms(options.transform, scene.GetNode(rootHandle).localTransform);
+    const Transform safeTransform = SanitizeModelTransform(options.transform);
+    scene.GetNode(rootHandle).localTransform =
+        SanitizeModelTransform(CombineTransforms(safeTransform, scene.GetNode(rootHandle).localTransform));
     if (error != nullptr) {
         error->clear();
     }
@@ -531,9 +558,11 @@ int AddFbxModelNode(Scene& scene, const FbxModelOptions& options, std::string* e
         return kInvalidHandle;
     }
 
-    scene.GetNode(rootHandle).localTransform = CombineTransforms(options.transform, scene.GetNode(rootHandle).localTransform);
+    const Transform safeTransform = SanitizeModelTransform(options.transform);
+    scene.GetNode(rootHandle).localTransform =
+        SanitizeModelTransform(CombineTransforms(safeTransform, scene.GetNode(rootHandle).localTransform));
     if (options.snapMeshBaseToGround) {
-        SnapNodeMeshBaseToGround(scene, rootHandle, options.transform.position.y);
+        SnapNodeMeshBaseToGround(scene, rootHandle, safeTransform.position.y);
     }
     if (error != nullptr) {
         error->clear();

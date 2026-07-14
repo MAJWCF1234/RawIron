@@ -140,18 +140,22 @@ void EnsureBuiltinHandlers() {
 
 void EmitPluginRuntimeEvent(PluginHookContext& context,
                             const PluginHookInvocation& invocation,
-                            const PluginHookResult& result) {
+                            const PluginHookResult& result) noexcept {
     if (!context.eventSink) {
         return;
     }
-    context.eventSink(PluginRuntimeEvent{
-        .type = "plugin.hook." + invocation.eventName,
-        .pluginId = invocation.pluginId,
-        .eventName = invocation.eventName,
-        .hookPhase = std::string(context.hookPhase),
-        .handled = result.handled,
-        .message = result.message,
-    });
+    try {
+        context.eventSink(PluginRuntimeEvent{
+            .type = "plugin.hook." + invocation.eventName,
+            .pluginId = invocation.pluginId,
+            .eventName = invocation.eventName,
+            .hookPhase = std::string(context.hookPhase),
+            .handled = result.handled,
+            .message = result.message,
+        });
+    } catch (...) {
+        context.eventSinkFailures += 1U;
+    }
 }
 
 } // namespace

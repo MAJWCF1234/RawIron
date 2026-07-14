@@ -134,6 +134,10 @@ RawIron loads plugins as **declarative project data** — not native DLLs. The C
 | `DispatchPluginHooks(context, phase)` | Executes registered event handlers (`bootstrap`, `ambient_tick`, …) |
 | `DescribePluginModificationModel()` | Human-readable summary of the mod pipeline |
 
+Plugin manifest and registry IDs must be unique. Ambiguous duplicate IDs are reported and excluded from the active
+plugin set. Runtime event-sink callbacks are isolated from hook execution; `PluginHookContext::eventSinkFailures`
+records callbacks that threw without taking down the game loop.
+
 Hook handlers live in `Source/RawIron.Content/src/PluginRuntime.cpp`. Games use `Games/Common/GamePluginRuntimeBridge` for bootstrap, throttled ticks, render tuning, and optional `RuntimeEventBus` fan-out.
 
 ### Shared game bridge (`GamePluginRuntimeBridge`)
@@ -192,6 +196,9 @@ ri_tool --plugins-doctor --game liminal-hall --root O:/RawIron
 ri_tool --plugin-handlers
 ri_tool --extension-validate Plugins/Store/rawiron.quest-beacons/package.riplugin.json
 ```
+
+`ri_tool` accepts one primary command per invocation and returns a non-zero result for ambiguous command combinations
+or a command whose required value is missing.
 
 ## Plugin Store (editor)
 

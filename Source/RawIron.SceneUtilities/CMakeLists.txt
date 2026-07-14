@@ -98,4 +98,8 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(RigAuthoringSmoke ${CMAKE_SOURCE_DIR}/Tests/RigAuthoringSmoke.cpp)
   target_link_libraries(RigAuthoringSmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.RigAuthoringSmoke COMMAND RigAuthoringSmoke)
+
+  add_executable(AuthoringHelpersSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/AuthoringHelpersSafetySmoke.cpp)
+  target_link_libraries(AuthoringHelpersSafetySmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.AuthoringHelpersSafetySmoke COMMAND AuthoringHelpersSafetySmoke)
 endif()
