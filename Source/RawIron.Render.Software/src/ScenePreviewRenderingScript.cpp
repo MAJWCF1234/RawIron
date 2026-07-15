@@ -167,23 +167,25 @@ bool DidGamePreviewScriptsChange(const std::filesystem::path& gameRoot,
 
     std::filesystem::file_time_type renderingTime{};
     if (ReadScriptWriteTime(renderingScript, renderingTime)) {
-        if (lastKnown.renderingTracked && renderingTime != lastKnown.rendering) {
+        if (!lastKnown.renderingTracked || renderingTime != lastKnown.rendering) {
             changed = true;
         }
         lastKnown.rendering = renderingTime;
         lastKnown.renderingTracked = true;
     } else {
+        changed = changed || lastKnown.renderingTracked;
         lastKnown.renderingTracked = false;
     }
 
     std::filesystem::file_time_type postprocessTime{};
     if (ReadScriptWriteTime(postprocessScript, postprocessTime)) {
-        if (lastKnown.postprocessTracked && postprocessTime != lastKnown.postprocess) {
+        if (!lastKnown.postprocessTracked || postprocessTime != lastKnown.postprocess) {
             changed = true;
         }
         lastKnown.postprocess = postprocessTime;
         lastKnown.postprocessTracked = true;
     } else {
+        changed = changed || lastKnown.postprocessTracked;
         lastKnown.postprocessTracked = false;
     }
 

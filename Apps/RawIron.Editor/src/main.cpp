@@ -1812,6 +1812,8 @@ public:
             sceneConfig_.editorPreviewScene,
             sceneConfig_.sceneName,
             sceneConfig_.gameManifest.has_value() ? sceneConfig_.gameManifest->rootPath : fs::path{});
+        editorTextureRoot_ = DiscoverEditorTextureRoot();
+        RefreshViewportPreviewConfiguration(true);
         editorOrbitState_ = starterScene_.handles.orbitCamera.orbit;
         (void)TryLoadEditorOrbitSidecar(sceneConfig_.sceneStatePath, editorOrbitState_);
         ApplyEditorOrbitToScene();
@@ -1864,8 +1866,6 @@ public:
                 ResolveLogicAuthoringPath(), starterScene_.scene, starterScene_.handles.root);
         }
         if (sceneConfig_.gameManifest.has_value()) {
-            ri::render::software::SnapshotGamePreviewScriptTimestamps(sceneConfig_.gameManifest->rootPath,
-                                                                      gamePreviewScriptTimestamps_);
             leftPanelMode_ = LeftPanelMode::Scene;
             full3DViewport_ = true;
             rightPanelCollapsed_ = true;
@@ -2196,11 +2196,15 @@ enum class UiWorkbenchTextEditTarget {
         if (viewportGpuEnabled_) {
             vulkanViewport_.SetBounds(cameraPlotRect_);
         }
-        if (sceneConfig_.gameManifest.has_value()
-            && ri::render::software::DidGamePreviewScriptsChange(sceneConfig_.gameManifest->rootPath,
-                                                                 gamePreviewScriptTimestamps_)) {
-            ClearViewportPreviewCache();
-            lastIoStatus_ = "Rendering/postprocess scripts changed — viewport atmosphere reloaded.";
+        if (ri::editor::ShouldPollGamePreviewScripts(
+                sceneConfig_.gameManifest.has_value(), now - lastGamePreviewScriptPoll_)) {
+            lastGamePreviewScriptPoll_ = now;
+            if (ri::render::software::DidGamePreviewScriptsChange(
+                    sceneConfig_.gameManifest->rootPath, gamePreviewScriptTimestamps_)) {
+                RefreshViewportPreviewConfiguration(false);
+                ClearViewportPreviewCache();
+                lastIoStatus_ = "Rendering/postprocess scripts changed — viewport atmosphere reloaded.";
+            }
         }
         if (viewportRestartPending_ && viewportGpuEnabled_ && !vulkanViewport_.RestartInFlight()
             && now - lastViewportResizeSteady_ >= std::chrono::milliseconds(120)) {
@@ -2282,23 +2286,37 @@ enum class UiWorkbenchTextEditTarget {
         SetTimer(hwnd_, 1, intervalMs, nullptr);
     }
 
+    [[nodiscard]] fs::path DiscoverEditorTextureRoot() const {
+        fs::path editorExe{};
+        wchar_t moduleWide[MAX_PATH]{};
+        if (GetModuleFileNameW(nullptr, moduleWide, MAX_PATH) > 0) {
+            editorExe = fs::path(std::wstring(moduleWide));
+        }
+        return ri::content::PickEngineTexturesDirectory(sceneConfig_.workspaceRoot, editorExe);
+    }
+
+    void RefreshViewportPreviewConfiguration(const bool snapshotScriptTimestamps) {
+        viewportPreviewOptionsTemplate_ = {};
+        if (!editorTextureRoot_.empty()) {
+            viewportPreviewOptionsTemplate_.textureRoot = editorTextureRoot_;
+        }
+        ri::editor::ConfigureEditorViewportForPreview(
+            sceneConfig_.editorPreviewScene,
+            viewportPreviewOptionsTemplate_,
+            sceneConfig_.gameManifest.has_value() ? &sceneConfig_.gameManifest->rootPath : nullptr);
+        if (snapshotScriptTimestamps && sceneConfig_.gameManifest.has_value()) {
+            ri::render::software::SnapshotGamePreviewScriptTimestamps(
+                sceneConfig_.gameManifest->rootPath, gamePreviewScriptTimestamps_);
+        }
+        lastGamePreviewScriptPoll_ = std::chrono::steady_clock::now();
+    }
+
     [[nodiscard]] ri::render::software::ScenePreviewOptions BuildViewportPreviewOptions(
         const int width,
         const int height) const {
-        ri::render::software::ScenePreviewOptions options{};
+        ri::render::software::ScenePreviewOptions options = viewportPreviewOptionsTemplate_;
         options.width = width;
         options.height = height;
-
-        std::filesystem::path editorExe{};
-        wchar_t moduleWide[MAX_PATH]{};
-        if (GetModuleFileNameW(nullptr, moduleWide, MAX_PATH) > 0) {
-            editorExe = std::filesystem::path(std::wstring(moduleWide));
-        }
-        const std::filesystem::path textureDir =
-            ri::content::PickEngineTexturesDirectory(sceneConfig_.workspaceRoot, editorExe);
-        if (!textureDir.empty()) {
-            options.textureRoot = textureDir;
-        }
         options.hiddenNodeHandles = {
             starterScene_.handles.grid,
             starterScene_.handles.axes.root,
@@ -2306,10 +2324,6 @@ enum class UiWorkbenchTextEditTarget {
             starterScene_.handles.axes.yAxis,
             starterScene_.handles.axes.zAxis,
         };
-        ri::editor::ConfigureEditorViewportForPreview(
-            sceneConfig_.editorPreviewScene,
-            options,
-            sceneConfig_.gameManifest.has_value() ? &sceneConfig_.gameManifest->rootPath : nullptr);
         return options;
     }
 
@@ -3079,6 +3093,8 @@ enum class UiWorkbenchTextEditTarget {
         logicLayer_.EnsureGameColliderTrace(manifest->rootPath);
         ri::editor::BindAuthoringLogicCatalog(&logicLayer_);
         structuralThumbnailCache_.Clear();
+        RefreshViewportPreviewConfiguration(true);
+        ClearViewportPreviewCache();
 
         if (hwnd_ != nullptr) {
             SetWindowTextW(hwnd_, Widen(sceneConfig_.windowTitle).c_str());
@@ -3405,8 +3421,7 @@ enum class UiWorkbenchTextEditTarget {
         } else {
             lastIoStatus_ = "Applied atmosphere preset: " + AtmospherePresetLabel(preset) + " (viewport sky updated).";
             RefreshWorkspaceResourceRows();
-            ri::render::software::SnapshotGamePreviewScriptTimestamps(sceneConfig_.gameManifest->rootPath,
-                                                                      gamePreviewScriptTimestamps_);
+            RefreshViewportPreviewConfiguration(true);
             ClearViewportPreviewCache();
         }
         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -3610,13 +3625,8 @@ enum class UiWorkbenchTextEditTarget {
         return HandleStructuralPickerClick(point, viewportInner);
     }
 
-    [[nodiscard]] fs::path ResolveEditorTextureRoot() const {
-        fs::path editorExe{};
-        wchar_t moduleWide[MAX_PATH]{};
-        if (GetModuleFileNameW(nullptr, moduleWide, MAX_PATH) > 0) {
-            editorExe = fs::path(std::wstring(moduleWide));
-        }
-        return ri::content::PickEngineTexturesDirectory(sceneConfig_.workspaceRoot, editorExe);
+    [[nodiscard]] const fs::path& ResolveEditorTextureRoot() const {
+        return editorTextureRoot_;
     }
 
     [[nodiscard]] StructuralPickerLayout CurrentStructuralPickerLayout(const RECT& viewportInner) const {
@@ -4749,10 +4759,7 @@ enum class UiWorkbenchTextEditTarget {
         const std::string savedName = loadedResourceAbsolutePath_.filename().string();
         lastIoStatus_ = "Saved resource: " + savedName;
         if (savedName == "rendering.riscript" || savedName == "postprocess.riscript") {
-            if (sceneConfig_.gameManifest.has_value()) {
-                ri::render::software::SnapshotGamePreviewScriptTimestamps(sceneConfig_.gameManifest->rootPath,
-                                                                          gamePreviewScriptTimestamps_);
-            }
+            RefreshViewportPreviewConfiguration(true);
             ClearViewportPreviewCache();
             lastIoStatus_ += " (viewport atmosphere reloaded).";
         }
@@ -9737,6 +9744,9 @@ enum class UiWorkbenchTextEditTarget {
     RECT leftPanelCollapseToggleRect_{};
     RECT rightPanelCollapseToggleRect_{};
     ri::render::software::GamePreviewScriptTimestamps gamePreviewScriptTimestamps_{};
+    std::chrono::steady_clock::time_point lastGamePreviewScriptPoll_{};
+    fs::path editorTextureRoot_{};
+    ri::render::software::ScenePreviewOptions viewportPreviewOptionsTemplate_{};
     CreatorAtmospherePreset creatorAtmospherePreset_ = CreatorAtmospherePreset::ClearDay;
     CreatorInsertPreset creatorInsertPreset_ = CreatorInsertPreset::GroundPlate;
     CreatorCameraPreset creatorCameraPreset_ = CreatorCameraPreset::Hero;

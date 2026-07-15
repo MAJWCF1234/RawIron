@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 
@@ -100,6 +101,13 @@ inline void AdvanceRailPadSpring(
 [[nodiscard]] inline bool ShouldTickLogicPreview(const std::uint32_t frameCounter,
                                                  const bool forceTick) {
     return forceTick || (frameCounter % 2U) == 0U;
+}
+
+[[nodiscard]] inline bool ShouldPollGamePreviewScripts(
+    const bool hasMountedGame,
+    const std::chrono::steady_clock::duration elapsedSinceLastPoll,
+    const std::chrono::milliseconds pollInterval = std::chrono::milliseconds(500)) {
+    return hasMountedGame && elapsedSinceLastPoll >= pollInterval;
 }
 
 [[nodiscard]] inline unsigned int ComputeViewportTimerIntervalMs(

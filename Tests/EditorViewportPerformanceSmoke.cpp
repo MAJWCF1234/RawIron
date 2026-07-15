@@ -1,6 +1,7 @@
 #include "Apps/RawIron.Editor/src/EditorViewportPerformance.h"
 #include "Apps/RawIron.Editor/src/EditorViewportRenderer.h"
 
+#include <chrono>
 #include <cstdlib>
 
 int main() {
@@ -18,6 +19,7 @@ int main() {
     using ri::editor::ShouldRunLogicLivePreview;
     using ri::editor::ShouldCompositeCreateModeGhost;
     using ri::editor::ShouldRunEditorPreviewAnimation;
+    using ri::editor::ShouldPollGamePreviewScripts;
     using ri::editor::ShouldTickLogicPreview;
     using ri::editor::IsViewportInteractiveMotion;
     using ri::editor::ViewportCameraState;
@@ -71,6 +73,12 @@ int main() {
     }
 
     if (!ShouldRunEditorPreviewAnimation(false) || ShouldRunEditorPreviewAnimation(true)) {
+        return EXIT_FAILURE;
+    }
+
+    if (ShouldPollGamePreviewScripts(false, std::chrono::seconds(10))
+        || ShouldPollGamePreviewScripts(true, std::chrono::milliseconds(499))
+        || !ShouldPollGamePreviewScripts(true, std::chrono::milliseconds(500))) {
         return EXIT_FAILURE;
     }
 
