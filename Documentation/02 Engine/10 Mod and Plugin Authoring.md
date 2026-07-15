@@ -138,6 +138,19 @@ Plugin manifest and registry IDs must be unique. Ambiguous duplicate IDs are rep
 plugin set. Runtime event-sink callbacks are isolated from hook execution; `PluginHookContext::eventSinkFailures`
 records callbacks that threw without taking down the game loop.
 
+`plugin_startup_timeout_ms` is a cumulative cooperative startup budget. RawIron never forcefully terminates a native
+handler that is already running; after the budget is exhausted, remaining startup hooks are skipped and the bootstrap
+result reports the elapsed time and skipped count. Sandbox levels add progressively stricter source gates:
+
+- `0`: no additional sandbox source restriction
+- `1`: block remote plugin entries
+- `2`: block all external entries; allow project and mod entries (default)
+- `3`: allow project-local entries only
+- `4`: disable plugin hook execution
+
+When `allow_runtime_plugin_overrides` is disabled, authored values from `scripts/plugins.riscript` win over
+same-named runtime scalar overrides. Runtime-only keys produced by handlers still persist between dispatches.
+
 Hook handlers live in `Source/RawIron.Content/src/PluginRuntime.cpp`. Games use `Games/Common/GamePluginRuntimeBridge` for bootstrap, throttled ticks, render tuning, and optional `RuntimeEventBus` fan-out.
 
 ### Shared game bridge (`GamePluginRuntimeBridge`)

@@ -117,6 +117,19 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    WriteTextFile(root / "config" / "plugins.policy",
+                  "allow_unsigned_plugins=1\n"
+                  "allow_mod_plugins=1\n"
+                  "allow_project_plugins=1\n"
+                  "plugin_sandbox_level=2\n");
+    const ri::content::PluginProjectData sandboxData = ri::content::LoadPluginProjectData(root);
+    const ri::content::PluginManifestEntry* sandboxBlocked =
+        ri::content::FindPluginManifestEntry(sandboxData, "external.tool");
+    if (sandboxBlocked == nullptr || !sandboxBlocked->blockedByPolicy
+        || sandboxBlocked->policyBlockReason != "sandbox level blocks external plugins") {
+        return EXIT_FAILURE;
+    }
+
     WriteTextFile(duplicateRoot / "plugins" / "manifest.plugins",
                   "duplicate.test,1.0,utility,plugins/hooks.riplugin\n");
     WriteTextFile(duplicateRoot / "plugins" / "load_order.cfg", "duplicate.test=10\n");

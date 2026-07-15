@@ -1,6 +1,7 @@
 #include "RawIron/Content/PluginRuntime.h"
 
 #include <algorithm>
+#include <chrono>
 #include <exception>
 #include <mutex>
 #include <set>
@@ -220,16 +221,33 @@ std::size_t DispatchPluginHooks(PluginHookContext& context, const std::string_vi
 
     const PluginProjectData& data = *context.projectData;
     context.hookPhase = hookPhase;
-    ScriptScalarMap mergedScalars = data.tuningScalars;
-    for (const auto& [key, value] : context.runtimeScalars) {
-        mergedScalars[key] = value;
+    ScriptScalarMap mergedScalars = context.runtimeScalars;
+    if (data.policy.allowRuntimeOverrides) {
+        for (const auto& [key, value] : data.tuningScalars) {
+            mergedScalars.try_emplace(key, value);
+        }
+    } else {
+        for (const auto& [key, value] : data.tuningScalars) {
+            mergedScalars[key] = value;
+        }
     }
     context.runtimeScalars = std::move(mergedScalars);
 
     const std::vector<PluginHookBinding> hooks = CollectHooksForPhase(data, hookPhase);
     const int maxChain = std::clamp(data.policy.maxHookChain, 0, 128);
+    const bool enforceStartupBudget = hookPhase == "startup";
+    const double budgetMs = static_cast<double>(std::clamp(data.policy.startupTimeoutMs, 1, 10000));
+    const auto dispatchStarted = std::chrono::steady_clock::now();
     std::size_t executed = 0U;
-    for (const PluginHookBinding& hook : hooks) {
+    for (std::size_t hookIndex = 0U; hookIndex < hooks.size(); ++hookIndex) {
+        const PluginHookBinding& hook = hooks[hookIndex];
+        context.hookElapsedMs = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - dispatchStarted).count();
+        if (enforceStartupBudget && context.hookElapsedMs >= budgetMs) {
+            context.hookBudgetExceeded = true;
+            context.hooksSkippedByBudget += hooks.size() - hookIndex;
+            break;
+        }
         if (executed >= static_cast<std::size_t>(maxChain)) {
             break;
         }
@@ -293,6 +311,11 @@ std::size_t DispatchPluginHooks(PluginHookContext& context, const std::string_vi
         EmitPluginRuntimeEvent(context, invocation, result);
         executed += 1U;
     }
+    context.hookElapsedMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - dispatchStarted).count();
+    if (enforceStartupBudget && context.hookElapsedMs >= budgetMs) {
+        context.hookBudgetExceeded = true;
+    }
     return executed;
 }
 
@@ -307,6 +330,9 @@ GamePluginBootstrap BootstrapGamePlugins(const std::filesystem::path& gameRoot) 
         .hookPhase = "startup",
     };
     bootstrap.startupHooksExecuted = DispatchPluginHooks(context, "startup");
+    bootstrap.startupBudgetExceeded = context.hookBudgetExceeded;
+    bootstrap.startupHooksSkippedByBudget = context.hooksSkippedByBudget;
+    bootstrap.startupElapsedMs = context.hookElapsedMs;
     bootstrap.runtimeScalars = context.runtimeScalars;
     bootstrap.startupResults = std::move(context.results);
     return bootstrap;
@@ -322,6 +348,9 @@ void GamePluginRuntimeSession::Bootstrap() {
         .eventSink = eventSink,
     };
     startupHooksExecuted = DispatchPluginHooks(context, "startup");
+    startupBudgetExceeded = context.hookBudgetExceeded;
+    startupHooksSkippedByBudget = context.hooksSkippedByBudget;
+    startupElapsedMs = context.hookElapsedMs;
     runtimeScalars = context.runtimeScalars;
     startupResults = std::move(context.results);
     frameCounter = 0;

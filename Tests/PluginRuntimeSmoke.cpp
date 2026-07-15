@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <atomic>
+#include <chrono>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -50,6 +51,19 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    data.policy.allowRuntimeOverrides = false;
+    data.tuningScalars["locked_tuning"] = 1.0f;
+    ri::content::PluginHookContext overrideContext{
+        .projectData = &data,
+        .runtimeScalars = {{"locked_tuning", 9.0f}, {"plugin_owned", 3.0f}},
+    };
+    (void)ri::content::DispatchPluginHooks(overrideContext, "runtime");
+    if (overrideContext.runtimeScalars["locked_tuning"] != 1.0f
+        || overrideContext.runtimeScalars["plugin_owned"] != 3.0f) {
+        return EXIT_FAILURE;
+    }
+    data.policy.allowRuntimeOverrides = true;
+
     ri::content::PluginHookContext throwingSinkContext{
         .projectData = &data,
         .eventSink = [](const ri::content::PluginRuntimeEvent&) { throw std::runtime_error("sink failure"); },
@@ -57,6 +71,33 @@ int main() {
     const std::size_t throwingSinkExecuted = ri::content::DispatchPluginHooks(throwingSinkContext, "runtime");
     if (throwingSinkExecuted != 2U || throwingSinkContext.results.size() != 2U
         || throwingSinkContext.eventSinkFailures != 2U) {
+        return EXIT_FAILURE;
+    }
+
+    ri::content::ClearPluginHookHandlers();
+    ri::content::RegisterPluginHookHandler(
+        "slow_startup_test",
+        [](ri::content::PluginHookContext&, const ri::content::PluginHookInvocation&) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            return true;
+        });
+    ri::content::RegisterPluginHookHandler(
+        "after_budget_test",
+        [](ri::content::PluginHookContext&, const ri::content::PluginHookInvocation&) { return true; });
+    ri::content::PluginProjectData budgetData{};
+    budgetData.policy.startupTimeoutMs = 5;
+    budgetData.activePlugins.push_back(ri::content::ActivePlugin{
+        .manifest = {.id = "budget.test", .category = "test"},
+        .registry = {.id = "budget.test", .enabled = true},
+        .hooks = {
+            {.hookPhase = "startup", .pluginId = "budget.test", .eventName = "slow_startup_test", .priority = 0},
+            {.hookPhase = "startup", .pluginId = "budget.test", .eventName = "after_budget_test", .priority = 1},
+        },
+    });
+    ri::content::PluginHookContext budgetContext{.projectData = &budgetData};
+    const std::size_t budgetExecuted = ri::content::DispatchPluginHooks(budgetContext, "startup");
+    if (budgetExecuted != 1U || !budgetContext.hookBudgetExceeded
+        || budgetContext.hooksSkippedByBudget != 1U || budgetContext.hookElapsedMs < 5.0) {
         return EXIT_FAILURE;
     }
 

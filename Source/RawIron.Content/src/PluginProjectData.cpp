@@ -129,6 +129,18 @@ void AppendUniqueIssue(std::vector<PluginValidationIssue>& issues, const std::st
     if (!policy.allowUnsignedPlugins && IsPluginTreatedAsUnsigned(entry)) {
         return "unsigned plugins disabled";
     }
+    if (policy.sandboxLevel >= 4) {
+        return "sandbox level disables plugin execution";
+    }
+    if (policy.sandboxLevel >= 3 && sourceKind != PluginSourceKind::Project) {
+        return "sandbox level permits project plugins only";
+    }
+    if (policy.sandboxLevel >= 2 && sourceKind == PluginSourceKind::External) {
+        return "sandbox level blocks external plugins";
+    }
+    if (policy.sandboxLevel >= 1 && entry.entryIsRemote) {
+        return "sandbox level blocks remote plugins";
+    }
     return {};
 }
 

@@ -49,6 +49,11 @@ struct PluginHookContext {
     PluginRuntimeEventSink eventSink;
     /// Counts event-sink callback failures isolated by the runtime boundary.
     std::size_t eventSinkFailures = 0;
+    /// Cooperative phase-budget diagnostics. A running native handler is never forcefully terminated;
+    /// once the startup budget is exhausted, remaining hooks are skipped.
+    bool hookBudgetExceeded = false;
+    std::size_t hooksSkippedByBudget = 0;
+    double hookElapsedMs = 0.0;
 };
 
 struct GamePluginBootstrap {
@@ -56,6 +61,9 @@ struct GamePluginBootstrap {
     ScriptScalarMap runtimeScalars;
     std::vector<PluginHookResult> startupResults;
     std::size_t startupHooksExecuted = 0;
+    bool startupBudgetExceeded = false;
+    std::size_t startupHooksSkippedByBudget = 0;
+    double startupElapsedMs = 0.0;
 };
 
 using PluginHookHandler = std::function<bool(PluginHookContext&, const PluginHookInvocation&)>;
@@ -87,6 +95,9 @@ struct GamePluginRuntimeSession {
     ScriptScalarMap runtimeScalars;
     std::vector<PluginHookResult> startupResults;
     std::size_t startupHooksExecuted = 0;
+    bool startupBudgetExceeded = false;
+    std::size_t startupHooksSkippedByBudget = 0;
+    double startupElapsedMs = 0.0;
     int frameCounter = 0;
     PluginRuntimeEventSink eventSink;
 
