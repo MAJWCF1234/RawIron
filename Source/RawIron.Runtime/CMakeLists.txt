@@ -32,6 +32,11 @@ target_link_libraries(RawIron.Runtime
 
 if (RAWIRON_USE_ENET)
   target_link_libraries(RawIron.Runtime PUBLIC enet)
+  if (WIN32)
+    # ENet is a static library on Windows and its system dependencies must be
+    # visible to every executable that consumes RawIron.Runtime.
+    target_link_libraries(RawIron.Runtime PUBLIC ws2_32 winmm)
+  endif()
   target_compile_definitions(RawIron.Runtime PUBLIC RAWIRON_HAS_ENET=1)
   if (DEFINED enet_SOURCE_DIR)
     target_include_directories(RawIron.Runtime PRIVATE "${enet_SOURCE_DIR}/include")
