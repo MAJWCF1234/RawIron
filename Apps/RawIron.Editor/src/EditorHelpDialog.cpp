@@ -170,6 +170,7 @@ std::string BuildEditorHelpGuideText() {
         "Launch with a project:\r\n"
         "  Launch RawIron Editor.cmd          (defaults to liminal-hall)\r\n"
         "  RawIron.Editor.exe --editor-ui --workspace=<root> --game=<id>\r\n"
+        "  --software-viewport  Use the CPU compatibility renderer instead of native Vulkan\r\n"
         "\r\n"
         "LAYOUT & PANELS\r\n"
         "-----------------\r\n"

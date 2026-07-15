@@ -50,12 +50,18 @@ foreach(clean_path IN LISTS CLEAN_PATHS)
   file(REMOVE_RECURSE "${clean_path}")
 endforeach()
 
+set(rawiron_working_directory_args)
+if(DEFINED WORKING_DIRECTORY AND NOT WORKING_DIRECTORY STREQUAL "")
+  list(APPEND rawiron_working_directory_args WORKING_DIRECTORY "${WORKING_DIRECTORY}")
+endif()
+
 if(rawiron_command_prefix)
   execute_process(
     COMMAND ${rawiron_command_prefix} "${EXECUTABLE}" ${COMMAND_ARGS}
     RESULT_VARIABLE command_result
     OUTPUT_VARIABLE command_stdout
     ERROR_VARIABLE command_stderr
+    ${rawiron_working_directory_args}
   )
 else()
   execute_process(
@@ -63,6 +69,7 @@ else()
     RESULT_VARIABLE command_result
     OUTPUT_VARIABLE command_stdout
     ERROR_VARIABLE command_stderr
+    ${rawiron_working_directory_args}
   )
 endif()
 

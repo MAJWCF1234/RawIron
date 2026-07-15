@@ -101,6 +101,7 @@ struct StructuralPickerModel {
 
 class StructuralThumbnailCache {
 public:
+    void SetPersistentRoot(std::filesystem::path root);
     [[nodiscard]] bool Has(AuthoringCatalogSection section, std::size_t presetIndex) const;
     [[nodiscard]] const ri::render::software::SoftwareImage& Get(AuthoringCatalogSection section, std::size_t presetIndex);
     void PrecacheAll(const std::filesystem::path& textureRoot, bool force = false);
@@ -120,6 +121,8 @@ private:
     std::vector<ri::render::software::SoftwareImage> logicImages_{};
     std::vector<bool> logicReady_{};
     std::string textureFingerprint_{};
+    std::filesystem::path persistentRoot_{};
+    [[nodiscard]] std::filesystem::path PersistentRoot() const;
     void Ensure(AuthoringCatalogSection section, std::size_t presetIndex, const std::filesystem::path& textureRoot);
 };
 

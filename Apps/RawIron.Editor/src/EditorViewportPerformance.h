@@ -166,6 +166,12 @@ inline void AdvanceRailPadSpring(
     return !windowMinimized;
 }
 
+[[nodiscard]] inline bool ShouldPreferNativeViewport(
+    const bool softwareCompatibilityRequested,
+    const bool nativeViewportDisabled) {
+    return !softwareCompatibilityRequested && !nativeViewportDisabled;
+}
+
 [[nodiscard]] inline bool ShouldCompositeCreateModeGhost(
     const bool createToolActive,
     const bool hasPlacementPoint,

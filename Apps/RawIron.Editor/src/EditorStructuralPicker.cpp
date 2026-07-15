@@ -17,6 +17,7 @@
 #include <sstream>
 #include <system_error>
 #include <unordered_set>
+#include <utility>
 
 namespace ri::editor {
 
@@ -36,7 +37,7 @@ using ri::scene::ShapeFromStructuralPreset;
 using ri::scene::StarterScene;
 using ri::scene::StructuralBrushSpawnOptions;
 
-constexpr int kThumbnailRenderSize = kStructuralPickerCellSize * 2;
+constexpr int kThumbnailRenderSize = kStructuralPickerCellSize;
 constexpr std::uint32_t kThumbnailCacheVersion = 1U;
 constexpr auto kThumbnailStaleAge = std::chrono::hours(24 * 7);
 
@@ -53,10 +54,6 @@ constexpr auto kThumbnailStaleAge = std::chrono::hours(24 * 7);
     return token.empty() ? std::string("item") : token;
 }
 
-[[nodiscard]] std::filesystem::path ThumbnailCacheRoot() {
-    return std::filesystem::current_path() / "Saved" / "Editor" / "CatalogThumbnailCache";
-}
-
 [[nodiscard]] std::string SectionToken(const AuthoringCatalogSection section) {
     switch (section) {
         case AuthoringCatalogSection::Structural:
@@ -69,16 +66,18 @@ constexpr auto kThumbnailStaleAge = std::chrono::hours(24 * 7);
     return "catalog";
 }
 
-[[nodiscard]] std::filesystem::path ThumbnailImagePath(const AuthoringCatalogSection section,
+[[nodiscard]] std::filesystem::path ThumbnailImagePath(const std::filesystem::path& cacheRoot,
+                                                       const AuthoringCatalogSection section,
                                                        const std::size_t presetIndex) {
     const std::string label = ActiveCatalogPresetLabel(section, presetIndex);
-    return ThumbnailCacheRoot() / SectionToken(section)
+    return cacheRoot / SectionToken(section)
         / (std::to_string(presetIndex) + "_" + SanitizeFileToken(label) + ".bmp");
 }
 
-[[nodiscard]] std::filesystem::path ThumbnailMetaPath(const AuthoringCatalogSection section,
+[[nodiscard]] std::filesystem::path ThumbnailMetaPath(const std::filesystem::path& cacheRoot,
+                                                      const AuthoringCatalogSection section,
                                                       const std::size_t presetIndex) {
-    return ThumbnailImagePath(section, presetIndex).replace_extension(".meta");
+    return ThumbnailImagePath(cacheRoot, section, presetIndex).replace_extension(".meta");
 }
 
 [[nodiscard]] ri::render::software::SoftwareImage DownsampleSoftwareImage(
@@ -591,6 +590,22 @@ bool ActiveCatalogUsesWireframe(const AuthoringCatalogSection section, const std
     return true;
 }
 
+void StructuralThumbnailCache::SetPersistentRoot(std::filesystem::path root) {
+    if (persistentRoot_ == root) {
+        return;
+    }
+    persistentRoot_ = std::move(root);
+    textureFingerprint_.clear();
+    Clear();
+}
+
+std::filesystem::path StructuralThumbnailCache::PersistentRoot() const {
+    if (!persistentRoot_.empty()) {
+        return persistentRoot_;
+    }
+    return std::filesystem::current_path() / "Saved" / "Editor" / "CatalogThumbnailCache";
+}
+
 bool StructuralThumbnailCache::Has(const AuthoringCatalogSection section, const std::size_t presetIndex) const {
     switch (section) {
         case AuthoringCatalogSection::Volumes:
@@ -637,7 +652,7 @@ void StructuralThumbnailCache::Clear() {
 
 void StructuralThumbnailCache::ClearPersistent() {
     std::error_code ec{};
-    std::filesystem::remove_all(ThumbnailCacheRoot(), ec);
+    std::filesystem::remove_all(PersistentRoot(), ec);
     Clear();
 }
 
@@ -683,8 +698,9 @@ void StructuralThumbnailCache::Ensure(const AuthoringCatalogSection section,
         textureFingerprint_ = ComputeTextureFingerprint(textureRoot);
     }
 
-    const std::filesystem::path imagePath = ThumbnailImagePath(section, presetIndex);
-    const std::filesystem::path metaPath = ThumbnailMetaPath(section, presetIndex);
+    const std::filesystem::path cacheRoot = PersistentRoot();
+    const std::filesystem::path imagePath = ThumbnailImagePath(cacheRoot, section, presetIndex);
+    const std::filesystem::path metaPath = ThumbnailMetaPath(cacheRoot, section, presetIndex);
     const std::string fingerprint = ComputePresetFingerprint(section, presetIndex, textureFingerprint_);
     const bool cacheValid =
         !ThumbnailEntryExpired(imagePath)
@@ -935,6 +951,7 @@ void RenderStructuralPickerOverlay(HDC dc,
                                    const std::filesystem::path& textureRoot,
                                    const StructuralPickerTheme& theme,
                                    const std::function<void(HDC, const RECT&, const std::string&, bool)>& drawToolbarButton) {
+    (void)textureRoot;
     EditorRenderer::DrawInsetFrame(
         dc, layout.panelRect, RGB(48, 54, 64), RGB(196, 168, 96), RGB(14, 16, 20));
     EditorRenderer::FillRectColor(
@@ -964,13 +981,6 @@ void RenderStructuralPickerOverlay(HDC dc,
                       layout.logicTabBtn,
                       std::string(AuthoringCatalogSectionLabel(AuthoringCatalogSection::Logic)),
                       model.section == AuthoringCatalogSection::Logic);
-
-    std::vector<std::size_t> visibleIndices;
-    visibleIndices.reserve(layout.cells.size());
-    for (const StructuralPickerCell& cell : layout.cells) {
-        visibleIndices.push_back(cell.presetIndex);
-    }
-    thumbnails.PrewarmVisible(model.section, visibleIndices, textureRoot, 4);
 
     for (const StructuralPickerCell& cell : layout.cells) {
         const bool selected = cell.presetIndex == model.selectedPresetIndex;

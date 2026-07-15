@@ -292,6 +292,26 @@ fs::path ResolveEditorWorkspaceRoot(const fs::path& fallbackWorkspaceRoot,
     return normalized;
 }
 
+[[nodiscard]] fs::path ResolveDefaultEditorWorkspaceRoot() {
+    const fs::path currentWorkspace = ri::content::DetectWorkspaceRoot(fs::current_path());
+    if (LooksLikeWorkspaceRoot(currentWorkspace)) {
+        return currentWorkspace;
+    }
+
+#if defined(_WIN32)
+    wchar_t modulePath[MAX_PATH]{};
+    if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) > 0) {
+        const fs::path executableWorkspace =
+            ri::content::DetectWorkspaceRoot(fs::path(std::wstring(modulePath)));
+        if (LooksLikeWorkspaceRoot(executableWorkspace)) {
+            return executableWorkspace;
+        }
+    }
+#endif
+
+    return currentWorkspace;
+}
+
 struct EditorAuthoredNodeRecord {
     std::string name;
     std::string parentName;
@@ -634,7 +654,7 @@ bool LoadEditorAuthoredSceneState(ri::scene::Scene& scene,
 
 EditorSceneConfig ResolveSceneConfig(const ri::core::CommandLine& commandLine) {
     EditorSceneConfig config{};
-    fs::path defaultWorkspaceRoot = ri::content::DetectWorkspaceRoot(fs::current_path());
+    fs::path defaultWorkspaceRoot = ResolveDefaultEditorWorkspaceRoot();
     if (const auto workspaceRoot = commandLine.GetValue("--workspace-root");
         workspaceRoot.has_value() && !workspaceRoot->empty()) {
         defaultWorkspaceRoot = NormalizePathForConfig(*workspaceRoot);
@@ -1806,13 +1826,17 @@ public:
           statsOverlayState_(true),
           autoOrbitPreview_(commandLine.HasFlag("--auto-orbit")),
           viewportRayTracePreview_(commandLine.HasFlag("--viewport-ray-trace")),
-          viewportGpuAllowed_(commandLine.HasFlag("--gpu-viewport")) {
+          viewportGpuAllowed_(ri::editor::ShouldPreferNativeViewport(
+              commandLine.HasFlag("--software-viewport"),
+              commandLine.HasFlag("--no-gpu-viewport"))) {
         ri::editor::RegisterBundledGameEditorPreviews();
         starterScene_ = ri::editor::BuildEditorWorkspaceScene(
             sceneConfig_.editorPreviewScene,
             sceneConfig_.sceneName,
             sceneConfig_.gameManifest.has_value() ? sceneConfig_.gameManifest->rootPath : fs::path{});
         editorTextureRoot_ = DiscoverEditorTextureRoot();
+        structuralThumbnailCache_.SetPersistentRoot(
+            sceneConfig_.workspaceRoot / "Saved" / "Editor" / "CatalogThumbnailCache");
         RefreshViewportPreviewConfiguration(true);
         editorOrbitState_ = starterScene_.handles.orbitCamera.orbit;
         (void)TryLoadEditorOrbitSidecar(sceneConfig_.sceneStatePath, editorOrbitState_);
@@ -1834,7 +1858,9 @@ public:
             lastIoStatus_ += "  (Ctrl+Shift+R: ray-traced viewport preview)";
         }
         if (viewportGpuAllowed_) {
-            lastIoStatus_ += "  (--gpu-viewport: experimental Vulkan viewport enabled)";
+            lastIoStatus_ += "  (native Vulkan viewport preferred; --software-viewport selects compatibility mode)";
+        } else {
+            lastIoStatus_ += "  (--software-viewport: compatibility renderer selected)";
         }
         RefreshWorkspaceGamesAndResources();
         OpenStartupAssetHandoff();
@@ -1859,7 +1885,7 @@ public:
             logicLayer_.EnsureGameColliderTrace(sceneConfig_.gameManifest->rootPath);
         }
         ri::editor::BindAuthoringLogicCatalog(&logicLayer_);
-        // Catalog thumbnails load lazily via PrewarmVisible during paint.
+        // Catalog thumbnails load incrementally from OnTick so WM_PAINT stays responsive.
         RefreshPluginStoreState();
         if (!fs::exists(ResolveSceneStatePath(), loadEc) && !fs::exists(ResolveAuthoredSceneStatePath(), loadEc)) {
             (void)logicLayer_.Load(
@@ -2257,6 +2283,29 @@ enum class UiWorkbenchTextEditTarget {
         }
         if (liveWindowMoveSize_) {
             InvalidateViewportAndRail();
+        }
+        if (!viewportInteractiveMotion) {
+            PrewarmNextVisibleCatalogThumbnail(layout.viewportInner, now);
+        }
+    }
+
+    void PrewarmNextVisibleCatalogThumbnail(
+        const RECT& viewportInner,
+        const std::chrono::steady_clock::time_point now) {
+        if (!ShouldShowStructuralPicker()
+            || now - lastCatalogThumbnailPrewarm_ < std::chrono::milliseconds(50)) {
+            return;
+        }
+        const StructuralPickerLayout pickerLayout = CurrentStructuralPickerLayout(viewportInner);
+        for (const ri::editor::StructuralPickerCell& cell : pickerLayout.cells) {
+            if (structuralThumbnailCache_.Has(authoringCatalogSection_, cell.presetIndex)) {
+                continue;
+            }
+            lastCatalogThumbnailPrewarm_ = now;
+            structuralThumbnailCache_.Prewarm(
+                authoringCatalogSection_, cell.presetIndex, ResolveEditorTextureRoot());
+            InvalidateRect(hwnd_, &pickerLayout.panelRect, FALSE);
+            return;
         }
     }
 
@@ -9760,6 +9809,7 @@ enum class UiWorkbenchTextEditTarget {
     int structuralPickerScrollRow_ = 0;
     std::size_t structuralPickerHovered_ = SIZE_MAX;
     StructuralThumbnailCache structuralThumbnailCache_{};
+    std::chrono::steady_clock::time_point lastCatalogThumbnailPrewarm_{};
     std::vector<WorkspaceGameEntry> workspaceGames_;
     int focusedWorkspaceGameIndex_ = 0;
     std::vector<WorkspaceResourceEntry> resourceCatalogEntries_;

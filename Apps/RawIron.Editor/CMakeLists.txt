@@ -94,11 +94,16 @@ if (RAWIRON_BUILD_TESTS)
   )
   set(rawiron_editor_expected
     "[Editor Startup]"
+    "Opened game project 'Liminal Hall'"
+    "Workspace root: ${PROJECT_SOURCE_DIR}"
     "Root nodes: 1"
     "Grid path:"
     "Editor frame 0 orbitYaw="
     "[Editor Shutdown]"
   )
+
+  set(rawiron_editor_external_working_directory "$ENV{TEMP}/RawIronEditorWorkspaceDiscovery")
+  file(MAKE_DIRECTORY "${rawiron_editor_external_working_directory}")
 
   add_test(
     NAME RawIron.Editor.Smoke
@@ -107,6 +112,7 @@ if (RAWIRON_BUILD_TESTS)
       "-DCOMMAND_ARGS=--headless;--frames;1;--no-scene-dump"
       "-DEXPECTED_STRINGS=${rawiron_editor_expected}"
       "-DFORBIDDEN_STRINGS=${rawiron_editor_forbidden}"
+      "-DWORKING_DIRECTORY=${rawiron_editor_external_working_directory}"
       "${rawiron_editor_runtime_dll_arg}"
       -P "${rawiron_verify_command_output}"
   )

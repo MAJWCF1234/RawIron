@@ -20,6 +20,7 @@ int main() {
     using ri::editor::ShouldCompositeCreateModeGhost;
     using ri::editor::ShouldRunEditorPreviewAnimation;
     using ri::editor::ShouldPollGamePreviewScripts;
+    using ri::editor::ShouldPreferNativeViewport;
     using ri::editor::ShouldTickLogicPreview;
     using ri::editor::IsViewportInteractiveMotion;
     using ri::editor::ViewportCameraState;
@@ -73,6 +74,12 @@ int main() {
     }
 
     if (!ShouldRunEditorPreviewAnimation(false) || ShouldRunEditorPreviewAnimation(true)) {
+        return EXIT_FAILURE;
+    }
+
+    if (!ShouldPreferNativeViewport(false, false)
+        || ShouldPreferNativeViewport(true, false)
+        || ShouldPreferNativeViewport(false, true)) {
         return EXIT_FAILURE;
     }
 
