@@ -1,5 +1,6 @@
 #include "EditorSceneController.h"
 
+#include <cctype>
 #include <cmath>
 
 namespace ri::editor {
@@ -68,27 +69,47 @@ bool IsEditableAuthoredNode(const ri::scene::Scene& scene,
     return handle >= 0 && static_cast<std::size_t>(handle) < scene.NodeCount() && !IsProtectedEditorNode(context, handle);
 }
 
-std::string MakeUniqueNodeName(const ri::scene::Scene& scene, const std::string& baseName) {
-    const auto nameExists = [&scene](const std::string& candidate) {
-        for (const ri::scene::Node& node : scene.Nodes()) {
-            if (node.name == candidate) {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    std::string candidate = baseName;
-    if (!nameExists(candidate)) {
-        return candidate;
+std::string TrimNodeName(const std::string_view name) {
+    std::size_t first = 0;
+    while (first < name.size() && std::isspace(static_cast<unsigned char>(name[first])) != 0) {
+        ++first;
     }
-    for (int suffix = 1; suffix < 10000; ++suffix) {
-        candidate = baseName + "_" + std::to_string(suffix);
-        if (!nameExists(candidate)) {
+    std::size_t last = name.size();
+    while (last > first && std::isspace(static_cast<unsigned char>(name[last - 1U])) != 0) {
+        --last;
+    }
+    return std::string{name.substr(first, last - first)};
+}
+
+bool IsNodeNameAvailable(const ri::scene::Scene& scene,
+                         const std::string_view name,
+                         const int ignoredHandle) {
+    if (name.empty()) {
+        return false;
+    }
+    const auto& nodes = scene.Nodes();
+    for (std::size_t index = 0; index < nodes.size(); ++index) {
+        if (static_cast<int>(index) != ignoredHandle && nodes[index].name == name) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string MakeUniqueNodeName(const ri::scene::Scene& scene, const std::string& baseName) {
+    const std::string normalizedBase = TrimNodeName(baseName);
+    const std::string safeBase = normalizedBase.empty() ? "Node" : normalizedBase;
+    if (IsNodeNameAvailable(scene, safeBase)) {
+        return safeBase;
+    }
+    // NodeCount() occupied names cannot consume every candidate in this range.
+    for (std::size_t suffix = 1; suffix <= scene.NodeCount() + 1U; ++suffix) {
+        const std::string candidate = safeBase + "_" + std::to_string(suffix);
+        if (IsNodeNameAvailable(scene, candidate)) {
             return candidate;
         }
     }
-    return baseName + "_node";
+    return safeBase + "_" + std::to_string(scene.NodeCount() + 2U);
 }
 
 bool TryAssignLocalTransformFromWorld(ri::scene::Scene& scene, const int nodeHandle, const ri::math::Mat4& worldMatrix) {
@@ -142,7 +163,8 @@ bool TryReparentSelectedToWorldRoot(ri::scene::Scene& scene,
         message = "Reparent blocked: select an authored node.";
         return false;
     }
-    if (context.handles == nullptr || context.handles->root == ri::scene::kInvalidHandle) {
+    if (context.handles == nullptr || context.handles->root < 0
+        || static_cast<std::size_t>(context.handles->root) >= scene.NodeCount()) {
         message = "Reparent failed: scene has no world root.";
         return false;
     }
@@ -152,14 +174,17 @@ bool TryReparentSelectedToWorldRoot(ri::scene::Scene& scene,
         return false;
     }
     const ri::math::Mat4 world = scene.ComputeWorldMatrix(nodeHandle);
+    ri::math::Mat4 parentWorldInverse{};
+    if (!ri::math::TryInvertAffineMat4(scene.ComputeWorldMatrix(context.handles->root), parentWorldInverse)) {
+        message = "Reparent failed: World has a non-invertible transform.";
+        return false;
+    }
+    const ri::scene::Transform newLocal = TransformFromMatrix(ri::math::Multiply(parentWorldInverse, world));
     if (!scene.SetParent(nodeHandle, context.handles->root)) {
         message = "Reparent failed: could not attach to World.";
         return false;
     }
-    if (!TryAssignLocalTransformFromWorld(scene, nodeHandle, world)) {
-        message = "Reparent warning: parent changed, but world transform was not preserved.";
-        return false;
-    }
+    scene.GetNode(nodeHandle).localTransform = newLocal;
     message = "Reparented selected node under World (world transform preserved).";
     return true;
 }
@@ -191,7 +216,7 @@ bool TrySelectAdjacentAuthoredNode(const ri::scene::Scene& scene,
             candidate += n;
         }
         const int handle = order[static_cast<std::size_t>(candidate)];
-        if (!IsProtectedEditorNode(context, handle)) {
+        if (IsEditableAuthoredNode(scene, context, handle)) {
             selectedNode = static_cast<std::size_t>(handle);
             message = "Selection: " + scene.GetNode(handle).name;
             return true;
@@ -271,19 +296,40 @@ bool TryUngroupSelectedNode(ri::scene::Scene& scene,
 
     const int parent = group.parent;
     const std::vector<int> children = group.children;
-    for (const int child : children) {
-        const ri::math::Mat4 childWorld = scene.ComputeWorldMatrix(child);
-        if (!scene.SetParent(child, parent)) {
-            message = "Ungroup failed: could not move all children.";
-            return false;
-        }
-        if (!TryAssignLocalTransformFromWorld(scene, child, childWorld)) {
-            message = "Ungroup failed: could not preserve child transform.";
+    const int trash = context.editorTrashFolderHandle;
+    if (trash < 0 || static_cast<std::size_t>(trash) >= scene.NodeCount()) {
+        message = "Ungroup failed: EditorTrash is unavailable.";
+        return false;
+    }
+    for (int ancestor = trash; ancestor != ri::scene::kInvalidHandle; ancestor = scene.GetNode(ancestor).parent) {
+        if (ancestor == selected) {
+            message = "Ungroup failed: EditorTrash cannot be inside the selected group.";
             return false;
         }
     }
 
-    if (!scene.SetParent(selected, context.editorTrashFolderHandle)) {
+    ri::math::Mat4 parentWorldInverse{};
+    if (!ri::math::TryInvertAffineMat4(scene.ComputeWorldMatrix(parent), parentWorldInverse)) {
+        message = "Ungroup failed: parent has a non-invertible transform.";
+        return false;
+    }
+    std::vector<ri::scene::Transform> childLocalTransforms;
+    childLocalTransforms.reserve(children.size());
+    for (const int child : children) {
+        childLocalTransforms.push_back(TransformFromMatrix(
+            ri::math::Multiply(parentWorldInverse, scene.ComputeWorldMatrix(child))));
+    }
+
+    for (std::size_t index = 0; index < children.size(); ++index) {
+        const int child = children[index];
+        if (!scene.SetParent(child, parent)) {
+            message = "Ungroup failed: could not move all children.";
+            return false;
+        }
+        scene.GetNode(child).localTransform = childLocalTransforms[index];
+    }
+
+    if (!scene.SetParent(selected, trash)) {
         message = "Ungroup warning: children moved, but could not hide old group node.";
         return false;
     }
@@ -298,15 +344,20 @@ bool TryDeleteSelectedNode(ri::scene::Scene& scene,
                            std::size_t& selectedNode,
                            std::string& message) {
     const int sel = static_cast<int>(selectedNode);
-    if (IsProtectedEditorNode(context, sel)) {
+    if (!IsEditableAuthoredNode(scene, context, sel)) {
         message = "Cannot delete World, rigs, orbit camera, helpers, or trash.";
         return false;
     }
-    DetachMeshesInSubtree(scene, sel);
-    if (!scene.SetParent(sel, context.editorTrashFolderHandle)) {
+    const int trash = context.editorTrashFolderHandle;
+    if (trash < 0 || static_cast<std::size_t>(trash) >= scene.NodeCount()) {
+        message = "Delete failed — EditorTrash is unavailable.";
+        return false;
+    }
+    if (!scene.SetParent(sel, trash)) {
         message = "Delete failed — could not re-parent node.";
         return false;
     }
+    DetachMeshesInSubtree(scene, sel);
     const int rootHandle = context.handles == nullptr ? ri::scene::kInvalidHandle : context.handles->root;
     selectedNode = rootHandle == ri::scene::kInvalidHandle ? 0U : static_cast<std::size_t>(rootHandle);
     message = "Removed geometry from the working scene (hidden EditorTrash folder).";
@@ -318,7 +369,7 @@ bool TryDuplicateSelectedNode(ri::scene::Scene& scene,
                               std::size_t& selectedNode,
                               std::string& message) {
     const int sel = static_cast<int>(selectedNode);
-    if (sel < 0 || IsProtectedEditorNode(context, sel)) {
+    if (!IsEditableAuthoredNode(scene, context, sel)) {
         message = "Duplicate: pick an authored mesh node (not rigs or helpers).";
         return false;
     }
@@ -327,7 +378,7 @@ bool TryDuplicateSelectedNode(ri::scene::Scene& scene,
         message = "Duplicate requires a mesh on the selected node.";
         return false;
     }
-    const std::string dupName = src.name + "_copy";
+    const std::string dupName = MakeUniqueNodeName(scene, src.name + "_copy");
     const int dup = scene.CreateNode(dupName, src.parent);
     scene.GetNode(dup).localTransform = src.localTransform;
     scene.GetNode(dup).localTransform.position.x += 1.0f;

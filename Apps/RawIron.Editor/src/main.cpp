@@ -344,11 +344,19 @@ bool SaveEditorAuthoredSceneState(const ri::scene::Scene& scene,
                                   const fs::path& outputPath) {
     std::vector<EditorAuthoredNodeRecord> records;
     const std::size_t nodeCount = scene.NodeCount();
+    std::unordered_map<std::string, int> existingNames;
+    for (std::size_t index = 0; index < std::min(authoredNodeStart, nodeCount); ++index) {
+        existingNames.emplace(scene.GetNode(static_cast<int>(index)).name, static_cast<int>(index));
+    }
     for (std::size_t index = authoredNodeStart; index < nodeCount; ++index) {
         const ri::scene::Node& node = scene.GetNode(static_cast<int>(index));
         if (static_cast<int>(index) == editorTrashHandle || node.parent == editorTrashHandle) {
             continue;
         }
+        if (node.name.empty() || existingNames.contains(node.name)) {
+            return false;
+        }
+        existingNames.emplace(node.name, static_cast<int>(index));
 
         EditorAuthoredNodeRecord record{};
         record.name = node.name;
@@ -475,10 +483,22 @@ bool LoadEditorAuthoredSceneState(ri::scene::Scene& scene,
         }
         return false;
     }
+    constexpr std::size_t kMaxAuthoredNodes = 100000U;
+    constexpr std::size_t kMaxMeshElements = 10000000U;
+    constexpr std::size_t kMaxTextureFrames = 10000U;
+    if (nodeCount > kMaxAuthoredNodes) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "authored scene sidecar node count exceeds safety limit";
+        }
+        return false;
+    }
 
+    // Parse into a copy so a truncated or corrupt sidecar cannot leave a
+    // half-imported hierarchy in the live editor scene.
+    ri::scene::Scene loadedScene = scene;
     std::unordered_map<std::string, int> nodeByName;
-    for (std::size_t index = 0; index < scene.NodeCount(); ++index) {
-        nodeByName.emplace(scene.GetNode(static_cast<int>(index)).name, static_cast<int>(index));
+    for (std::size_t index = 0; index < loadedScene.NodeCount(); ++index) {
+        nodeByName.emplace(loadedScene.GetNode(static_cast<int>(index)).name, static_cast<int>(index));
     }
 
     std::size_t loaded = 0;
@@ -523,6 +543,12 @@ bool LoadEditorAuthoredSceneState(ri::scene::Scene& scene,
                 }
                 return false;
             }
+            if (positionCount > kMaxMeshElements) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "mesh position count exceeds safety limit";
+                }
+                return false;
+            }
             record.mesh.primitive = static_cast<ri::scene::PrimitiveType>(primitive);
             record.mesh.positions.resize(positionCount);
             for (ri::math::Vec3& position : record.mesh.positions) {
@@ -534,6 +560,12 @@ bool LoadEditorAuthoredSceneState(ri::scene::Scene& scene,
                 }
             }
             stream >> texCoordCount;
+            if (!stream.good() || texCoordCount > kMaxMeshElements) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "mesh texcoord count exceeds safety limit";
+                }
+                return false;
+            }
             record.mesh.texCoords.resize(texCoordCount);
             for (ri::math::Vec2& texCoord : record.mesh.texCoords) {
                 if (!ReadVec2(stream, texCoord)) {
@@ -544,6 +576,12 @@ bool LoadEditorAuthoredSceneState(ri::scene::Scene& scene,
                 }
             }
             stream >> indexCount;
+            if (!stream.good() || indexCount > kMaxMeshElements) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "mesh index count exceeds safety limit";
+                }
+                return false;
+            }
             record.mesh.indices.resize(indexCount);
             for (int& indexValue : record.mesh.indices) {
                 if (!(stream >> indexValue)) {
@@ -575,6 +613,12 @@ bool LoadEditorAuthoredSceneState(ri::scene::Scene& scene,
                 || !(stream >> std::quoted(record.material.baseColorTexture) >> frameCount)) {
                 if (errorMessage != nullptr) {
                     *errorMessage = "malformed material header";
+                }
+                return false;
+            }
+            if (frameCount > kMaxTextureFrames) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "material texture frame count exceeds safety limit";
                 }
                 return false;
             }
@@ -612,6 +656,19 @@ bool LoadEditorAuthoredSceneState(ri::scene::Scene& scene,
             record.material.transparent = transparent != 0;
         }
 
+        if (record.name.empty()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = "authored node name is empty";
+            }
+            return false;
+        }
+        if (nodeByName.contains(record.name)) {
+            if (errorMessage != nullptr) {
+                *errorMessage = "duplicate authored node name '" + record.name + "'";
+            }
+            return false;
+        }
+
         int parent = ri::scene::kInvalidHandle;
         if (!record.parentName.empty()) {
             const auto found = nodeByName.find(record.parentName);
@@ -624,18 +681,18 @@ bool LoadEditorAuthoredSceneState(ri::scene::Scene& scene,
             parent = found->second;
         }
 
-        const int nodeHandle = scene.CreateNode(record.name, parent);
-        ri::scene::Node& node = scene.GetNode(nodeHandle);
+        const int nodeHandle = loadedScene.CreateNode(record.name, parent);
+        ri::scene::Node& node = loadedScene.GetNode(nodeHandle);
         node.localTransform = record.localTransform;
         if (record.hasMaterial) {
-            const int materialHandle = scene.AddMaterial(record.material);
+            const int materialHandle = loadedScene.AddMaterial(record.material);
             if (record.hasMesh) {
-                const int meshHandle = scene.AddMesh(record.mesh);
-                scene.AttachMesh(nodeHandle, meshHandle, materialHandle);
+                const int meshHandle = loadedScene.AddMesh(record.mesh);
+                loadedScene.AttachMesh(nodeHandle, meshHandle, materialHandle);
             }
         } else if (record.hasMesh) {
-            const int meshHandle = scene.AddMesh(record.mesh);
-            scene.AttachMesh(nodeHandle, meshHandle);
+            const int meshHandle = loadedScene.AddMesh(record.mesh);
+            loadedScene.AttachMesh(nodeHandle, meshHandle);
         }
 
         nodeByName[record.name] = nodeHandle;
@@ -649,6 +706,7 @@ bool LoadEditorAuthoredSceneState(ri::scene::Scene& scene,
         return false;
     }
 
+    scene = std::move(loadedScene);
     return true;
 }
 
@@ -7468,6 +7526,10 @@ enum class UiWorkbenchTextEditTarget {
     }
 
     void TryResetSelectedTransform() {
+        if (!IsEditableAuthoredNode(static_cast<int>(selectedNode_))) {
+            lastIoStatus_ = "Reset blocked: select an authored node, not World/rigs/helpers.";
+            return;
+        }
         ri::scene::Node& node = starterScene_.scene.GetNode(static_cast<int>(selectedNode_));
         const ri::scene::Transform before = node.localTransform;
         if (!ri::editor::TryResetSelectedTransform(
@@ -7703,7 +7765,7 @@ enum class UiWorkbenchTextEditTarget {
             return;
         }
         nodeRenameTypingActive_ = false;
-        const std::string trimmed = nodeRenameDraft_;
+        const std::string trimmed = ri::editor::TrimNodeName(nodeRenameDraft_);
         nodeRenameDraft_.clear();
         if (trimmed.empty()) {
             lastIoStatus_ = "Rename cancelled (empty name).";
@@ -7713,9 +7775,14 @@ enum class UiWorkbenchTextEditTarget {
             lastIoStatus_ = "Rename failed: selection is no longer editable.";
             return;
         }
+        const int selectedHandle = static_cast<int>(selectedNode_);
+        if (!ri::editor::IsNodeNameAvailable(starterScene_.scene, trimmed, selectedHandle)) {
+            lastIoStatus_ = "Rename failed: another node already uses '" + trimmed + "'.";
+            return;
+        }
         const ri::scene::Scene beforeScene = starterScene_.scene;
         const std::size_t beforeSelectedNode = selectedNode_;
-        starterScene_.scene.GetNode(static_cast<int>(selectedNode_)).name = trimmed;
+        starterScene_.scene.GetNode(selectedHandle).name = trimmed;
         lastIoStatus_ = "Renamed node to '" + trimmed + "'.";
         RecordSceneGraphEdit(beforeScene, beforeSelectedNode);
     }

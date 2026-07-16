@@ -45,6 +45,16 @@ EditorVulkanViewport::~EditorVulkanViewport() {
 
 bool EditorVulkanViewport::Start(const HWND parent, const RECT& bounds) {
     Stop();
+    if (!StartRenderLoop(parent, bounds)) {
+        return false;
+    }
+    restartThread_ = std::jthread([this](const std::stop_token stopToken) {
+        RunRestartWorker(stopToken);
+    });
+    return true;
+}
+
+bool EditorVulkanViewport::StartRenderLoop(const HWND parent, const RECT& bounds) {
     const int width = std::max(64L, bounds.right - bounds.left);
     const int height = std::max(64L, bounds.bottom - bounds.top);
     parent_ = parent;
@@ -124,44 +134,52 @@ void EditorVulkanViewport::RestartAsync(const HWND parent, const RECT& bounds) {
         restartParent_ = parent;
         restartBounds_ = bounds;
     }
-    if (restartThread_.joinable() && !restartWorkerRunning_.load()) {
-        restartThread_.join();
-    }
-    if (restartWorkerRunning_.exchange(true)) {
-        return;
-    }
-    restartThread_ = std::jthread([this]() {
-        while (true) {
-            HWND parent = nullptr;
-            RECT bounds{};
-            {
-                std::scoped_lock lock(restartMutex_);
-                if (!restartQueued_) {
-                    break;
-                }
-                restartQueued_ = false;
-                parent = restartParent_;
-                bounds = restartBounds_;
-            }
-            Stop();
-            (void)Start(parent, bounds);
-        }
-        restartWorkerRunning_.store(false);
-    });
+    restartCv_.notify_one();
 }
 
 void EditorVulkanViewport::Stop() {
-    stopRequested_.store(true);
-    if (const HWND child = child_.load(); child != nullptr && IsWindow(child)) {
-        PostMessageW(child, WM_CLOSE, 0, 0);
+    {
+        std::scoped_lock lock(restartMutex_);
+        restartQueued_ = false;
     }
+    if (restartThread_.joinable()) {
+        restartThread_.request_stop();
+        restartCv_.notify_all();
+        restartThread_.join();
+    }
+    StopRenderLoop();
+    restartWorkerRunning_.store(false);
+}
+
+void EditorVulkanViewport::StopRenderLoop() {
+    stopRequested_.store(true);
     if (renderThread_.joinable()) {
         renderThread_.join();
     }
     running_.store(false);
-    if (restartThread_.joinable() && !restartWorkerRunning_.load()
-        && std::this_thread::get_id() != restartThread_.get_id()) {
-        restartThread_.join();
+}
+
+void EditorVulkanViewport::RunRestartWorker(const std::stop_token stopToken) {
+    while (!stopToken.stop_requested()) {
+        HWND parent = nullptr;
+        RECT bounds{};
+        {
+            std::unique_lock lock(restartMutex_);
+            restartCv_.wait(lock, stopToken, [this]() { return restartQueued_; });
+            if (stopToken.stop_requested()) {
+                break;
+            }
+            restartQueued_ = false;
+            parent = restartParent_;
+            bounds = restartBounds_;
+        }
+
+        restartWorkerRunning_.store(true);
+        StopRenderLoop();
+        if (!stopToken.stop_requested()) {
+            (void)StartRenderLoop(parent, bounds);
+        }
+        restartWorkerRunning_.store(false);
     }
 }
 

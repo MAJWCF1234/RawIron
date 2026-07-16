@@ -4,6 +4,7 @@
 #include "RawIron/Scene/Scene.h"
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -50,6 +51,9 @@ public:
 
 private:
     struct Snapshot;
+    bool StartRenderLoop(HWND parent, const RECT& bounds);
+    void StopRenderLoop();
+    void RunRestartWorker(std::stop_token stopToken);
     bool EnsureHostWindow(HWND parent);
     void DestroyHostWindow();
 
@@ -71,6 +75,7 @@ private:
     std::jthread renderThread_{};
     std::jthread restartThread_{};
     std::mutex restartMutex_{};
+    std::condition_variable_any restartCv_{};
     bool restartQueued_ = false;
     HWND restartParent_ = nullptr;
     RECT restartBounds_{};

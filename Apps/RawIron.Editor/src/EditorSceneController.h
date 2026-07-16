@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ri::editor {
@@ -20,6 +21,10 @@ struct EditorSceneControllerContext {
 [[nodiscard]] bool IsEditableAuthoredNode(const ri::scene::Scene& scene,
                                           const EditorSceneControllerContext& context,
                                           int handle);
+[[nodiscard]] std::string TrimNodeName(std::string_view name);
+[[nodiscard]] bool IsNodeNameAvailable(const ri::scene::Scene& scene,
+                                       std::string_view name,
+                                       int ignoredHandle = ri::scene::kInvalidHandle);
 [[nodiscard]] std::string MakeUniqueNodeName(const ri::scene::Scene& scene, const std::string& baseName);
 [[nodiscard]] bool TryAssignLocalTransformFromWorld(ri::scene::Scene& scene,
                                                     int nodeHandle,

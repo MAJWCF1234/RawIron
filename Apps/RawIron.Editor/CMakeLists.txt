@@ -86,6 +86,15 @@ if (RAWIRON_BUILD_TESTS)
   target_compile_features(EditorPluginManagerSmoke PRIVATE cxx_std_20)
   add_test(NAME RawIron.Editor.PluginManagerSmoke COMMAND EditorPluginManagerSmoke)
 
+  add_executable(EditorSceneControllerSmoke
+    src/EditorSceneController.cpp
+    ${CMAKE_SOURCE_DIR}/Tests/EditorSceneControllerSmoke.cpp
+  )
+  target_include_directories(EditorSceneControllerSmoke PRIVATE ${CMAKE_SOURCE_DIR})
+  target_link_libraries(EditorSceneControllerSmoke PRIVATE RawIron::SceneUtilities)
+  target_compile_features(EditorSceneControllerSmoke PRIVATE cxx_std_20)
+  add_test(NAME RawIron.Editor.SceneControllerSmoke COMMAND EditorSceneControllerSmoke)
+
   set(rawiron_verify_command_output "${PROJECT_SOURCE_DIR}/Tests/cmake/VerifyCommandOutput.cmake")
   rawiron_runtime_dll_test_arg(rawiron_editor_runtime_dll_arg RawIron.Editor)
   set(rawiron_editor_forbidden
