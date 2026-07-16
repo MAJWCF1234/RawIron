@@ -20,6 +20,7 @@ struct RuntimeCheckpointSnapshot {
 struct CheckpointStartupOptions {
     bool startFromCheckpoint = false;
     std::string slot = "autosave";
+    bool slotProvided = false;
     std::optional<std::string> queryString;
 };
 

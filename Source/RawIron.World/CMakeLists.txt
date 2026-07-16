@@ -49,4 +49,8 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(WorldVolumeSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/WorldVolumeSafetySmoke.cpp)
   target_link_libraries(WorldVolumeSafetySmoke PRIVATE RawIron::World)
   add_test(NAME RawIron.World.VolumeSafetySmoke COMMAND WorldVolumeSafetySmoke)
+
+  add_executable(CheckpointPersistenceSmoke ${CMAKE_SOURCE_DIR}/Tests/CheckpointPersistenceSmoke.cpp)
+  target_link_libraries(CheckpointPersistenceSmoke PRIVATE RawIron::World)
+  add_test(NAME RawIron.World.CheckpointPersistenceSmoke COMMAND CheckpointPersistenceSmoke)
 endif()
