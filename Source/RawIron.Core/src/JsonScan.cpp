@@ -1,6 +1,7 @@
 #include "RawIron/Core/Detail/JsonScan.h"
 
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
@@ -17,6 +18,46 @@ namespace {
 [[nodiscard]] bool IsJsonValueTerminator(std::string_view text, std::size_t index) {
     index = SkipWhitespace(text, index);
     return index >= text.size() || text[index] == ',' || text[index] == '}' || text[index] == ']';
+}
+
+[[nodiscard]] int HexDigitValue(const char character) noexcept {
+    if (character >= '0' && character <= '9') return character - '0';
+    if (character >= 'a' && character <= 'f') return 10 + character - 'a';
+    if (character >= 'A' && character <= 'F') return 10 + character - 'A';
+    return -1;
+}
+
+[[nodiscard]] bool ParseHexCodeUnit(std::string_view text, const std::size_t index, std::uint32_t& value) noexcept {
+    if (index > text.size() || text.size() - index < 4U) {
+        return false;
+    }
+    value = 0U;
+    for (std::size_t offset = 0; offset < 4U; ++offset) {
+        const int digit = HexDigitValue(text[index + offset]);
+        if (digit < 0) {
+            return false;
+        }
+        value = (value << 4U) | static_cast<std::uint32_t>(digit);
+    }
+    return true;
+}
+
+void AppendUtf8(std::string& output, const std::uint32_t codePoint) {
+    if (codePoint <= 0x7FU) {
+        output.push_back(static_cast<char>(codePoint));
+    } else if (codePoint <= 0x7FFU) {
+        output.push_back(static_cast<char>(0xC0U | (codePoint >> 6U)));
+        output.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
+    } else if (codePoint <= 0xFFFFU) {
+        output.push_back(static_cast<char>(0xE0U | (codePoint >> 12U)));
+        output.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3FU)));
+        output.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
+    } else {
+        output.push_back(static_cast<char>(0xF0U | (codePoint >> 18U)));
+        output.push_back(static_cast<char>(0x80U | ((codePoint >> 12U) & 0x3FU)));
+        output.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3FU)));
+        output.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
+    }
 }
 
 } // namespace
@@ -83,9 +124,32 @@ std::optional<std::string> ParseQuotedString(std::string_view text, std::size_t 
                 case 't':
                     value.push_back('\t');
                     break;
-                default:
-                    value.push_back(character);
+                case 'u': {
+                    std::uint32_t codePoint = 0U;
+                    if (!ParseHexCodeUnit(text, index, codePoint)) {
+                        return std::nullopt;
+                    }
+                    index += 4U;
+                    if (codePoint >= 0xD800U && codePoint <= 0xDBFFU) {
+                        if (index > text.size() || text.size() - index < 6U
+                            || text[index] != '\\' || text[index + 1U] != 'u') {
+                            return std::nullopt;
+                        }
+                        std::uint32_t lowSurrogate = 0U;
+                        if (!ParseHexCodeUnit(text, index + 2U, lowSurrogate)
+                            || lowSurrogate < 0xDC00U || lowSurrogate > 0xDFFFU) {
+                            return std::nullopt;
+                        }
+                        index += 6U;
+                        codePoint = 0x10000U + ((codePoint - 0xD800U) << 10U) + (lowSurrogate - 0xDC00U);
+                    } else if (codePoint >= 0xDC00U && codePoint <= 0xDFFFU) {
+                        return std::nullopt;
+                    }
+                    AppendUtf8(value, codePoint);
                     break;
+                }
+                default:
+                    return std::nullopt;
             }
             escaping = false;
             continue;
@@ -101,6 +165,10 @@ std::optional<std::string> ParseQuotedString(std::string_view text, std::size_t 
                 *consumed = index;
             }
             return value;
+        }
+
+        if (static_cast<unsigned char>(character) < 0x20U) {
+            return std::nullopt;
         }
 
         value.push_back(character);
@@ -141,7 +209,13 @@ std::optional<std::string> ExtractJsonString(std::string_view text, std::string_
     if (!valueIndex.has_value()) {
         return std::nullopt;
     }
-    return ParseQuotedString(text, SkipWhitespace(text, *valueIndex));
+    const std::size_t start = SkipWhitespace(text, *valueIndex);
+    std::size_t consumed = start;
+    const std::optional<std::string> value = ParseQuotedString(text, start, &consumed);
+    if (!value.has_value() || !IsJsonValueTerminator(text, consumed)) {
+        return std::nullopt;
+    }
+    return value;
 }
 
 std::vector<std::string> ExtractJsonStringArray(std::string_view text, std::string_view key) {
@@ -157,28 +231,38 @@ std::vector<std::string> ExtractJsonStringArray(std::string_view text, std::stri
     }
     ++cursor;
 
+    cursor = SkipWhitespace(text, cursor);
+    if (cursor < text.size() && text[cursor] == ']') {
+        return values;
+    }
     while (cursor < text.size()) {
         cursor = SkipWhitespace(text, cursor);
-        if (cursor >= text.size()) {
-            break;
-        }
-        if (text[cursor] == ']') {
-            break;
+        if (cursor >= text.size() || text[cursor] == ']') {
+            return {};
         }
 
         std::size_t consumed = cursor;
         const std::optional<std::string> item = ParseQuotedString(text, cursor, &consumed);
         if (!item.has_value()) {
-            break;
+            return {};
         }
         values.push_back(*item);
         cursor = SkipWhitespace(text, consumed);
+        if (cursor < text.size() && text[cursor] == ']') {
+            return values;
+        }
         if (cursor < text.size() && text[cursor] == ',') {
             ++cursor;
+            const std::size_t next = SkipWhitespace(text, cursor);
+            if (next >= text.size() || text[next] == ']') {
+                return {};
+            }
+            continue;
         }
+        return {};
     }
 
-    return values;
+    return {};
 }
 
 std::optional<bool> ExtractJsonBool(std::string_view text, std::string_view key) {
@@ -282,7 +366,7 @@ namespace {
     std::string buffer(text.substr(start, index - start));
     char* parseEnd = nullptr;
     const double parsed = std::strtod(buffer.c_str(), &parseEnd);
-    if (parseEnd == buffer.c_str() || parseEnd != buffer.c_str() + buffer.size()) {
+    if (parseEnd == buffer.c_str() || parseEnd != buffer.c_str() + buffer.size() || !std::isfinite(parsed)) {
         return false;
     }
     *valueOut = parsed;

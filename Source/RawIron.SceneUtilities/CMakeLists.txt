@@ -102,4 +102,8 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(AuthoringHelpersSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/AuthoringHelpersSafetySmoke.cpp)
   target_link_libraries(AuthoringHelpersSafetySmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.AuthoringHelpersSafetySmoke COMMAND AuthoringHelpersSafetySmoke)
+
+  add_executable(SceneEntityPhysicsSmoke ${CMAKE_SOURCE_DIR}/Tests/SceneEntityPhysicsSmoke.cpp)
+  target_link_libraries(SceneEntityPhysicsSmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.SceneEntityPhysicsSmoke COMMAND SceneEntityPhysicsSmoke)
 endif()

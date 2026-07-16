@@ -66,4 +66,8 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(RuntimeNetcodeSmoke ${CMAKE_SOURCE_DIR}/Tests/RuntimeNetcodeSmoke.cpp)
   target_link_libraries(RuntimeNetcodeSmoke PRIVATE RawIron::Runtime)
   add_test(NAME RawIron.Runtime.NetcodeSmoke COMMAND RuntimeNetcodeSmoke)
+
+  add_executable(DemoStreamSmoke ${CMAKE_SOURCE_DIR}/Tests/DemoStreamSmoke.cpp)
+  target_link_libraries(DemoStreamSmoke PRIVATE RawIron::Runtime)
+  add_test(NAME RawIron.Runtime.DemoStreamSmoke COMMAND DemoStreamSmoke)
 endif()

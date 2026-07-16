@@ -2,6 +2,25 @@
 #include "RawIron/Core/InputLabelFormat.h"
 
 #include <algorithm>
+#include <cctype>
+
+namespace {
+
+std::string_view TrimView(std::string_view value) noexcept {
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front())) != 0) {
+        value.remove_prefix(1U);
+    }
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back())) != 0) {
+        value.remove_suffix(1U);
+    }
+    return value;
+}
+
+std::string TrimCopy(const std::string_view value) {
+    return std::string(TrimView(value));
+}
+
+} // namespace
 
 namespace ri::core {
 
@@ -12,14 +31,26 @@ ActionBindings::ActionBindings(std::vector<ActionBinding> bindings) {
 }
 
 bool ActionBindings::DefineAction(ActionBinding binding) {
+    binding.actionId = TrimCopy(binding.actionId);
     if (binding.actionId.empty()) {
         return false;
+    }
+    binding.displayName = TrimCopy(binding.displayName);
+    if (binding.displayName.empty()) {
+        binding.displayName = binding.actionId;
     }
 
     binding.primaryInputId = NormalizeInputId(binding.primaryInputId);
     binding.secondaryInputId = NormalizeInputId(binding.secondaryInputId);
+    if (!binding.primaryInputId.empty() && binding.primaryInputId == binding.secondaryInputId) {
+        binding.secondaryInputId.clear();
+    }
 
     ActionBinding* existing = FindAction(binding.actionId);
+    if ((!binding.primaryInputId.empty() && BindingExists(binding.primaryInputId, existing))
+        || (!binding.secondaryInputId.empty() && BindingExists(binding.secondaryInputId, existing))) {
+        return false;
+    }
     if (existing != nullptr) {
         *existing = std::move(binding);
         return true;
@@ -33,6 +64,9 @@ bool ActionBindings::Rebind(std::string_view actionId,
                             std::string_view inputId,
                             BindingSlot slot,
                             bool clearConflicts) {
+    if (slot != BindingSlot::Primary && slot != BindingSlot::Secondary) {
+        return false;
+    }
     ActionBinding* binding = FindAction(actionId);
     if (binding == nullptr || !binding->allowRebind) {
         return false;
@@ -50,8 +84,14 @@ bool ActionBindings::Rebind(std::string_view actionId,
     }
 
     if (slot == BindingSlot::Primary) {
+        if (binding->secondaryInputId == normalizedInput) {
+            binding->secondaryInputId.clear();
+        }
         binding->primaryInputId = normalizedInput;
     } else {
+        if (binding->primaryInputId == normalizedInput) {
+            binding->primaryInputId.clear();
+        }
         binding->secondaryInputId = normalizedInput;
     }
     return true;
@@ -59,7 +99,8 @@ bool ActionBindings::Rebind(std::string_view actionId,
 
 bool ActionBindings::ClearBinding(std::string_view actionId, BindingSlot slot) noexcept {
     ActionBinding* binding = FindAction(actionId);
-    if (binding == nullptr) {
+    if (binding == nullptr || !binding->allowRebind
+        || (slot != BindingSlot::Primary && slot != BindingSlot::Secondary)) {
         return false;
     }
 
@@ -72,6 +113,7 @@ bool ActionBindings::ClearBinding(std::string_view actionId, BindingSlot slot) n
 }
 
 const ActionBinding* ActionBindings::FindAction(std::string_view actionId) const noexcept {
+    actionId = TrimView(actionId);
     const auto it = std::find_if(bindings_.begin(), bindings_.end(), [actionId](const ActionBinding& binding) {
         return binding.actionId == actionId;
     });
@@ -79,6 +121,7 @@ const ActionBinding* ActionBindings::FindAction(std::string_view actionId) const
 }
 
 ActionBinding* ActionBindings::FindAction(std::string_view actionId) noexcept {
+    actionId = TrimView(actionId);
     const auto it = std::find_if(bindings_.begin(), bindings_.end(), [actionId](const ActionBinding& binding) {
         return binding.actionId == actionId;
     });

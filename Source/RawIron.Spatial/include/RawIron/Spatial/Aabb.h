@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
 
 namespace ri::spatial {
 
@@ -40,7 +41,16 @@ inline Aabb MakeEmptyAabb() {
 }
 
 inline ri::math::Vec3 Center(const Aabb& box) {
-    return (box.min + box.max) * 0.5f;
+    if (IsEmpty(box)) {
+        return {};
+    }
+    // Averaging each endpoint separately avoids overflowing when both finite
+    // endpoints are near the maximum representable float.
+    return {
+        std::midpoint(box.min.x, box.max.x),
+        std::midpoint(box.min.y, box.max.y),
+        std::midpoint(box.min.z, box.max.z),
+    };
 }
 
 inline ri::math::Vec3 Size(const Aabb& box) {
@@ -138,6 +148,12 @@ inline bool IntersectRayAabb(const Ray& ray, const Aabb& box, float farDistance,
 }
 
 inline Aabb BuildSegmentBounds(const ri::math::Vec3& start, const ri::math::Vec3& end) {
+    const auto finite = [](const ri::math::Vec3& point) {
+        return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
+    };
+    if (!finite(start) || !finite(end)) {
+        return MakeEmptyAabb();
+    }
     Aabb box = MakeEmptyAabb();
     box = ExpandByPoint(box, start);
     box = ExpandByPoint(box, end);

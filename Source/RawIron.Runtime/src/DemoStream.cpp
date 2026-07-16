@@ -6,6 +6,12 @@
 namespace ri::runtime {
 namespace {
 
+constexpr std::uint32_t kSupportedSchemaVersion = 1U;
+constexpr std::size_t kMaxHeaderStringBytes = 4096U;
+constexpr std::size_t kMaxFrameBlobBytes = 16U * 1024U * 1024U;
+constexpr std::size_t kMaxFrameCount = 1000000U;
+constexpr std::uintmax_t kMaxDemoFileBytes = 512U * 1024U * 1024U;
+
 void WriteU32(std::vector<std::uint8_t>& out, const std::uint32_t v) {
     out.push_back(static_cast<std::uint8_t>(v & 0xFFU));
     out.push_back(static_cast<std::uint8_t>((v >> 8U) & 0xFFU));
@@ -14,7 +20,7 @@ void WriteU32(std::vector<std::uint8_t>& out, const std::uint32_t v) {
 }
 
 bool ReadU32(const std::vector<std::uint8_t>& in, std::size_t& at, std::uint32_t& out) {
-    if (at + 4U > in.size()) {
+    if (at > in.size() || in.size() - at < 4U) {
         return false;
     }
     out = static_cast<std::uint32_t>(in[at]) |
@@ -30,9 +36,12 @@ void WriteString(std::vector<std::uint8_t>& out, const std::string& value) {
     out.insert(out.end(), value.begin(), value.end());
 }
 
-bool ReadString(const std::vector<std::uint8_t>& in, std::size_t& at, std::string& value) {
+bool ReadString(const std::vector<std::uint8_t>& in,
+                std::size_t& at,
+                std::string& value,
+                const std::size_t maxLength = kMaxHeaderStringBytes) {
     std::uint32_t len = 0;
-    if (!ReadU32(in, at, len) || at + len > in.size()) {
+    if (!ReadU32(in, at, len) || len > maxLength || at > in.size() || len > in.size() - at) {
         return false;
     }
     value.assign(reinterpret_cast<const char*>(in.data() + at), len);
@@ -47,7 +56,7 @@ void WriteBytes(std::vector<std::uint8_t>& out, const std::vector<std::uint8_t>&
 
 bool ReadBytes(const std::vector<std::uint8_t>& in, std::size_t& at, std::vector<std::uint8_t>& value) {
     std::uint32_t len = 0;
-    if (!ReadU32(in, at, len) || at + len > in.size()) {
+    if (!ReadU32(in, at, len) || len > kMaxFrameBlobBytes || at > in.size() || len > in.size() - at) {
         return false;
     }
     value.assign(in.begin() + static_cast<std::ptrdiff_t>(at), in.begin() + static_cast<std::ptrdiff_t>(at + len));
@@ -55,10 +64,36 @@ bool ReadBytes(const std::vector<std::uint8_t>& in, std::size_t& at, std::vector
     return true;
 }
 
+void PatchU32(std::vector<std::uint8_t>& out, const std::size_t at, const std::uint32_t value) {
+    if (at > out.size() || out.size() - at < 4U) {
+        return;
+    }
+    out[at + 0U] = static_cast<std::uint8_t>(value & 0xFFU);
+    out[at + 1U] = static_cast<std::uint8_t>((value >> 8U) & 0xFFU);
+    out[at + 2U] = static_cast<std::uint8_t>((value >> 16U) & 0xFFU);
+    out[at + 3U] = static_cast<std::uint8_t>((value >> 24U) & 0xFFU);
+}
+
 } // namespace
 
 bool DemoWriter::Open(const std::filesystem::path& path, const DemoHeader& header) {
     Close();
+    if (path.empty() || header.schemaVersion != kSupportedSchemaVersion || header.tickRate == 0U
+        || header.runtimeId.size() > kMaxHeaderStringBytes || header.mapOrScene.size() > kMaxHeaderStringBytes) {
+        return false;
+    }
+    std::error_code directoryError;
+    if (!path.parent_path().empty()) {
+        std::filesystem::create_directories(path.parent_path(), directoryError);
+        if (directoryError) {
+            return false;
+        }
+    }
+    std::ofstream probe(path, std::ios::binary | std::ios::trunc);
+    if (!probe.is_open()) {
+        return false;
+    }
+    probe.close();
     path_ = path;
     stream_.clear();
     stream_.reserve(4096);
@@ -68,7 +103,11 @@ bool DemoWriter::Open(const std::filesystem::path& path, const DemoHeader& heade
     WriteU32(stream_, header.streamSeed);
     WriteString(stream_, header.runtimeId);
     WriteString(stream_, header.mapOrScene);
+    frameCountOffset_ = stream_.size();
     WriteU32(stream_, 0U); // frame count placeholder
+    frameCount_ = 0U;
+    lastTick_ = 0U;
+    hasFrames_ = false;
     open_ = true;
     return true;
 }
@@ -77,14 +116,23 @@ bool DemoWriter::Append(const DemoFrameRecord& frame) {
     if (!open_) {
         return false;
     }
-    if (!stream_.empty()) {
-        // Enforce monotonically increasing ticks for deterministic playback ordering.
-        // The stream metadata does not expose prior tick cheaply, so this is checked on decode too.
+    if (frame.inputBytes.size() > kMaxFrameBlobBytes
+        || frame.authoritativeSnapshotBytes.size() > kMaxFrameBlobBytes
+        || frameCount_ >= kMaxFrameCount
+        || (hasFrames_ && frame.tick <= lastTick_)) {
+        return false;
+    }
+    const std::size_t encodedSize = 16U + frame.inputBytes.size() + frame.authoritativeSnapshotBytes.size();
+    if (stream_.size() > kMaxDemoFileBytes || encodedSize > kMaxDemoFileBytes - stream_.size()) {
+        return false;
     }
     WriteU32(stream_, frame.tick);
     WriteBytes(stream_, frame.inputBytes);
     WriteBytes(stream_, frame.authoritativeSnapshotBytes);
     WriteU32(stream_, frame.deterministicChecksum);
+    lastTick_ = frame.tick;
+    hasFrames_ = true;
+    ++frameCount_;
     return true;
 }
 
@@ -92,30 +140,7 @@ void DemoWriter::Close() {
     if (!open_) {
         return;
     }
-    // Compute frame count by replaying payload quickly.
-    std::size_t at = 0;
-    if (stream_.size() >= 4U + 4U + 4U) {
-        at = 4U + 4U + 4U;
-        std::string s;
-        (void)ReadString(stream_, at, s);
-        (void)ReadString(stream_, at, s);
-    }
-    std::size_t frameCountPos = at;
-    std::uint32_t frameCount = 0;
-    at += 4U;
-    while (at < stream_.size()) {
-        std::uint32_t tick = 0;
-        std::vector<std::uint8_t> blob;
-        if (!ReadU32(stream_, at, tick) || !ReadBytes(stream_, at, blob) || !ReadBytes(stream_, at, blob) ||
-            !ReadU32(stream_, at, tick)) {
-            break;
-        }
-        ++frameCount;
-    }
-    stream_[frameCountPos + 0U] = static_cast<std::uint8_t>(frameCount & 0xFFU);
-    stream_[frameCountPos + 1U] = static_cast<std::uint8_t>((frameCount >> 8U) & 0xFFU);
-    stream_[frameCountPos + 2U] = static_cast<std::uint8_t>((frameCount >> 16U) & 0xFFU);
-    stream_[frameCountPos + 3U] = static_cast<std::uint8_t>((frameCount >> 24U) & 0xFFU);
+    PatchU32(stream_, frameCountOffset_, frameCount_);
 
     std::ofstream file(path_, std::ios::binary | std::ios::trunc);
     if (file.good()) {
@@ -123,6 +148,10 @@ void DemoWriter::Close() {
     }
     open_ = false;
     stream_.clear();
+    frameCountOffset_ = 0U;
+    frameCount_ = 0U;
+    lastTick_ = 0U;
+    hasFrames_ = false;
 }
 
 bool DemoWriter::IsOpen() const noexcept {
@@ -131,6 +160,11 @@ bool DemoWriter::IsOpen() const noexcept {
 
 bool DemoReader::Open(const std::filesystem::path& path) {
     Close();
+    std::error_code sizeError;
+    const std::uintmax_t fileSize = std::filesystem::file_size(path, sizeError);
+    if (sizeError || fileSize > kMaxDemoFileBytes) {
+        return false;
+    }
     std::ifstream file(path, std::ios::binary);
     if (!file.good()) {
         return false;
@@ -140,19 +174,24 @@ bool DemoReader::Open(const std::filesystem::path& path) {
         return false;
     }
 
+    DemoHeader parsedHeader{};
     std::size_t at = 4U;
-    if (!ReadU32(bytes, at, header_.schemaVersion) || !ReadU32(bytes, at, header_.tickRate) ||
-        !ReadU32(bytes, at, header_.streamSeed) ||
-        !ReadString(bytes, at, header_.runtimeId) || !ReadString(bytes, at, header_.mapOrScene)) {
+    if (!ReadU32(bytes, at, parsedHeader.schemaVersion) || !ReadU32(bytes, at, parsedHeader.tickRate) ||
+        !ReadU32(bytes, at, parsedHeader.streamSeed) ||
+        !ReadString(bytes, at, parsedHeader.runtimeId) || !ReadString(bytes, at, parsedHeader.mapOrScene)
+        || parsedHeader.schemaVersion != kSupportedSchemaVersion || parsedHeader.tickRate == 0U) {
         return false;
     }
     std::uint32_t frameCount = 0;
     if (!ReadU32(bytes, at, frameCount)) {
         return false;
     }
+    if (frameCount > kMaxFrameCount) {
+        return false;
+    }
 
-    frames_.clear();
-    frames_.reserve(frameCount);
+    std::vector<DemoFrameRecord> parsedFrames;
+    parsedFrames.reserve(frameCount);
     std::uint32_t prevTick = 0;
     for (std::uint32_t i = 0; i < frameCount; ++i) {
         DemoFrameRecord frame{};
@@ -165,8 +204,13 @@ bool DemoReader::Open(const std::filesystem::path& path) {
             return false;
         }
         prevTick = frame.tick;
-        frames_.push_back(std::move(frame));
+        parsedFrames.push_back(std::move(frame));
     }
+    if (at != bytes.size()) {
+        return false;
+    }
+    header_ = std::move(parsedHeader);
+    frames_ = std::move(parsedFrames);
     open_ = true;
     return true;
 }

@@ -33,6 +33,10 @@ public:
 private:
     std::filesystem::path path_{};
     std::vector<std::uint8_t> stream_{};
+    std::size_t frameCountOffset_ = 0;
+    std::uint32_t frameCount_ = 0;
+    std::uint32_t lastTick_ = 0;
+    bool hasFrames_ = false;
     bool open_ = false;
 };
 

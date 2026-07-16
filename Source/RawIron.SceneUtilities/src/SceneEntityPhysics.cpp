@@ -14,6 +14,10 @@ namespace {
     return handle >= 0 && static_cast<std::size_t>(handle) < scene.NodeCount();
 }
 
+[[nodiscard]] bool Vec3Finite(const ri::math::Vec3& value) noexcept {
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
 [[nodiscard]] bool SolveLinear3(const ri::math::Vec3& col0,
                               const ri::math::Vec3& col1,
                               const ri::math::Vec3& col2,
@@ -21,14 +25,15 @@ namespace {
                               ri::math::Vec3& out) noexcept {
     const ri::math::Vec3 cross_c1_c2 = ri::math::Cross(col1, col2);
     const float det = ri::math::Dot(col0, cross_c1_c2);
-    if (std::abs(det) < 1.0e-18f) {
+    if (!Vec3Finite(col0) || !Vec3Finite(col1) || !Vec3Finite(col2) || !Vec3Finite(rhs)
+        || !std::isfinite(det) || std::abs(det) < 1.0e-18f) {
         return false;
     }
     const float invDet = 1.0f / det;
     out.x = ri::math::Dot(rhs, ri::math::Cross(col1, col2)) * invDet;
     out.y = ri::math::Dot(rhs, ri::math::Cross(col2, col0)) * invDet;
     out.z = ri::math::Dot(rhs, ri::math::Cross(col0, col1)) * invDet;
-    return true;
+    return Vec3Finite(out);
 }
 
 } // namespace

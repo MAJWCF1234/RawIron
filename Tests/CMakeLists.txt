@@ -8,6 +8,10 @@ add_executable(CommandLineSmoke CommandLineSmoke.cpp)
 target_link_libraries(CommandLineSmoke PRIVATE RawIron::Core)
 add_test(NAME RawIron.Core.CommandLineSmoke COMMAND CommandLineSmoke)
 
+add_executable(CoreUtilitiesSafetySmoke CoreUtilitiesSafetySmoke.cpp)
+target_link_libraries(CoreUtilitiesSafetySmoke PRIVATE RawIron::Core)
+add_test(NAME RawIron.Core.UtilitiesSafetySmoke COMMAND CoreUtilitiesSafetySmoke)
+
 add_executable(FixedStepAccumulatorSmoke FixedStepAccumulatorSmoke.cpp)
 target_link_libraries(FixedStepAccumulatorSmoke PRIVATE RawIron::Core)
 add_test(NAME RawIron.Core.FixedStepAccumulatorSmoke COMMAND FixedStepAccumulatorSmoke)
