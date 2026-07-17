@@ -3,10 +3,23 @@
 #include <algorithm>
 #include <climits>
 #include <cstdint>
+#include <cmath>
+#include <limits>
+#include <unordered_set>
 #include <utility>
 
 namespace ri::world {
 namespace {
+
+constexpr std::size_t kMaxInventorySlotsPerArea = 4096U;
+
+double FiniteOr(const double value, const double fallback) {
+    return std::isfinite(value) ? value : fallback;
+}
+
+std::size_t SanitizeSlotCount(const std::size_t count) {
+    return std::clamp<std::size_t>(count, 1U, kMaxInventorySlotsPerArea);
+}
 
 std::string NormalizeDisplayName(const InventoryItemDefinition& item) {
     return item.displayName.empty() ? item.id : item.displayName;
@@ -38,10 +51,11 @@ FlashlightBatteryState::FlashlightBatteryState(FlashlightBatteryModel model) {
 }
 
 void FlashlightBatteryState::Configure(FlashlightBatteryModel model) {
-    model.maxCharge01 = std::clamp(model.maxCharge01, 0.01, 1.0);
-    model.drainPerSecond = std::max(0.0, model.drainPerSecond);
-    model.rechargePerSecond = std::max(0.0, model.rechargePerSecond);
-    model.minimumOperationalCharge01 = std::clamp(model.minimumOperationalCharge01, 0.0, model.maxCharge01);
+    model.maxCharge01 = std::clamp(FiniteOr(model.maxCharge01, 1.0), 0.01, 1.0);
+    model.drainPerSecond = std::max(0.0, FiniteOr(model.drainPerSecond, 0.06));
+    model.rechargePerSecond = std::max(0.0, FiniteOr(model.rechargePerSecond, 0.03));
+    model.minimumOperationalCharge01 = std::clamp(
+        FiniteOr(model.minimumOperationalCharge01, 0.01), 0.0, model.maxCharge01);
     model_ = model;
     charge01_ = std::clamp(charge01_, 0.0, model_.maxCharge01);
 }
@@ -51,7 +65,9 @@ void FlashlightBatteryState::SetFlashlightEnabled(bool enabled) {
 }
 
 void FlashlightBatteryState::SetCharge01(double charge01) {
-    charge01_ = std::clamp(charge01, 0.0, model_.maxCharge01);
+    if (std::isfinite(charge01)) {
+        charge01_ = std::clamp(charge01, 0.0, model_.maxCharge01);
+    }
 }
 
 double FlashlightBatteryState::Charge01() const noexcept {
@@ -63,11 +79,11 @@ bool FlashlightBatteryState::IsFlashlightEnabled() const noexcept {
 }
 
 bool FlashlightBatteryState::IsBeamActive() const noexcept {
-    return flashlightEnabled_ && charge01_ >= model_.minimumOperationalCharge01;
+    return flashlightEnabled_ && charge01_ > 0.0 && charge01_ >= model_.minimumOperationalCharge01;
 }
 
 void FlashlightBatteryState::Tick(double deltaSeconds) {
-    if (!(deltaSeconds > 0.0)) {
+    if (!std::isfinite(deltaSeconds) || deltaSeconds <= 0.0) {
         return;
     }
 
@@ -89,8 +105,11 @@ void InventoryLoadout::SanitizeStackInPlace(InventoryItemDefinition& item) {
 
 InventoryLoadout::InventoryLoadout(const InventoryPolicy& policy)
     : policy_(policy),
-      hotbar_(std::max<std::size_t>(1U, policy.hotbarSize)),
-      backpack_(std::max<std::size_t>(1U, policy.backpackSize)) {}
+      hotbar_(SanitizeSlotCount(policy.hotbarSize)),
+      backpack_(SanitizeSlotCount(policy.backpackSize)) {
+    policy_.hotbarSize = hotbar_.size();
+    policy_.backpackSize = backpack_.size();
+}
 
 std::size_t InventoryLoadout::HotbarSize() const { return hotbar_.size(); }
 std::size_t InventoryLoadout::BackpackSize() const { return backpack_.size(); }
@@ -112,7 +131,10 @@ std::size_t InventoryLoadout::TotalItemUnits() const {
     std::size_t sum = 0U;
     const auto add = [&sum](const std::optional<InventoryItemDefinition>& slot) {
         if (slot.has_value()) {
-            sum += static_cast<std::size_t>(EffectiveStack(*slot));
+            const std::size_t units = static_cast<std::size_t>(EffectiveStack(*slot));
+            sum = units > std::numeric_limits<std::size_t>::max() - sum
+                ? std::numeric_limits<std::size_t>::max()
+                : sum + units;
         }
     };
     for (const auto& slot : hotbar_) {
@@ -146,8 +168,10 @@ void InventoryLoadout::SetSelectedHotbarSlot(std::size_t index) {
 
 void InventoryLoadout::SetPolicy(const InventoryPolicy& policy) {
     policy_ = policy;
-    hotbar_.resize(std::max<std::size_t>(1U, policy_.hotbarSize));
-    backpack_.resize(std::max<std::size_t>(1U, policy_.backpackSize));
+    hotbar_.resize(SanitizeSlotCount(policy_.hotbarSize));
+    backpack_.resize(SanitizeSlotCount(policy_.backpackSize));
+    policy_.hotbarSize = hotbar_.size();
+    policy_.backpackSize = backpack_.size();
     if (!policy_.allowOffHand) {
         offHand_.reset();
     }
@@ -388,7 +412,13 @@ InventoryOperationResult InventoryLoadout::QuickUseSlot(const InventorySlotRef& 
     }
 
     if (itemSnapshot.kind == InventoryItemKind::Consumable && itemSnapshot.healAmount > 0) {
-        if (context.currentHealth >= context.maxHealth) {
+        if (context.maxHealth <= 0 || context.currentHealth >= context.maxHealth) {
+            return MakeResult(false, "health already full");
+        }
+        const std::int64_t missingHealth = std::max<std::int64_t>(
+            0, static_cast<std::int64_t>(context.maxHealth) - static_cast<std::int64_t>(context.currentHealth));
+        const int appliedHeal = static_cast<int>(std::min<std::int64_t>(itemSnapshot.healAmount, missingHealth));
+        if (appliedHeal <= 0) {
             return MakeResult(false, "health already full");
         }
         const int stack = EffectiveStack(itemSnapshot);
@@ -401,7 +431,7 @@ InventoryOperationResult InventoryLoadout::QuickUseSlot(const InventorySlotRef& 
         result.quickUse = InventoryQuickUseEffect{
             .kind = InventoryQuickUseKind::ConsumeHealth,
             .itemId = itemSnapshot.id,
-            .amount = itemSnapshot.healAmount,
+            .amount = appliedHeal,
             .consumesItem = true,
         };
         result.reason = "consumed " + NormalizeDisplayName(itemSnapshot);
@@ -504,8 +534,8 @@ void InventoryLoadout::RestoreSnapshot(const InventorySnapshot& snapshot, const 
     Clear();
     policy_.presentation = snapshot.presentation;
     policy_.allowOffHand = snapshot.allowOffHand;
-    hotbar_.resize(std::max<std::size_t>(1U, snapshot.hotbarSize));
-    backpack_.resize(std::max<std::size_t>(1U, snapshot.backpackSize));
+    hotbar_.resize(SanitizeSlotCount(snapshot.hotbarSize));
+    backpack_.resize(SanitizeSlotCount(snapshot.backpackSize));
     policy_.hotbarSize = hotbar_.size();
     policy_.backpackSize = backpack_.size();
     if (!resolver) {
@@ -517,16 +547,28 @@ void InventoryLoadout::RestoreSnapshot(const InventorySnapshot& snapshot, const 
             return 0;
         }
         if (index < counts.size()) {
-            const int c = counts[static_cast<int>(index)];
+            const int c = counts[index];
             return c > 0 ? c : 1;
         }
         return 1;
     };
 
+    std::unordered_set<std::string> restoredUniqueIds;
+    const auto resolveForRestore = [&](const std::string& id) -> std::optional<InventoryItemDefinition> {
+        std::optional<InventoryItemDefinition> def = resolver(id);
+        if (!def.has_value() || def->id.empty()) {
+            return std::nullopt;
+        }
+        if (def->unique && !restoredUniqueIds.insert(def->id).second) {
+            return std::nullopt;
+        }
+        return def;
+    };
+
     const std::size_t hotbarLimit = std::min(hotbar_.size(), snapshot.hotbarIds.size());
     for (std::size_t index = 0; index < hotbarLimit; ++index) {
         if (!snapshot.hotbarIds[index].empty()) {
-            std::optional<InventoryItemDefinition> def = resolver(snapshot.hotbarIds[index]);
+            std::optional<InventoryItemDefinition> def = resolveForRestore(snapshot.hotbarIds[index]);
             if (def.has_value()) {
                 def->stackCount = countAt(snapshot.hotbarCounts, index, true);
                 SanitizeStackInPlace(*def);
@@ -538,7 +580,7 @@ void InventoryLoadout::RestoreSnapshot(const InventorySnapshot& snapshot, const 
     const std::size_t backpackLimit = std::min(backpack_.size(), snapshot.backpackIds.size());
     for (std::size_t index = 0; index < backpackLimit; ++index) {
         if (!snapshot.backpackIds[index].empty()) {
-            std::optional<InventoryItemDefinition> def = resolver(snapshot.backpackIds[index]);
+            std::optional<InventoryItemDefinition> def = resolveForRestore(snapshot.backpackIds[index]);
             if (def.has_value()) {
                 def->stackCount = countAt(snapshot.backpackCounts, index, true);
                 SanitizeStackInPlace(*def);
@@ -548,10 +590,11 @@ void InventoryLoadout::RestoreSnapshot(const InventorySnapshot& snapshot, const 
     }
 
     if (policy_.allowOffHand && !snapshot.offHandId.empty()) {
-        offHand_ = resolver(snapshot.offHandId);
+        offHand_ = resolveForRestore(snapshot.offHandId);
         if (offHand_.has_value()) {
             const int c = snapshot.offHandCount > 0 ? snapshot.offHandCount : 1;
             offHand_->stackCount = std::max(1, c);
+            SanitizeStackInPlace(*offHand_);
         }
     }
 

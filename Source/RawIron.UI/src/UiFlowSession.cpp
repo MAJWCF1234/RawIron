@@ -6,10 +6,18 @@ namespace ri::ui {
 
 void UiFlowSession::Reset(const UiManifest& manifest) {
     manifest_ = &manifest;
+    screenIndex_.clear();
     stack_.clear();
     variables_.clear();
     history_.clear();
     historyFingerprints_.clear();
+    historyFingerprintOrder_.clear();
+    ++navigationRevision_;
+    for (std::size_t index = 0; index < manifest.screens.size(); ++index) {
+        if (!manifest.screens[index].id.empty()) {
+            screenIndex_.try_emplace(manifest.screens[index].id, index);
+        }
+    }
     for (const UiVariableDef& def : manifest.variables) {
         if (!def.id.empty()) {
             variables_[def.id] = def.value;
@@ -26,26 +34,27 @@ const UiScreen* UiFlowSession::CurrentScreen() const {
     if (manifest_ == nullptr || stack_.empty()) {
         return nullptr;
     }
-    const std::string& top = stack_.back();
-    for (const UiScreen& s : manifest_->screens) {
-        if (s.id == top) {
-            return &s;
-        }
-    }
-    return nullptr;
+    const auto found = screenIndex_.find(stack_.back());
+    return found == screenIndex_.end() || found->second >= manifest_->screens.size()
+        ? nullptr
+        : &manifest_->screens[found->second];
 }
 
 bool UiFlowSession::NavigateTo(const std::string_view screenId) {
     if (manifest_ == nullptr) {
         return false;
     }
-    for (const UiScreen& s : manifest_->screens) {
-        if (s.id == screenId) {
-            stack_.push_back(std::string(screenId));
-            return true;
-        }
+    if (!screenIndex_.contains(screenId)) {
+        return false;
     }
-    return false;
+    constexpr std::size_t kMaxNavigationDepth = 128U;
+    if (stack_.size() >= kMaxNavigationDepth) {
+        // Preserve the root destination while discarding the oldest intermediate visit.
+        stack_.erase(stack_.begin() + 1);
+    }
+    stack_.push_back(std::string(screenId));
+    ++navigationRevision_;
+    return true;
 }
 
 bool UiFlowSession::GoBack() {
@@ -53,37 +62,38 @@ bool UiFlowSession::GoBack() {
         return false;
     }
     stack_.pop_back();
+    ++navigationRevision_;
     return true;
 }
 
 std::string UiFlowSession::GetVariableValue(std::string_view id) const {
-    const std::string key(id);
-    const auto it = variables_.find(key);
-    if (it == variables_.end()) {
-        return {};
-    }
-    return it->second;
+    return std::string(GetVariableValueView(id));
+}
+
+std::string_view UiFlowSession::GetVariableValueView(const std::string_view id) const noexcept {
+    const auto it = variables_.find(id);
+    return it == variables_.end() ? std::string_view{} : std::string_view{it->second};
 }
 
 bool UiFlowSession::IsBlockVisible(const UiBlock& block) const {
     if (block.visibleWhenVar.empty()) {
         return true;
     }
-    return GetVariableValue(block.visibleWhenVar) == block.visibleWhenEquals;
+    return GetVariableValueView(block.visibleWhenVar) == block.visibleWhenEquals;
 }
 
 bool UiFlowSession::IsChoiceVisible(const UiChoiceItem& choice) const {
     if (choice.visibleWhenVar.empty()) {
         return true;
     }
-    return GetVariableValue(choice.visibleWhenVar) == choice.visibleWhenEquals;
+    return GetVariableValueView(choice.visibleWhenVar) == choice.visibleWhenEquals;
 }
 
 bool UiFlowSession::ActionWhenAllows(const UiAction& action) const {
     if (action.whenVar.empty()) {
         return true;
     }
-    return GetVariableValue(action.whenVar) == action.whenEquals;
+    return GetVariableValueView(action.whenVar) == action.whenEquals;
 }
 
 void UiFlowSession::ApplyBundledSetVar(const UiAction& action) {
@@ -107,6 +117,12 @@ void UiFlowSession::MaybeAppendHistory(std::string_view fingerprint, UiHistoryLi
         history_.erase(
             history_.begin(),
             history_.begin() + static_cast<std::vector<UiHistoryLine>::difference_type>(overflow));
+    }
+    historyFingerprintOrder_.push_back(key);
+    constexpr std::size_t kMaxRememberedFingerprints = 320U;
+    while (historyFingerprintOrder_.size() > kMaxRememberedFingerprints) {
+        historyFingerprints_.erase(historyFingerprintOrder_.front());
+        historyFingerprintOrder_.pop_front();
     }
 }
 

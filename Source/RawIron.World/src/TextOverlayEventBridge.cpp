@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
+#include <cmath>
 
 namespace ri::world {
 namespace {
@@ -24,10 +26,19 @@ bool ParseBoolField(const ri::runtime::RuntimeEvent& event, std::string_view key
         return fallback;
     }
     std::string value = found->second;
+    const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; });
+    const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char c) { return std::isspace(c) != 0; }).base();
+    value = first < last ? std::string(first, last) : std::string{};
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
     });
-    return value == "1" || value == "true" || value == "yes" || value == "on";
+    if (value == "1" || value == "true" || value == "yes" || value == "on") {
+        return true;
+    }
+    if (value == "0" || value == "false" || value == "no" || value == "off") {
+        return false;
+    }
+    return fallback;
 }
 
 double ParseDoubleField(const ri::runtime::RuntimeEvent& event, std::string_view key, double fallback = 0.0) {
@@ -35,11 +46,19 @@ double ParseDoubleField(const ri::runtime::RuntimeEvent& event, std::string_view
     if (found == event.fields.end() || found->second.empty()) {
         return fallback;
     }
-    try {
-        return std::stod(found->second);
-    } catch (...) {
+    std::string_view value = found->second;
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front())) != 0) {
+        value.remove_prefix(1U);
+    }
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back())) != 0) {
+        value.remove_suffix(1U);
+    }
+    double parsed = 0.0;
+    const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+    if (value.empty() || result.ec != std::errc{} || result.ptr != value.data() + value.size() || !std::isfinite(parsed)) {
         return fallback;
     }
+    return parsed;
 }
 
 std::string BuildSubtitleText(const ri::runtime::RuntimeEvent& event) {

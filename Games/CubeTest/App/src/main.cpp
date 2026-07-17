@@ -14,13 +14,16 @@ int main(int argc, char** argv) {
         ri::core::LogInfo("  --workspace-root=<path>         Workspace root");
         ri::core::LogInfo("  --width=<px> --height=<px>      Window size");
         ri::core::LogInfo("  --benchmark-frames=<n>          Auto-exit after n rendered frames");
+        ri::core::LogInfo("  --background                    Keep the owned native Vulkan window hidden");
         ri::core::LogInfo("  --jiggle-test                   Rotate/bob material samples to stress wobble/shimmer");
         ri::core::LogInfo("  --save-jiggle-preview           Save a deterministic jiggle preview sequence and exit");
         ri::core::LogInfo("  --jiggle-frames=<n>             Frames for --save-jiggle-preview (default: 8)");
         ri::core::LogInfo("  --hybrid-hdr                    Enable native hybrid HDR/G-buffer presentation (default: on)");
         ri::core::LogInfo("  --no-hybrid-hdr                 Disable hybrid HDR");
+        ri::core::LogInfo("  --extended-post                 Enable the full advanced shader-port stack");
         ri::core::LogInfo("  --save-preview                  Render a still preview and exit");
         ri::core::LogInfo("  --output=<path>                 Output path for --save-preview");
+        ri::core::LogInfo("  --preview-hide-node=<name>      Hide one named node in headless preview captures");
         return 0;
     }
 
@@ -34,6 +37,8 @@ int main(int argc, char** argv) {
     options.width = std::clamp(commandLine.GetIntOr("--width", options.width), 64, 3840);
     options.height = std::clamp(commandLine.GetIntOr("--height", options.height), 64, 2160);
     options.benchmarkFrames = std::max(0, commandLine.GetIntOr("--benchmark-frames", options.benchmarkFrames));
+    options.backgroundWindow = commandLine.HasFlag("--background");
+    options.extendedPostProcess = commandLine.HasFlag("--extended-post");
     options.jiggleTest = commandLine.HasFlag("--jiggle-test");
     options.jigglePreviewFrames = std::max(0, commandLine.GetIntOr("--jiggle-frames", options.jigglePreviewFrames));
     if (commandLine.HasFlag("--no-hybrid-hdr")) {

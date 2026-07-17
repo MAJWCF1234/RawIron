@@ -62,6 +62,13 @@ struct ResolvedLight {
     float spotAngleDegrees = 45.0f;
 };
 
+struct PreviewDrawItem {
+    const ri::scene::Mesh* mesh = nullptr;
+    const ri::scene::Material* material = nullptr;
+    ri::math::Mat4 world{};
+    float sortDepth = 0.0f;
+};
+
 constexpr std::array<ri::math::Vec3, 8> kCubeVertices = {{
     {-0.5f, -0.5f, -0.5f},
     {0.5f, -0.5f, -0.5f},
@@ -136,6 +143,26 @@ void ApplyScenePreviewPostProcess(SoftwareImage& image, const ScenePreviewOption
         && options.previewBloomStrength <= 1.0e-4f
         && options.previewSharpenAmount <= 1.0e-4f
         && options.previewTintStrength <= 1.0e-4f) {
+        return;
+    }
+
+    const bool channelOnlyGrade = std::fabs(options.previewSaturation - 1.0f) < 1e-4f
+        && options.previewVignetteStrength <= 1.0e-4f
+        && options.previewBloomStrength <= 1.0e-4f
+        && options.previewSharpenAmount <= 1.0e-4f
+        && options.previewTintStrength <= 1.0e-4f;
+    if (channelOnlyGrade) {
+        std::array<std::uint8_t, 256> gradeLut{};
+        for (std::size_t value = 0; value < gradeLut.size(); ++value) {
+            float channel = Clamp01(
+                (Clamp01(static_cast<float>(value) / 255.0f * options.previewExposure) - 0.5f)
+                    * options.previewContrast
+                + 0.5f);
+            gradeLut[value] = static_cast<std::uint8_t>(std::lround(channel * 255.0f));
+        }
+        for (std::uint8_t& channel : image.pixels) {
+            channel = gradeLut[channel];
+        }
         return;
     }
 
@@ -645,8 +672,16 @@ void RasterizeTriangleProjected(SoftwareImage& image,
                                 const RgbaImage* texture,
                                 const CameraBasis& camera) {
     (void)camera;
+    const auto vertexFinite = [](const ScreenVertex& vertex) noexcept {
+        return std::isfinite(vertex.x) && std::isfinite(vertex.y)
+            && std::isfinite(vertex.depth) && std::isfinite(vertex.uv.x)
+            && std::isfinite(vertex.uv.y);
+    };
+    if (!vertexFinite(screenA) || !vertexFinite(screenB) || !vertexFinite(screenC)) {
+        return;
+    }
     const float area = EdgeFunction(screenA.x, screenA.y, screenB.x, screenB.y, screenC.x, screenC.y);
-    if (std::fabs(area) <= 0.0001f) {
+    if (!std::isfinite(area) || std::fabs(area) <= 0.0001f) {
         return;
     }
     const float invArea = 1.0f / area;
@@ -673,6 +708,10 @@ void RasterizeTriangleProjected(SoftwareImage& image,
     const float rowW0Start = EdgeFunction(screenB.x, screenB.y, screenC.x, screenC.y, originX, originY) * invArea;
     const float rowW1Start = EdgeFunction(screenC.x, screenC.y, screenA.x, screenA.y, originX, originY) * invArea;
     const float rowW2Start = EdgeFunction(screenA.x, screenA.y, screenB.x, screenB.y, originX, originY) * invArea;
+    const bool texturedSample = texture != nullptr && texture->Valid();
+    const bool additivePass = material.additiveBlend;
+    const bool transparentPass = material.transparent || material.opacity < 0.999f;
+    const float alphaCutoff = std::clamp(material.alphaCutoff, 0.0f, 1.0f);
 
     float rowW0 = rowW0Start;
     float rowW1 = rowW1Start;
@@ -707,11 +746,6 @@ void RasterizeTriangleProjected(SoftwareImage& image,
                 continue;
             }
 
-            const bool additivePass = material.additiveBlend;
-            if (!additivePass) {
-                depthBuffer[pixelIndex] = depth;
-            }
-
             float u = 0.0f;
             float v = 0.0f;
             if (options.affineTextureMapping || texture == nullptr) {
@@ -722,12 +756,22 @@ void RasterizeTriangleProjected(SoftwareImage& image,
                 v = (w0 * screenA.uv.y * invZa + w1 * screenB.uv.y * invZb + w2 * screenC.uv.y * invZc) / wInvZ;
             }
 
-            const bool texturedSample = texture != nullptr && texture->Valid();
             TextureSample sample{};
             if (texturedSample) {
                 const bool samplePoint = options.pointSampleTextures
                     || (options.adaptiveTextureSampling && depth >= options.adaptivePointSampleStartDepth);
                 sample = SampleTextureRepeat(*texture, material, options, u, v, samplePoint);
+            }
+            if (!additivePass && !transparentPass && texturedSample
+                && !material.albedoAlphaIsSmoothness
+                && sample.alpha < alphaCutoff) {
+                w0 += w0StepX;
+                w1 += w1StepX;
+                w2 += w2StepX;
+                continue;
+            }
+            if (!additivePass && !transparentPass) {
+                depthBuffer[pixelIndex] = depth;
             }
             ri::math::Vec3 shaded = MultiplyColor(modulate, sample.color);
             if (material.albedoAlphaIsSmoothness && texturedSample) {
@@ -752,7 +796,7 @@ void RasterizeTriangleProjected(SoftwareImage& image,
                     static_cast<float>(image.pixels[colorOffset + 2U]) / 255.0f,
                 };
                 out = ClampColor(destination + (out * alpha));
-            } else if (material.transparent || alpha < 0.999f) {
+            } else if (transparentPass) {
                 const ri::math::Vec3 destination{
                     static_cast<float>(image.pixels[colorOffset + 0U]) / 255.0f,
                     static_cast<float>(image.pixels[colorOffset + 1U]) / 255.0f,
@@ -968,6 +1012,10 @@ void DrawPrimitiveNode(SoftwareImage& image,
             ri::math::Cross(worldVertices[1] - worldVertices[0], worldVertices[2] - worldVertices[0]));
         const ri::math::Vec3 worldCenter =
             (worldVertices[0] + worldVertices[1] + worldVertices[2] + worldVertices[3]) / 4.0f;
+        if (!material.doubleSided
+            && ri::math::Dot(worldNormal, camera.position - worldCenter) <= 0.0f) {
+            return;
+        }
         const ri::math::Vec3 modulate = ShadeFace(
             material.baseColor,
             material.shadingModel,
@@ -1016,6 +1064,10 @@ void DrawPrimitiveNode(SoftwareImage& image,
             }
         }
         const ri::math::Vec3 worldCenter = (worldA + worldB + worldC) / 3.0f;
+        if (!material.doubleSided
+            && ri::math::Dot(worldNormal, camera.position - worldCenter) <= 0.0f) {
+            return;
+        }
         const ri::math::Vec3 modulate = ShadeFace(
             material.baseColor,
             material.shadingModel,
@@ -1189,6 +1241,30 @@ void RenderScenePreviewInto(const ri::scene::Scene& scene,
         meshCullCache.assign(scene.MeshCount(), std::nullopt);
     }
 
+    std::vector<PreviewDrawItem> opaqueDraws{};
+    std::vector<PreviewDrawItem> blendedDraws{};
+    opaqueDraws.reserve(scene.GetRenderableNodeHandles().size());
+    blendedDraws.reserve(16U);
+    const auto queueDraw = [&](const ri::scene::Mesh& mesh,
+                               const ri::scene::Material& material,
+                               const ri::math::Mat4& world,
+                               const float sortDepth) {
+        if (!std::isfinite(sortDepth)) {
+            return;
+        }
+        PreviewDrawItem item{
+            .mesh = &mesh,
+            .material = &material,
+            .world = world,
+            .sortDepth = sortDepth,
+        };
+        if (material.additiveBlend || material.transparent || material.opacity < 0.999f) {
+            blendedDraws.push_back(std::move(item));
+        } else {
+            opaqueDraws.push_back(std::move(item));
+        }
+    };
+
     for (const int nodeHandle : scene.GetRenderableNodeHandles()) {
         if (IsHiddenPreviewNode(scene, nodeHandle, options)) {
             continue;
@@ -1203,9 +1279,11 @@ void RenderScenePreviewInto(const ri::scene::Scene& scene,
             meshCullCache[node.mesh] = BuildMeshCullBounds(mesh);
         }
         const ScenePreviewMeshCullBounds& cull = *meshCullCache[node.mesh];
+        float sortDepth = ToCameraSpace(camera, ri::math::TransformPoint(world, {})).z;
         if (cull.valid) {
             const ri::math::Vec3 worldCullCenter = ri::math::TransformPoint(world, cull.center);
             const ri::math::Vec3 viewCullCenter = ToCameraSpace(camera, worldCullCenter);
+            sortDepth = viewCullCenter.z;
             const ri::math::Vec3 worldScale = ri::math::ExtractScale(world);
             const float worldRadius = cull.radius
                 * std::max({std::fabs(worldScale.x), std::fabs(worldScale.y), std::fabs(worldScale.z), 0.0001f});
@@ -1226,16 +1304,7 @@ void RenderScenePreviewInto(const ri::scene::Scene& scene,
                 }
             }
         }
-        DrawPrimitiveNode(outImage,
-                          depthBuffer,
-                          options,
-                          camera,
-                          lights,
-                          textureCache,
-                          textureRoot,
-                          mesh,
-                          scene.GetMaterial(node.material),
-                          world);
+        queueDraw(mesh, scene.GetMaterial(node.material), world, sortDepth);
     }
 
     for (std::size_t batchIndex = 0; batchIndex < scene.MeshInstanceBatchCount(); ++batchIndex) {
@@ -1258,9 +1327,11 @@ void RenderScenePreviewInto(const ri::scene::Scene& scene,
         for (std::size_t transformIndex = 0; transformIndex < batch.transforms.size(); ++transformIndex) {
             const ri::scene::Transform& transform = batch.transforms[transformIndex];
             const ri::math::Mat4 world = ri::math::Multiply(parentWorld, transform.LocalMatrix());
+            float sortDepth = ToCameraSpace(camera, ri::math::TransformPoint(world, {})).z;
             if (cull.valid) {
                 const ri::math::Vec3 worldCullCenter = ri::math::TransformPoint(world, cull.center);
                 const ri::math::Vec3 viewCullCenter = ToCameraSpace(camera, worldCullCenter);
+                sortDepth = viewCullCenter.z;
                 const ri::math::Vec3 worldScale = ri::math::ExtractScale(world);
                 const float worldRadius = cull.radius
                     * std::max({std::fabs(worldScale.x), std::fabs(worldScale.y), std::fabs(worldScale.z), 0.0001f});
@@ -1283,6 +1354,20 @@ void RenderScenePreviewInto(const ri::scene::Scene& scene,
                     }
                 }
             }
+            queueDraw(mesh, material, world, sortDepth);
+        }
+    }
+
+    std::stable_sort(opaqueDraws.begin(), opaqueDraws.end(), [](const PreviewDrawItem& left,
+                                                               const PreviewDrawItem& right) {
+        return left.sortDepth < right.sortDepth;
+    });
+    std::stable_sort(blendedDraws.begin(), blendedDraws.end(), [](const PreviewDrawItem& left,
+                                                                 const PreviewDrawItem& right) {
+        return left.sortDepth > right.sortDepth;
+    });
+    const auto drawQueued = [&](const std::vector<PreviewDrawItem>& draws) {
+        for (const PreviewDrawItem& draw : draws) {
             DrawPrimitiveNode(outImage,
                               depthBuffer,
                               options,
@@ -1290,11 +1375,13 @@ void RenderScenePreviewInto(const ri::scene::Scene& scene,
                               lights,
                               textureCache,
                               textureRoot,
-                              mesh,
-                              material,
-                              world);
+                              *draw.mesh,
+                              *draw.material,
+                              draw.world);
         }
-    }
+    };
+    drawQueued(opaqueDraws);
+    drawQueued(blendedDraws);
 
     ApplyScenePreviewPostProcess(outImage, options);
 }

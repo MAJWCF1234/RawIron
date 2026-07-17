@@ -36,6 +36,9 @@ AccessFeedbackState::AccessFeedbackState(const AccessFeedbackPolicy& policy) {
 void AccessFeedbackState::SetPolicy(const AccessFeedbackPolicy& policy) {
     policy_ = policy;
     policy_.historyLimit = std::max<std::size_t>(1U, policy_.historyLimit);
+    if (history_.size() > policy_.historyLimit) {
+        history_.erase(history_.begin(), history_.end() - static_cast<std::ptrdiff_t>(policy_.historyLimit));
+    }
     if (policy_.mode == AccessFeedbackMode::Disabled) {
         ClearTransientState();
         history_.clear();
@@ -143,6 +146,10 @@ bool AccessFeedbackState::ConsumePendingHapticPulse() {
 
 void AccessFeedbackState::ActivateMessage(std::string message, double durationMs, PresentationSeverity severity) {
     const double safeDuration = SanitizeDuration(durationMs, severity == PresentationSeverity::Critical ? 4000.0 : 2000.0);
+    if (message.empty() || safeDuration <= 0.0) {
+        activeMessage_.reset();
+        return;
+    }
     activeMessage_ = TimedPresentationEntry{
         .text = std::move(message),
         .durationMs = safeDuration,
@@ -153,6 +160,10 @@ void AccessFeedbackState::ActivateMessage(std::string message, double durationMs
 
 void AccessFeedbackState::ActivateHint(std::string hintText, double durationMs) {
     const double safeDuration = SanitizeDuration(durationMs, 5000.0);
+    if (hintText.empty() || safeDuration <= 0.0) {
+        activeHint_.reset();
+        return;
+    }
     activeHint_ = TimedPresentationEntry{
         .text = std::move(hintText),
         .durationMs = safeDuration,

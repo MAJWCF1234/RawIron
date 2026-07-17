@@ -162,8 +162,11 @@ inline void AdvanceRailPadSpring(
     return policy.previewDirty;
 }
 
-[[nodiscard]] inline bool ShouldRunEditorPreviewAnimation(const bool windowMinimized) {
-    return !windowMinimized;
+[[nodiscard]] inline bool ShouldRunEditorPreviewAnimation(
+    const bool windowMinimized,
+    const std::chrono::steady_clock::duration elapsedSinceLastAnimation,
+    const std::chrono::milliseconds cadence = std::chrono::milliseconds(100)) {
+    return !windowMinimized && elapsedSinceLastAnimation >= cadence;
 }
 
 [[nodiscard]] inline bool ShouldPreferNativeViewport(

@@ -30,7 +30,9 @@ Saved/TestScratch/
 /Saved/Cache/
 /Saved/Editor/
 /Saved/Previews/
+/Saved/RenderDiagnostics/
 /Saved/visual_checks/
+/cube_test_preview_*.bmp
 
 # Local split-zip release drops (Scripts/Publish-FullWorkspaceSplitZip.ps1)
 /ReleaseArtifacts/

@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 int main() {
@@ -23,6 +24,25 @@ int main() {
         || !validReader.Exhausted()) {
         return EXIT_FAILURE;
     }
+    ri::core::DrawMeshCommand wrongPayload{};
+    if (validView.ReadPayload(wrongPayload)) {
+        return EXIT_FAILURE;
+    }
+
+    // Failed indexed reads and failed sequential reads must clear stale pointers. Otherwise a
+    // caller that checks the view after an error can accidentally reuse the previous command.
+    if (stream.ReadPacket(std::numeric_limits<std::size_t>::max(), validView)
+        || validView.payload != nullptr
+        || validView.header.sizeBytes != 0U) {
+        return EXIT_FAILURE;
+    }
+    ri::core::RenderCommandReader emptyReader({});
+    validView.payload = reinterpret_cast<const std::uint8_t*>(1U);
+    validView.header.sizeBytes = 42U;
+    if (emptyReader.Next(validView) || validView.payload != nullptr || validView.header.sizeBytes != 0U
+        || !emptyReader.Exhausted()) {
+        return EXIT_FAILURE;
+    }
 
     // A stream ending in a partial header must fail closed and become exhausted. Before the fix,
     // `Next` returned false but left the cursor on the same bytes, which let consumer loops retry
@@ -30,7 +50,12 @@ int main() {
     std::vector<std::uint8_t> partialHeader(sizeof(ri::core::RenderCommandHeader) - 1U, 0U);
     ri::core::RenderCommandReader partialHeaderReader(partialHeader);
     ri::core::RenderCommandView malformedView{};
+    malformedView.payload = reinterpret_cast<const std::uint8_t*>(1U);
+    malformedView.header.sizeBytes = 42U;
     if (partialHeaderReader.Next(malformedView) || !partialHeaderReader.Exhausted()) {
+        return EXIT_FAILURE;
+    }
+    if (malformedView.payload != nullptr || malformedView.header.sizeBytes != 0U) {
         return EXIT_FAILURE;
     }
 
@@ -42,6 +67,15 @@ int main() {
     std::memcpy(partialPayload.data(), &malformedHeader, sizeof(malformedHeader));
     ri::core::RenderCommandReader partialPayloadReader(partialPayload);
     if (partialPayloadReader.Next(malformedView) || !partialPayloadReader.Exhausted()) {
+        return EXIT_FAILURE;
+    }
+    if (malformedView.payload != nullptr || malformedView.header.sizeBytes != 0U) {
+        return EXIT_FAILURE;
+    }
+
+    stream.Clear();
+    if (stream.CommandCount() != 0U || stream.SizeBytes() != 0U || !stream.Bytes().empty()
+        || !stream.BuildSortedPacketOrder().empty()) {
         return EXIT_FAILURE;
     }
 

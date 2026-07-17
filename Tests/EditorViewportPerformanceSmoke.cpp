@@ -73,7 +73,9 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    if (!ShouldRunEditorPreviewAnimation(false) || ShouldRunEditorPreviewAnimation(true)) {
+    if (ShouldRunEditorPreviewAnimation(false, std::chrono::milliseconds(99))
+        || !ShouldRunEditorPreviewAnimation(false, std::chrono::milliseconds(100))
+        || ShouldRunEditorPreviewAnimation(true, std::chrono::seconds(1))) {
         return EXIT_FAILURE;
     }
 

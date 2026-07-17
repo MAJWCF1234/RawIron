@@ -10,6 +10,7 @@
 #include <limits>
 #include <optional>
 #include <sstream>
+#include <unordered_set>
 
 namespace ri::ui {
 
@@ -172,31 +173,39 @@ void AppendUiBlockJson(std::ostringstream& out, const UiBlock& block, const int 
     if (i < text.size() && (text[i] == '-' || text[i] == '+')) {
         ++i;
     }
+    const std::size_t integerStart = i;
     while (i < text.size() && std::isdigit(static_cast<unsigned char>(text[i])) != 0) {
         ++i;
     }
+    bool hasDigits = i > integerStart;
     if (i < text.size() && text[i] == '.') {
         ++i;
+        const std::size_t fractionalStart = i;
         while (i < text.size() && std::isdigit(static_cast<unsigned char>(text[i])) != 0) {
             ++i;
         }
+        hasDigits = hasDigits || i > fractionalStart;
+    }
+    if (!hasDigits) {
+        return false;
     }
     if (i < text.size() && (text[i] == 'e' || text[i] == 'E')) {
         ++i;
         if (i < text.size() && (text[i] == '-' || text[i] == '+')) {
             ++i;
         }
+        const std::size_t exponentStart = i;
         while (i < text.size() && std::isdigit(static_cast<unsigned char>(text[i])) != 0) {
             ++i;
         }
-    }
-    if (i == start) {
-        return false;
+        if (i == exponentStart) {
+            return false;
+        }
     }
     const std::string token(text.substr(start, i - start));
     char* parseEnd = nullptr;
     const float v = std::strtof(token.c_str(), &parseEnd);
-    if (parseEnd == token.c_str()) {
+    if (parseEnd == token.c_str() || parseEnd != token.c_str() + token.size() || !std::isfinite(v)) {
         return false;
     }
     *out = v;
@@ -221,7 +230,7 @@ void AppendUiBlockJson(std::ostringstream& out, const UiBlock& block, const int 
         if (!ParseFloatToken(text, cursor, &end, &component)) {
             return false;
         }
-        out[static_cast<std::size_t>(k)] = component;
+        out[static_cast<std::size_t>(k)] = std::clamp(component, 0.0f, 1.0f);
         cursor = json::SkipWhitespace(text, end);
         if (k < 3) {
             if (cursor >= text.size() || text[cursor] != ',') {
@@ -354,11 +363,11 @@ void ParseActionConditions(std::string_view actionText, UiAction& action) {
     out.imageAnchor = json::ExtractJsonString(blockJson, "anchor").value_or("");
     const std::optional<double> h = json::ExtractJsonDouble(blockJson, "height");
     if (h.has_value()) {
-        out.spacerHeight = static_cast<float>(*h);
+        out.spacerHeight = std::clamp(static_cast<float>(*h), 0.0f, 1000.0f);
     }
     const std::optional<double> ihh = json::ExtractJsonDouble(blockJson, "heightHint");
     if (ihh.has_value()) {
-        out.imageHeightHint = static_cast<float>(*ihh);
+        out.imageHeightHint = std::clamp(static_cast<float>(*ihh), 0.0f, 2000.0f);
     }
     const std::optional<bool> rememberHist = json::ExtractJsonBool(blockJson, "rememberInHistory");
     if (rememberHist.has_value()) {
@@ -436,7 +445,7 @@ void ParseActionConditions(std::string_view actionText, UiAction& action) {
         out.advanceOnMouseWheel = json::ExtractJsonBool(*advanceObj, "onMouseWheel").value_or(false);
         const std::optional<double> delaySec = json::ExtractJsonDouble(*advanceObj, "delaySeconds");
         if (delaySec.has_value() && *delaySec > 0.0) {
-            out.advanceAfterSeconds = static_cast<float>(*delaySec);
+            out.advanceAfterSeconds = std::clamp(static_cast<float>(*delaySec), 0.0f, 86400.0f);
         }
         const std::optional<std::string_view> advAct = json::ExtractJsonObject(*advanceObj, "action");
         if (advAct.has_value()) {
@@ -460,13 +469,24 @@ void ParseActionConditions(std::string_view actionText, UiAction& action) {
 
 bool TryParseUiManifestFromJson(const std::string_view jsonText, UiManifest& outManifest, std::string* errorMessage) {
     outManifest = UiManifest{};
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
     const std::optional<std::int32_t> ver = json::ExtractJsonInt(jsonText, "schemaVersion");
     if (ver.has_value()) {
         outManifest.schemaVersion = *ver;
     }
+    if (outManifest.schemaVersion != 1) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "unsupported UI manifest schemaVersion: " + std::to_string(outManifest.schemaVersion);
+        }
+        outManifest = {};
+        return false;
+    }
     outManifest.startScreenId = json::ExtractJsonString(jsonText, "startScreen").value_or("");
 
     const std::vector<std::string_view> variablePieces = json::SplitJsonArrayObjects(jsonText, "variables");
+    std::unordered_set<std::string> variableIds;
     for (std::string_view piece : variablePieces) {
         UiVariableDef def{};
         def.id = json::ExtractJsonString(piece, "id").value_or("");
@@ -475,11 +495,19 @@ bool TryParseUiManifestFromJson(const std::string_view jsonText, UiManifest& out
         }
         def.value = json::ExtractJsonString(piece, "value").value_or("");
         if (!def.id.empty()) {
+            if (!variableIds.insert(def.id).second) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "duplicate UI variable id: " + def.id;
+                }
+                outManifest = {};
+                return false;
+            }
             outManifest.variables.push_back(std::move(def));
         }
     }
 
     const std::vector<std::string_view> screenPieces = json::SplitJsonArrayObjects(jsonText, "screens");
+    std::unordered_set<std::string> screenIds;
     for (std::string_view piece : screenPieces) {
         UiScreen screen{};
         std::string err;
@@ -487,6 +515,14 @@ bool TryParseUiManifestFromJson(const std::string_view jsonText, UiManifest& out
             if (errorMessage != nullptr) {
                 *errorMessage = err.empty() ? std::string("invalid screen object") : std::move(err);
             }
+            outManifest = {};
+            return false;
+        }
+        if (!screenIds.insert(screen.id).second) {
+            if (errorMessage != nullptr) {
+                *errorMessage = "duplicate UI screen id: " + screen.id;
+            }
+            outManifest = {};
             return false;
         }
         outManifest.screens.push_back(std::move(screen));
@@ -495,7 +531,20 @@ bool TryParseUiManifestFromJson(const std::string_view jsonText, UiManifest& out
     if (outManifest.startScreenId.empty() && !outManifest.screens.empty()) {
         outManifest.startScreenId = outManifest.screens.front().id;
     }
-    return !outManifest.screens.empty();
+    if (outManifest.screens.empty()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "UI manifest has no screens";
+        }
+        return false;
+    }
+    if (!screenIds.contains(outManifest.startScreenId)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "UI startScreen does not exist: " + outManifest.startScreenId;
+        }
+        outManifest = {};
+        return false;
+    }
+    return true;
 }
 
 bool TryLoadUiManifestFromJsonFile(const std::filesystem::path& path, UiManifest& outManifest, std::string* errorMessage) {

@@ -10,6 +10,7 @@
 #include "RawIron/Math/Vec3.h"
 #include "RawIron/Scene/Components.h"
 #include "RawIron/Render/VulkanCommandList.h"
+#include "RawIron/Render/VulkanWarmupCache.h"
 #include "RawIron/Math/Vec2.h"
 #include "RawIron/Render/PreviewTexture.h"
 
@@ -44,6 +45,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #ifndef RAWIRON_VULKAN_NATIVE_PREVIEW_ENABLED
@@ -1862,6 +1864,7 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                                  const fs::path& skyEquirectRelativeToTextureRoot,
                                  double animationTimeSeconds,
                                  const std::optional<ri::math::Vec3>& environmentClearColor,
+                                 const ri::math::Mat4* cameraWorldOverride,
                                  NativeScenePreviewData* outData,
                                  std::string* error,
                                  const std::uint32_t shadowMapResolution) {
@@ -1933,7 +1936,9 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
         data.draws.clear();
         const int submissionCamera = submission.stats.cameraNodeHandle;
         if (submissionCamera != ri::scene::kInvalidHandle) {
-            const ri::math::Vec3 cameraWorld = scene.ComputeWorldPosition(submissionCamera);
+            const ri::math::Vec3 cameraWorld = cameraWorldOverride != nullptr
+                ? ri::math::ExtractTranslation(*cameraWorldOverride)
+                : scene.ComputeWorldPosition(submissionCamera);
             data.cameraWorldPosition = {{cameraWorld.x, cameraWorld.y, cameraWorld.z, 1.0f}};
             const float aspectRatio = static_cast<float>(std::max(width, 1))
                 / static_cast<float>(std::max(height, 1));
@@ -1942,7 +1947,17 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                 submissionCamera,
                 aspectRatio,
                 photoMode);
-            const ri::math::Mat4 skyRotation = ri::scene::BuildCameraSkyRotationMatrix(scene, submissionCamera);
+            ri::math::Mat4 skyRotation{};
+            if (cameraWorldOverride != nullptr) {
+                if (!ri::math::TryInvertAffineMat4(*cameraWorldOverride, skyRotation)) {
+                    throw std::runtime_error("Native Vulkan camera override was singular.");
+                }
+                skyRotation.m[0][3] = 0.0f;
+                skyRotation.m[1][3] = 0.0f;
+                skyRotation.m[2][3] = 0.0f;
+            } else {
+                skyRotation = ri::scene::BuildCameraSkyRotationMatrix(scene, submissionCamera);
+            }
             const ri::math::Mat4 clipSky = ri::math::Multiply(projection, skyRotation);
             ri::math::Mat4 eyeToWorld = ri::math::IdentityMatrix();
             for (int row = 0; row < 3; ++row) {
@@ -2093,7 +2108,14 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
         if (submissionCamera != ri::scene::kInvalidHandle) {
             const float aspectRatio = static_cast<float>(std::max(width, 1))
                 / static_cast<float>(std::max(height, 1));
-            const ri::math::Mat4 view = ri::scene::BuildCameraViewMatrix(scene, submissionCamera);
+            ri::math::Mat4 view{};
+            if (cameraWorldOverride != nullptr) {
+                if (!ri::math::TryInvertAffineMat4(*cameraWorldOverride, view)) {
+                    throw std::runtime_error("Native Vulkan camera override was singular.");
+                }
+            } else {
+                view = ri::scene::BuildCameraViewMatrix(scene, submissionCamera);
+            }
             const ri::math::Mat4 projection = ri::scene::BuildCameraProjectionMatrix(
                 scene,
                 submissionCamera,
@@ -2154,6 +2176,7 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
                                                 frame.skyEquirectTextureRelative,
                                                 frame.animationTimeSeconds,
                                                 environmentClearColor,
+                                                frame.cameraWorldOverrideEnabled ? &frame.cameraWorldOverride : nullptr,
                                                 outData,
                                                 error,
                                                 shadowMapResolution);
@@ -4571,6 +4594,7 @@ struct NativeAlbedoTextureCache {
     std::unordered_map<std::string, VkDescriptorSet> descriptorByKey{};
     std::unordered_map<std::string, fs::path> siblingMapByKey{};
     fs::path proceduralCacheDir{};
+    VulkanWarmupCache decodedWarmupCache{};
 
     void destroy() {
         if (device == VK_NULL_HANDLE) {
@@ -4629,8 +4653,8 @@ struct NativeAlbedoTextureCache {
             return &it->second;
         }
 
-        ri::render::software::RgbaImage rgba = ri::render::software::LoadRgbaImageFile(absolutePath);
-        if (!rgba.Valid()) {
+        std::shared_ptr<const ri::render::software::RgbaImage> rgba = decodedWarmupCache.Load(absolutePath);
+        if (!rgba || !rgba->Valid()) {
             static const std::array<const char*, 4> kAlternateExtensions{".png", ".tif", ".tiff", ".jpg"};
             const std::string stem = absolutePath.stem().string();
             const fs::path parent = absolutePath.parent_path();
@@ -4643,18 +4667,18 @@ struct NativeAlbedoTextureCache {
                 if (!fs::exists(alternate, ec) || ec) {
                     continue;
                 }
-                rgba = ri::render::software::LoadRgbaImageFile(alternate);
-                if (rgba.Valid()) {
+                rgba = decodedWarmupCache.Load(alternate);
+                if (rgba && rgba->Valid()) {
                     break;
                 }
             }
         }
-        if (!rgba.Valid()) {
+        if (!rgba || !rgba->Valid()) {
             return nullptr;
         }
 
         GpuAlbedoImage gpuImage = CreateGpuRgba8Image(
-            physicalDevice, device, commandPool, graphicsQueue, rgba.width, rgba.height, rgba.rgba.data(), format);
+            physicalDevice, device, commandPool, graphicsQueue, rgba->width, rgba->height, rgba->rgba.data(), format);
         if (gpuImage.view == VK_NULL_HANDLE) {
             return nullptr;
         }
@@ -4840,11 +4864,11 @@ struct NativeAlbedoTextureCache {
                 return cached;
             }
         }
-        const ri::render::software::RgbaImage albedo = ri::render::software::LoadRgbaImageFile(albedoPath);
-        if (!albedo.Valid()) {
+        const std::shared_ptr<const ri::render::software::RgbaImage> albedo = decodedWarmupCache.Load(albedoPath);
+        if (!albedo || !albedo->Valid()) {
             return {};
         }
-        ri::render::software::RgbaImage generated = generator(albedo);
+        ri::render::software::RgbaImage generated = generator(*albedo);
         if (generated.Valid() && !cacheFile.empty()) {
             procedural_cache::Write(cacheFile, sourceStamp, generated);
         }
@@ -5010,12 +5034,84 @@ struct NativeAlbedoTextureCache {
 
     void warmForScene(const ri::scene::Scene& scene,
                       const std::vector<NativeSceneDraw>& draws,
-                      const fs::path& textureRoot) {
+                      const fs::path& textureRoot,
+                      const VulkanWarmupCacheOptions& warmupOptions) {
+        std::vector<fs::path> decodePaths{};
+        std::unordered_set<std::string> decodeKeys{};
+        const auto makeAbsolute = [&textureRoot](const std::string& relPath) -> fs::path {
+            if (relPath.empty()) {
+                return {};
+            }
+            const fs::path requestedPath = fs::path(relPath).lexically_normal();
+            return requestedPath.is_absolute() ? requestedPath
+                                               : (!textureRoot.empty() ? (textureRoot / requestedPath).lexically_normal() : fs::path{});
+        };
+        const auto addDecodePath = [&decodePaths, &decodeKeys](const fs::path& path) {
+            if (path.empty() || path.filename() == "-" || path.filename() == "0"
+                || path.filename() == "0.0") {
+                return;
+            }
+            fs::path resolvedPath = path;
+            std::error_code existsEc{};
+            if (!fs::exists(resolvedPath, existsEc) || existsEc) {
+                static const std::array<const char*, 4> kAlternateExtensions{".png", ".tif", ".tiff", ".jpg"};
+                const std::string stem = path.stem().string();
+                for (const char* extension : kAlternateExtensions) {
+                    fs::path alternate = path.parent_path() / (stem + extension);
+                    existsEc.clear();
+                    if (fs::exists(alternate, existsEc) && !existsEc) {
+                        resolvedPath = std::move(alternate);
+                        break;
+                    }
+                }
+            }
+            const std::string key = resolvedPath.lexically_normal().generic_string();
+            if (decodeKeys.emplace(key).second) {
+                decodePaths.push_back(std::move(resolvedPath));
+            }
+        };
+        for (const NativeSceneDraw& draw : draws) {
+            if (!draw.useTexture || !draw.litShadingModel || draw.materialHandle < 0) {
+                continue;
+            }
+            const ri::scene::Material& material = scene.GetMaterial(draw.materialHandle);
+            const std::string albedoRel = !draw.resolvedAlbedoRelPath.empty()
+                ? draw.resolvedAlbedoRelPath
+                : ResolveMaterialTextureRelPath(material);
+            const fs::path albedoPath = makeAbsolute(albedoRel);
+            fs::path normalPath = makeAbsolute(material.normalTexture);
+            if (normalPath.empty() && !albedoPath.empty()) {
+                normalPath = probeSiblingMap(albedoPath, "_n");
+            }
+            addDecodePath(albedoPath);
+            addDecodePath(normalPath);
+            addDecodePath(makeAbsolute(material.ormTexture));
+            addDecodePath(makeAbsolute(material.emissiveTexture));
+            addDecodePath(makeAbsolute(material.opacityTexture));
+            addDecodePath(makeAbsolute(material.detailTexture.empty() ? albedoRel : material.detailTexture));
+        }
+
+        const VulkanWarmupCacheStats warmupStats = decodedWarmupCache.Preload(decodePaths, warmupOptions);
+        if (warmupStats.uniquePaths > 0U) {
+            ri::core::LogInfo(
+                "Vulkan burst warmup: textures=" + std::to_string(warmupStats.decodedPaths) + "/"
+                + std::to_string(warmupStats.uniquePaths) + " workers=" + std::to_string(warmupStats.workerThreads)
+                + " retainedMiB=" + std::to_string(warmupStats.retainedBytes / (1024ULL * 1024ULL))
+                + " elapsedMs=" + std::to_string(warmupStats.elapsedMilliseconds)
+                + (warmupStats.failedPaths > 0U ? " failed=" + std::to_string(warmupStats.failedPaths) : "")
+                + (!warmupStats.failedPathSamples.empty()
+                       ? " firstMissing=" + warmupStats.failedPathSamples.front().generic_string()
+                       : "")
+                + (warmupStats.budgetSkippedPaths > 0U
+                       ? " budgetSkipped=" + std::to_string(warmupStats.budgetSkippedPaths)
+                       : ""));
+        }
         for (const NativeSceneDraw& draw : draws) {
             if (draw.useTexture && draw.litShadingModel) {
                 (void)descriptorFor(scene, draw, textureRoot);
             }
         }
+        decodedWarmupCache.Clear();
     }
 
     [[nodiscard]] VkDescriptorSet descriptorForAbsolutePath(const fs::path& absolutePath) {
@@ -5665,9 +5761,10 @@ bool RunVulkanNativeSceneLoop(const int width,
         HWND hwnd = existingClientHwnd;
         if (!usingExistingClient) {
             ownedWindowClass = std::make_unique<ScopedWindowClass>(&NativePreviewWindowProc);
+            const DWORD visibilityStyle = options.showWindow ? WS_VISIBLE : 0U;
             const DWORD windowStyle = embedded
-                ? (WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN)
-                : (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE);
+                ? (WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | visibilityStyle)
+                : (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | visibilityStyle);
             RECT rect{0, 0, std::max(width, 1), std::max(height, 1)};
             if (!embedded) {
                 AdjustWindowRect(&rect, windowStyle, FALSE);
@@ -5760,15 +5857,47 @@ bool RunVulkanNativeSceneLoop(const int width,
         VkDevice device = VK_NULL_HANDLE;
         ExpectVk(vkCreateDevice(selection.physicalDevice, &deviceInfo, nullptr, &device), "vkCreateDevice");
 
-        const VkPipelineCacheCreateInfo pipelineCacheInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
-        VkPipelineCache pipelineCache = VK_NULL_HANDLE;
-        ExpectVk(vkCreatePipelineCache(device, &pipelineCacheInfo, nullptr, &pipelineCache), "vkCreatePipelineCache");
-
         VkPhysicalDeviceProperties physicalDeviceProperties{};
         vkGetPhysicalDeviceProperties(selection.physicalDevice, &physicalDeviceProperties);
         ri::core::LogInfo(std::string("Vulkan device: ") + physicalDeviceProperties.deviceName);
         const float maxSamplerAnisotropy =
             std::min(16.0f, std::max(1.0f, physicalDeviceProperties.limits.maxSamplerAnisotropy));
+
+        VulkanPipelineCacheIdentity pipelineCacheIdentity{
+            .vendorId = physicalDeviceProperties.vendorID,
+            .deviceId = physicalDeviceProperties.deviceID,
+            .driverVersion = physicalDeviceProperties.driverVersion,
+        };
+        std::copy_n(physicalDeviceProperties.pipelineCacheUUID,
+                    pipelineCacheIdentity.uuid.size(),
+                    pipelineCacheIdentity.uuid.begin());
+        const fs::path pipelineWarmupCachePath = options.pipelineWarmupCachePath.empty()
+            ? DefaultVulkanPipelineWarmupCachePath()
+            : options.pipelineWarmupCachePath;
+        std::vector<std::uint8_t> pipelineWarmupBlob = options.enablePersistentPipelineWarmupCache
+            ? LoadVulkanPipelineWarmupBlob(pipelineWarmupCachePath, pipelineCacheIdentity)
+            : std::vector<std::uint8_t>{};
+        VkPipelineCacheCreateInfo pipelineCacheInfo{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+            .initialDataSize = pipelineWarmupBlob.size(),
+            .pInitialData = pipelineWarmupBlob.empty() ? nullptr : pipelineWarmupBlob.data(),
+        };
+        VkPipelineCache pipelineCache = VK_NULL_HANDLE;
+        VkResult pipelineCacheResult = vkCreatePipelineCache(device, &pipelineCacheInfo, nullptr, &pipelineCache);
+        if (pipelineCacheResult != VK_SUCCESS && !pipelineWarmupBlob.empty()) {
+            ri::core::LogInfo("Vulkan pipeline warmup cache was rejected by the driver; rebuilding it.");
+            pipelineWarmupBlob.clear();
+            pipelineCacheInfo.initialDataSize = 0U;
+            pipelineCacheInfo.pInitialData = nullptr;
+            pipelineCacheResult = vkCreatePipelineCache(device, &pipelineCacheInfo, nullptr, &pipelineCache);
+        }
+        ExpectVk(pipelineCacheResult, "vkCreatePipelineCache");
+        if (options.enablePersistentPipelineWarmupCache) {
+            ri::core::LogInfo(
+                std::string("Vulkan pipeline warmup cache: ")
+                + (pipelineWarmupBlob.empty() ? "cold" : "loaded " + std::to_string(pipelineWarmupBlob.size()) + " bytes")
+                + " path=" + pipelineWarmupCachePath.generic_string());
+        }
 
         VkQueue graphicsQueue = VK_NULL_HANDLE;
         VkQueue presentQueue = VK_NULL_HANDLE;
@@ -6524,7 +6653,12 @@ bool RunVulkanNativeSceneLoop(const int width,
         const VkShaderModule shadowFragShader = CreateShaderModule(device, shaderDir / "NativeShadowDepth.frag.spv");
         if (enableHybridHdr) {
             compositeVertShader = CreateShaderModule(device, shaderDir / "NativeHybridComposite.vert.spv");
-            compositeFragShader = CreateShaderModule(device, shaderDir / "NativeHybridComposite.frag.spv");
+            compositeFragShader = CreateShaderModule(
+                device,
+                shaderDir
+                    / (options.enableExtendedPostProcessShader
+                           ? "NativeComposite.frag.spv"
+                           : "NativeHybridComposite.frag.spv"));
             hybridBundleVertShader = CreateShaderModule(device, shaderDir / "NativeHybridScreenSpace.vert.spv");
             hybridBundleFragShader = CreateShaderModule(device, shaderDir / "NativeHybridScreenSpace.frag.spv");
         }
@@ -7383,7 +7517,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         constexpr std::uint32_t kMaxConsecutiveOutOfDateFrames = 600U;
         std::uint32_t consecutiveOutOfDateFrames = 0U;
 
-        if (!usingExistingClient) {
+        if (!usingExistingClient && options.showWindow) {
             ShowWindow(hwnd, SW_SHOW);
             UpdateWindow(hwnd);
         }
@@ -7435,7 +7569,8 @@ bool RunVulkanNativeSceneLoop(const int width,
             if (cachedSceneIdentity != sceneIdentity) {
                 ClearGpuMeshCache(device, meshCache);
                 cachedSceneIdentity = sceneIdentity;
-                textureCache.warmForScene(*sceneData.scene, sceneData.draws, sceneData.textureRoot);
+                textureCache.warmForScene(
+                    *sceneData.scene, sceneData.draws, sceneData.textureRoot, options.warmupCache);
             }
             for (const NativeSceneDraw& draw : sceneData.draws) {
                 if (draw.meshHandle >= 0) {
@@ -8144,6 +8279,23 @@ bool RunVulkanNativeSceneLoop(const int width,
             vkDestroyImageView(device, imageView, nullptr);
         }
         vkDestroySwapchainKHR(device, swapchain, nullptr);
+        if (options.enablePersistentPipelineWarmupCache && pipelineCache != VK_NULL_HANDLE) {
+            std::size_t pipelineCacheBytes = 0U;
+            if (vkGetPipelineCacheData(device, pipelineCache, &pipelineCacheBytes, nullptr) == VK_SUCCESS
+                && pipelineCacheBytes > 0U && pipelineCacheBytes <= kVulkanPipelineWarmupMaxBytes) {
+                std::vector<std::uint8_t> pipelineCacheData(pipelineCacheBytes);
+                VkResult cacheDataResult =
+                    vkGetPipelineCacheData(device, pipelineCache, &pipelineCacheBytes, pipelineCacheData.data());
+                if (cacheDataResult == VK_SUCCESS && pipelineCacheBytes > 0U) {
+                    pipelineCacheData.resize(pipelineCacheBytes);
+                    if (SaveVulkanPipelineWarmupBlob(
+                            pipelineWarmupCachePath, pipelineCacheIdentity, pipelineCacheData)) {
+                        ri::core::LogInfo(
+                            "Vulkan pipeline warmup cache saved: " + std::to_string(pipelineCacheData.size()) + " bytes");
+                    }
+                }
+            }
+        }
         vkDestroyPipelineCache(device, pipelineCache, nullptr);
         vkDestroyDevice(device, nullptr);
         vkDestroySurfaceKHR(instance, surface, nullptr);

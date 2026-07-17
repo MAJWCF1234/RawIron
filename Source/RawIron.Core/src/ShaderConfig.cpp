@@ -12,6 +12,12 @@
 #include <string>
 #include <string_view>
 
+#if defined(_MSC_VER)
+// Alias fallback chains intentionally reuse short scoped binding names for equivalent
+// legacy/current JSON keys. C4456 treats those disjoint if-initializer scopes as shadowing.
+#pragma warning(disable : 4456)
+#endif
+
 namespace ri::render {
 namespace {
 

@@ -5,8 +5,25 @@
 #include <utility>
 
 namespace ri::runtime {
+namespace {
+
+constexpr std::size_t kMaxEventTypeBytes = 256U;
+constexpr std::size_t kMaxMetricEventTypes = 4096U;
+
+bool IsValidEventType(const std::string_view type) {
+    return !type.empty() && type.size() <= kMaxEventTypeBytes;
+}
+
+} // namespace
 
 RuntimeEventBus::ListenerId RuntimeEventBus::On(std::string_view type, Handler handler) {
+    if (!IsValidEventType(type) || !handler) {
+        ++rejectedSubscriptions_;
+        return kInvalidListenerId;
+    }
+    if (nextListenerId_ == kInvalidListenerId) {
+        nextListenerId_ = 1;
+    }
     const ListenerId listenerId = nextListenerId_++;
     listeners_[std::string(type)].push_back(ListenerEntry{
         .id = listenerId,
@@ -17,7 +34,9 @@ RuntimeEventBus::ListenerId RuntimeEventBus::On(std::string_view type, Handler h
 }
 
 bool RuntimeEventBus::Off(std::string_view type, ListenerId listenerId) {
-    listenersRemoved_ += 1;
+    if (!IsValidEventType(type) || listenerId == kInvalidListenerId) {
+        return false;
+    }
 
     const auto found = listeners_.find(std::string(type));
     if (found == listeners_.end()) {
@@ -30,6 +49,9 @@ bool RuntimeEventBus::Off(std::string_view type, ListenerId listenerId) {
     });
     const bool removed = removeIt != entries.end();
     entries.erase(removeIt, entries.end());
+    if (removed) {
+        listenersRemoved_ += 1;
+    }
     if (entries.empty()) {
         listeners_.erase(found);
     }
@@ -37,14 +59,23 @@ bool RuntimeEventBus::Off(std::string_view type, ListenerId listenerId) {
 }
 
 void RuntimeEventBus::Emit(std::string_view type, RuntimeEvent event) {
+    if (!IsValidEventType(type)) {
+        ++rejectedEmissions_;
+        return;
+    }
     emitted_ += 1;
     const std::uint64_t sequence = nextEventSequence_++;
 
     const std::string key(type);
-    emittedByType_[key] += 1;
-    if (event.type.empty()) {
-        event.type = key;
+    auto metric = emittedByType_.find(key);
+    if (metric != emittedByType_.end()) {
+        ++metric->second;
+    } else if (emittedByType_.size() < kMaxMetricEventTypes) {
+        emittedByType_.emplace(key, 1U);
+    } else {
+        ++untrackedEventTypes_;
     }
+    event.type = key;
     if (event.id.empty()) {
         event.id = "evt_" + std::to_string(sequence);
     }
@@ -62,7 +93,7 @@ void RuntimeEventBus::Emit(std::string_view type, RuntimeEvent event) {
         .listenerCount = listenerCount,
     });
     if (routeTrace_.size() > maxRouteTraceCount_) {
-        routeTrace_.erase(routeTrace_.begin(), routeTrace_.begin() + (routeTrace_.size() - maxRouteTraceCount_));
+        routeTrace_.pop_front();
     }
     if (found == listeners_.end()) {
         return;
@@ -86,7 +117,15 @@ void RuntimeEventBus::EmitScoped(std::string_view type,
 }
 
 void RuntimeEventBus::Clear() {
-    listeners_.clear();
+    decltype(listeners_){}.swap(listeners_);
+    decltype(emittedByType_){}.swap(emittedByType_);
+    decltype(routeTrace_){}.swap(routeTrace_);
+    emitted_ = 0;
+    listenersAdded_ = 0;
+    listenersRemoved_ = 0;
+    rejectedSubscriptions_ = 0;
+    rejectedEmissions_ = 0;
+    untrackedEventTypes_ = 0;
 }
 
 RuntimeEventBusMetrics RuntimeEventBus::GetMetrics() const {
@@ -94,6 +133,9 @@ RuntimeEventBusMetrics RuntimeEventBus::GetMetrics() const {
     metrics.emitted = emitted_;
     metrics.listenersAdded = listenersAdded_;
     metrics.listenersRemoved = listenersRemoved_;
+    metrics.rejectedSubscriptions = rejectedSubscriptions_;
+    metrics.rejectedEmissions = rejectedEmissions_;
+    metrics.untrackedEventTypes = untrackedEventTypes_;
     for (const auto& [type, entries] : listeners_) {
         (void)type;
         metrics.activeListeners += entries.size();
@@ -107,7 +149,9 @@ std::vector<RuntimeSignalRouteTrace> RuntimeEventBus::GetRecentSignalRoutes(cons
         return {};
     }
     const std::size_t take = std::min(maxCount, routeTrace_.size());
-    return std::vector<RuntimeSignalRouteTrace>(routeTrace_.end() - static_cast<std::ptrdiff_t>(take), routeTrace_.end());
+    return std::vector<RuntimeSignalRouteTrace>(
+        std::next(routeTrace_.begin(), static_cast<std::ptrdiff_t>(routeTrace_.size() - take)),
+        routeTrace_.end());
 }
 
 RuntimeEventBus CreateRuntimeEventBus() {

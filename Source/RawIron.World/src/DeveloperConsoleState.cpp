@@ -11,6 +11,12 @@
 namespace ri::world {
 namespace {
 
+constexpr std::size_t kMaxCommandBytes = 64U * 1024U;
+constexpr std::size_t kMaxCommandsPerChain = 256U;
+constexpr std::size_t kMaxExpansionDepth = 16U;
+constexpr std::size_t kMaxCommandNameBytes = 128U;
+constexpr std::size_t kMaxScriptBytes = 1024U * 1024U;
+
 std::string Trim(std::string text) {
     auto notSpace = [](unsigned char c) { return std::isspace(c) == 0; };
     const auto begin = std::find_if(text.begin(), text.end(), notSpace);
@@ -33,7 +39,10 @@ std::pair<std::string, std::string> SplitFirstToken(std::string_view input) {
     };
 }
 
-std::vector<std::string> SplitCommandChain(std::string_view input) {
+std::vector<std::string> SplitCommandChain(std::string_view input, bool* truncated = nullptr) {
+    if (truncated != nullptr) {
+        *truncated = false;
+    }
     std::vector<std::string> commands;
     std::string current;
     bool inQuotes = false;
@@ -46,6 +55,12 @@ std::vector<std::string> SplitCommandChain(std::string_view input) {
         if (c == ';' && !inQuotes) {
             std::string trimmed = Trim(current);
             if (!trimmed.empty()) {
+                if (commands.size() >= kMaxCommandsPerChain) {
+                    if (truncated != nullptr) {
+                        *truncated = true;
+                    }
+                    return commands;
+                }
                 commands.push_back(std::move(trimmed));
             }
             current.clear();
@@ -55,7 +70,13 @@ std::vector<std::string> SplitCommandChain(std::string_view input) {
     }
     std::string trimmed = Trim(current);
     if (!trimmed.empty()) {
-        commands.push_back(std::move(trimmed));
+        if (commands.size() >= kMaxCommandsPerChain) {
+            if (truncated != nullptr) {
+                *truncated = true;
+            }
+        } else {
+            commands.push_back(std::move(trimmed));
+        }
     }
     return commands;
 }
@@ -65,8 +86,19 @@ bool TryParseDouble(std::string_view value, double& out) {
     const char* first = asString.data();
     const char* last = asString.data() + asString.size();
     auto [ptr, ec] = std::from_chars(first, last, out);
-    return ec == std::errc{} && ptr == last;
+    return ec == std::errc{} && ptr == last && std::isfinite(out);
 }
+
+class ExecutionDepthGuard {
+public:
+    explicit ExecutionDepthGuard(std::size_t& depth) : depth_(depth) { ++depth_; }
+    ~ExecutionDepthGuard() { --depth_; }
+    ExecutionDepthGuard(const ExecutionDepthGuard&) = delete;
+    ExecutionDepthGuard& operator=(const ExecutionDepthGuard&) = delete;
+
+private:
+    std::size_t& depth_;
+};
 
 std::string ToLower(std::string text) {
     std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
@@ -190,16 +222,26 @@ void DeveloperConsoleState::SubmitCommand(std::string line) {
     if (trimmedLine.empty()) {
         return;
     }
+    expansionFailed_ = false;
+    if (trimmedLine.size() > kMaxCommandBytes) {
+        PushLine("Command rejected: input is too long.", true);
+        return;
+    }
     PushHistory(trimmedLine);
     historyCursor_.reset();
     PushLine("] " + trimmedLine, false);
-    for (const std::string& commandLine : SplitCommandChain(trimmedLine)) {
+    bool truncated = false;
+    for (const std::string& commandLine : SplitCommandChain(trimmedLine, &truncated)) {
         ExecuteCommandLine(commandLine);
+    }
+    if (truncated) {
+        PushLine("Command chain rejected after 256 commands.", true);
     }
 }
 
 void DeveloperConsoleState::RegisterCommand(std::string prefix, CommandHandler handler) {
-    if (!prefix.empty() && handler) {
+    prefix = Trim(std::move(prefix));
+    if (!prefix.empty() && prefix.size() <= kMaxCommandNameBytes && prefix.find_first_of(" \t;") == std::string::npos && handler) {
         const std::string key = prefix;
         commands_[key] = std::move(handler);
         commandHelp_.emplace(key, "custom command");
@@ -207,7 +249,9 @@ void DeveloperConsoleState::RegisterCommand(std::string prefix, CommandHandler h
 }
 
 void DeveloperConsoleState::RegisterScript(std::string name, std::string contents) {
-    if (!name.empty() && !contents.empty()) {
+    name = Trim(std::move(name));
+    if (!name.empty() && name.size() <= kMaxCommandNameBytes && name.find_first_of(" \t;") == std::string::npos
+        && !contents.empty() && contents.size() <= kMaxScriptBytes) {
         scripts_[std::move(name)] = std::move(contents);
     }
 }
@@ -367,7 +411,8 @@ bool DeveloperConsoleState::TryRunBuiltIn(std::string_view command,
         }
 
         const auto [name, value] = SplitFirstToken(trimmedArgs);
-        if (name.empty() || value.empty()) {
+        if (name.empty() || name.size() > kMaxCommandNameBytes || name.find_first_of("\t;") != std::string::npos
+            || value.empty() || value.size() > kMaxCommandBytes) {
             output = "Usage: alias <name> <command chain>";
             isError = true;
             return true;
@@ -401,8 +446,19 @@ bool DeveloperConsoleState::TryRunBuiltIn(std::string_view command,
             return true;
         }
         PushLine("exec: " + scriptName, false);
-        for (const std::string& line : SplitCommandChain(found->second)) {
+        bool truncated = false;
+        for (const std::string& line : SplitCommandChain(found->second, &truncated)) {
             ExecuteCommandLine(line);
+        }
+        if (expansionFailed_) {
+            output = "Script expansion stopped: recursion limit reached in " + scriptName;
+            isError = true;
+            return true;
+        }
+        if (truncated) {
+            output = "Script rejected after 256 commands: " + scriptName;
+            isError = true;
+            return true;
         }
         output = "exec complete: " + scriptName;
         return true;
@@ -740,6 +796,12 @@ bool DeveloperConsoleState::TryHandleConVarSet(std::string_view name,
 }
 
 void DeveloperConsoleState::ExecuteCommandLine(std::string_view line) {
+    if (executionDepth_ >= kMaxExpansionDepth) {
+        expansionFailed_ = true;
+        PushLine("Command expansion stopped: alias or script recursion limit reached.", true);
+        return;
+    }
+    ExecutionDepthGuard depthGuard(executionDepth_);
     const std::string trimmed = Trim(std::string(line));
     if (trimmed.empty()) {
         return;
@@ -747,8 +809,13 @@ void DeveloperConsoleState::ExecuteCommandLine(std::string_view line) {
     const auto [command, args] = SplitFirstToken(trimmed);
     const auto alias = aliases_.find(command);
     if (alias != aliases_.end()) {
-        for (const std::string& expanded : SplitCommandChain(alias->second + (args.empty() ? "" : (" " + args)))) {
+        bool truncated = false;
+        for (const std::string& expanded : SplitCommandChain(
+                 alias->second + (args.empty() ? "" : (" " + args)), &truncated)) {
             ExecuteCommandLine(expanded);
+        }
+        if (truncated) {
+            PushLine("Alias expansion rejected after 256 commands: " + command, true);
         }
         return;
     }
@@ -820,12 +887,29 @@ std::string DeveloperConsoleState::ExportTuningState() const {
 }
 
 bool DeveloperConsoleState::ImportTuningState(std::string_view serialized, std::string* error) {
+    if (error != nullptr) {
+        error->clear();
+    }
     const std::string_view source = !serialized.empty() && serialized.front() == '?'
         ? serialized.substr(1)
         : serialized;
     if (source.empty()) {
         return true;
     }
+    if (source.size() > kMaxCommandBytes
+        || static_cast<std::size_t>(std::count(source.begin(), source.end(), '&')) >= kMaxCommandsPerChain) {
+        if (error != nullptr) {
+            *error = "Tuning state is too large.";
+        }
+        return false;
+    }
+
+    const auto originalConvars = convars_;
+    const auto originalTuningValues = tuningValues_;
+    const auto rollback = [&]() {
+        convars_ = originalConvars;
+        tuningValues_ = originalTuningValues;
+    };
 
     for (const std::string_view pair : Split(source, '&')) {
         if (pair.empty()) {
@@ -836,6 +920,7 @@ bool DeveloperConsoleState::ImportTuningState(std::string_view serialized, std::
             if (error != nullptr) {
                 *error = "Missing '=' in pair: " + std::string(pair);
             }
+            rollback();
             return false;
         }
         const std::string key = Trim(std::string(pair.substr(0, equals)));
@@ -844,6 +929,7 @@ bool DeveloperConsoleState::ImportTuningState(std::string_view serialized, std::
             if (error != nullptr) {
                 *error = "Invalid key/value pair.";
             }
+            rollback();
             return false;
         }
 
@@ -853,6 +939,7 @@ bool DeveloperConsoleState::ImportTuningState(std::string_view serialized, std::
             if (error != nullptr) {
                 *error = output.empty() ? "Unknown import error." : output;
             }
+            rollback();
             return false;
         }
     }

@@ -22,6 +22,8 @@ int main(int argc, char** argv) {
         ri::core::LogInfo("  --output=<path>                 Output path for --save-preview");
         ri::core::LogInfo("  --tick-hz=<n>                   Core tick rate (default: 60)");
         ri::core::LogInfo("  --net-mode=dedicated|listen|hybrid|client");
+        ri::core::LogInfo("  --offline                       Disable networking for local play and boot validation");
+        ri::core::LogInfo("                                  Local play also falls back offline when ENet is unavailable");
         ri::core::LogInfo("  --rendezvous=eos|direct         Join-code provider");
         ri::core::LogInfo("  --issue-join-code               Host emits join code at startup");
         ri::core::LogInfo("  --join-code=<code>              Resolve and connect by code");

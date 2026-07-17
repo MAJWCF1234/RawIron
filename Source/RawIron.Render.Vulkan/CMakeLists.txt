@@ -35,6 +35,7 @@ add_library(RawIron.Render.Vulkan
   src/VulkanFrameTuning.cpp
   src/VulkanIntentStaging.cpp
   src/VulkanPipelineStateCache.cpp
+  src/VulkanWarmupCache.cpp
   src/VulkanBootstrap.cpp
   src/VulkanNativeScenePreview.cpp
   src/VulkanPreviewPresenter.cpp
@@ -91,10 +92,22 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(VulkanFrameTuningSmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanFrameTuningSmoke.cpp)
   target_link_libraries(VulkanFrameTuningSmoke PRIVATE RawIron::RenderVulkan)
   add_test(NAME RawIron.Render.Vulkan.FrameTuningSmoke COMMAND VulkanFrameTuningSmoke)
+  add_executable(VulkanWarmupCacheSmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanWarmupCacheSmoke.cpp)
+  target_link_libraries(VulkanWarmupCacheSmoke PRIVATE RawIron::RenderVulkan)
+  add_test(NAME RawIron.Render.Vulkan.WarmupCacheSmoke COMMAND VulkanWarmupCacheSmoke)
   add_test(
     NAME RawIron.Render.Vulkan.NativeScenePreviewDetailNormalSmoke
     COMMAND ${CMAKE_COMMAND}
       -DSHADER_PATH=${CMAKE_CURRENT_SOURCE_DIR}/shaders/NativeScenePreview.frag
       -P ${CMAKE_SOURCE_DIR}/Tests/VerifyNativeScenePreviewDetailNormal.cmake
+  )
+  add_test(
+    NAME RawIron.Render.Vulkan.ExtendedCompositeWiringSmoke
+    COMMAND ${CMAKE_COMMAND}
+      -DRUNTIME_PATH=${CMAKE_CURRENT_SOURCE_DIR}/src/VulkanNativeScenePreview.cpp
+      -DOPTIONS_PATH=${CMAKE_CURRENT_SOURCE_DIR}/include/RawIron/Render/VulkanPreviewPresenter.h
+      -DSHADER_PATH=${CMAKE_CURRENT_SOURCE_DIR}/shaders/NativeComposite.frag
+      -DLITE_SHADER_PATH=${CMAKE_CURRENT_SOURCE_DIR}/shaders/NativeHybridComposite.frag
+      -P ${CMAKE_SOURCE_DIR}/Tests/VerifyExtendedCompositeWiring.cmake
   )
 endif()

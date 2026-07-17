@@ -1,5 +1,6 @@
 #include "RawIron/Games/CubeTest/CubeTestEditorPreview.h"
 
+#include "RawIron/Content/GameManifest.h"
 #include "RawIron/Editor/PreviewSceneRegistry.h"
 #include "RawIron/Games/CubeTest/CubeTestWorld.h"
 #include "RawIron/Render/ScenePreview.h"
@@ -9,8 +10,7 @@ namespace ri::games::cubetest {
 namespace {
 
 ri::scene::StarterScene BuildHook(const std::string_view sceneName, const std::filesystem::path& gameRoot) {
-    (void)gameRoot;
-    CubeTestWorld world = BuildCubeTestWorld(sceneName);
+    CubeTestWorld world = BuildCubeTestWorld(sceneName, ri::content::DetectWorkspaceRoot(gameRoot));
     ri::scene::StarterScene starterScene{};
     starterScene.scene = std::move(world.scene);
     starterScene.handles.root = world.rootNode;

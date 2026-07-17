@@ -70,4 +70,8 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(DemoStreamSmoke ${CMAKE_SOURCE_DIR}/Tests/DemoStreamSmoke.cpp)
   target_link_libraries(DemoStreamSmoke PRIVATE RawIron::Runtime)
   add_test(NAME RawIron.Runtime.DemoStreamSmoke COMMAND DemoStreamSmoke)
+
+  add_executable(RuntimeEventBusSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/RuntimeEventBusSafetySmoke.cpp)
+  target_link_libraries(RuntimeEventBusSafetySmoke PRIVATE RawIron::Runtime)
+  add_test(NAME RawIron.Runtime.EventBusSafetySmoke COMMAND RuntimeEventBusSafetySmoke)
 endif()

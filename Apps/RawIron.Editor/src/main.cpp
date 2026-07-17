@@ -2240,9 +2240,13 @@ enum class UiWorkbenchTextEditTarget {
         statsOverlayState_.SetAttached(true);
         statsOverlayState_.SetVisible(statsOverlayVisible_);
         const ri::editor::ViewportCameraState previousCamera = SnapshotViewportCameraState();
-        if (ri::editor::ShouldRunEditorPreviewAnimation(windowMinimized)) {
-            ri::editor::AnimateEditorWorkspaceScene(
-                sceneConfig_.editorPreviewScene, starterScene_, elapsedSeconds_, true);
+        if (ri::editor::ShouldRunEditorPreviewAnimation(
+                windowMinimized, now - lastEditorPreviewAnimation_)) {
+            lastEditorPreviewAnimation_ = now;
+            if (ri::editor::AnimateEditorWorkspaceScene(
+                    sceneConfig_.editorPreviewScene, starterScene_, elapsedSeconds_, true)) {
+                MarkViewportPreviewDirty();
+            }
         }
         const bool logicLivePreview = ri::editor::ShouldRunLogicLivePreview(
             logicLayer_.IsCreatorLayerVisible(),
@@ -2439,7 +2443,6 @@ enum class UiWorkbenchTextEditTarget {
             return;
         }
         const bool needsPublish = viewportSceneSnapshotDirty_ || viewportInteractiveMotion;
-        vulkanViewport_.SetBounds(cameraRect);
         if (!needsPublish) {
             return;
         }
@@ -9802,6 +9805,7 @@ enum class UiWorkbenchTextEditTarget {
     int hierarchyScrollTopRow_ = 0;
     double elapsedSeconds_ = 0.0;
     std::chrono::steady_clock::time_point lastTick_{};
+    std::chrono::steady_clock::time_point lastEditorPreviewAnimation_{};
     std::chrono::steady_clock::time_point lastAutosaveSteady_{};
     std::chrono::steady_clock::time_point lastVulkanViewportPublish_{};
     std::chrono::steady_clock::time_point lastRailInputSteady_{};

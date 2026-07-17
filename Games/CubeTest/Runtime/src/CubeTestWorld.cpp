@@ -17,12 +17,11 @@ namespace fs = std::filesystem;
 
 constexpr const char* kLrtPackageRelativePath = "Assets\\Packages\\LRT - Texture Pack - RT28.8 - 128x";
 
-std::string PackageTexture(const std::string_view relativePath) {
-    const fs::path workspaceRoot = ri::content::DetectWorkspaceRoot(fs::current_path());
+std::string PackageTexture(const fs::path& workspaceRoot, const std::string_view relativePath) {
     return (workspaceRoot / fs::path(kLrtPackageRelativePath) / fs::path(relativePath)).lexically_normal().string();
 }
 
-ri::scene::PrimitiveNodeOptions CubeMaterialOptions(const int parent) {
+ri::scene::PrimitiveNodeOptions CubeMaterialOptions(const int parent, const fs::path& workspaceRoot) {
     ri::scene::PrimitiveNodeOptions options{};
     options.nodeName = "CubeTest_MappedCube";
     options.parent = parent;
@@ -34,9 +33,9 @@ ri::scene::PrimitiveNodeOptions CubeMaterialOptions(const int parent) {
     options.materialStyle = ri::scene::MaterialStyle::Standard;
     options.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
     options.baseColor = {1.0f, 1.0f, 1.0f};
-    options.baseColorTexture = PackageTexture("tile/RT_chiseled_quartz_block.png");
-    options.normalTexture = PackageTexture("tile/RT_chiseled_quartz_block_n.png");
-    options.ormTexture = PackageTexture("tile/RT_chiseled_quartz_block_s.png");
+    options.baseColorTexture = PackageTexture(workspaceRoot, "tile/RT_chiseled_quartz_block.png");
+    options.normalTexture = PackageTexture(workspaceRoot, "tile/RT_chiseled_quartz_block_n.png");
+    options.ormTexture = PackageTexture(workspaceRoot, "tile/RT_chiseled_quartz_block_s.png");
     options.detailTexture = options.baseColorTexture;
     options.textureTiling = {1.0f, 1.0f};
     options.metallic = 0.02f;
@@ -45,6 +44,7 @@ ri::scene::PrimitiveNodeOptions CubeMaterialOptions(const int parent) {
 }
 
 ri::scene::PrimitiveNodeOptions MaterialSampleOptions(const int parent,
+                                                      const fs::path& workspaceRoot,
                                                       const std::string_view name,
                                                       const std::string_view textureStem,
                                                       const ri::math::Vec3& position,
@@ -63,9 +63,9 @@ ri::scene::PrimitiveNodeOptions MaterialSampleOptions(const int parent,
     options.materialStyle = ri::scene::MaterialStyle::Standard;
     options.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
     options.baseColor = {1.0f, 1.0f, 1.0f};
-    options.baseColorTexture = PackageTexture("tile/" + stem + ".png");
-    options.normalTexture = PackageTexture("tile/" + stem + "_n.png");
-    options.ormTexture = PackageTexture("tile/" + stem + "_s.png");
+    options.baseColorTexture = PackageTexture(workspaceRoot, "tile/" + stem + ".png");
+    options.normalTexture = PackageTexture(workspaceRoot, "tile/" + stem + "_n.png");
+    options.ormTexture = PackageTexture(workspaceRoot, "tile/" + stem + "_s.png");
     options.detailTexture = options.baseColorTexture;
     options.textureTiling = {1.0f, 1.0f};
     options.metallic = metallic;
@@ -141,7 +141,10 @@ int AddMarkerBox(ri::scene::Scene& scene,
 
 } // namespace
 
-CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
+CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName, const fs::path& requestedWorkspaceRoot) {
+    const fs::path workspaceRoot = requestedWorkspaceRoot.empty()
+        ? ri::content::DetectWorkspaceRoot(fs::current_path())
+        : requestedWorkspaceRoot;
     CubeTestWorld world{};
     world.scene = ri::scene::Scene(std::string(sceneName));
     world.rootNode = world.scene.CreateNode("CubeTest_Root");
@@ -163,7 +166,8 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
                             ri::scene::StructuralBrushCollisionPolicy::Player,
                             ri::scene::StructuralBrushNavigationPolicy::Walkable);
 
-    world.cubeNode = ri::scene::AddPrimitiveNode(world.scene, CubeMaterialOptions(world.rootNode));
+    world.cubeNode = ri::scene::AddPrimitiveNode(
+        world.scene, CubeMaterialOptions(world.rootNode, workspaceRoot));
     ApplyStructuralMetadata(world.scene.GetNode(world.cubeNode),
                             "cube-test-mapped-cube",
                             ri::scene::StructuralBrushSemanticRole::Structure,
@@ -173,6 +177,7 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
     world.goldSampleNode = ri::scene::AddPrimitiveNode(
         world.scene,
         MaterialSampleOptions(world.rootNode,
+                              workspaceRoot,
                               "CubeTest_GoldSpecSample",
                               "rt2_gold_block",
                               {-3.35f, 0.55f, 1.85f},
@@ -187,6 +192,7 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
     world.copperSampleNode = ri::scene::AddPrimitiveNode(
         world.scene,
         MaterialSampleOptions(world.rootNode,
+                              workspaceRoot,
                               "CubeTest_CopperNormalSample",
                               "rt2_chiseled_copper",
                               {3.35f, 0.55f, 1.85f},
@@ -201,6 +207,7 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
     world.ironSampleNode = ri::scene::AddPrimitiveNode(
         world.scene,
         MaterialSampleOptions(world.rootNode,
+                              workspaceRoot,
                               "CubeTest_IronRoughnessSample",
                               "rt2_iron_block",
                               {0.0f, 0.45f, 3.85f},
@@ -216,6 +223,7 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName) {
     world.crystalSampleNode = ri::scene::AddPrimitiveNode(
         world.scene,
         MaterialSampleOptions(world.rootNode,
+                              workspaceRoot,
                               "CubeTest_CrystalGlassSample",
                               "rt2_diamond_block",
                               {-3.35f, 0.45f, -2.15f},

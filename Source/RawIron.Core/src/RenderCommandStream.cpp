@@ -79,7 +79,12 @@ std::vector<std::size_t> RenderCommandStream::BuildSortedPacketOrder() const {
         if (lhs.sortKey != rhs.sortKey) {
             return lhs.sortKey < rhs.sortKey;
         }
-        return lhs.sequence < rhs.sequence;
+        if (lhs.sequence != rhs.sequence) {
+            return lhs.sequence < rhs.sequence;
+        }
+        // Sequence numbers are intentionally compact and may wrap in very long recording
+        // sessions. Preserve emission order when they collide.
+        return lhs.packetIndex < rhs.packetIndex;
     });
 
     for (std::size_t orderIndex = 0; orderIndex < sortRecords.size(); ++orderIndex) {
@@ -89,6 +94,7 @@ std::vector<std::size_t> RenderCommandStream::BuildSortedPacketOrder() const {
 }
 
 bool RenderCommandStream::ReadPacket(std::size_t packetIndex, RenderCommandView& outView) const noexcept {
+    outView = {};
     if (packetIndex >= packetOffsets_.size()) {
         return false;
     }
@@ -114,6 +120,7 @@ RenderCommandReader::RenderCommandReader(std::span<const std::uint8_t> bytes) no
     : bytes_(bytes), cursor_(0) {}
 
 bool RenderCommandReader::Next(RenderCommandView& outView) noexcept {
+    outView = {};
     if (!SizeAddWithin(cursor_, sizeof(RenderCommandHeader), bytes_.size())) {
         // A trailing partial header is malformed input, not a recoverable empty packet. Consume it
         // so callers that drive parsing with `Exhausted()` cannot retry the same bytes forever.

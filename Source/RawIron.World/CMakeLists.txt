@@ -53,4 +53,8 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(CheckpointPersistenceSmoke ${CMAKE_SOURCE_DIR}/Tests/CheckpointPersistenceSmoke.cpp)
   target_link_libraries(CheckpointPersistenceSmoke PRIVATE RawIron::World)
   add_test(NAME RawIron.World.CheckpointPersistenceSmoke COMMAND CheckpointPersistenceSmoke)
+
+  add_executable(WorldStateSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/WorldStateSafetySmoke.cpp)
+  target_link_libraries(WorldStateSafetySmoke PRIVATE RawIron::World)
+  add_test(NAME RawIron.World.StateSafetySmoke COMMAND WorldStateSafetySmoke)
 endif()

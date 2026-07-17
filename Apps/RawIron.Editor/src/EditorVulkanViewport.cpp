@@ -34,6 +34,8 @@ struct EditorVulkanViewport::Snapshot {
     std::shared_ptr<const ri::scene::Scene> scene{};
     const void* sceneCacheIdentity = nullptr;
     int cameraNode = ri::scene::kInvalidHandle;
+    ri::math::Mat4 cameraWorld = ri::math::IdentityMatrix();
+    bool cameraWorldValid = false;
     ri::render::software::ScenePreviewOptions previewOptions{};
     double animationTimeSeconds = 0.0;
 };
@@ -103,6 +105,8 @@ bool EditorVulkanViewport::StartRenderLoop(const HWND parent, const RECT& bounds
                 frame.sceneCacheIdentity = snapshot->sceneCacheIdentity;
                 frame.frameSequence = snapshot->publishSequence;
                 frame.cameraNode = snapshot->cameraNode;
+                frame.cameraWorldOverride = snapshot->cameraWorld;
+                frame.cameraWorldOverrideEnabled = snapshot->cameraWorldValid;
                 frame.textureRoot = snapshot->previewOptions.textureRoot.value_or(std::filesystem::path{});
                 frame.animationTimeSeconds = snapshot->animationTimeSeconds;
                 frame.renderQualityTier = 1;
@@ -188,6 +192,16 @@ void EditorVulkanViewport::SetBounds(const RECT& bounds) {
     if (child == nullptr || !IsWindow(child)) {
         return;
     }
+    {
+        std::scoped_lock lock(boundsMutex_);
+        if (lastBoundsValid_
+            && lastBounds_.left == bounds.left && lastBounds_.top == bounds.top
+            && lastBounds_.right == bounds.right && lastBounds_.bottom == bounds.bottom) {
+            return;
+        }
+        lastBounds_ = bounds;
+        lastBoundsValid_ = true;
+    }
     SetWindowPos(child,
                  nullptr,
                  bounds.left,
@@ -224,6 +238,10 @@ void EditorVulkanViewport::Publish(
         snapshot->scene = std::make_shared<ri::scene::Scene>(scene);
     }
     snapshot->cameraNode = cameraNode;
+    if (cameraNode >= 0 && static_cast<std::size_t>(cameraNode) < scene.NodeCount()) {
+        snapshot->cameraWorld = scene.ComputeWorldMatrix(cameraNode);
+        snapshot->cameraWorldValid = true;
+    }
     snapshot->previewOptions = previewOptions;
     snapshot->animationTimeSeconds = animationTimeSeconds;
     snapshot_.store(std::move(snapshot));
@@ -279,6 +297,8 @@ void EditorVulkanViewport::DestroyHostWindow() {
         DestroyWindow(child);
     }
     child_.store(nullptr);
+    std::scoped_lock lock(boundsMutex_);
+    lastBoundsValid_ = false;
 }
 
 LRESULT CALLBACK EditorVulkanViewport::HostWindowProc(

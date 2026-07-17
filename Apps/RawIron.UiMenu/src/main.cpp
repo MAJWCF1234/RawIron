@@ -12,6 +12,7 @@
 #include "RawIron/Content/GameManifest.h"
 #include "RawIron/Ui/UiFlowSession.h"
 #include "RawIron/Ui/UiJsonIO.h"
+#include "RawIron/Ui/UiLayout.h"
 #include "RawIron/Ui/UiPaths.h"
 
 #include <imgui.h>
@@ -28,6 +29,7 @@
 #include <filesystem>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #pragma comment(lib, "d3d11.lib")
@@ -112,17 +114,22 @@ public:
         if (absolutePath.empty()) {
             return nullptr;
         }
-        std::error_code ec{};
-        if (!fs::is_regular_file(absolutePath, ec)) {
-            return nullptr;
-        }
-        const std::string key = absolutePath.generic_string();
+        const std::string key = absolutePath.lexically_normal().generic_string();
         if (const auto it = map_.find(key); it != map_.end()) {
             return &it->second;
+        }
+        if (missing_.contains(key)) {
+            return nullptr;
+        }
+        std::error_code ec{};
+        if (!fs::is_regular_file(absolutePath, ec)) {
+            missing_.insert(key);
+            return nullptr;
         }
         const ri::render::software::RgbaImage rgba = ri::render::software::LoadRgbaImageFile(absolutePath);
         GpuUiTexture gpu{};
         if (!CreateSrvFromRgba(rgba, &gpu)) {
+            missing_.insert(key);
             return nullptr;
         }
         const auto inserted = map_.emplace(key, gpu);
@@ -137,16 +144,18 @@ public:
             }
         }
         map_.clear();
+        missing_.clear();
     }
 
 private:
     std::unordered_map<std::string, GpuUiTexture> map_{};
+    std::unordered_set<std::string> missing_{};
 };
 
 UiMenuTextureCache gUiTextures{};
 static bool gShowUiBacklog = false;
 static bool gUiBacklogScrollToBottomPending = false;
-static std::string gUiAdvanceVisitSig;
+static std::uint64_t gUiAdvanceNavigationRevision = 0U;
 static double gUiAdvanceTimerZero = 0.0;
 static bool gUiAdvanceTimerConsumed = false;
 static bool gUiHideVnDevHints = false;
@@ -175,13 +184,13 @@ bool CreateDeviceD3D(HWND hwnd) {
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     sd.BufferDesc.RefreshRate.Numerator = 60;
     sd.BufferDesc.RefreshRate.Denominator = 1;
-    sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+    sd.Flags = 0;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.OutputWindow = hwnd;
     sd.SampleDesc.Count = 1;
     sd.SampleDesc.Quality = 0;
     sd.Windowed = TRUE;
-    sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+    sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
     constexpr D3D_FEATURE_LEVEL levels[2] = {D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0};
     D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
@@ -238,7 +247,7 @@ void CleanupDeviceD3D() {
             }
             if (j < input.size() && input[j] == '}') {
                 const std::string_view id = input.substr(i + 2U, j - (i + 2U));
-                out.append(session.GetVariableValue(id));
+                out.append(session.GetVariableValueView(id));
                 i = j + 1U;
                 continue;
             }
@@ -355,8 +364,18 @@ void DrawUiSession(ri::ui::UiFlowSession& session,
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImVec2 p0 = ImGui::GetWindowPos();
         const ImVec2 p1 = ImVec2(p0.x + ImGui::GetWindowSize().x, p0.y + ImGui::GetWindowSize().y);
+        const ri::ui::UiImageUvRect coverUv = ri::ui::ComputeCoverImageUv(
+            static_cast<float>(bgGpu->width),
+            static_cast<float>(bgGpu->height),
+            ImGui::GetWindowSize().x,
+            ImGui::GetWindowSize().y);
         dl->AddImage(
-            reinterpret_cast<ImTextureID>(bgGpu->srv), p0, p1, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32_WHITE);
+            reinterpret_cast<ImTextureID>(bgGpu->srv),
+            p0,
+            p1,
+            ImVec2(coverUv.u0, coverUv.v0),
+            ImVec2(coverUv.u1, coverUv.v1),
+            IM_COL32_WHITE);
         const ImU32 overlay = IM_COL32(
             static_cast<int>(std::clamp(bg[0] * 255.0f, 0.0f, 255.0f)),
             static_cast<int>(std::clamp(bg[1] * 255.0f, 0.0f, 255.0f)),
@@ -378,8 +397,10 @@ void DrawUiSession(ri::ui::UiFlowSession& session,
                           ImVec2(rootPos.x + rootSize.x, rootPos.y + 6.0f),
                           IM_COL32(214, 150, 56, 255));
 
-    const float stageW = std::min(900.0f, std::max(520.0f, rootSize.x - 96.0f));
-    const float stageH = std::min(rootSize.y - 72.0f, std::max(320.0f, rootSize.y * 0.78f));
+    const ri::ui::UiStageSize stageExtent =
+        ri::ui::ComputeResponsiveUiStageSize(rootSize.x, rootSize.y);
+    const float stageW = stageExtent.width;
+    const float stageH = stageExtent.height;
     ImGui::SetCursorPos(ImVec2(std::max(24.0f, (rootSize.x - stageW) * 0.5f),
                                std::max(18.0f, (rootSize.y - stageH) * 0.18f)));
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f);
@@ -455,14 +476,8 @@ void DrawUiSession(ri::ui::UiFlowSession& session,
             ri::ui::UiHistoryLine{.speaker = {}, .text = tx, .narration = false, .chapterMarker = true});
     };
 
-    std::string visitSig;
-    visitSig.reserve(session.Stack().size() * 24U);
-    for (const std::string& sid : session.Stack()) {
-        visitSig.append(sid);
-        visitSig.push_back('\x1e');
-    }
-    if (visitSig != gUiAdvanceVisitSig) {
-        gUiAdvanceVisitSig = std::move(visitSig);
+    if (session.NavigationRevision() != gUiAdvanceNavigationRevision) {
+        gUiAdvanceNavigationRevision = session.NavigationRevision();
         gUiAdvanceTimerZero = ImGui::GetTime();
         gUiAdvanceTimerConsumed = false;
     }
@@ -529,8 +544,12 @@ void DrawUiSession(ri::ui::UiFlowSession& session,
                 const GpuUiTexture* portraitGpu =
                     block.portraitRelativePath.empty() ? nullptr : gUiTextures.TryGet(portraitPath);
                 const bool portraitRight = (block.portraitSide == "right");
-                const ImVec2 portraitSize(168.0f, 252.0f);
-                const float portraitLane = portraitSize.x + 14.0f;
+                const float availableWidth = std::max(160.0f, ImGui::GetContentRegionAvail().x);
+                const bool usePortraitLane = portraitGpu != nullptr && portraitGpu->srv != nullptr
+                    && availableWidth >= 440.0f;
+                const float portraitWidth = std::clamp(availableWidth * 0.24f, 104.0f, 168.0f);
+                const ImVec2 portraitSize(portraitWidth, portraitWidth * 1.5f);
+                const float portraitLane = usePortraitLane ? portraitSize.x + 14.0f : 0.0f;
                 const float sayBodyW = std::max(160.0f, wrap - portraitLane);
 
                 auto drawSayBody = [&](float bodyW) {
@@ -555,7 +574,7 @@ void DrawUiSession(ri::ui::UiFlowSession& session,
                     ImGui::PopStyleVar();
                 };
 
-                if (portraitGpu != nullptr && portraitGpu->srv != nullptr) {
+                if (usePortraitLane) {
                     if (portraitRight) {
                         drawSayBody(sayBodyW);
                         ImGui::SameLine();
@@ -566,6 +585,13 @@ void DrawUiSession(ri::ui::UiFlowSession& session,
                         drawSayBody(sayBodyW);
                     }
                 } else {
+                    if (portraitGpu != nullptr && portraitGpu->srv != nullptr) {
+                        const float centeredX = ImGui::GetCursorPosX()
+                            + std::max(0.0f, (availableWidth - portraitSize.x) * 0.5f);
+                        ImGui::SetCursorPosX(centeredX);
+                        ImGui::Image(reinterpret_cast<ImTextureID>(portraitGpu->srv), portraitSize);
+                        ImGui::Spacing();
+                    }
                     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
                     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.07f, 0.08f, 0.11f, 0.94f));
                     ImGui::BeginChild("say_panel",
@@ -582,7 +608,8 @@ void DrawUiSession(ri::ui::UiFlowSession& session,
                         ImGui::Spacing();
                         ImGui::TextDisabled("Voice: %s", sayVoice.c_str());
                     }
-                    if (!block.portraitRelativePath.empty()) {
+                    if (!block.portraitRelativePath.empty()
+                        && (portraitGpu == nullptr || portraitGpu->srv == nullptr)) {
                         ImGui::Spacing();
                         ImGui::TextDisabled("Portrait (%s): %s",
                                             block.portraitSide.empty() ? "side" : block.portraitSide.c_str(),
@@ -659,8 +686,10 @@ void DrawUiSession(ri::ui::UiFlowSession& session,
                 if (imageGpu != nullptr && imageGpu->srv != nullptr && imageGpu->height > 0) {
                     const float aspect =
                         static_cast<float>(imageGpu->width) / static_cast<float>(imageGpu->height);
-                    const float dispW = std::max(32.0f, h * aspect);
-                    ImGui::Image(reinterpret_cast<ImTextureID>(imageGpu->srv), ImVec2(dispW, h));
+                    const float available = std::max(32.0f, ImGui::GetContentRegionAvail().x);
+                    const float dispW = std::min(available, std::max(32.0f, h * aspect));
+                    const float dispH = dispW / std::max(0.001f, aspect);
+                    ImGui::Image(reinterpret_cast<ImTextureID>(imageGpu->srv), ImVec2(dispW, dispH));
                     if (!block.imageAnchor.empty()) {
                         ImGui::SameLine();
                         ImGui::TextDisabled("(%s)", block.imageAnchor.c_str());

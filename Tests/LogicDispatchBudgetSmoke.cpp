@@ -1,6 +1,8 @@
 #include "RawIron/Logic/LogicGraph.h"
 
 #include <cstdlib>
+#include <cmath>
+#include <iostream>
 #include <limits>
 #include <utility>
 
@@ -64,6 +66,43 @@ int main() {
     }
     debounceGraph.AdvanceTime(1U);
     if (debouncedOutputCount != 1U) {
+        return EXIT_FAILURE;
+    }
+
+    ri::logic::LogicGraphSpec parsingSpec{};
+    parsingSpec.nodes.push_back(ri::logic::IoAudioNode{.id = "audio", .def = {}});
+    parsingSpec.nodes.push_back(ri::logic::FlowRandomNode{.id = "random", .def = {}});
+    ri::logic::LogicGraph parsingGraph(std::move(parsingSpec));
+    double audioVolume = -1.0;
+    double randomMin = -1.0;
+    double randomMax = -1.0;
+    parsingGraph.SetOutputHandler([&](const ri::logic::LogicOutputEvent& event) {
+        if (event.sourceId == "audio" && event.outputName == "done" && event.context.parameter.has_value()) {
+            audioVolume = *event.context.parameter;
+        } else if (event.sourceId == "random" && event.outputName == "min" && event.context.parameter.has_value()) {
+            randomMin = *event.context.parameter;
+        } else if (event.sourceId == "random" && event.outputName == "max" && event.context.parameter.has_value()) {
+            randomMax = *event.context.parameter;
+        }
+    });
+    parsingGraph.DispatchInput("audio", "SetVol", {.fields = {{"volume", "0.25"}}});
+    if (std::abs(audioVolume - 0.25) > 1.0e-9) {
+        std::cerr << "strict audio parse baseline failed: " << audioVolume << '\n';
+        return EXIT_FAILURE;
+    }
+    parsingGraph.DispatchInput("audio", "SetVol", {.fields = {{"volume", "0.75junk"}}});
+    if (std::abs(audioVolume - 0.25) > 1.0e-9) {
+        std::cerr << "audio parser accepted trailing garbage: " << audioVolume << '\n';
+        return EXIT_FAILURE;
+    }
+    parsingGraph.DispatchInput("audio", "SetVol", {.fields = {{"volume", "nan"}}});
+    if (std::abs(audioVolume - 0.25) > 1.0e-9) {
+        std::cerr << "audio parser accepted non-finite value: " << audioVolume << '\n';
+        return EXIT_FAILURE;
+    }
+    parsingGraph.DispatchInput("random", "Trigger", {.fields = {{"min", "5junk"}, {"max", "6"}}});
+    if (randomMin != 0.0 || randomMax != 6.0) {
+        std::cerr << "random range parser accepted malformed bound: " << randomMin << ", " << randomMax << '\n';
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;

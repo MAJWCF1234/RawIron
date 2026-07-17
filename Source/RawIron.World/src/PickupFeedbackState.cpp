@@ -36,6 +36,12 @@ PickupFeedbackState::PickupFeedbackState(const PickupFeedbackPolicy& policy) {
 void PickupFeedbackState::SetPolicy(const PickupFeedbackPolicy& policy) {
     policy_ = policy;
     policy_.historyLimit = std::max<std::size_t>(1U, policy_.historyLimit);
+    if (history_.size() > policy_.historyLimit) {
+        history_.erase(history_.begin(), history_.end() - static_cast<std::ptrdiff_t>(policy_.historyLimit));
+    }
+    if (!std::isfinite(policy_.antiSpamWindowMs) || policy_.antiSpamWindowMs <= 0.0) {
+        pickupTimestampsMs_.clear();
+    }
     if (policy_.mode == PickupFeedbackMode::Disabled) {
         ClearTransientState();
         history_.clear();
@@ -79,7 +85,9 @@ void PickupFeedbackState::RecordPickup(const PickupFeedbackRequest& request) {
                 request.pickupAudioCue,
                 request.uiAccentCue,
                 suppressedByAntiSpam);
-    RecordPickupTimestamp();
+    if (!suppressedByAntiSpam) {
+        RecordPickupTimestamp();
+    }
 }
 
 void PickupFeedbackState::RecordAlreadyCarrying(std::string itemLabel, double durationMs) {
@@ -150,6 +158,10 @@ bool PickupFeedbackState::ConsumePendingUiAccentPulse() {
 
 void PickupFeedbackState::ActivateMessage(std::string message, double durationMs) {
     const double safeDuration = SanitizeDuration(durationMs, 3500.0);
+    if (message.empty() || safeDuration <= 0.0) {
+        activeMessage_.reset();
+        return;
+    }
     activeMessage_ = TimedPresentationEntry{
         .text = std::move(message),
         .durationMs = safeDuration,
@@ -160,6 +172,10 @@ void PickupFeedbackState::ActivateMessage(std::string message, double durationMs
 
 void PickupFeedbackState::ActivateHint(std::string hintText, double durationMs) {
     const double safeDuration = SanitizeDuration(durationMs, 6000.0);
+    if (hintText.empty() || safeDuration <= 0.0) {
+        activeHint_.reset();
+        return;
+    }
     activeHint_ = TimedPresentationEntry{
         .text = std::move(hintText),
         .durationMs = safeDuration,
@@ -194,8 +210,11 @@ void PickupFeedbackState::PushHistory(PickupFeedbackKind kind,
 }
 
 bool PickupFeedbackState::ShouldSuppressForAntiSpam() {
-    const double windowMs = std::max(0.0, policy_.antiSpamWindowMs);
+    const double windowMs = std::isfinite(policy_.antiSpamWindowMs)
+        ? std::max(0.0, policy_.antiSpamWindowMs)
+        : 0.0;
     if (windowMs <= 0.0) {
+        pickupTimestampsMs_.clear();
         return false;
     }
     pickupTimestampsMs_.erase(std::remove_if(pickupTimestampsMs_.begin(),
@@ -208,7 +227,9 @@ bool PickupFeedbackState::ShouldSuppressForAntiSpam() {
 }
 
 void PickupFeedbackState::RecordPickupTimestamp() {
-    pickupTimestampsMs_.push_back(elapsedMs_);
+    if (std::isfinite(policy_.antiSpamWindowMs) && policy_.antiSpamWindowMs > 0.0) {
+        pickupTimestampsMs_.push_back(elapsedMs_);
+    }
 }
 
 std::string PickupFeedbackState::NormalizeLabel(std::string label) const {

@@ -36,6 +36,9 @@ DialogueCueState::DialogueCueState(const DialogueCuePolicy& policy) {
 void DialogueCueState::SetPolicy(const DialogueCuePolicy& policy) {
     policy_ = policy;
     policy_.historyLimit = std::max<std::size_t>(1U, policy_.historyLimit);
+    if (history_.size() > policy_.historyLimit) {
+        history_.erase(history_.begin(), history_.end() - static_cast<std::ptrdiff_t>(policy_.historyLimit));
+    }
     if (policy_.mode == DialogueCueMode::Disabled) {
         ClearTransientState();
         history_.clear();
@@ -121,6 +124,10 @@ const std::vector<DialogueCueHistoryEntry>& DialogueCueState::History() const {
 
 void DialogueCueState::ActivateDialogue(std::string message, double durationMs) {
     const double safeDuration = SanitizeDuration(durationMs, 5000.0);
+    if (message.empty() || safeDuration <= 0.0) {
+        activeDialogue_.reset();
+        return;
+    }
     activeDialogue_ = TimedPresentationEntry{
         .text = std::move(message),
         .durationMs = safeDuration,
@@ -131,6 +138,10 @@ void DialogueCueState::ActivateDialogue(std::string message, double durationMs) 
 
 void DialogueCueState::ActivateGuidanceHint(std::string text, double durationMs) {
     const double safeDuration = SanitizeDuration(durationMs, 5000.0);
+    if (text.empty() || safeDuration <= 0.0) {
+        activeGuidanceHint_.reset();
+        return;
+    }
     activeGuidanceHint_ = TimedPresentationEntry{
         .text = std::move(text),
         .durationMs = safeDuration,

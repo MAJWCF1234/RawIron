@@ -79,6 +79,14 @@ target_link_libraries(RawIron.SceneUtilities
 target_compile_features(RawIron.SceneUtilities PUBLIC cxx_std_20)
 
 if (RAWIRON_BUILD_TESTS)
+  add_executable(AnimationSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/AnimationSafetySmoke.cpp)
+  target_link_libraries(AnimationSafetySmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.AnimationSafetySmoke COMMAND AnimationSafetySmoke)
+
+  add_executable(PrimitivesCsvSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/PrimitivesCsvSafetySmoke.cpp)
+  target_link_libraries(PrimitivesCsvSafetySmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.PrimitivesCsvSafetySmoke COMMAND PrimitivesCsvSafetySmoke)
+
   add_executable(StructuralBrushMetadataSmoke ${CMAKE_SOURCE_DIR}/Tests/StructuralBrushMetadataSmoke.cpp)
   target_link_libraries(StructuralBrushMetadataSmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.StructuralBrushMetadataSmoke COMMAND StructuralBrushMetadataSmoke)

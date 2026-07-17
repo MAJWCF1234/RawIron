@@ -36,6 +36,9 @@ SignalBroadcastState::SignalBroadcastState(const SignalBroadcastPolicy& policy) 
 void SignalBroadcastState::SetPolicy(const SignalBroadcastPolicy& policy) {
     policy_ = policy;
     policy_.historyLimit = std::max<std::size_t>(1U, policy_.historyLimit);
+    if (history_.size() > policy_.historyLimit) {
+        history_.erase(history_.begin(), history_.end() - static_cast<std::ptrdiff_t>(policy_.historyLimit));
+    }
     if (policy_.mode == SignalBroadcastMode::Disabled) {
         ClearTransientState();
         history_.clear();
@@ -52,7 +55,8 @@ void SignalBroadcastState::Record(const SignalBroadcastRequest& request) {
     }
 
     const double safeDuration = SanitizeDuration(request.durationMs, 4000.0);
-    ActivateTimed(activeMessage_, request.message.empty() ? "UNKNOWN SIGNAL" : request.message, safeDuration);
+    const std::string message = request.message.empty() ? "UNKNOWN SIGNAL" : request.message;
+    ActivateTimed(activeMessage_, message, safeDuration);
 
     const std::string subtitleText =
         policy_.mode == SignalBroadcastMode::Verbose ? request.subtitle : std::string{};
@@ -64,7 +68,7 @@ void SignalBroadcastState::Record(const SignalBroadcastRequest& request) {
     if (!guidanceText.empty()) {
         ActivateTimed(activeGuidanceHint_, guidanceText, safeDuration);
     }
-    PushHistory(activeMessage_->text, subtitleText, guidanceText);
+    PushHistory(message, subtitleText, guidanceText);
 }
 
 void SignalBroadcastState::Advance(double elapsedMs) {
@@ -99,6 +103,10 @@ void SignalBroadcastState::ActivateTimed(std::optional<TimedPresentationEntry>& 
                                          std::string text,
                                          double durationMs) {
     const double safeDuration = SanitizeDuration(durationMs, 4000.0);
+    if (text.empty() || safeDuration <= 0.0) {
+        target.reset();
+        return;
+    }
     target = TimedPresentationEntry{
         .text = std::move(text),
         .durationMs = safeDuration,

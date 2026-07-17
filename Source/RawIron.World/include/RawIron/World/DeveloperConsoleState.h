@@ -74,6 +74,8 @@ private:
     std::unordered_map<std::string, double> tuningValues_;
     std::unordered_map<std::string, double> defaultTuningValues_;
     std::optional<std::size_t> historyCursor_{};
+    std::size_t executionDepth_ = 0U;
+    bool expansionFailed_ = false;
 };
 
 } // namespace ri::world

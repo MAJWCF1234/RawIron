@@ -17,7 +17,14 @@ double SanitizeDurationMs(double durationMs) {
 } // namespace
 
 void HudChannelTtlScheduler::Schedule(std::string channel, std::string text, const double ttlMs) {
+    if (channel.empty()) {
+        return;
+    }
     const double safe = SanitizeDurationMs(ttlMs);
+    if (text.empty() || safe <= 0.0) {
+        channels_.erase(channel);
+        return;
+    }
     channels_[std::move(channel)] = TimedPresentationEntry{
         .text = std::move(text),
         .durationMs = safe,

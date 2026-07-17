@@ -14,6 +14,7 @@
 #include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
 #include "RawIron/Runtime/RuntimeCore.h"
+#include "RawIron/Scene/SceneUtils.h"
 #include "RawIron/Spatial/Aabb.h"
 #include "RawIron/Trace/MovementController.h"
 
@@ -46,20 +47,21 @@ fs::path ResolvePreviewOutputPath(const ri::core::CommandLine& commandLine) {
     return fs::current_path() / "cube_test_preview.bmp";
 }
 
-std::optional<ri::content::GameManifest> ResolveStandaloneGameManifest(const StandaloneOptions& options) {
+std::optional<ri::content::GameManifest> ResolveStandaloneGameManifest(
+    const StandaloneOptions& options,
+    const fs::path& resolvedWorkspaceRoot) {
     if (!options.gameRoot.empty()) {
         return ri::content::LoadGameManifest(options.gameRoot / "manifest.json");
     }
-    const fs::path workspaceRoot = options.workspaceRoot.empty()
-        ? ri::content::DetectWorkspaceRoot(fs::current_path())
-        : options.workspaceRoot;
-    return ri::content::ResolveGameManifest(workspaceRoot, options.gameId);
+    return ri::content::ResolveGameManifest(resolvedWorkspaceRoot, options.gameId);
 }
 
 bool SavePreview(const CubeTestWorld& world,
                  const fs::path& textureRoot,
                  const fs::path& outputPath,
                  const double animationSeconds,
+                 const std::string_view hiddenNodeName,
+                 ri::render::software::ScenePreviewCache* sharedCache,
                  std::string* error) {
     ri::render::software::ScenePreviewOptions options{};
     options.width = 960;
@@ -76,10 +78,18 @@ bool SavePreview(const CubeTestWorld& world,
     options.previewContrast = 1.08f;
     options.previewSaturation = 1.0f;
     options.animationTimeSeconds = animationSeconds;
+    if (!hiddenNodeName.empty()) {
+        const std::optional<int> hiddenNode = ri::scene::FindNodeByName(world.scene, hiddenNodeName);
+        if (hiddenNode.has_value()) {
+            options.hiddenNodeHandles.push_back(*hiddenNode);
+        }
+    }
 
-    ri::render::software::ScenePreviewCache cache{};
+    ri::render::software::ScenePreviewCache localCache{};
+    ri::render::software::ScenePreviewCache* const cache =
+        sharedCache != nullptr ? sharedCache : &localCache;
     const ri::render::software::SoftwareImage image =
-        ri::render::software::RenderScenePreview(world.scene, world.playerCameraNode, options, &cache);
+        ri::render::software::RenderScenePreview(world.scene, world.playerCameraNode, options, cache);
     if (!outputPath.parent_path().empty()) {
         std::error_code ec{};
         fs::create_directories(outputPath.parent_path(), ec);
@@ -101,19 +111,23 @@ bool SavePreview(const CubeTestWorld& world,
 }
 
 bool SaveJigglePreviewSequence(const fs::path& textureRoot,
+                               const fs::path& workspaceRoot,
                                const fs::path& outputPath,
                                const int frames,
+                               const std::string_view hiddenNodeName,
                                std::string* error) {
     const int frameCount = std::clamp(frames, 1, 120);
     const fs::path parent = outputPath.parent_path();
     const std::string stem = outputPath.stem().string();
     const std::string ext = outputPath.extension().empty() ? ".bmp" : outputPath.extension().string();
+    CubeTestWorld frameWorld = BuildCubeTestWorld("Cube Test Jiggle Preview", workspaceRoot);
+    ri::render::software::ScenePreviewCache previewCache{};
     for (int index = 0; index < frameCount; ++index) {
-        CubeTestWorld frameWorld = BuildCubeTestWorld("Cube Test Jiggle Preview");
         const double seconds = static_cast<double>(index) / 12.0;
         AnimateCubeTestWorldJiggle(frameWorld, seconds);
         const fs::path framePath = parent / (stem + "_" + std::to_string(index) + ext);
-        if (!SavePreview(frameWorld, textureRoot, framePath, seconds, error)) {
+        if (!SavePreview(
+                frameWorld, textureRoot, framePath, seconds, hiddenNodeName, &previewCache, error)) {
             return false;
         }
     }
@@ -276,7 +290,8 @@ bool RunNativeLoop(const StandaloneOptions& options,
                    const ri::core::CommandLine& commandLine,
                    std::string* error) {
     PlayState state{};
-    state.world = BuildCubeTestWorld("Cube Test");
+    state.world = BuildCubeTestWorld(
+        "Cube Test", ri::content::DetectWorkspaceRoot(manifest.rootPath));
     const ri::content::ScriptScalarMap gameplay = ri::content::LoadScriptScalars(
         ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/gameplay.riscript"));
     const ri::content::ScriptScalarMap rendering = ri::content::LoadScriptScalars(
@@ -392,7 +407,9 @@ bool RunNativeLoop(const StandaloneOptions& options,
         .messageUserData = &state,
         .onWin32Message = &CubeTestWin32Hook,
         .outClientHwnd = &state.hwnd,
+        .showWindow = !options.backgroundWindow,
         .enableHybridHdrPresentation = options.hybridHdr,
+        .enableExtendedPostProcessShader = options.extendedPostProcess,
         .initialRenderQualityTier = state.renderQualityTier,
     };
 
@@ -463,12 +480,20 @@ bool RunStandalone(const StandaloneOptions& options,
         executablePath = fs::path(std::wstring(moduleWide));
     }
 #endif
-    const fs::path workspaceRoot = options.workspaceRoot.empty()
-        ? ri::content::DetectWorkspaceRoot(fs::current_path())
-        : options.workspaceRoot;
+    fs::path workspaceRoot = options.workspaceRoot;
+    if (workspaceRoot.empty()) {
+        workspaceRoot = ri::content::DetectWorkspaceRoot(fs::current_path());
+        if (!ri::content::LooksLikeWorkspaceRoot(workspaceRoot) && !executablePath.empty()) {
+            const fs::path executableWorkspace = ri::content::DetectWorkspaceRoot(executablePath);
+            if (ri::content::LooksLikeWorkspaceRoot(executableWorkspace)) {
+                workspaceRoot = executableWorkspace;
+            }
+        }
+    }
     const fs::path textureRoot = ri::content::PickEngineTexturesDirectory(workspaceRoot, executablePath);
 
-    const std::optional<ri::content::GameManifest> manifest = ResolveStandaloneGameManifest(options);
+    const std::optional<ri::content::GameManifest> manifest =
+        ResolveStandaloneGameManifest(options, workspaceRoot);
     if (!manifest.has_value()) {
         if (error != nullptr) {
             *error = "Unable to resolve Cube Test manifest for game id '" + options.gameId + "'.";
@@ -501,13 +526,28 @@ bool RunStandalone(const StandaloneOptions& options,
         ri::content::LoadGameRuntimeSupportData(manifest->rootPath));
     ri::games::LogGameRuntimeSupportSummary(*supportService);
 
-    CubeTestWorld previewWorld = BuildCubeTestWorld("Cube Test");
+    CubeTestWorld previewWorld = BuildCubeTestWorld("Cube Test", workspaceRoot);
+    const std::string hiddenPreviewNode =
+        commandLine.GetValue("--preview-hide-node").value_or(std::string{});
     if (commandLine.HasFlag("--save-jiggle-preview") || options.jigglePreviewFrames > 0) {
         const int frames = options.jigglePreviewFrames > 0 ? options.jigglePreviewFrames : 8;
-        return SaveJigglePreviewSequence(textureRoot, ResolvePreviewOutputPath(commandLine), frames, error);
+        return SaveJigglePreviewSequence(
+            textureRoot,
+            workspaceRoot,
+            ResolvePreviewOutputPath(commandLine),
+            frames,
+            hiddenPreviewNode,
+            error);
     }
     if (commandLine.HasFlag("--save-preview")) {
-        return SavePreview(previewWorld, textureRoot, ResolvePreviewOutputPath(commandLine), 0.0, error);
+        return SavePreview(
+            previewWorld,
+            textureRoot,
+            ResolvePreviewOutputPath(commandLine),
+            0.0,
+            hiddenPreviewNode,
+            nullptr,
+            error);
     }
 
 #if defined(_WIN32)

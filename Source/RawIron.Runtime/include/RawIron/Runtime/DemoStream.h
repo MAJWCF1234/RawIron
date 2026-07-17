@@ -25,6 +25,13 @@ struct DemoHeader {
 
 class DemoWriter {
 public:
+    DemoWriter() = default;
+    ~DemoWriter();
+    DemoWriter(const DemoWriter&) = delete;
+    DemoWriter& operator=(const DemoWriter&) = delete;
+    DemoWriter(DemoWriter&&) = delete;
+    DemoWriter& operator=(DemoWriter&&) = delete;
+
     bool Open(const std::filesystem::path& path, const DemoHeader& header);
     bool Append(const DemoFrameRecord& frame);
     void Close();
@@ -42,6 +49,10 @@ private:
 
 class DemoReader {
 public:
+    DemoReader() = default;
+    DemoReader(const DemoReader&) = delete;
+    DemoReader& operator=(const DemoReader&) = delete;
+
     bool Open(const std::filesystem::path& path);
     [[nodiscard]] const DemoHeader& Header() const noexcept;
     [[nodiscard]] std::size_t FrameCount() const noexcept;

@@ -40,6 +40,10 @@ if (RAWIRON_BUILD_TESTS)
   target_link_libraries(ScenePreviewRayTraceSafetySmoke PRIVATE RawIron::RenderSoftware)
   add_test(NAME RawIron.Render.Software.ScenePreviewRayTraceSafetySmoke COMMAND ScenePreviewRayTraceSafetySmoke)
 
+  add_executable(ScenePreviewTransparencySmoke ${CMAKE_SOURCE_DIR}/Tests/ScenePreviewTransparencySmoke.cpp)
+  target_link_libraries(ScenePreviewTransparencySmoke PRIVATE RawIron::RenderSoftware)
+  add_test(NAME RawIron.Render.Software.ScenePreviewTransparencySmoke COMMAND ScenePreviewTransparencySmoke)
+
   add_executable(ScenePreviewScriptWatcherSmoke ${CMAKE_SOURCE_DIR}/Tests/ScenePreviewScriptWatcherSmoke.cpp)
   target_link_libraries(ScenePreviewScriptWatcherSmoke PRIVATE RawIron::RenderSoftware)
   add_test(NAME RawIron.Render.Software.ScenePreviewScriptWatcherSmoke COMMAND ScenePreviewScriptWatcherSmoke)

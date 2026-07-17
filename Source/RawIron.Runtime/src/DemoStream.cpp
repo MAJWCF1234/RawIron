@@ -11,6 +11,7 @@ constexpr std::size_t kMaxHeaderStringBytes = 4096U;
 constexpr std::size_t kMaxFrameBlobBytes = 16U * 1024U * 1024U;
 constexpr std::size_t kMaxFrameCount = 1000000U;
 constexpr std::uintmax_t kMaxDemoFileBytes = 512U * 1024U * 1024U;
+constexpr std::size_t kMinimumEncodedFrameBytes = 16U;
 
 void WriteU32(std::vector<std::uint8_t>& out, const std::uint32_t v) {
     out.push_back(static_cast<std::uint8_t>(v & 0xFFU));
@@ -76,6 +77,10 @@ void PatchU32(std::vector<std::uint8_t>& out, const std::size_t at, const std::u
 
 } // namespace
 
+DemoWriter::~DemoWriter() {
+    Close();
+}
+
 bool DemoWriter::Open(const std::filesystem::path& path, const DemoHeader& header) {
     Close();
     if (path.empty() || header.schemaVersion != kSupportedSchemaVersion || header.tickRate == 0U
@@ -138,6 +143,7 @@ bool DemoWriter::Append(const DemoFrameRecord& frame) {
 
 void DemoWriter::Close() {
     if (!open_) {
+        decltype(stream_){}.swap(stream_);
         return;
     }
     PatchU32(stream_, frameCountOffset_, frameCount_);
@@ -147,7 +153,8 @@ void DemoWriter::Close() {
         file.write(reinterpret_cast<const char*>(stream_.data()), static_cast<std::streamsize>(stream_.size()));
     }
     open_ = false;
-    stream_.clear();
+    path_.clear();
+    decltype(stream_){}.swap(stream_);
     frameCountOffset_ = 0U;
     frameCount_ = 0U;
     lastTick_ = 0U;
@@ -162,7 +169,7 @@ bool DemoReader::Open(const std::filesystem::path& path) {
     Close();
     std::error_code sizeError;
     const std::uintmax_t fileSize = std::filesystem::file_size(path, sizeError);
-    if (sizeError || fileSize > kMaxDemoFileBytes) {
+    if (sizeError || fileSize < 16U || fileSize > kMaxDemoFileBytes) {
         return false;
     }
     std::ifstream file(path, std::ios::binary);
@@ -186,7 +193,8 @@ bool DemoReader::Open(const std::filesystem::path& path) {
     if (!ReadU32(bytes, at, frameCount)) {
         return false;
     }
-    if (frameCount > kMaxFrameCount) {
+    if (frameCount > kMaxFrameCount
+        || static_cast<std::size_t>(frameCount) > (bytes.size() - at) / kMinimumEncodedFrameBytes) {
         return false;
     }
 
@@ -232,8 +240,9 @@ std::optional<DemoFrameRecord> DemoReader::ReadFrame(const std::size_t index) co
 
 void DemoReader::Close() {
     open_ = false;
-    header_ = {};
-    frames_.clear();
+    DemoHeader emptyHeader{};
+    std::swap(header_, emptyHeader);
+    decltype(frames_){}.swap(frames_);
 }
 
 bool DemoReader::IsOpen() const noexcept {

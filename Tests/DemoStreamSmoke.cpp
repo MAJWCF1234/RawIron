@@ -43,8 +43,11 @@ int main() {
     zeroRate.tickRate = 0U;
     ri::runtime::DemoHeader hugeHeader = header;
     hugeHeader.runtimeId.assign(4097U, 'x');
+    ri::runtime::DemoHeader hugeMapHeader = header;
+    hugeMapHeader.mapOrScene.assign(4097U, 'x');
     if (writer.Open({}, header) || writer.Open(root / "schema.ride", badSchema)
         || writer.Open(root / "rate.ride", zeroRate) || writer.Open(root / "header.ride", hugeHeader)
+        || writer.Open(root / "map-header.ride", hugeMapHeader)
         || !writer.Open(goodPath, header)) {
         return EXIT_FAILURE;
     }
@@ -76,6 +79,18 @@ int main() {
         return EXIT_FAILURE;
     }
     writer.Close();
+    writer.Close();
+
+    const fs::path destructorPath = root / "destructor.ride";
+    {
+        ri::runtime::DemoWriter scopedWriter;
+        if (!scopedWriter.Open(destructorPath, header) || !scopedWriter.Append(first)) {
+            return EXIT_FAILURE;
+        }
+    }
+    if (!fs::exists(destructorPath) || fs::file_size(destructorPath) == 0U) {
+        return EXIT_FAILURE;
+    }
 
     ri::runtime::DemoReader reader;
     if (!reader.Open(goodPath) || reader.FrameCount() != 2U
@@ -89,6 +104,9 @@ int main() {
     corrupt.push_back(0xFFU);
     WriteFile(root / "trailing.ride", corrupt);
     if (reader.Open(root / "trailing.ride")) {
+        return EXIT_FAILURE;
+    }
+    if (reader.IsOpen() || reader.FrameCount() != 0U || !reader.Header().runtimeId.empty()) {
         return EXIT_FAILURE;
     }
 
@@ -126,6 +144,20 @@ int main() {
     corrupt.resize(corrupt.size() - 1U);
     WriteFile(root / "truncated.ride", corrupt);
     if (reader.Open(root / "truncated.ride")) {
+        return EXIT_FAILURE;
+    }
+
+    WriteFile(root / "empty.ride", {});
+    if (reader.Open(root / "empty.ride")) {
+        return EXIT_FAILURE;
+    }
+
+    if (!reader.Open(destructorPath) || reader.FrameCount() != 1U || reader.ReadFrame(0U)->tick != 10U) {
+        return EXIT_FAILURE;
+    }
+    reader.Close();
+    reader.Close();
+    if (reader.IsOpen() || reader.FrameCount() != 0U || reader.ReadFrame(0U).has_value()) {
         return EXIT_FAILURE;
     }
 

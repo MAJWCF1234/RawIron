@@ -40,6 +40,9 @@ LevelFlowPresentationState::LevelFlowPresentationState(const LevelFlowPresentati
 void LevelFlowPresentationState::SetPolicy(const LevelFlowPresentationPolicy& policy) {
     policy_ = policy;
     policy_.historyLimit = std::max<std::size_t>(1U, policy_.historyLimit);
+    if (history_.size() > policy_.historyLimit) {
+        history_.erase(history_.begin(), history_.end() - static_cast<std::ptrdiff_t>(policy_.historyLimit));
+    }
     if (policy_.mode == LevelFlowPresentationMode::Disabled) {
         ClearTransientState();
         history_.clear();
@@ -144,6 +147,10 @@ void LevelFlowPresentationState::ActivateTimed(std::optional<TimedPresentationEn
                                                std::string text,
                                                double durationMs) {
     const double safeDuration = SanitizeDuration(durationMs, 2500.0);
+    if (text.empty() || safeDuration <= 0.0) {
+        target.reset();
+        return;
+    }
     target = TimedPresentationEntry{
         .text = std::move(text),
         .durationMs = safeDuration,

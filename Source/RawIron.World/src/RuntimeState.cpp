@@ -3198,7 +3198,9 @@ std::vector<SplineMeshDeformerRuntimeState> RuntimeEnvironmentService::GetSpline
         const bool withinDistance = viewerDistance <= primitive.maxActiveDistance;
         const bool splineValid = HasValidSplinePoints(primitive.splinePoints);
         const bool targetsResolved = !primitive.targetIds.empty();
-        const std::uint32_t requestedSamples = std::clamp<std::uint32_t>(primitive.sampleCount, 2U, primitive.maxSamples);
+        const std::uint32_t requestedSamples = primitive.maxSamples < 2U
+            ? 0U
+            : std::clamp<std::uint32_t>(primitive.sampleCount, 2U, primitive.maxSamples);
         const std::uint32_t generatedSegments = (splineValid && targetsResolved && requestedSamples > 1U)
             ? (requestedSamples - 1U)
             : 0U;
@@ -3280,9 +3282,13 @@ std::vector<SplineDecalRibbonRuntimeState> RuntimeEnvironmentService::GetSplineD
         const float viewerDistance = ri::math::Distance(viewerPosition, primitive.position);
         const bool withinDistance = viewerDistance <= primitive.maxActiveDistance;
         const bool splineValid = HasValidSplinePoints(primitive.splinePoints);
-        const std::uint32_t requestedSamples = std::clamp<std::uint32_t>(primitive.tessellation, 2U, primitive.maxSamples);
+        const std::uint32_t requestedSamples = primitive.maxSamples < 2U
+            ? 0U
+            : std::clamp<std::uint32_t>(primitive.tessellation, 2U, primitive.maxSamples);
         const std::uint32_t generatedSegments = (splineValid && requestedSamples > 1U) ? (requestedSamples - 1U) : 0U;
-        const std::uint32_t generatedTriangles = generatedSegments * 2U;
+        const std::uint32_t generatedTriangles = generatedSegments > std::numeric_limits<std::uint32_t>::max() / 2U
+            ? std::numeric_limits<std::uint32_t>::max()
+            : generatedSegments * 2U;
         states.push_back(SplineDecalRibbonRuntimeState{
             .id = primitive.id,
             .active = withinDistance && generatedSegments > 0U,

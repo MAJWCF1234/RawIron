@@ -375,6 +375,75 @@ vec3 ApplyColorGrade(vec3 color, float contrast, float saturation) {
     return (saturated - 0.5) * contrast + 0.5;
 }
 
+float LiteHash21(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+vec3 ApplyLiteLumaCurve(vec3 color, float strength) {
+    float amount = clamp(strength, 0.0, 1.0);
+    if (amount <= 1e-5) {
+        return color;
+    }
+    float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    float curved = luma * (luma * (1.5 - luma) + 0.5);
+    return clamp(color * (mix(luma, curved, amount) / max(luma, 1e-5)), 0.0, 1.0);
+}
+
+vec3 ApplyLiteLiftGammaGain(vec3 color) {
+    float amount = clamp(cameraData.lggLiftMix.w, 0.0, 1.0);
+    if (amount <= 1e-5) {
+        return color;
+    }
+    vec3 lift = cameraData.lggLiftMix.xyz;
+    vec3 gamma = max(cameraData.lggGammaRgb.xyz, vec3(1e-4));
+    vec3 gain = cameraData.lggGainRgb.xyz;
+    vec3 graded = color * (1.5 - 0.5 * lift) + 0.5 * lift - 0.5;
+    graded = pow(clamp(graded * gain, 0.0, 1.0), 1.0 / gamma);
+    return clamp(mix(color, graded, amount), 0.0, 1.0);
+}
+
+vec3 ApplyLiteVibrance(vec3 color) {
+    float amount = clamp(cameraData.vibranceBalanceAmount.w, -1.0, 1.0);
+    if (abs(amount) <= 1e-5) {
+        return color;
+    }
+    float luma = dot(color, vec3(0.212656, 0.715158, 0.072186));
+    float colorRange = max(color.r, max(color.g, color.b)) - min(color.r, min(color.g, color.b));
+    vec3 balance = cameraData.vibranceBalanceAmount.xyz * amount;
+    vec3 channelMix = 1.0 + balance * (1.0 - sign(balance) * colorRange);
+    return clamp(mix(vec3(luma), color, channelMix), 0.0, 1.0);
+}
+
+vec3 ApplyLitePresentationFx(vec3 color, vec2 uv) {
+    float timeSeconds = cameraData.postProcessSecondary.z;
+    float scanlineAmount = clamp(cameraData.postProcessPrimary.y, 0.0, 0.2);
+    float noiseAmount = clamp(cameraData.postProcessPrimary.x, 0.0, 0.3);
+    float staticFade = clamp(cameraData.postProcessSecondary.y, 0.0, 1.0);
+    float filmGrain = clamp(cameraData.presentationExtra.x, 0.0, 0.5);
+    float deband = clamp(cameraData.presentationColorGrading.z, 0.0, 0.12);
+
+    float scanPhase = (gl_FragCoord.y + timeSeconds * 48.0) * 0.14;
+    color *= 1.0 - scanlineAmount * (0.5 + 0.5 * sin(scanPhase));
+
+    float noise = LiteHash21(gl_FragCoord.xy + vec2(timeSeconds * 39.0, timeSeconds * 17.0)) - 0.5;
+    color += vec3(noise * noiseAmount * 1.7);
+    if (filmGrain > 1e-5) {
+        float inverseLuma = 1.0 - dot(color, vec3(0.333333));
+        float grainMask = mix(0.35, 1.0, pow(clamp(inverseLuma, 0.0, 1.0), 3.0));
+        color *= 1.0 + noise * filmGrain * grainMask * 1.4;
+    }
+    if (deband > 1e-5) {
+        float triangular = noise - (LiteHash21(gl_FragCoord.yx + vec2(19.19, timeSeconds * 7.0)) - 0.5);
+        color += vec3(triangular * deband * (1.0 / 255.0));
+    }
+
+    float tintMix = clamp(cameraData.postProcessTint.w, 0.0, 1.0);
+    color = mix(color, color * clamp(cameraData.postProcessTint.rgb, 0.0, 1.0), tintMix);
+    float staticPulse = 0.85 + 0.15 * LiteHash21(vec2(timeSeconds * 23.0, gl_FragCoord.y * 0.03125));
+    color = mix(color, vec3(staticPulse), staticFade);
+    return clamp(color, 0.0, 1.0);
+}
+
 vec3 LinearToSrgb(vec3 color) {
     vec3 c = max(color, vec3(0.0));
     return pow(c, vec3(1.0 / 2.2));
@@ -398,7 +467,28 @@ vec3 ApplyCasSharpen(vec2 uv, vec2 texel, vec3 center, float amount, float contr
 void main() {
     vec2 sampleUv = vec2(vUv.x, 1.0 - vUv.y);
     vec2 texel = vec2(cameraData.viewportMetrics.z, cameraData.viewportMetrics.w);
+    vec2 centeredUv = sampleUv * 2.0 - 1.0;
+    float radial = dot(centeredUv, centeredUv);
+    float barrelDistortion = clamp(cameraData.postProcessPrimary.z, 0.0, 0.2);
+    sampleUv = clamp(sampleUv + centeredUv * radial * barrelDistortion * 0.08,
+                     texel * 0.5,
+                     vec2(1.0) - texel * 0.5);
     vec3 hdr = max(texture(hdrSceneLinear, sampleUv).rgb, vec3(0.0));
+    float chromaticAberration = clamp(cameraData.postProcessPrimary.w, 0.0, 0.05);
+    if (chromaticAberration > 1e-5) {
+        vec2 fringeOffset = centeredUv * chromaticAberration * 0.08;
+        hdr.r = texture(hdrSceneLinear, clamp(sampleUv + fringeOffset, vec2(0.0), vec2(1.0))).r;
+        hdr.b = texture(hdrSceneLinear, clamp(sampleUv - fringeOffset, vec2(0.0), vec2(1.0))).b;
+    }
+    float blurAmount = clamp(cameraData.postProcessSecondary.x, 0.0, 0.05);
+    if (blurAmount > 1e-5) {
+        vec2 spread = texel * (1.0 + blurAmount * 36.0);
+        vec3 crossBlur = texture(hdrSceneLinear, sampleUv + vec2(spread.x, 0.0)).rgb
+            + texture(hdrSceneLinear, sampleUv - vec2(spread.x, 0.0)).rgb
+            + texture(hdrSceneLinear, sampleUv + vec2(0.0, spread.y)).rgb
+            + texture(hdrSceneLinear, sampleUv - vec2(0.0, spread.y)).rgb;
+        hdr = mix(hdr, crossBlur * 0.25, clamp(blurAmount * 12.0, 0.0, 0.65));
+    }
     float casAmount = clamp(cameraData.presentationTuning.x, 0.0, 1.0);
     float casContrastAdaptation = clamp(cameraData.presentationTuning.y, 0.0, 1.0);
     hdr = ApplyCasSharpen(sampleUv, texel, hdr, casAmount, casContrastAdaptation);
@@ -422,6 +512,9 @@ void main() {
 
     vec3 mapped = TonemapAcesApprox(hdr);
     mapped = ApplyColorGrade(mapped, contrast, saturation);
+    mapped = ApplyLiteLumaCurve(mapped, cameraData.presentationColorGrading.x);
+    mapped = ApplyLiteLiftGammaGain(mapped);
+    mapped = ApplyLiteVibrance(mapped);
 
     float vignetteAmt = clamp(cameraData.presentationColorGrading.w, 0.0, 1.0);
     if (vignetteAmt > 1e-4) {
@@ -432,10 +525,13 @@ void main() {
         mapped *= clamp(vig, 0.0, 1.0);
     }
 
-    float tintMix = clamp(cameraData.postProcessTint.w, 0.0, 1.0);
-    if (tintMix > 1e-4) {
-        mapped = mix(mapped, mapped * cameraData.postProcessTint.rgb, tintMix);
+    mapped = ApplyLitePresentationFx(mapped, sampleUv);
+    vec3 srgb = clamp(LinearToSrgb(mapped), 0.0, 1.0);
+    float outputDither = clamp(cameraData.presentationColorGrading.y, 0.0, 1.0);
+    if (outputDither > 1e-5) {
+        float triangular = LiteHash21(gl_FragCoord.xy + 0.37)
+            - LiteHash21(gl_FragCoord.yx + vec2(7.31, 13.17));
+        srgb += vec3(triangular * outputDither * (1.0 / 255.0));
     }
-
-    fragColor = vec4(clamp(LinearToSrgb(mapped), 0.0, 1.0), 1.0);
+    fragColor = vec4(clamp(srgb, 0.0, 1.0), 1.0);
 }

@@ -20,7 +20,7 @@ void RegisterEditorPreviewScene(std::string_view previewSceneId, EditorPreviewHo
                                                                 std::string_view workspaceSceneName,
                                                                 const std::filesystem::path& gameRoot);
 
-void AnimateEditorWorkspaceScene(std::string_view editorPreviewScene,
+bool AnimateEditorWorkspaceScene(std::string_view editorPreviewScene,
                                  ri::scene::StarterScene& starterScene,
                                  double elapsedSeconds,
                                  bool editorOrbitAuthoritative = true);

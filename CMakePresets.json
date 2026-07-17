@@ -14,7 +14,9 @@
       "cacheVariables": {
         "CMAKE_CXX_STANDARD": "20",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "RAWIRON_BUILD_TESTS": "ON",
+        "RAWIRON_BUILD_TOOLS": "ON"
       }
     },
     {

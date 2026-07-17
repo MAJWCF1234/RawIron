@@ -142,7 +142,13 @@ void TextOverlayState::ActivateTimedChannel(TextOverlayChannel channel,
                                             PresentationSeverity severity) {
     const double safeDuration = SanitizeDuration(durationMs, 4000.0);
     TextOverlayChannelState& target = MutableChannel(channel);
-    target.visible = !text.empty();
+    if (text.empty() || safeDuration <= 0.0) {
+        target = TextOverlayChannelState{};
+        target.revision = nextRevision_++;
+        hudDismissTimers_.erase(channel);
+        return;
+    }
+    target.visible = true;
     target.text = std::move(text);
     target.severity = severity;
     target.durationMs = safeDuration;

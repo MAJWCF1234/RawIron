@@ -13,6 +13,7 @@
 #include <iomanip>
 #include <optional>
 #include <sstream>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -66,7 +67,7 @@ namespace {
 }
 
 [[nodiscard]] std::string EscapeCsvToken(std::string_view text) {
-    if (text.find(',') == std::string_view::npos && text.find('"') == std::string_view::npos) {
+    if (text.find_first_of(",\"\r\n") == std::string_view::npos) {
         return std::string(text);
     }
     std::string out = "\"";
@@ -125,36 +126,70 @@ namespace {
     return line.str();
 }
 
-std::vector<std::string> SplitCsvLine(const std::string& line) {
+[[nodiscard]] std::string Trim(std::string_view value) {
+    const std::size_t first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string_view::npos) {
+        return {};
+    }
+    const std::size_t last = value.find_last_not_of(" \t\r\n");
+    return std::string(value.substr(first, last - first + 1U));
+}
+
+std::optional<std::vector<std::string>> SplitCsvLine(const std::string& line) {
     std::vector<std::string> tokens{};
     std::string current{};
     bool inQuotes = false;
+    bool quotedField = false;
+    bool quoteClosed = false;
     for (std::size_t i = 0; i < line.size(); ++i) {
         const char ch = line[i];
         if (ch == '"') {
             if (inQuotes && i + 1 < line.size() && line[i + 1] == '"') {
                 current.push_back('"');
                 ++i;
+            } else if (inQuotes) {
+                inQuotes = false;
+                quoteClosed = true;
+            } else if (Trim(current).empty() && !quoteClosed) {
+                current.clear();
+                inQuotes = true;
+                quotedField = true;
             } else {
-                inQuotes = !inQuotes;
+                return std::nullopt;
             }
             continue;
         }
         if (ch == ',' && !inQuotes) {
-            tokens.push_back(current);
+            tokens.push_back(quotedField ? current : Trim(current));
             current.clear();
+            quotedField = false;
+            quoteClosed = false;
             continue;
+        }
+        if (quoteClosed) {
+            if (std::isspace(static_cast<unsigned char>(ch)) != 0) {
+                continue;
+            }
+            return std::nullopt;
         }
         current.push_back(ch);
     }
-    tokens.push_back(current);
+    if (inQuotes) {
+        return std::nullopt;
+    }
+    tokens.push_back(quotedField ? current : Trim(current));
     return tokens;
 }
 
 [[nodiscard]] bool ParseFloatToken(const std::string& token, float& out) {
     try {
-        out = std::stof(token);
-        return std::isfinite(out);
+        std::size_t consumed = 0U;
+        const float parsed = std::stof(token, &consumed);
+        if (consumed != token.size() || !std::isfinite(parsed)) {
+            return false;
+        }
+        out = parsed;
+        return true;
     } catch (...) {
         return false;
     }
@@ -169,6 +204,16 @@ std::vector<std::string> SplitCsvLine(const std::string& line) {
         }
     }
     return normalized;
+}
+
+[[nodiscard]] bool IsMissingAssetToken(std::string_view token) {
+    const std::string trimmed = Trim(token);
+    const std::string normalized = NormalizeColumnName(trimmed);
+    if (normalized.empty() || normalized == "null" || normalized == "none" || trimmed == "-") {
+        return true;
+    }
+    float numeric = 1.0f;
+    return ParseFloatToken(trimmed, numeric) && numeric == 0.0f;
 }
 
 using CsvColumnMap = std::unordered_map<std::string, std::size_t>;
@@ -288,6 +333,12 @@ bool TryImportAssemblyPrimitivesCsv(Scene& scene,
                                     const std::filesystem::path& inputPath,
                                     AssemblyPrimitivesImportResult* result,
                                     std::string* errorMessage) {
+    if (result != nullptr) {
+        *result = {};
+    }
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
     if (worldRootNodeHandle < 0 || static_cast<std::size_t>(worldRootNodeHandle) >= scene.NodeCount()) {
         if (errorMessage != nullptr) {
             *errorMessage = "Invalid world root handle for CSV import.";
@@ -307,22 +358,35 @@ bool TryImportAssemblyPrimitivesCsv(Scene& scene,
     CsvColumnMap columns{};
     std::string line{};
     while (std::getline(input, line)) {
-        if (line.empty()) {
+        if (line.size() > 64U * 1024U) {
+            localResult.skippedRows += 1;
             continue;
         }
-        if (line[0] == '#') {
-            std::string headerCandidate = line.substr(1);
+        const std::string trimmedLine = Trim(line);
+        if (trimmedLine.empty()) {
+            continue;
+        }
+        if (trimmedLine[0] == '#') {
+            std::string headerCandidate = trimmedLine.substr(1);
             const std::size_t firstText = headerCandidate.find_first_not_of(" \t");
             if (firstText != std::string::npos) {
                 headerCandidate.erase(0, firstText);
-                const CsvColumnMap candidate = BuildColumnMap(SplitCsvLine(headerCandidate));
-                if (IsAssemblyHeader(candidate)) {
-                    columns = candidate;
+                const auto headerTokens = SplitCsvLine(headerCandidate);
+                if (headerTokens.has_value()) {
+                    const CsvColumnMap candidate = BuildColumnMap(*headerTokens);
+                    if (IsAssemblyHeader(candidate)) {
+                        columns = candidate;
+                    }
                 }
             }
             continue;
         }
-        const std::vector<std::string> tokens = SplitCsvLine(line);
+        const auto parsedTokens = SplitCsvLine(trimmedLine);
+        if (!parsedTokens.has_value()) {
+            localResult.skippedRows += 1;
+            continue;
+        }
+        const std::vector<std::string>& tokens = *parsedTokens;
         const CsvColumnMap possibleHeader = BuildColumnMap(tokens);
         if (IsAssemblyHeader(possibleHeader)) {
             columns = possibleHeader;
@@ -348,7 +412,7 @@ bool TryImportAssemblyPrimitivesCsv(Scene& scene,
             continue;
         }
 
-        std::string nodeName = tokens[nameIndex];
+        std::string nodeName = Trim(tokens[nameIndex]);
         if (nodeName.empty()) {
             localResult.skippedRows += 1;
             continue;
@@ -358,9 +422,16 @@ bool TryImportAssemblyPrimitivesCsv(Scene& scene,
             localResult.renamedCount += 1;
         }
 
-        const std::string& typeToken = tokens[typeIndex];
-        const PrimitiveType primitive =
-            (typeToken == "plane") ? PrimitiveType::Plane : PrimitiveType::Cube;
+        const std::string typeToken = NormalizeColumnName(tokens[typeIndex]);
+        PrimitiveType primitive = PrimitiveType::Custom;
+        if (typeToken == "plane") {
+            primitive = PrimitiveType::Plane;
+        } else if (typeToken == "cube" || typeToken == "box") {
+            primitive = PrimitiveType::Cube;
+        } else {
+            localResult.skippedRows += 1;
+            continue;
+        }
 
         const auto readFloat = [&](const std::size_t index, const float fallback) {
             float value = fallback;
@@ -375,8 +446,9 @@ bool TryImportAssemblyPrimitivesCsv(Scene& scene,
         options.nodeName = nodeName;
         options.primitive = primitive;
         const std::size_t materialIndex = column({"material", "materialname"}, tokens.size());
-        options.materialName = materialIndex < tokens.size() && !tokens[materialIndex].empty()
-            ? tokens[materialIndex]
+        const std::string materialName = materialIndex < tokens.size() ? Trim(tokens[materialIndex]) : std::string{};
+        options.materialName = !materialName.empty()
+            ? materialName
             : "import_" + nodeName;
         options.transform.position = ri::math::Vec3{
             readFloat(column({"x", "px", "posx", "positionx"}, 2U), 0.0f),
@@ -389,17 +461,17 @@ bool TryImportAssemblyPrimitivesCsv(Scene& scene,
             std::max(readFloat(column({"sz", "scalez"}, 7U), 1.0f), 0.01f),
         };
         options.baseColor = ri::math::Vec3{
-            readFloat(column({"r", "colorr", "colorred"}, 8U), 0.7f),
-            readFloat(column({"g", "colorg", "colorgreen"}, 9U), 0.7f),
-            readFloat(column({"b", "colorb", "colorblue"}, 10U), 0.7f),
+            std::clamp(readFloat(column({"r", "colorr", "colorred"}, 8U), 0.7f), 0.0f, 1.0f),
+            std::clamp(readFloat(column({"g", "colorg", "colorgreen"}, 9U), 0.7f), 0.0f, 1.0f),
+            std::clamp(readFloat(column({"b", "colorb", "colorblue"}, 10U), 0.7f), 0.0f, 1.0f),
         };
         const std::size_t shadingIndex = column({"shading", "shadingmodel"}, 11U);
-        if (shadingIndex < tokens.size() && tokens[shadingIndex] == "unlit") {
+        if (shadingIndex < tokens.size() && NormalizeColumnName(tokens[shadingIndex]) == "unlit") {
             options.shadingModel = ShadingModel::Unlit;
         }
         const std::size_t textureIndex = column({"texture", "basecolortexture"}, 12U);
-        if (textureIndex < tokens.size() && !tokens[textureIndex].empty() && tokens[textureIndex] != "-") {
-            options.baseColorTexture = tokens[textureIndex];
+        if (textureIndex < tokens.size() && !IsMissingAssetToken(tokens[textureIndex])) {
+            options.baseColorTexture = Trim(tokens[textureIndex]);
         }
         const std::size_t tileXIndex = column({"tx", "tilex", "tilingx"}, 13U);
         const std::size_t tileYIndex = column({"ty", "tiley", "tilingy"}, 14U);
@@ -415,11 +487,27 @@ bool TryImportAssemblyPrimitivesCsv(Scene& scene,
             readFloat(column({"rz", "rotz", "rotationz"}, 17U), 0.0f),
         };
 
-        (void)AddPrimitiveNode(scene, options);
-        localResult.spawnedCount += 1;
+        if (AddPrimitiveNode(scene, options) == kInvalidHandle) {
+            localResult.skippedRows += 1;
+        } else {
+            localResult.spawnedCount += 1;
+        }
+    }
+
+    if (input.bad()) {
+        if (result != nullptr) {
+            *result = localResult;
+        }
+        if (errorMessage != nullptr) {
+            *errorMessage = "Failed while reading CSV: " + inputPath.string();
+        }
+        return false;
     }
 
     if (localResult.spawnedCount == 0) {
+        if (result != nullptr) {
+            *result = localResult;
+        }
         if (errorMessage != nullptr) {
             *errorMessage = "No primitive rows imported from: " + inputPath.string();
         }

@@ -2,6 +2,7 @@
 
 #include "RawIron/Render/PostProcessProfiles.h"
 #include "RawIron/Render/ShaderConfig.h"
+#include "RawIron/Render/VulkanWarmupCache.h"
 #include "RawIron/Scene/PhotoModeCamera.h"
 
 #include <cstdint>
@@ -67,13 +68,28 @@ struct VulkanPreviewWindowOptions {
     std::function<void(void*)> onClientHwndCreated{};
     /// Optional Win32 parent HWND. When set, the Vulkan surface is created as an embedded child window.
     void* parentHwnd = nullptr;
+    /// Create the native surface without showing its owned top-level window. Existing/embedded client HWND
+    /// visibility remains controlled by the host. Useful for unattended Vulkan boot and benchmark passes.
+    bool showWindow = true;
     /// When true, native preview renders scene-linear HDR into an offscreen target and runs a fullscreen
     /// composite (tonemap + existing post chain) to the swapchain — foundation for SSAO/SSR/bloom masks.
     bool enableHybridHdrPresentation = true;
+    /// Use the full native GLSL port of the configured SweetFX, ReShade, PD80, and creator post stack.
+    /// The fast composite already carries the common grade/film/CRT controls; opt in when a project uses
+    /// advanced named ports because the monolithic shader can be expensive for a driver to compile.
+    bool enableExtendedPostProcessShader = false;
     /// Seeds shadow-map resolution and stabilization at Vulkan init (0=1024, 1=2048, 2=4096).
     int initialRenderQualityTier = 1;
     /// Optional `shader.cfg` layer applied after each `VulkanNativeSceneFrameCallback` (see `ShaderConfig.h`).
     ShaderPresentationConfig shaderPresentation{};
+    /// Parallel CPU decode staging used before the first native Vulkan upload. Burst mode uses
+    /// the available logical CPUs (reserving one when possible) within maxDecodedBytes.
+    VulkanWarmupCacheOptions warmupCache{};
+    /// Persist the driver pipeline cache between runs. Vulkan identity and checksum validation
+    /// prevent stale/corrupt cache data from reaching the driver.
+    bool enablePersistentPipelineWarmupCache = true;
+    /// Empty selects Saved/Cache/Vulkan/native-scene-pipelines.riwarm under the working directory.
+    std::filesystem::path pipelineWarmupCachePath{};
 };
 
 struct VulkanNativeSceneFrame {
@@ -85,6 +101,10 @@ struct VulkanNativeSceneFrame {
     /// Monotonic snapshot id; unchanged ids mean the editor has not published a new frame payload.
     std::uint64_t frameSequence = 0;
     int cameraNode = -1;
+    /// Lightweight editor camera update. This avoids cloning a large immutable scene snapshot
+    /// for orbit/pan-only frames while keeping view, sky, and lighting camera data current.
+    ri::math::Mat4 cameraWorldOverride = ri::math::IdentityMatrix();
+    bool cameraWorldOverrideEnabled = false;
     ri::scene::PhotoModeCameraOverrides photoMode{};
     bool photoModeEnabled = false;
     /// When non-empty, native Vulkan draws sample albedo textures from this directory.

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -31,6 +32,9 @@ struct RuntimeEventBusMetrics {
     std::size_t listenersAdded = 0;
     std::size_t listenersRemoved = 0;
     std::size_t activeListeners = 0;
+    std::size_t rejectedSubscriptions = 0;
+    std::size_t rejectedEmissions = 0;
+    std::size_t untrackedEventTypes = 0;
     std::unordered_map<std::string, std::size_t> emittedByType;
 };
 
@@ -40,6 +44,7 @@ class RuntimeEventBus {
 public:
     using ListenerId = std::uint64_t;
     using Handler = std::function<void(const RuntimeEvent& event)>;
+    static constexpr ListenerId kInvalidListenerId = 0;
 
     ListenerId On(std::string_view type, Handler handler);
     bool Off(std::string_view type, ListenerId listenerId);
@@ -48,6 +53,8 @@ public:
                     std::string_view sourceScope,
                     std::string_view targetScope,
                     RuntimeEvent event = {});
+    /// Releases listeners and retained diagnostics. Identifier sequences remain monotonic so stale
+    /// listener handles cannot collide with registrations made after the clear.
     void Clear();
     [[nodiscard]] RuntimeEventBusMetrics GetMetrics() const;
     [[nodiscard]] std::vector<RuntimeSignalRouteTrace> GetRecentSignalRoutes(std::size_t maxCount = 64) const;
@@ -63,9 +70,12 @@ private:
     std::size_t emitted_ = 0;
     std::size_t listenersAdded_ = 0;
     std::size_t listenersRemoved_ = 0;
+    std::size_t rejectedSubscriptions_ = 0;
+    std::size_t rejectedEmissions_ = 0;
+    std::size_t untrackedEventTypes_ = 0;
     std::unordered_map<std::string, std::size_t> emittedByType_;
     std::unordered_map<std::string, std::vector<ListenerEntry>> listeners_;
-    std::vector<RuntimeSignalRouteTrace> routeTrace_;
+    std::deque<RuntimeSignalRouteTrace> routeTrace_;
     std::size_t maxRouteTraceCount_ = 1024;
 };
 

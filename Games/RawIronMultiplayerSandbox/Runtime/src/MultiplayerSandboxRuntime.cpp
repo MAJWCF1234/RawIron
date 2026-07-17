@@ -84,6 +84,7 @@ bool RunStandalone(const StandaloneOptions& options,
             ri::games::GameRuntimeBootServices{.manifest = std::move(manifestService), .support = std::move(supportService)});
 
         ri::runtime::AuthoritativeNetConfig net{};
+        net.enabled = !commandLine.HasFlag("--offline");
         net.mode = ParseNetMode(options.netMode);
         net.bindEndpoint.host = "0.0.0.0";
         net.bindEndpoint.port = static_cast<std::uint16_t>(commandLine.GetIntOr("--port", 27015));

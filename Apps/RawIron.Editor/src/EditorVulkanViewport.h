@@ -79,6 +79,9 @@ private:
     bool restartQueued_ = false;
     HWND restartParent_ = nullptr;
     RECT restartBounds_{};
+    std::mutex boundsMutex_{};
+    RECT lastBounds_{};
+    bool lastBoundsValid_ = false;
     mutable std::mutex errorMutex_{};
     std::string lastError_{};
 };

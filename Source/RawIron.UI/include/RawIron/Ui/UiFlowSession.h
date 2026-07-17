@@ -3,6 +3,7 @@
 #include "RawIron/Ui/UiManifest.h"
 
 #include <functional>
+#include <deque>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -29,6 +30,7 @@ public:
 
     /// Ren'Py-style store lookup (empty if unset).
     [[nodiscard]] std::string GetVariableValue(std::string_view id) const;
+    [[nodiscard]] std::string_view GetVariableValueView(std::string_view id) const noexcept;
 
     /// Hides blocks when `visibleWhen` does not match the current store.
     [[nodiscard]] bool IsBlockVisible(const UiBlock& block) const;
@@ -41,16 +43,26 @@ public:
     [[nodiscard]] const std::vector<UiHistoryLine>& History() const noexcept { return history_; }
 
     [[nodiscard]] const std::vector<std::string>& Stack() const noexcept { return stack_; }
+    [[nodiscard]] std::uint64_t NavigationRevision() const noexcept { return navigationRevision_; }
 
 private:
+    struct TransparentStringHash {
+        using is_transparent = void;
+        [[nodiscard]] std::size_t operator()(std::string_view value) const noexcept {
+            return std::hash<std::string_view>{}(value);
+        }
+    };
     [[nodiscard]] bool ActionWhenAllows(const UiAction& action) const;
     void ApplyBundledSetVar(const UiAction& action);
 
     const UiManifest* manifest_ = nullptr;
+    std::unordered_map<std::string, std::size_t, TransparentStringHash, std::equal_to<>> screenIndex_{};
     std::vector<std::string> stack_{};
-    std::unordered_map<std::string, std::string> variables_{};
+    std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> variables_{};
     std::vector<UiHistoryLine> history_{};
-    std::unordered_set<std::string> historyFingerprints_{};
+    std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> historyFingerprints_{};
+    std::deque<std::string> historyFingerprintOrder_{};
+    std::uint64_t navigationRevision_ = 0U;
 };
 
 } // namespace ri::ui

@@ -77,24 +77,26 @@ ri::scene::StarterScene BuildEditorWorkspaceScene(const std::string_view editorP
     return ri::scene::BuildStarterScene(workspaceSceneName);
 }
 
-void AnimateEditorWorkspaceScene(const std::string_view editorPreviewScene,
+bool AnimateEditorWorkspaceScene(const std::string_view editorPreviewScene,
                                  ri::scene::StarterScene& starterScene,
                                  const double elapsedSeconds,
                                  const bool editorOrbitAuthoritative) {
     if (const EditorPreviewHooks* h = Lookup(editorPreviewScene); h != nullptr && h->animate != nullptr) {
         h->animate(starterScene, elapsedSeconds);
-        return;
+        return true;
     }
     if (!editorPreviewScene.empty() && editorPreviewScene != "starter") {
         if (!editorOrbitAuthoritative) {
             ri::scene::AnimateStarterSceneOrbitPreview(starterScene, elapsedSeconds);
+            return true;
         }
-        return;
+        return false;
     }
     ri::scene::AnimateStarterSceneProps(starterScene, elapsedSeconds);
     if (!editorOrbitAuthoritative) {
         ri::scene::AnimateStarterSceneOrbitPreview(starterScene, elapsedSeconds);
     }
+    return true;
 }
 
 void ConfigureEditorViewportForPreview(const std::string_view editorPreviewScene,

@@ -15,6 +15,8 @@ struct StandaloneOptions {
     int height = 720;
     int benchmarkFrames = 0;
     bool hybridHdr = true;
+    bool backgroundWindow = false;
+    bool extendedPostProcess = false;
     bool jiggleTest = false;
     int jigglePreviewFrames = 0;
 };

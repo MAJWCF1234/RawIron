@@ -1,6 +1,7 @@
 #include "RawIron/Logic/LogicGraph.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstdlib>
 #include <functional>
@@ -67,16 +68,25 @@ void FillIoKeypadContext(LogicContext& out, const std::string& buffer) {
     return x;
 }
 
+[[nodiscard]] std::optional<double> ParseStrictFiniteDouble(const std::string_view text) {
+    double parsed = 0.0;
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), parsed);
+    if (text.empty() || result.ec != std::errc{} || result.ptr != text.data() + text.size()
+        || !std::isfinite(parsed)) {
+        return std::nullopt;
+    }
+    return parsed;
+}
+
 [[nodiscard]] double ParseVolumeInput(const LogicContext& ctx, double current) {
     if (ctx.parameter.has_value()) {
         return ClampUnitAudio(*ctx.parameter);
     }
     if (const std::optional<std::string> s = ResolveContextStringField(ctx, {"volume", "value"})) {
-        try {
-            return ClampUnitAudio(std::stod(*s));
-        } catch (...) {
-            return current;
+        if (const std::optional<double> parsed = ParseStrictFiniteDouble(*s)) {
+            return ClampUnitAudio(*parsed);
         }
+        return current;
     }
     return current;
 }
@@ -127,11 +137,7 @@ void FillIoAudioDonePayload(LogicContext& out, bool playing, double volume, cons
     if (it == ctx.fields.end()) {
         return std::nullopt;
     }
-    try {
-        return SanitizeScalar(std::stod(it->second));
-    } catch (...) {
-        return std::nullopt;
-    }
+    return ParseStrictFiniteDouble(it->second);
 }
 
 [[nodiscard]] double NextUnit01(std::uint64_t& s) {
@@ -819,28 +825,25 @@ void LogicGraph::ExpireFlowDebouncers() {
             continue;
         }
         FlowDbncRt& d = slot.flowDbnc;
-        for (int iter = 0; iter < 64; ++iter) {
-            if (d.settleAt == 0 || d.settleAt > nowMs_) {
-                break;
-            }
-            if (d.rawHi == d.pendingHi) {
-                if (d.stableHi != d.pendingHi) {
-                    d.stableHi = d.pendingHi;
-                    LogicContext out{};
-                    out.sourceId = id;
-                    out.analogSignal = d.stableHi ? 1.0 : 0.0;
-                    out.parameter = out.analogSignal;
-                    EmitOutput(id, "Out", out);
-                }
-                d.settleAt = 0;
-                break;
-            }
-            d.pendingHi = d.rawHi;
-            const std::uint32_t step = d.debounceMs == 0 ? 1u : std::max<std::uint32_t>(1u, d.debounceMs);
-            const std::uint64_t next = nowMs_ + static_cast<std::uint64_t>(step);
-            d.settleAt = next < nowMs_ ? std::numeric_limits<std::uint64_t>::max() : next;
-            break;
+        if (d.settleAt == 0 || d.settleAt > nowMs_) {
+            continue;
         }
+        if (d.rawHi == d.pendingHi) {
+            if (d.stableHi != d.pendingHi) {
+                d.stableHi = d.pendingHi;
+                LogicContext out{};
+                out.sourceId = id;
+                out.analogSignal = d.stableHi ? 1.0 : 0.0;
+                out.parameter = out.analogSignal;
+                EmitOutput(id, "Out", out);
+            }
+            d.settleAt = 0;
+            continue;
+        }
+        d.pendingHi = d.rawHi;
+        const std::uint32_t step = d.debounceMs == 0 ? 1u : std::max<std::uint32_t>(1u, d.debounceMs);
+        const std::uint64_t next = nowMs_ + static_cast<std::uint64_t>(step);
+        d.settleAt = next < nowMs_ ? std::numeric_limits<std::uint64_t>::max() : next;
     }
 }
 
@@ -905,28 +908,25 @@ void LogicGraph::ExpireMemChatters() {
             continue;
         }
         MemChatterRt& d = slot.memChatter;
-        for (int iter = 0; iter < 64; ++iter) {
-            if (d.settleAt == 0 || d.settleAt > nowMs_) {
-                break;
-            }
-            if (d.rawHi == d.pendingHi) {
-                if (d.stableHi != d.pendingHi) {
-                    d.stableHi = d.pendingHi;
-                    LogicContext out{};
-                    out.sourceId = id;
-                    out.analogSignal = d.stableHi ? 1.0 : 0.0;
-                    out.parameter = out.analogSignal;
-                    EmitOutput(id, "Stable", out);
-                }
-                d.settleAt = 0;
-                break;
-            }
-            d.pendingHi = d.rawHi;
-            const std::uint32_t step = d.debounceMs == 0 ? 1u : std::max<std::uint32_t>(1u, d.debounceMs);
-            const std::uint64_t next = nowMs_ + static_cast<std::uint64_t>(step);
-            d.settleAt = next < nowMs_ ? std::numeric_limits<std::uint64_t>::max() : next;
-            break;
+        if (d.settleAt == 0 || d.settleAt > nowMs_) {
+            continue;
         }
+        if (d.rawHi == d.pendingHi) {
+            if (d.stableHi != d.pendingHi) {
+                d.stableHi = d.pendingHi;
+                LogicContext out{};
+                out.sourceId = id;
+                out.analogSignal = d.stableHi ? 1.0 : 0.0;
+                out.parameter = out.analogSignal;
+                EmitOutput(id, "Stable", out);
+            }
+            d.settleAt = 0;
+            continue;
+        }
+        d.pendingHi = d.rawHi;
+        const std::uint32_t step = d.debounceMs == 0 ? 1u : std::max<std::uint32_t>(1u, d.debounceMs);
+        const std::uint64_t next = nowMs_ + static_cast<std::uint64_t>(step);
+        d.settleAt = next < nowMs_ ? std::numeric_limits<std::uint64_t>::max() : next;
     }
 }
 

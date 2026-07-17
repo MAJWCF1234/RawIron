@@ -27,6 +27,10 @@ namespace {
     return -1;
 }
 
+[[nodiscard]] char HexDigit(const unsigned value) noexcept {
+    return static_cast<char>(value < 10U ? ('0' + value) : ('A' + (value - 10U)));
+}
+
 [[nodiscard]] bool ParseHexCodeUnit(std::string_view text, const std::size_t index, std::uint32_t& value) noexcept {
     if (index > text.size() || text.size() - index < 4U) {
         return false;
@@ -192,8 +196,9 @@ std::optional<std::size_t> FindJsonKey(std::string_view text, std::string_view k
         std::size_t consumed = index;
         const std::optional<std::string> parsedKey = ParseQuotedString(text, index, &consumed);
         if (!parsedKey.has_value()) {
-            ++index;
-            continue;
+            // Once a quoted token is malformed, continuing byte-by-byte can discover a
+            // convincing-looking key inside the damaged string and return the wrong value.
+            return std::nullopt;
         }
         const std::size_t cursor = SkipWhitespace(text, consumed);
         if (*parsedKey == key && cursor < text.size() && text[cursor] == ':') {
@@ -233,7 +238,7 @@ std::vector<std::string> ExtractJsonStringArray(std::string_view text, std::stri
 
     cursor = SkipWhitespace(text, cursor);
     if (cursor < text.size() && text[cursor] == ']') {
-        return values;
+        return IsJsonValueTerminator(text, cursor + 1U) ? values : std::vector<std::string>{};
     }
     while (cursor < text.size()) {
         cursor = SkipWhitespace(text, cursor);
@@ -249,7 +254,7 @@ std::vector<std::string> ExtractJsonStringArray(std::string_view text, std::stri
         values.push_back(*item);
         cursor = SkipWhitespace(text, consumed);
         if (cursor < text.size() && text[cursor] == ']') {
-            return values;
+            return IsJsonValueTerminator(text, cursor + 1U) ? values : std::vector<std::string>{};
         }
         if (cursor < text.size() && text[cursor] == ',') {
             ++cursor;
@@ -295,16 +300,22 @@ std::optional<std::int32_t> ExtractJsonInt(std::string_view text, std::string_vi
         return std::nullopt;
     }
 
+    const std::size_t digitsStart = cursor;
+
     constexpr std::int64_t kMaxPositive = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max());
     constexpr std::int64_t kMaxNegativeMagnitude = kMaxPositive + 1LL;
     const std::int64_t limit = negative ? kMaxNegativeMagnitude : kMaxPositive;
     std::int64_t value = 0;
     while (cursor < text.size() && std::isdigit(static_cast<unsigned char>(text[cursor])) != 0) {
-        value = value * 10 + static_cast<std::int64_t>(text[cursor] - '0');
-        ++cursor;
-        if (value > limit) {
+        const std::int64_t digit = static_cast<std::int64_t>(text[cursor] - '0');
+        if (value > (limit - digit) / 10LL) {
             return std::nullopt;
         }
+        value = value * 10LL + digit;
+        ++cursor;
+    }
+    if (cursor - digitsStart > 1U && text[digitsStart] == '0') {
+        return std::nullopt;
     }
     if (!IsJsonValueTerminator(text, cursor)) {
         return std::nullopt;
@@ -397,28 +408,17 @@ std::optional<std::size_t> FindMatchingBrace(std::string_view text, std::size_t 
     }
     std::size_t depth = 1;
     std::size_t index = openBraceIndex + 1;
-    bool inString = false;
-    bool escaping = false;
     while (index < text.size() && depth > 0) {
-        const char character = text[index++];
-        if (inString) {
-            if (escaping) {
-                escaping = false;
-                continue;
-            }
-            if (character == '\\') {
-                escaping = true;
-                continue;
-            }
-            if (character == '"') {
-                inString = false;
-            }
-            continue;
-        }
+        const char character = text[index];
         if (character == '"') {
-            inString = true;
+            std::size_t consumed = index;
+            if (!ParseQuotedString(text, index, &consumed).has_value()) {
+                return std::nullopt;
+            }
+            index = consumed;
             continue;
         }
+        ++index;
         if (character == '{') {
             ++depth;
             continue;
@@ -443,7 +443,7 @@ std::optional<std::string_view> ExtractJsonObject(std::string_view text, std::st
         return std::nullopt;
     }
     const std::optional<std::size_t> endExclusive = FindMatchingBrace(text, cursor);
-    if (!endExclusive.has_value()) {
+    if (!endExclusive.has_value() || !IsJsonValueTerminator(text, *endExclusive)) {
         return std::nullopt;
     }
     return text.substr(cursor, *endExclusive - cursor);
@@ -458,6 +458,7 @@ std::optional<std::uint64_t> ExtractJsonUInt64(std::string_view text, std::strin
     if (cursor >= text.size() || !std::isdigit(static_cast<unsigned char>(text[cursor]))) {
         return std::nullopt;
     }
+    const std::size_t digitsStart = cursor;
     std::uint64_t value = 0;
     while (cursor < text.size() && std::isdigit(static_cast<unsigned char>(text[cursor])) != 0) {
         const int digit = text[cursor] - '0';
@@ -466,6 +467,9 @@ std::optional<std::uint64_t> ExtractJsonUInt64(std::string_view text, std::strin
             return std::nullopt;
         }
         value = value * 10ULL + static_cast<std::uint64_t>(digit);
+    }
+    if (cursor - digitsStart > 1U && text[digitsStart] == '0') {
+        return std::nullopt;
     }
     if (!IsJsonValueTerminator(text, cursor)) {
         return std::nullopt;
@@ -485,29 +489,36 @@ std::vector<std::string_view> SplitJsonArrayObjects(std::string_view text, std::
     }
     ++cursor;
 
+    cursor = SkipWhitespace(text, cursor);
+    if (cursor < text.size() && text[cursor] == ']') {
+        return IsJsonValueTerminator(text, cursor + 1U) ? objects : std::vector<std::string_view>{};
+    }
+
     while (cursor < text.size()) {
         cursor = SkipWhitespace(text, cursor);
-        if (cursor >= text.size()) {
-            break;
-        }
-        if (text[cursor] == ']') {
-            break;
-        }
-        if (text[cursor] != '{') {
-            break;
+        if (cursor >= text.size() || text[cursor] != '{') {
+            return {};
         }
         const std::optional<std::size_t> endExclusive = FindMatchingBrace(text, cursor);
         if (!endExclusive.has_value()) {
-            break;
+            return {};
         }
         objects.push_back(text.substr(cursor, *endExclusive - cursor));
         cursor = SkipWhitespace(text, *endExclusive);
         if (cursor < text.size() && text[cursor] == ',') {
             ++cursor;
+            const std::size_t next = SkipWhitespace(text, cursor);
+            if (next >= text.size() || text[next] == ']') {
+                return {};
+            }
+            continue;
         }
+        if (cursor < text.size() && text[cursor] == ']') {
+            return IsJsonValueTerminator(text, cursor + 1U) ? objects : std::vector<std::string_view>{};
+        }
+        return {};
     }
-
-    return objects;
+    return {};
 }
 
 std::string EscapeJsonString(std::string_view utf8) {
@@ -538,7 +549,10 @@ std::string EscapeJsonString(std::string_view utf8) {
                 break;
             default:
                 if (static_cast<unsigned char>(character) < 0x20U) {
-                    out.push_back(character);
+                    const unsigned byte = static_cast<unsigned char>(character);
+                    out += "\\u00";
+                    out.push_back(HexDigit(byte >> 4U));
+                    out.push_back(HexDigit(byte & 0x0FU));
                 } else {
                     out.push_back(character);
                 }

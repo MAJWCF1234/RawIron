@@ -3,7 +3,7 @@
 #include "RawIron/Logic/LogicKitManifest.h"
 #include "RawIron/Logic/WorldActorPorts.h"
 
-#include <type_traits>
+#include <array>
 
 namespace ri::logic {
 namespace {
@@ -21,72 +21,21 @@ LogicNodePortSchema BuildSchema(std::string_view kind,
 } // namespace
 
 std::string_view GetLogicNodeKindName(const LogicNodeDefinition& definition) {
-    return std::visit([](const auto& node) -> std::string_view {
-        using T = std::decay_t<decltype(node)>;
-        if constexpr (std::is_same_v<T, RelayNode>) return "logic_relay";
-        if constexpr (std::is_same_v<T, TimerNode>) return "logic_timer";
-        if constexpr (std::is_same_v<T, CounterNode>) return "logic_counter";
-        if constexpr (std::is_same_v<T, CompareNode>) return "logic_compare";
-        if constexpr (std::is_same_v<T, SequencerNode>) return "logic_sequencer";
-        if constexpr (std::is_same_v<T, PulseNode>) return "logic_pulse";
-        if constexpr (std::is_same_v<T, LatchNode>) return "logic_latch";
-        if constexpr (std::is_same_v<T, ChannelNode>) return "logic_channel";
-        if constexpr (std::is_same_v<T, MergeNode>) return "logic_merge";
-        if constexpr (std::is_same_v<T, SplitNode>) return "logic_split";
-        if constexpr (std::is_same_v<T, PredicateNode>) return "logic_predicate";
-        if constexpr (std::is_same_v<T, InventoryGateNode>) return "logic_inventory_gate";
-        if constexpr (std::is_same_v<T, TriggerDetectorNode>) return "logic_trigger_detector";
-        if constexpr (std::is_same_v<T, GateAndNode>) return "gate_and";
-        if constexpr (std::is_same_v<T, GateOrNode>) return "gate_or";
-        if constexpr (std::is_same_v<T, GateNotNode>) return "gate_not";
-        if constexpr (std::is_same_v<T, GateBufNode>) return "gate_buf";
-        if constexpr (std::is_same_v<T, GateXnorNode>) return "gate_xnor";
-        if constexpr (std::is_same_v<T, GateXorNode>) return "gate_xor";
-        if constexpr (std::is_same_v<T, GateNandNode>) return "gate_nand";
-        if constexpr (std::is_same_v<T, GateNorNode>) return "gate_nor";
-        if constexpr (std::is_same_v<T, MathAbsNode>) return "math_abs";
-        if constexpr (std::is_same_v<T, MathMinNode>) return "math_min";
-        if constexpr (std::is_same_v<T, MathMaxNode>) return "math_max";
-        if constexpr (std::is_same_v<T, MathClampNode>) return "math_clamp";
-        if constexpr (std::is_same_v<T, MathRoundNode>) return "math_round";
-        if constexpr (std::is_same_v<T, MathLerpNode>) return "math_lerp";
-        if constexpr (std::is_same_v<T, MathSignNode>) return "math_sign";
-        if constexpr (std::is_same_v<T, RouteTeeNode>) return "route_tee";
-        if constexpr (std::is_same_v<T, RoutePassNode>) return "route_pass";
-        if constexpr (std::is_same_v<T, RouteMuxNode>) return "route_mux";
-        if constexpr (std::is_same_v<T, RouteDemuxNode>) return "route_demux";
-        if constexpr (std::is_same_v<T, MathAddNode>) return "math_add";
-        if constexpr (std::is_same_v<T, MathSubNode>) return "math_sub";
-        if constexpr (std::is_same_v<T, MathMultNode>) return "math_mult";
-        if constexpr (std::is_same_v<T, MathDivNode>) return "math_div";
-        if constexpr (std::is_same_v<T, MathModNode>) return "math_mod";
-        if constexpr (std::is_same_v<T, MathCompareNode>) return "math_compare";
-        if constexpr (std::is_same_v<T, RouteSelectNode>) return "route_select";
-        if constexpr (std::is_same_v<T, RouteMergeNode>) return "route_merge";
-        if constexpr (std::is_same_v<T, RouteUnpackNode>) return "route_unpack";
-        if constexpr (std::is_same_v<T, RoutePackNode>) return "route_pack";
-        if constexpr (std::is_same_v<T, MemEdgeNode>) return "mem_edge";
-        if constexpr (std::is_same_v<T, FlowRandomNode>) return "flow_random";
-        if constexpr (std::is_same_v<T, RouteSplitNode>) return "route_split";
-        if constexpr (std::is_same_v<T, FlowRiseNode>) return "flow_rise";
-        if constexpr (std::is_same_v<T, FlowFallNode>) return "flow_fall";
-        if constexpr (std::is_same_v<T, FlowDbncNode>) return "flow_dbnc";
-        if constexpr (std::is_same_v<T, FlowOneshotNode>) return "flow_oneshot";
-        if constexpr (std::is_same_v<T, TimeDelayNode>) return "time_delay";
-        if constexpr (std::is_same_v<T, TimeClockNode>) return "time_clock";
-        if constexpr (std::is_same_v<T, TimeWatchNode>) return "time_watch";
-        if constexpr (std::is_same_v<T, MemSampleNode>) return "mem_sample";
-        if constexpr (std::is_same_v<T, MemChatterNode>) return "mem_chatter";
-        if constexpr (std::is_same_v<T, FlowDoOnceNode>) return "flow_do_once";
-        if constexpr (std::is_same_v<T, FlowRelayNode>) return "flow_relay";
-        if constexpr (std::is_same_v<T, IoButtonNode>) return "io_button";
-        if constexpr (std::is_same_v<T, IoKeypadNode>) return "io_keypad";
-        if constexpr (std::is_same_v<T, IoDisplayNode>) return "io_display";
-        if constexpr (std::is_same_v<T, IoAudioNode>) return "io_audio";
-        if constexpr (std::is_same_v<T, IoLoggerNode>) return "io_logger";
-        if constexpr (std::is_same_v<T, IoTriggerNode>) return "io_trigger";
-        return "logic_unknown";
-    }, definition);
+    static constexpr std::array<std::string_view, std::variant_size_v<LogicNodeDefinition>> kKindNames{
+        "logic_relay", "logic_timer", "logic_counter", "logic_compare", "logic_sequencer",
+        "logic_pulse", "logic_latch", "logic_channel", "logic_merge", "logic_split",
+        "logic_predicate", "logic_inventory_gate", "logic_trigger_detector", "gate_and", "gate_or",
+        "gate_not", "gate_buf", "gate_xnor", "gate_xor", "gate_nand", "gate_nor", "math_abs",
+        "math_min", "math_max", "math_clamp", "math_round", "math_lerp", "math_sign", "route_tee",
+        "route_pass", "route_mux", "route_demux", "math_add", "math_sub", "math_mult", "math_div",
+        "math_mod", "math_compare", "route_select", "route_merge", "route_unpack", "route_pack",
+        "mem_edge", "flow_random", "route_split", "flow_rise", "flow_fall", "flow_dbnc",
+        "flow_oneshot", "time_delay", "time_clock", "time_watch", "mem_sample", "mem_chatter",
+        "flow_do_once", "flow_relay", "io_button", "io_keypad", "io_display", "io_audio", "io_logger",
+        "io_trigger",
+    };
+    return definition.valueless_by_exception() ? std::string_view{"logic_unknown"}
+                                               : kKindNames[definition.index()];
 }
 
 LogicNodePortSchema GetLogicNodePortSchema(std::string_view kind) {

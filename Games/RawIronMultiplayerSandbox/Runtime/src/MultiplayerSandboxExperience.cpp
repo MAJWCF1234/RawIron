@@ -808,6 +808,20 @@ void AttachSandboxNetModules(ri::runtime::RuntimeCore& runtime,
                              const StandaloneOptions& options,
                              const ri::core::CommandLine& commandLine) {
     ri::runtime::AuthoritativeNetConfig net{};
+    net.enabled = !commandLine.HasFlag("--offline");
+#if !defined(RAWIRON_HAS_ENET)
+    const bool networkingExplicitlyRequested =
+        commandLine.GetValue("--net-mode").has_value() ||
+        commandLine.GetValue("--join-code").has_value() ||
+        commandLine.GetValue("--connect-host").has_value() ||
+        commandLine.GetValue("--connect-port").has_value() ||
+        commandLine.GetValue("--port").has_value() ||
+        commandLine.HasFlag("--issue-join-code");
+    if (net.enabled && !networkingExplicitlyRequested) {
+        net.enabled = false;
+        ri::core::LogInfo("ENet backend unavailable; local play is falling back to offline mode.");
+    }
+#endif
     net.mode = ParseNetMode(options.netMode);
     net.bindEndpoint.host = "0.0.0.0";
     net.bindEndpoint.port = static_cast<std::uint16_t>(commandLine.GetIntOr("--port", 27015));

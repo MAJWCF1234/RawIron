@@ -3,6 +3,7 @@
 #include "RawIron/Scene/Scene.h"
 #include "RawIron/Trace/TraceScene.h"
 
+#include <filesystem>
 #include <string_view>
 #include <vector>
 
@@ -23,7 +24,9 @@ struct CubeTestWorld {
     std::vector<ri::trace::TraceCollider> colliders;
 };
 
-[[nodiscard]] CubeTestWorld BuildCubeTestWorld(std::string_view sceneName = "Cube Test");
+[[nodiscard]] CubeTestWorld BuildCubeTestWorld(
+    std::string_view sceneName = "Cube Test",
+    const std::filesystem::path& workspaceRoot = {});
 void AnimateCubeTestWorld(CubeTestWorld& world, double elapsedSeconds);
 void AnimateCubeTestWorldJiggle(CubeTestWorld& world, double elapsedSeconds);
 
