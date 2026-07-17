@@ -22,7 +22,7 @@
   "textures": [
     {
       "name": "barbatosLutAtlas",
-      "path": "Textures/Barbatos_LUT_Atlas.png",
+      "path": "native://Barbatos/Barbatos_LUT_Atlas.png",
       "required": true,
       "colorSpace": "linear"
     }

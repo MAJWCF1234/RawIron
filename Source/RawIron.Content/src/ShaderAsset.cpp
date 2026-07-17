@@ -198,7 +198,11 @@ bool LoadRawIronShaderAsset(const fs::path& path, RawIronShaderAsset* out, std::
                 return false;
             }
         }
-        const fs::path relative(texture.relativePath);
+        constexpr std::string_view kNativeTexturePrefix = "native://";
+        const bool usesNativeTextureBundle = texture.relativePath.starts_with(kNativeTexturePrefix);
+        const fs::path relative(usesNativeTextureBundle
+            ? texture.relativePath.substr(kNativeTexturePrefix.size())
+            : texture.relativePath);
         if (!IsSafeIdentifier(texture.name) || !textureNames.insert(texture.name).second) {
             if (error != nullptr) *error = "Native shader texture name is empty, invalid, or duplicated in " + canonicalPath.generic_string();
             return false;
@@ -207,9 +211,29 @@ bool LoadRawIronShaderAsset(const fs::path& path, RawIronShaderAsset* out, std::
             if (error != nullptr) *error = "Native shader texture path is unsafe in " + canonicalPath.generic_string();
             return false;
         }
-        texture.resolvedPath = fs::weakly_canonical(canonicalPath.parent_path() / relative, ec);
-        if (ec || !IsWithin(texture.resolvedPath, canonicalPath.parent_path())) {
-            if (error != nullptr) *error = "Native shader texture escapes its asset directory in " + canonicalPath.generic_string();
+        fs::path textureRoot = canonicalPath.parent_path();
+        if (usesNativeTextureBundle) {
+            fs::path search = canonicalPath.parent_path();
+            textureRoot.clear();
+            for (int depth = 0; depth < 8 && !search.empty(); ++depth) {
+                const fs::path candidate = search / "NativeTextures";
+                ec.clear();
+                if (fs::is_directory(candidate, ec) && !ec) {
+                    textureRoot = fs::weakly_canonical(candidate, ec);
+                    break;
+                }
+                const fs::path parent = search.parent_path();
+                if (parent == search) break;
+                search = parent;
+            }
+            if (textureRoot.empty() || ec) {
+                if (error != nullptr) *error = "Native shader texture bundle could not be resolved for " + canonicalPath.generic_string();
+                return false;
+            }
+        }
+        texture.resolvedPath = fs::weakly_canonical(textureRoot / relative, ec);
+        if (ec || !IsWithin(texture.resolvedPath, textureRoot)) {
+            if (error != nullptr) *error = "Native shader texture escapes its allowed texture root in " + canonicalPath.generic_string();
             return false;
         }
         if (texture.required && !fs::is_regular_file(texture.resolvedPath, ec)) {

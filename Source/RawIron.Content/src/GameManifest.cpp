@@ -227,6 +227,14 @@ fs::path DetectWorkspaceRoot(const fs::path& startPath) {
     if (current.empty()) {
         current = fs::current_path();
     }
+    // A relative game/manifest root has no usable parent chain once traversal reaches
+    // its first component (for example Games/CubeTest -> Games -> empty). Anchor it to
+    // the process directory before walking so every caller gets the same workspace.
+    std::error_code absoluteEc{};
+    const fs::path absoluteCurrent = fs::absolute(current, absoluteEc);
+    if (!absoluteEc) {
+        current = absoluteCurrent.lexically_normal();
+    }
     if (fs::is_regular_file(current)) {
         current = current.parent_path();
     }

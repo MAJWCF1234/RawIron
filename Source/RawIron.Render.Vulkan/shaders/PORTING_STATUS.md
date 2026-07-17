@@ -1,7 +1,7 @@
 # Reference shader migration status
 
 The migration source initially contained 781 files: 419 `.fx` effects, 222 `.fxh` includes, 131 PNG textures,
-and nine other assets. Ten files have moved out of the reference tree, leaving 771. A reference source is removed only after its native Raw Iron replacement builds in both
+and nine other assets. All 139 texture assets are now centralized under `shaders/NativeTextures`; 634 reference source/checklist files remain. A reference source is removed only after its native Raw Iron replacement builds in both
 applicable shader paths, has a `.rishader` asset, preserves required notices, and has regression coverage.
 
 ## Completed
@@ -11,6 +11,8 @@ applicable shader paths, has a `.rishader` asset, preserves required notices, an
 | CropResize / `Resizer.fx` | `NativeEffects/crop_resize.rishader` | Fast + extended composite | None required | `ReferenceShaderMigrationSmoke` |
 | Barbatos / `uFakeHDR.fx` v3.2 | `NativeEffects/barbatos_fake_hdr.rishader` | Fast + extended composite | `Barbatos_LUT_Atlas.png` | Asset parse + SHA-256 + shader wiring |
 | Shared Layer/SMAA/LUT runtime resources | Native shader bundle | Native descriptor sets | `NativeTextures/{Layer,AreaTex,SearchTex,lut}.png` | SHA-256 + staging checks |
+| Complete reference texture tree | Recursive native texture bundle | `native://` asset resolver + recursive Vulkan staging | 139 files / preserved hierarchy | Full-tree staging regression |
+| PD80 LUT/noise/color-space core | `NativeEffects/pd80_cinetools_lut.rishader` | Extended composite + native six-binding resource bundle | Blue-noise RGBA, permutation, 31-row Cinetools LUT | Asset paths + linear upload + real shader sampling |
 
 ## Raw Iron-owned capability replacements
 

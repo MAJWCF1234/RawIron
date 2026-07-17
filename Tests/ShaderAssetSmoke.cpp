@@ -15,6 +15,16 @@ int main(int argc, char** argv) {
     }
     const fs::path workspaceRoot(argv[1]);
 
+    std::error_code relativeEc{};
+    const fs::path relativeGameRoot = fs::relative(workspaceRoot / "Games" / "CubeTest", fs::current_path(), relativeEc);
+    const fs::path detectedFromRelative =
+        ri::content::DetectWorkspaceRoot(relativeEc ? fs::path("Games/CubeTest") : relativeGameRoot);
+    std::error_code equivalentEc{};
+    if (!fs::equivalent(detectedFromRelative, workspaceRoot, equivalentEc) || equivalentEc) {
+        std::cerr << "Relative game roots do not resolve to the engine workspace.\n";
+        return 20;
+    }
+
     struct ExpectedManifest {
         const char* game;
         std::size_t entries;
@@ -118,6 +128,7 @@ int main(int argc, char** argv) {
         || fakeHdr.presentation.parameters.barbatosFakeHdrStrength != 1.0f
         || fakeHdr.textures.size() != 1U
         || fakeHdr.textures.front().srgb
+        || !fakeHdr.textures.front().relativePath.starts_with("native://")
         || !fs::is_regular_file(fakeHdr.textures.front().resolvedPath)) {
         std::cerr << "Native Barbatos Fake HDR parameters or texture were not resolved deterministically.\n";
         return 13;
@@ -142,6 +153,29 @@ int main(int argc, char** argv) {
         || inkOutline.presentation.parameters.riOutlineThickness != 1.5f) {
         std::cerr << "Raw Iron native post capability parameters were not parsed deterministically.\n";
         return 16;
+    }
+
+    ri::content::RawIronShaderAsset pd80Cinetools{};
+    if (!ri::content::LoadRawIronShaderAsset(
+            nativeEffectRoot / "pd80_cinetools_lut.rishader", &pd80Cinetools, &cropError)) {
+        std::cerr << "PD80 native Cinetools LUT asset failed to load: " << cropError << '\n';
+        return 17;
+    }
+    if (!pd80Cinetools.presentation.loaded
+        || pd80Cinetools.presentation.parameters.pd80CltLutSelector != 0.0f
+        || pd80Cinetools.presentation.parameters.pd80CltMixChroma != 1.0f
+        || pd80Cinetools.presentation.parameters.pd80CltMixLuma != 1.0f
+        || pd80Cinetools.presentation.parameters.pd80CltGamma != 1.0f
+        || pd80Cinetools.textures.size() != 3U) {
+        std::cerr << "PD80 native Cinetools LUT parameters were not parsed deterministically.\n";
+        return 18;
+    }
+    for (const auto& texture : pd80Cinetools.textures) {
+        if (texture.srgb || !texture.relativePath.starts_with("native://")
+            || !fs::is_regular_file(texture.resolvedPath)) {
+            std::cerr << "PD80 native Cinetools LUT texture was not resolved as linear native data.\n";
+            return 19;
+        }
     }
 
     std::cout << "Validated native .rishader assets and manifest composition.\n";

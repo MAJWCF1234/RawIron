@@ -4952,6 +4952,53 @@ struct NativeAlbedoTextureCache {
         vkUpdateDescriptorSets(device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
     }
 
+    [[nodiscard]] static fs::path resolveAuthoredTexturePath(const fs::path& textureRoot,
+                                                             const std::string& authoredPath) {
+        if (authoredPath.empty()) {
+            return {};
+        }
+        const fs::path requested = fs::path(authoredPath).lexically_normal();
+        if (requested.is_absolute()) {
+            return requested;
+        }
+
+        // Most material paths are texture-root relative (for example "tile/foo.png").
+        // Runtime helpers may instead author workspace-relative paths such as
+        // "Assets/Packages/foo.png". Probe both contracts before preserving the legacy
+        // candidate for useful missing-file diagnostics.
+        const fs::path textureCandidate =
+            !textureRoot.empty() ? (textureRoot / requested).lexically_normal() : fs::path{};
+        std::error_code ec{};
+        if (!textureCandidate.empty() && fs::is_regular_file(textureCandidate, ec) && !ec) {
+            return textureCandidate;
+        }
+        ec.clear();
+        if (fs::is_regular_file(requested, ec) && !ec) {
+            fs::path absoluteRequested = fs::absolute(requested, ec);
+            return !ec ? absoluteRequested.lexically_normal() : requested;
+        }
+
+        // Support processes launched outside the workspace by walking up from an absolute
+        // texture root. The cap prevents malformed roots from causing unbounded probing.
+        ec.clear();
+        fs::path ancestor = fs::absolute(textureRoot, ec).lexically_normal();
+        if (!ec) {
+            for (int depth = 0; depth < 8 && !ancestor.empty(); ++depth) {
+                const fs::path candidate = (ancestor / requested).lexically_normal();
+                ec.clear();
+                if (fs::is_regular_file(candidate, ec) && !ec) {
+                    return candidate;
+                }
+                const fs::path parent = ancestor.parent_path();
+                if (parent == ancestor) {
+                    break;
+                }
+                ancestor = parent;
+            }
+        }
+        return textureCandidate;
+    }
+
     [[nodiscard]] VkDescriptorSet descriptorFor(const ri::scene::Scene& scene,
                                                const NativeSceneDraw& draw,
                                                const fs::path& textureRoot) {
@@ -4965,12 +5012,7 @@ struct NativeAlbedoTextureCache {
         const std::string albedoRel =
             !draw.resolvedAlbedoRelPath.empty() ? draw.resolvedAlbedoRelPath : ResolveMaterialTextureRelPath(material);
         const auto makeAbsolute = [&textureRoot](const std::string& relPath) -> fs::path {
-            if (relPath.empty()) {
-                return {};
-            }
-            const fs::path requestedPath = fs::path(relPath).lexically_normal();
-            return requestedPath.is_absolute() ? requestedPath
-                                               : (!textureRoot.empty() ? (textureRoot / requestedPath).lexically_normal() : fs::path{});
+            return resolveAuthoredTexturePath(textureRoot, relPath);
         };
         const fs::path albedoPath = makeAbsolute(albedoRel);
         const fs::path authoredNormalPath = makeAbsolute(material.normalTexture);
@@ -5066,12 +5108,7 @@ struct NativeAlbedoTextureCache {
         std::vector<fs::path> decodePaths{};
         std::unordered_set<std::string> decodeKeys{};
         const auto makeAbsolute = [&textureRoot](const std::string& relPath) -> fs::path {
-            if (relPath.empty()) {
-                return {};
-            }
-            const fs::path requestedPath = fs::path(relPath).lexically_normal();
-            return requestedPath.is_absolute() ? requestedPath
-                                               : (!textureRoot.empty() ? (textureRoot / requestedPath).lexically_normal() : fs::path{});
+            return resolveAuthoredTexturePath(textureRoot, relPath);
         };
         const auto addDecodePath = [&decodePaths, &decodeKeys](const fs::path& path) {
             if (path.empty() || path.filename() == "-" || path.filename() == "0"
@@ -5172,6 +5209,48 @@ struct NativeAlbedoTextureCache {
         return set;
     }
 
+    // Native post-processing effects share the six-binding material texture layout so the
+    // renderer does not need another descriptor pool/layout family. Unlike
+    // descriptorForAbsolutePath(), each binding is intentionally distinct and decoded as
+    // linear data: noise, permutation, and LUT texels must never receive an sRGB transform.
+    [[nodiscard]] VkDescriptorSet descriptorForNativePostBundle(
+        const std::array<fs::path, 3>& absolutePaths) {
+        if (whiteDescriptorSet == VK_NULL_HANDLE) {
+            return VK_NULL_HANDLE;
+        }
+
+        std::string key = "__native_post_bundle__";
+        for (const fs::path& path : absolutePaths) {
+            key += '|';
+            key += path.generic_string();
+        }
+        if (const auto it = descriptorByKey.find(key); it != descriptorByKey.end()) {
+            return it->second;
+        }
+
+        std::array<const GpuAlbedoImage*, 3> loaded{};
+        for (std::size_t index = 0; index < absolutePaths.size(); ++index) {
+            if (!absolutePaths[index].empty()) {
+                loaded[index] = resolveImageForAbsolutePath(absolutePaths[index], kDataTextureFormat);
+            }
+        }
+        const GpuAlbedoImage& fallback = ResolveFallbackWhite();
+        VkDescriptorSet set = allocateDescriptorSet();
+        if (set == VK_NULL_HANDLE) {
+            descriptorByKey.emplace(key, whiteDescriptorSet);
+            return whiteDescriptorSet;
+        }
+        writeMaterialDescriptorSet(set,
+                                   loaded[0] != nullptr ? *loaded[0] : fallback,
+                                   loaded[1] != nullptr ? *loaded[1] : fallback,
+                                   loaded[2] != nullptr ? *loaded[2] : fallback,
+                                   fallback,
+                                   fallback,
+                                   fallback);
+        descriptorByKey.emplace(std::move(key), set);
+        return set;
+    }
+
     void initialize(VkPhysicalDevice physDevice,
                     VkDevice dev,
                     VkCommandPool pool,
@@ -5247,6 +5326,7 @@ void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
                                           VkDescriptorSet smaaSearchTextureDescriptorSet,
                                           VkDescriptorSet lutTextureDescriptorSet,
                                           VkDescriptorSet barbatosLutTextureDescriptorSet,
+                                          VkDescriptorSet nativePostTextureDescriptorSet,
                                           VkImage swapchainImage,
                                           VkImage fakeMotionBlurHistoryImage,
                                           float fakeMotionBlurRecall);
@@ -5294,6 +5374,7 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                               VkDescriptorSet hybridCompositeSmaaSearchDescriptorSet,
                               VkDescriptorSet hybridCompositeLutDescriptorSet,
                               VkDescriptorSet hybridCompositeBarbatosLutDescriptorSet,
+                              VkDescriptorSet hybridCompositeNativePostDescriptorSet,
                               VkFramebuffer hybridBundleFramebuffer,
                               VkRenderPass hybridBundleRenderPass,
                               VkPipeline hybridBundlePipeline,
@@ -5618,6 +5699,7 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                                          hybridCompositeSmaaSearchDescriptorSet,
                                          hybridCompositeLutDescriptorSet,
                                          hybridCompositeBarbatosLutDescriptorSet,
+                                         hybridCompositeNativePostDescriptorSet,
                                          swapchainImage,
                                          fakeMotionBlurHistoryImage,
                                          fakeMotionBlurRecall);
@@ -5637,6 +5719,7 @@ void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
                                           VkDescriptorSet smaaSearchTextureDescriptorSet,
                                           VkDescriptorSet lutTextureDescriptorSet,
                                           VkDescriptorSet barbatosLutTextureDescriptorSet,
+                                          VkDescriptorSet nativePostTextureDescriptorSet,
                                           VkImage swapchainImage,
                                           VkImage fakeMotionBlurHistoryImage,
                                           float fakeMotionBlurRecall) {
@@ -5644,7 +5727,8 @@ void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
         || compositePipeline == VK_NULL_HANDLE || compositePipelineLayout == VK_NULL_HANDLE
         || hdrTextureDescriptorSet == VK_NULL_HANDLE || layerTextureDescriptorSet == VK_NULL_HANDLE
         || smaaAreaTextureDescriptorSet == VK_NULL_HANDLE || smaaSearchTextureDescriptorSet == VK_NULL_HANDLE
-        || lutTextureDescriptorSet == VK_NULL_HANDLE || barbatosLutTextureDescriptorSet == VK_NULL_HANDLE) {
+        || lutTextureDescriptorSet == VK_NULL_HANDLE || barbatosLutTextureDescriptorSet == VK_NULL_HANDLE
+        || nativePostTextureDescriptorSet == VK_NULL_HANDLE) {
         return;
     }
     const VkClearValue compositeClear{};
@@ -5675,14 +5759,15 @@ void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline);
     vkCmdSetViewport(commandBuffer, 0, 1, &compositeViewport);
     vkCmdSetScissor(commandBuffer, 0, 1, &compositeScissor);
-    const std::array<VkDescriptorSet, 7> compositeSets = {
+    const std::array<VkDescriptorSet, 8> compositeSets = {
         cameraDescriptorSet,
         hdrTextureDescriptorSet,
         layerTextureDescriptorSet,
         smaaAreaTextureDescriptorSet,
         smaaSearchTextureDescriptorSet,
         lutTextureDescriptorSet,
-        barbatosLutTextureDescriptorSet};
+        barbatosLutTextureDescriptorSet,
+        nativePostTextureDescriptorSet};
     vkCmdBindDescriptorSets(commandBuffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
                             compositePipelineLayout,
@@ -6513,9 +6598,10 @@ bool RunVulkanNativeSceneLoop(const int width,
             ExpectVk(vkCreateDescriptorSetLayout(device, &compositeHdrSamplerLayoutInfo, nullptr, &compositeHdrTextureSetLayout),
                      "vkCreateDescriptorSetLayout(composite-hdr)");
 
-            const std::array<VkDescriptorSetLayout, 7> compositePipelineSetLayouts = {
+            const std::array<VkDescriptorSetLayout, 8> compositePipelineSetLayouts = {
                 cameraSetLayout,
                 compositeHdrTextureSetLayout,
+                textureSetLayout,
                 textureSetLayout,
                 textureSetLayout,
                 textureSetLayout,
@@ -7511,7 +7597,12 @@ bool RunVulkanNativeSceneLoop(const int width,
         const fs::path sweetFxSmaaAreaTexturePath = nativePostTextureRoot / "AreaTex.png";
         const fs::path sweetFxSmaaSearchTexturePath = nativePostTextureRoot / "SearchTex.png";
         const fs::path reshadeLutTexturePath = nativePostTextureRoot / "lut.png";
-        const fs::path barbatosLutTexturePath = nativePostTextureRoot / "Barbatos_LUT_Atlas.png";
+        const fs::path barbatosLutTexturePath = nativePostTextureRoot / "Barbatos" / "Barbatos_LUT_Atlas.png";
+        const std::array<fs::path, 3> pd80NativeTexturePaths = {
+            nativePostTextureRoot / "PD80" / "pd80_bluenoise_rgba.png",
+            nativePostTextureRoot / "PD80" / "pd80_permtexture.png",
+            nativePostTextureRoot / "PD80" / "pd80_cinelut.png",
+        };
         if (nativePostTextureRoot.empty()) {
             ri::core::LogInfo("Vulkan native post texture bundle unavailable; texture-backed post effects use safe fallbacks.");
         } else {
@@ -8105,6 +8196,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             VkDescriptorSet sweetFxSmaaSearchTextureSet = textureCache.whiteDescriptorSet;
             VkDescriptorSet reshadeLutTextureSet = textureCache.whiteDescriptorSet;
             VkDescriptorSet barbatosLutTextureSet = textureCache.whiteDescriptorSet;
+            VkDescriptorSet nativePostTextureSet = textureCache.whiteDescriptorSet;
             if (enableHybridHdr) {
                 if (const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(sweetFxLayerTexturePath);
                     loaded != VK_NULL_HANDLE) {
@@ -8125,6 +8217,10 @@ bool RunVulkanNativeSceneLoop(const int width,
                 if (const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(barbatosLutTexturePath, false);
                     loaded != VK_NULL_HANDLE) {
                     barbatosLutTextureSet = loaded;
+                }
+                if (const VkDescriptorSet loaded = textureCache.descriptorForNativePostBundle(pd80NativeTexturePaths);
+                    loaded != VK_NULL_HANDLE) {
+                    nativePostTextureSet = loaded;
                 }
             }
 
@@ -8201,6 +8297,7 @@ bool RunVulkanNativeSceneLoop(const int width,
                                      enableHybridHdr ? sweetFxSmaaSearchTextureSet : VK_NULL_HANDLE,
                                      enableHybridHdr ? reshadeLutTextureSet : VK_NULL_HANDLE,
                                      enableHybridHdr ? barbatosLutTextureSet : VK_NULL_HANDLE,
+                                     enableHybridHdr ? nativePostTextureSet : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundleFramebuffer : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundleRenderPass : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundlePipeline : VK_NULL_HANDLE,

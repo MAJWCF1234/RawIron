@@ -371,6 +371,10 @@ layout(set = 3, binding = 0) uniform sampler2D sweetFxSmaaAreaTexture;
 layout(set = 4, binding = 0) uniform sampler2D sweetFxSmaaSearchTexture;
 layout(set = 5, binding = 0) uniform sampler2D reshadeLutTexture;
 layout(set = 6, binding = 0) uniform sampler2D barbatosLutAtlas;
+// Raw Iron-owned native resource bundle. These are linear-data textures, not color inputs.
+layout(set = 7, binding = 0) uniform sampler2D nativePd80BlueNoiseTexture;
+layout(set = 7, binding = 1) uniform sampler2D nativePd80PermTexture;
+layout(set = 7, binding = 2) uniform sampler2D nativePd80CineLutTexture;
 
 vec3 TonemapAcesApprox(vec3 color) {
     const float a = 2.51;
@@ -894,7 +898,7 @@ vec3 ApplyPd80ContrastBriSat(vec3 colorIn, vec2 sampleUv) {
     return mix(colorIn, color, strength);
 }
 
-/// PD80_03_Levels.fx — `levels()` + optional dither (reference uses `samplerRGBNoise`; we use `Hash21`).
+/// PD80_03_Levels.fx — `levels()` plus native blue-noise dithering.
 vec3 Pd80LevelsTransfer(vec3 color, vec3 blackIn, vec3 whiteIn, float gamma, vec3 blackOut, vec3 whiteOut) {
     vec3 ret = clamp(color - blackIn, 0.0, 1.0) / max(whiteIn - blackIn, vec3(0.000001));
     ret = pow(max(ret, vec3(0.0)), vec3(gamma));
@@ -3302,13 +3306,8 @@ vec4 pd80FgRnm(vec2 tc, float t, float grainAdjust) {
     return vec4(noiseR, noiseG, noiseB, noiseA);
 }
 
-/// Procedural stand-in for `pd80_permtexture.png` RGB sampling (same *4-1 scaling as reference).
 vec3 pd80FgPermTex(vec2 hz) {
-    vec3 t = vec3(
-        fract(sin(dot(hz, vec2(127.1, 311.7))) * 43758.5453),
-        fract(sin(dot(hz + vec2(17.31, 59.17), vec2(269.5, 183.3))) * 23421.631),
-        fract(sin(dot(hz * 1.414 + vec2(91.23, 67.41), vec2(419.2, 371.9))) * 31415.926));
-    return t;
+    return texture(nativePd80PermTexture, hz).rgb;
 }
 
 float pd80FgPnoise3D(vec3 p, float t, float grainAdjust, float grainSize) {
@@ -3808,7 +3807,7 @@ vec3 ApplyPd80ColorGamut(vec3 colorIn) {
     return mix(colorIn, clamp(outc, 0.0, 1.0), master);
 }
 
-/// PD80_03_Color_Space_Curves.fx — `PS_CSCurves` (dither: procedural stand-in for `dither(samplerRGBNoise,…)`).
+/// PD80_03_Color_Space_Curves.fx — `PS_CSCurves` with the native PD80 texture bundle.
 struct Pd80CscTonemapParams {
     vec3 mToe;
     vec2 mMid;
@@ -3942,13 +3941,12 @@ vec4 Pd80CscDither(vec2 uv, bool en, float str, float timeSec) {
     if (!en) {
         return vec4(0.0);
     }
-    vec2 sc = uv * cameraData.viewportMetrics.xy;
+    // Match the native PD80 sampler contract: one 512x512 blue-noise tile in screen
+    // pixel space, wrapped by the Vulkan sampler. Keeping this resource-driven avoids
+    // the directional artifacts and frame correlation of the former sine hash.
+    vec2 noiseUv = uv * cameraData.viewportMetrics.xy / 512.0;
     float mot = timeSec + 1.0;
-    vec4 noise = vec4(
-        fract(sin(dot(sc, vec2(12.9898, 78.233))) * 43758.5453),
-        fract(sin(dot(sc + vec2(1.7, 3.1), vec2(93.989, 67.345))) * 23421.631),
-        fract(sin(dot(sc + vec2(5.2, 1.3), vec2(45.123, 99.456))) * 34567.891),
-        fract(sin(dot(sc + vec2(2.9, 7.4), vec2(71.234, 56.789))) * 45678.123));
+    vec4 noise = texture(nativePd80BlueNoiseTexture, noiseUv);
     noise = fract(noise + 0.61803398875 * mot);
     noise = (noise * 2.0 - 1.0) * 0.5;
     return noise * (str / 255.0);
@@ -5243,8 +5241,8 @@ vec3 ApplyPd80CinetoolsLut(vec2 sampleUv, vec3 colorIn) {
     lutcoord.y += lutSelector / lutCount;
     float lerpfact = fract(lutcoord.z);
     lutcoord.x += (lutcoord.z - lerpfact) * texelSize.y;
-    vec3 lut0 = texture(reshadeLutTexture, lutcoord.xy).rgb;
-    vec3 lut1 = texture(reshadeLutTexture, vec2(lutcoord.x + texelSize.y, lutcoord.y)).rgb;
+    vec3 lut0 = texture(nativePd80CineLutTexture, lutcoord.xy).rgb;
+    vec3 lut1 = texture(nativePd80CineLutTexture, vec2(lutcoord.x + texelSize.y, lutcoord.y)).rgb;
     vec3 lutColor = mix(lut0, lut1, lerpfact);
 
     vec3 blackIn = clamp(p2.xyz + dnoise.xyz, 0.0, 1.0);

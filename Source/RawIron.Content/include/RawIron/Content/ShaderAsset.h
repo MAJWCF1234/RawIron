@@ -51,7 +51,8 @@ struct RawIronShaderManifestEntry {
 [[nodiscard]] std::string_view ToString(RawIronShaderDomain domain) noexcept;
 [[nodiscard]] std::optional<RawIronShaderDomain> TryParseRawIronShaderDomain(std::string_view value) noexcept;
 
-/// Loads and validates one native shader asset. Texture paths are relative to the `.rishader` file.
+/// Loads and validates one native shader asset. Texture paths are relative to the `.rishader` file;
+/// `native://...` resolves within the nearest engine `NativeTextures` bundle without allowing traversal.
 [[nodiscard]] bool LoadRawIronShaderAsset(const std::filesystem::path& path,
                                           RawIronShaderAsset* out,
                                           std::string* error = nullptr);

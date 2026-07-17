@@ -28,5 +28,13 @@ IN THE SOFTWARE.
 # Barbatos uFakeHDR
 
 `NativeEffects/barbatos_fake_hdr.rishader`, its native composite implementation, and
-`NativeEffects/Textures/Barbatos_LUT_Atlas.png` are derived from uFakeHDR version 3.2 by Barbatos.
+`NativeTextures/Barbatos/Barbatos_LUT_Atlas.png` are derived from uFakeHDR version 3.2 by Barbatos.
 The source declares the work CC0 (public-domain dedication).
+
+## PD80 Cinetools LUT core
+
+`NativeEffects/pd80_cinetools_lut.rishader` and `ApplyPd80CinetoolsLut` preserve the behavior of the
+PD80 LUT-v2 workflow by prod80, based on earlier LUT work credited in that source to Ganossa,
+Marty McFly, and Otis Inf. Raw Iron supplies its own Vulkan descriptor model, shader entry point,
+parameter packing, atlas binding, and blue-noise integration. The migrated reference helper files
+`PD80_LUT_v2.fxh`, `PD80_00_Noise_Samplers.fxh`, and `PD80_00_Color_Spaces.fxh` have been removed.

@@ -1,0 +1,45 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.pd80_cinetools_lut",
+  "name": "PD80 Cinetools LUT",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyPd80CinetoolsLut",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "pd80_cinetools_lut",
+      "enabled": true,
+      "blend": 1.0,
+      "math": "Raw Iron native 64-cube atlas interpolation, Lab luma/chroma mixing, level shaping, and resource-driven blue-noise dither",
+      "params": {
+        "lut_selector": 0,
+        "mix_chroma": 1.0,
+        "mix_luma": 1.0,
+        "gamma": 1.0,
+        "dither_strength": 1.0
+      }
+    }
+  ],
+  "textures": [
+    {
+      "name": "nativePd80BlueNoiseTexture",
+      "path": "native://PD80/pd80_bluenoise_rgba.png",
+      "required": true,
+      "colorSpace": "linear"
+    },
+    {
+      "name": "nativePd80PermTexture",
+      "path": "native://PD80/pd80_permtexture.png",
+      "required": true,
+      "colorSpace": "linear"
+    },
+    {
+      "name": "nativePd80CineLutTexture",
+      "path": "native://PD80/pd80_cinelut.png",
+      "required": true,
+      "colorSpace": "linear"
+    }
+  ]
+}

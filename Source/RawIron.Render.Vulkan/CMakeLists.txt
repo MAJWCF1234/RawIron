@@ -22,29 +22,22 @@ if(RAWIRON_GLSLANG_VALIDATOR)
     list(APPEND RAWIRON_VULKAN_SHADER_OUTPUTS "${shader_output}")
   endforeach()
 
-  foreach(texture_name IN ITEMS Layer.png AreaTex.png SearchTex.png lut.png)
-    set(texture_input "${CMAKE_CURRENT_SOURCE_DIR}/shaders/NativeTextures/${texture_name}")
-    set(texture_output "${RAWIRON_VULKAN_SHADER_DIR}/NativeTextures/${texture_name}")
+  set(RAWIRON_NATIVE_TEXTURE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/shaders/NativeTextures")
+  file(GLOB_RECURSE RAWIRON_NATIVE_TEXTURE_INPUTS CONFIGURE_DEPENDS LIST_DIRECTORIES false
+    "${RAWIRON_NATIVE_TEXTURE_ROOT}/*")
+  foreach(texture_input IN LISTS RAWIRON_NATIVE_TEXTURE_INPUTS)
+    file(RELATIVE_PATH texture_relative "${RAWIRON_NATIVE_TEXTURE_ROOT}" "${texture_input}")
+    set(texture_output "${RAWIRON_VULKAN_SHADER_DIR}/NativeTextures/${texture_relative}")
+    get_filename_component(texture_output_dir "${texture_output}" DIRECTORY)
     add_custom_command(
       OUTPUT "${texture_output}"
-      COMMAND ${CMAKE_COMMAND} -E make_directory "${RAWIRON_VULKAN_SHADER_DIR}/NativeTextures"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${texture_output_dir}"
       COMMAND ${CMAKE_COMMAND} -E copy_if_different "${texture_input}" "${texture_output}"
       DEPENDS "${texture_input}"
       VERBATIM
     )
     list(APPEND RAWIRON_VULKAN_SHADER_OUTPUTS "${texture_output}")
   endforeach()
-
-  set(barbatos_lut_input "${CMAKE_CURRENT_SOURCE_DIR}/shaders/NativeEffects/Textures/Barbatos_LUT_Atlas.png")
-  set(barbatos_lut_output "${RAWIRON_VULKAN_SHADER_DIR}/NativeTextures/Barbatos_LUT_Atlas.png")
-  add_custom_command(
-    OUTPUT "${barbatos_lut_output}"
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${RAWIRON_VULKAN_SHADER_DIR}/NativeTextures"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${barbatos_lut_input}" "${barbatos_lut_output}"
-    DEPENDS "${barbatos_lut_input}"
-    VERBATIM
-  )
-  list(APPEND RAWIRON_VULKAN_SHADER_OUTPUTS "${barbatos_lut_output}")
 
   add_custom_target(RawIron.Render.Vulkan.Shaders DEPENDS ${RAWIRON_VULKAN_SHADER_OUTPUTS})
 endif()

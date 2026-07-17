@@ -42,6 +42,7 @@ struct GameManifest {
 };
 
 [[nodiscard]] bool LooksLikeWorkspaceRoot(const std::filesystem::path& path);
+/// Finds the workspace above an absolute or current-directory-relative file/directory path.
 [[nodiscard]] std::filesystem::path DetectWorkspaceRoot(const std::filesystem::path& startPath);
 [[nodiscard]] std::optional<GameManifest> LoadGameManifest(const std::filesystem::path& manifestPath);
 [[nodiscard]] std::optional<GameManifest> ResolveGameManifest(const std::filesystem::path& workspaceRoot,
