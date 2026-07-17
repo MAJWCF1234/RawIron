@@ -778,6 +778,16 @@ struct PostProcessParameters {
     float riOutlineWobbleSpeed = 1.0f;
     float riOutlineWobbleFrequency = 10.0f;
     float riOutlineDebug = 0.0f;
+    /// Raw Iron bounded block/scanline signal breakup. Zero strength is a true fast skip.
+    float riSignalGlitchStrength = 0.0f;
+    float riSignalGlitchBlockSize = 16.0f;
+    float riSignalGlitchColorShiftPixels = 2.0f;
+    float riSignalGlitchSpeed = 1.0f;
+    /// Raw Iron luminance-driven night display with stable temporal noise and radial falloff.
+    float riNightVisionStrength = 0.0f;
+    float riNightVisionGain = 1.5f;
+    float riNightVisionNoise = 0.08f;
+    float riNightVisionVignette = 0.65f;
 };
 
 struct PostProcessPresetDefinition {
@@ -1772,6 +1782,15 @@ inline PostProcessParameters SanitizePostProcessParameters(const PostProcessPara
     out.riOutlineWobbleSpeed = ClampFinite(input.riOutlineWobbleSpeed, 0.0f, 5.0f, 1.0f);
     out.riOutlineWobbleFrequency = ClampFinite(input.riOutlineWobbleFrequency, 1.0f, 50.0f, 10.0f);
     out.riOutlineDebug = ClampFinite(input.riOutlineDebug, 0.0f, 1.0f, 0.0f);
+    out.riSignalGlitchStrength = ClampFinite(input.riSignalGlitchStrength, 0.0f, 1.0f, 0.0f);
+    out.riSignalGlitchBlockSize = ClampFinite(input.riSignalGlitchBlockSize, 2.0f, 128.0f, 16.0f);
+    out.riSignalGlitchColorShiftPixels =
+        ClampFinite(input.riSignalGlitchColorShiftPixels, 0.0f, 32.0f, 2.0f);
+    out.riSignalGlitchSpeed = ClampFinite(input.riSignalGlitchSpeed, 0.0f, 12.0f, 1.0f);
+    out.riNightVisionStrength = ClampFinite(input.riNightVisionStrength, 0.0f, 1.0f, 0.0f);
+    out.riNightVisionGain = ClampFinite(input.riNightVisionGain, 0.1f, 4.0f, 1.5f);
+    out.riNightVisionNoise = ClampFinite(input.riNightVisionNoise, 0.0f, 0.5f, 0.08f);
+    out.riNightVisionVignette = ClampFinite(input.riNightVisionVignette, 0.0f, 1.0f, 0.65f);
     return out;
 }
 
@@ -3431,6 +3450,20 @@ inline PostProcessParameters BlendPostProcessParameters(
         .riOutlineWobbleFrequency = a.riOutlineWobbleFrequency
             + ((b.riOutlineWobbleFrequency - a.riOutlineWobbleFrequency) * t),
         .riOutlineDebug = a.riOutlineDebug + ((b.riOutlineDebug - a.riOutlineDebug) * t),
+        .riSignalGlitchStrength = a.riSignalGlitchStrength
+            + ((b.riSignalGlitchStrength - a.riSignalGlitchStrength) * t),
+        .riSignalGlitchBlockSize = a.riSignalGlitchBlockSize
+            + ((b.riSignalGlitchBlockSize - a.riSignalGlitchBlockSize) * t),
+        .riSignalGlitchColorShiftPixels = a.riSignalGlitchColorShiftPixels
+            + ((b.riSignalGlitchColorShiftPixels - a.riSignalGlitchColorShiftPixels) * t),
+        .riSignalGlitchSpeed = a.riSignalGlitchSpeed
+            + ((b.riSignalGlitchSpeed - a.riSignalGlitchSpeed) * t),
+        .riNightVisionStrength = a.riNightVisionStrength
+            + ((b.riNightVisionStrength - a.riNightVisionStrength) * t),
+        .riNightVisionGain = a.riNightVisionGain + ((b.riNightVisionGain - a.riNightVisionGain) * t),
+        .riNightVisionNoise = a.riNightVisionNoise + ((b.riNightVisionNoise - a.riNightVisionNoise) * t),
+        .riNightVisionVignette = a.riNightVisionVignette
+            + ((b.riNightVisionVignette - a.riNightVisionVignette) * t),
     });
 }
 

@@ -178,6 +178,29 @@ int main(int argc, char** argv) {
         }
     }
 
+    ri::content::RawIronShaderAsset signalGlitch{};
+    ri::content::RawIronShaderAsset nightVision{};
+    ri::content::RawIronShaderAsset highPassSharpen{};
+    if (!ri::content::LoadRawIronShaderAsset(nativeEffectRoot / "ri_signal_glitch.rishader", &signalGlitch, &cropError)
+        || !ri::content::LoadRawIronShaderAsset(nativeEffectRoot / "ri_night_vision.rishader", &nightVision, &cropError)
+        || !ri::content::LoadRawIronShaderAsset(
+            nativeEffectRoot / "ri_high_pass_sharpen.rishader", &highPassSharpen, &cropError)) {
+        std::cerr << "Raw Iron signal/night/high-pass asset failed to load: " << cropError << '\n';
+        return 21;
+    }
+    if (signalGlitch.presentation.parameters.riSignalGlitchStrength != 0.65f
+        || signalGlitch.presentation.parameters.riSignalGlitchBlockSize != 16.0f
+        || signalGlitch.presentation.parameters.riSignalGlitchColorShiftPixels != 3.0f
+        || signalGlitch.presentation.parameters.riSignalGlitchSpeed != 1.0f
+        || nightVision.presentation.parameters.riNightVisionStrength != 0.85f
+        || nightVision.presentation.parameters.riNightVisionGain != 1.5f
+        || nightVision.presentation.parameters.riNightVisionNoise != 0.08f
+        || nightVision.presentation.parameters.riNightVisionVignette != 0.65f
+        || highPassSharpen.presentation.parameters.riLocalSharpenStrength != 0.45f) {
+        std::cerr << "Raw Iron signal/night/high-pass parameters were not parsed deterministically.\n";
+        return 22;
+    }
+
     std::cout << "Validated native .rishader assets and manifest composition.\n";
     return 0;
 }

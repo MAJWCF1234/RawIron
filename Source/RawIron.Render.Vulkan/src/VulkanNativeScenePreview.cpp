@@ -475,6 +475,8 @@ struct NativeScenePreviewData {
     std::array<float, 4> riOutlinePack0{};
     std::array<float, 4> riOutlineColorMethod{};
     std::array<float, 4> riOutlineWobbleDebug{};
+    std::array<float, 4> riSignalGlitchPack{};
+    std::array<float, 4> riNightVisionPack{};
     /// Column-major `mat4` for `NativeSkybox.vert` (`projection * skyRotation`).
     std::array<float, 16> skyClipFromLocal{};
     /// Column-major `mat4`; upper 3x3 maps eye-space directions to world for equirect sampling.
@@ -737,9 +739,11 @@ struct alignas(16) CameraUniformStd140 {
     float riOutlinePack0[4]{};
     float riOutlineColorMethod[4]{};
     float riOutlineWobbleDebug[4]{};
+    float riSignalGlitchPack[4]{};
+    float riNightVisionPack[4]{};
 };
 
-static_assert(sizeof(CameraUniformStd140) == 3792, "Must match NativeScenePreview shader CameraData std140 layout.");
+static_assert(sizeof(CameraUniformStd140) == 3824, "Must match NativeScenePreview shader CameraData std140 layout.");
 
 void StoreMat4ColumnMajorGlsl(const ri::math::Mat4& matrix, float destination[16]) {
     for (int column = 0; column < 4; ++column) {
@@ -3468,6 +3472,18 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
         sanitizedPost.riOutlineWobbleSpeed,
         sanitizedPost.riOutlineWobbleFrequency,
         sanitizedPost.riOutlineDebug,
+    };
+    outData->riSignalGlitchPack = {
+        sanitizedPost.riSignalGlitchStrength,
+        sanitizedPost.riSignalGlitchBlockSize,
+        sanitizedPost.riSignalGlitchColorShiftPixels,
+        sanitizedPost.riSignalGlitchSpeed,
+    };
+    outData->riNightVisionPack = {
+        sanitizedPost.riNightVisionStrength,
+        sanitizedPost.riNightVisionGain,
+        sanitizedPost.riNightVisionNoise,
+        sanitizedPost.riNightVisionVignette,
     };
     outData->renderQualityTier = std::clamp(frame.renderQualityTier, 0, 2);
     if (outData->renderQualityTier >= 2) {
@@ -8158,6 +8174,12 @@ bool RunVulkanNativeSceneLoop(const int width,
             std::memcpy(cameraUniform.riOutlineWobbleDebug,
                         sceneData.riOutlineWobbleDebug.data(),
                         sizeof(cameraUniform.riOutlineWobbleDebug));
+            std::memcpy(cameraUniform.riSignalGlitchPack,
+                        sceneData.riSignalGlitchPack.data(),
+                        sizeof(cameraUniform.riSignalGlitchPack));
+            std::memcpy(cameraUniform.riNightVisionPack,
+                        sceneData.riNightVisionPack.data(),
+                        sizeof(cameraUniform.riNightVisionPack));
             std::memcpy(mappedUniformMemory, &cameraUniform, sizeof(CameraUniformStd140));
             SkyUniformStd140 skyUniform{};
             skyUniform.hasSkyTexture = sceneData.skyUseTextureFile;

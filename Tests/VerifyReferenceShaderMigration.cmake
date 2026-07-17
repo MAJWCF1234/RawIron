@@ -14,7 +14,14 @@ set(_barbatos_texture_reference "${RAWIRON_WORKSPACE}/Source/RawIron.Render.Vulk
 set(_barbatos_asset "${RAWIRON_WORKSPACE}/Source/RawIron.Render.Vulkan/shaders/NativeEffects/barbatos_fake_hdr.rishader")
 set(_barbatos_texture "${RAWIRON_WORKSPACE}/Source/RawIron.Render.Vulkan/shaders/NativeTextures/Barbatos/Barbatos_LUT_Atlas.png")
 set(_owned_effect_sources BaBa_Deband.fx JaSharpen.fx S_Outline.fx)
-set(_owned_effect_assets ri_adaptive_deband.rishader ri_local_sharpen.rishader ri_ink_outline.rishader)
+set(_owned_effect_assets
+  ri_adaptive_deband.rishader
+  ri_local_sharpen.rishader
+  ri_ink_outline.rishader
+  ri_signal_glitch.rishader
+  ri_night_vision.rishader
+  ri_high_pass_sharpen.rishader)
+set(_retired_root_effects Glitch.fx NightVision.fx HighPassSharpen.fx)
 set(_pd80_native_asset "${RAWIRON_WORKSPACE}/Source/RawIron.Render.Vulkan/shaders/NativeEffects/pd80_cinetools_lut.rishader")
 set(_retired_pd80_helpers PD80_LUT_v2.fxh PD80_00_Noise_Samplers.fxh PD80_00_Color_Spaces.fxh)
 
@@ -30,6 +37,11 @@ endforeach()
 foreach(_source IN LISTS _owned_effect_sources)
   if(EXISTS "${RAWIRON_WORKSPACE}/Source/RawIron.Render.Vulkan/ReferenceShaders/Shaders/Barbatos/${_source}")
     message(FATAL_ERROR "Retired capability-checklist source still exists: ${_source}")
+  endif()
+endforeach()
+foreach(_source IN LISTS _retired_root_effects)
+  if(EXISTS "${RAWIRON_WORKSPACE}/Source/RawIron.Render.Vulkan/ReferenceShaders/Shaders/${_source}")
+    message(FATAL_ERROR "Retired root capability-checklist source still exists: ${_source}")
   endif()
 endforeach()
 foreach(_asset IN LISTS _owned_effect_assets)
@@ -167,6 +179,20 @@ foreach(_function IN ITEMS ApplyRiAdaptiveDeband ApplyRiLocalSharpen ApplyRiInkO
       message(FATAL_ERROR "Raw Iron-owned post capability missing from a composite path: ${_function}")
     endif()
   endforeach()
+endforeach()
+foreach(_function IN ITEMS ApplyRiSignalGlitch ApplyRiNightVision)
+  foreach(_shader_text IN ITEMS _full_text _fast_text)
+    string(FIND "${${_shader_text}}" "${_function}" _native_function_found)
+    if(_native_function_found EQUAL -1)
+      message(FATAL_ERROR "Raw Iron signal/display capability missing from a composite path: ${_function}")
+    endif()
+  endforeach()
+endforeach()
+foreach(_pack IN ITEMS riSignalGlitchPack riNightVisionPack)
+  string(FIND "${_runtime_text}" "cameraUniform.${_pack}" _runtime_pack_found)
+  if(_runtime_pack_found EQUAL -1)
+    message(FATAL_ERROR "Raw Iron signal/display uniform is not copied by the runtime: ${_pack}")
+  endif()
 endforeach()
 
 file(READ "${_barbatos_asset}" _barbatos_asset_text)

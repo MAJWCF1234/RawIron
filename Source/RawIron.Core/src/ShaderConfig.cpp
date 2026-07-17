@@ -918,6 +918,14 @@ void MergePresentationObject(std::string_view obj, PostProcessParameters& p) {
     if (const std::optional<std::int32_t> v = detail::ExtractJsonInt(obj, "ri_outline_method")) {
         p.riOutlineMethod = *v;
     }
+    set("ri_signal_glitch_strength", p.riSignalGlitchStrength);
+    set("ri_signal_glitch_block_size", p.riSignalGlitchBlockSize);
+    set("ri_signal_glitch_color_shift_pixels", p.riSignalGlitchColorShiftPixels);
+    set("ri_signal_glitch_speed", p.riSignalGlitchSpeed);
+    set("ri_night_vision_strength", p.riNightVisionStrength);
+    set("ri_night_vision_gain", p.riNightVisionGain);
+    set("ri_night_vision_noise", p.riNightVisionNoise);
+    set("ri_night_vision_vignette", p.riNightVisionVignette);
 
     if (const auto lift = TryParseJsonVec3(obj, "lift_rgb")) {
         p.liftRgb = *lift;
@@ -4690,6 +4698,20 @@ bool ApplyEffectBlock(std::string_view effect, PostProcessParameters& accum) {
         if (const auto v = detail::ExtractJsonDouble(p, "wobble_speed")) layer.riOutlineWobbleSpeed = static_cast<float>(*v);
         if (const auto v = detail::ExtractJsonDouble(p, "wobble_frequency")) layer.riOutlineWobbleFrequency = static_cast<float>(*v);
         if (const auto v = detail::ExtractJsonDouble(p, "debug")) layer.riOutlineDebug = static_cast<float>(*v);
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "ri_signal_glitch" || typeNorm == "rawiron_signal_glitch") {
+        if (const auto v = detail::ExtractJsonDouble(p, "strength")) layer.riSignalGlitchStrength = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "block_size")) layer.riSignalGlitchBlockSize = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "color_shift_pixels")) {
+            layer.riSignalGlitchColorShiftPixels = static_cast<float>(*v);
+        }
+        if (const auto v = detail::ExtractJsonDouble(p, "speed")) layer.riSignalGlitchSpeed = static_cast<float>(*v);
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "ri_night_vision" || typeNorm == "rawiron_night_vision") {
+        if (const auto v = detail::ExtractJsonDouble(p, "strength")) layer.riNightVisionStrength = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "gain")) layer.riNightVisionGain = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "noise")) layer.riNightVisionNoise = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "vignette")) layer.riNightVisionVignette = static_cast<float>(*v);
         MergePresentationObject(p, layer);
     } else if (typeNorm == "legacy_post" || typeNorm == "stylized" || typeNorm == "vintage") {
         MergePresentationObject(p, layer);

@@ -1,7 +1,7 @@
 # Reference shader migration status
 
 The migration source initially contained 781 files: 419 `.fx` effects, 222 `.fxh` includes, 131 PNG textures,
-and nine other assets. All 139 texture assets are now centralized under `shaders/NativeTextures`; 634 reference source/checklist files remain. A reference source is removed only after its native Raw Iron replacement builds in both
+and nine other assets. All 139 texture assets are now centralized under `shaders/NativeTextures`; 631 reference source/checklist files remain. A reference source is removed only after its native Raw Iron replacement builds in both
 applicable shader paths, has a `.rishader` asset, preserves required notices, and has regression coverage.
 
 ## Completed
@@ -24,6 +24,9 @@ resource use, parameter model, naming, fast-path behavior, and extended-path int
 | `BaBa_Deband.fx` | `NativeEffects/ri_adaptive_deband.rishader` | Bounded scene-linear guide, rotated multi-radius pairs, gradient rejection |
 | `JaSharpen.fx` | `NativeEffects/ri_local_sharpen.rishader` | Scene-linear cross guide, soft detail clamp, edge limiter |
 | `S_Outline.fx` | `NativeEffects/ri_ink_outline.rishader` | Combined depth/color mask, four combination modes, wobble and debug output |
+| root `Glitch.fx` | `NativeEffects/ri_signal_glitch.rishader` | Bounded row events, source-relative chroma displacement, burst quantization |
+| root `NightVision.fx` | `NativeEffects/ri_night_vision.rishader` | Luminance phosphor response, stable grain, scan modulation, aspect-correct falloff |
+| root `HighPassSharpen.fx` | `NativeEffects/ri_high_pass_sharpen.rishader` | Existing scene-bounded high-pass guide, soft clamp, large-edge rejection |
 
 ## Migration constraints
 

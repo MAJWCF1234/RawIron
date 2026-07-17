@@ -38,3 +38,11 @@ PD80 LUT-v2 workflow by prod80, based on earlier LUT work credited in that sourc
 Marty McFly, and Otis Inf. Raw Iron supplies its own Vulkan descriptor model, shader entry point,
 parameter packing, atlas binding, and blue-noise integration. The migrated reference helper files
 `PD80_LUT_v2.fxh`, `PD80_00_Noise_Samplers.fxh`, and `PD80_00_Color_Spaces.fxh` have been removed.
+
+## Raw Iron signal, night-display, and high-pass operators
+
+`NativeEffects/ri_signal_glitch.rishader`, `ri_night_vision.rishader`, and
+`ri_high_pass_sharpen.rishader` are independent Raw Iron implementations. The former root
+`Glitch.fx`, `NightVision.fx`, and Ioxa's `HighPassSharpen.fx` were used only to identify desired
+engine capabilities; their sampling math, parameter model, timing behavior, resource access, and
+fast/extended integration were not copied. Those checklist sources have been removed.

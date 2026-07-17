@@ -361,6 +361,10 @@ layout(std140, set = 0, binding = 0) uniform CameraData {
     vec4 riOutlinePack0;
     vec4 riOutlineColorMethod;
     vec4 riOutlineWobbleDebug;
+    /// Raw Iron signal glitch: x=strength, y=block height px, z=color shift px, w=speed.
+    vec4 riSignalGlitchPack;
+    /// Raw Iron night vision: x=strength, y=gain, z=noise, w=vignette.
+    vec4 riNightVisionPack;
 } cameraData;
 
 layout(set = 1, binding = 0) uniform sampler2D hdrSceneLinear;
@@ -6040,6 +6044,52 @@ vec3 ApplyRiInkOutline(vec2 uv, vec2 px, vec3 color) {
     return mix(color, clamp(cameraData.riOutlineColorMethod.rgb, 0.0, 1.0), mask);
 }
 
+float RiOwnedHash21(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+vec3 ApplyRiSignalGlitch(vec2 uv, vec2 px, vec3 color) {
+    vec4 p = cameraData.riSignalGlitchPack;
+    float strength = clamp(p.x, 0.0, 1.0);
+    if (strength <= 1e-6) return color;
+    float blockSize = clamp(p.y, 2.0, 128.0);
+    float timeCell = floor(cameraData.postProcessSecondary.z * clamp(p.w, 0.0, 12.0) * 12.0);
+    float row = floor(gl_FragCoord.y / blockSize);
+    float eventNoise = RiOwnedHash21(vec2(row, timeCell));
+    float burst = smoothstep(0.58, 0.96, eventNoise);
+    float signedNoise = RiOwnedHash21(vec2(row + 19.17, timeCell + 7.31)) * 2.0 - 1.0;
+    vec2 offset = vec2(signedNoise * clamp(p.z, 0.0, 32.0) * px.x * strength * (0.25 + burst), 0.0);
+    vec3 guide = RiBoundedSceneColor(uv);
+    vec3 guidePositive = RiBoundedSceneColor(uv + offset);
+    vec3 guideNegative = RiBoundedSceneColor(uv - offset);
+    vec3 shifted = color;
+    shifted.r += guidePositive.r - guide.r;
+    shifted.b += guideNegative.b - guide.b;
+    float steps = mix(255.0, mix(28.0, 9.0, strength), burst);
+    shifted = floor(clamp(shifted, 0.0, 1.0) * steps + 0.5) / steps;
+    return mix(color, shifted, strength * mix(0.20, 1.0, burst));
+}
+
+vec3 ApplyRiNightVision(vec2 uv, vec3 color) {
+    vec4 p = cameraData.riNightVisionPack;
+    float strength = clamp(p.x, 0.0, 1.0);
+    if (strength <= 1e-6) return color;
+    float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    float timeCell = floor(cameraData.postProcessSecondary.z * 30.0);
+    float grain = RiOwnedHash21(gl_FragCoord.xy + vec2(timeCell * 17.0, timeCell * 7.0)) - 0.5;
+    vec2 centered = uv * 2.0 - 1.0;
+    centered.x *= cameraData.viewportMetrics.x / max(cameraData.viewportMetrics.y, 1.0);
+    float radial = dot(centered, centered);
+    float vignette = 1.0 - clamp(p.w, 0.0, 1.0) * smoothstep(0.22, 1.45, radial);
+    float scan = 0.985 + 0.015 * sin(gl_FragCoord.y * 1.5707963 + timeCell * 0.13);
+    vec3 phosphor = vec3(0.10, 1.0, 0.24) * luma * clamp(p.y, 0.1, 4.0);
+    phosphor += vec3(0.08, 0.42, 0.12) * grain * clamp(p.z, 0.0, 0.5);
+    phosphor *= vignette * scan;
+    return mix(color, clamp(phosphor, 0.0, 1.0), strength);
+}
+
 
 void main() {
     vec2 sampleUv = vec2(vUv.x, 1.0 - vUv.y);
@@ -6102,6 +6152,8 @@ void main() {
     mapped = ApplySweetFxSplitscreen(beforeSplit, mapped, sampleUv, cameraData.sweetFxSplitscreenModeStrength);
     mapped = ApplyRiAdaptiveDeband(sampleUv, px, mapped);
     mapped = ApplyRiLocalSharpen(sampleUv, px, mapped);
+    mapped = ApplyRiSignalGlitch(sampleUv, px, mapped);
+    mapped = ApplyRiNightVision(sampleUv, mapped);
     mapped = ApplyRiInkOutline(sampleUv, px, mapped);
     mapped *= mix(1.0, cropCoverage, clamp(cameraData.cropScaleFinalFilterStrength.w, 0.0, 1.0));
     fragColor = vec4(clamp(mapped, 0.0, 1.0), 1.0);

@@ -1,0 +1,25 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.ri_night_vision",
+  "name": "Raw Iron Night Vision",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyRiNightVision",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "ri_night_vision",
+      "enabled": true,
+      "blend": 1.0,
+      "math": "Raw Iron luminance phosphor response with bounded temporal grain, scan modulation, and aspect-correct falloff",
+      "params": {
+        "strength": 0.85,
+        "gain": 1.5,
+        "noise": 0.08,
+        "vignette": 0.65
+      }
+    }
+  ],
+  "textures": []
+}

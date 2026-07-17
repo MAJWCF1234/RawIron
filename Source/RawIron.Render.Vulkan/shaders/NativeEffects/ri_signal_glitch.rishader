@@ -1,0 +1,25 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.ri_signal_glitch",
+  "name": "Raw Iron Signal Glitch",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyRiSignalGlitch",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "ri_signal_glitch",
+      "enabled": true,
+      "blend": 1.0,
+      "math": "Raw Iron bounded row events, source-relative chroma displacement, and burst-weighted quantization",
+      "params": {
+        "strength": 0.65,
+        "block_size": 16.0,
+        "color_shift_pixels": 3.0,
+        "speed": 1.0
+      }
+    }
+  ],
+  "textures": []
+}
