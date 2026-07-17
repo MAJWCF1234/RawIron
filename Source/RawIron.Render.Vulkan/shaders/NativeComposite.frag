@@ -356,6 +356,11 @@ layout(std140, set = 0, binding = 0) uniform CameraData {
     vec4 cropScaleFinalFilterStrength;
     /// Barbatos uFakeHDR: x=preset atlas row (0..2), y=strength (0..2), zw unused.
     vec4 barbatosFakeHdrPack;
+    vec4 riAdaptiveDebandPack;
+    vec4 riLocalSharpenPack;
+    vec4 riOutlinePack0;
+    vec4 riOutlineColorMethod;
+    vec4 riOutlineWobbleDebug;
 } cameraData;
 
 layout(set = 1, binding = 0) uniform sampler2D hdrSceneLinear;
@@ -5951,6 +5956,93 @@ vec3 ApplyBarbatosFakeHdr(vec3 color) {
     return graded + vec3((noise1 + noise2 - 1.0) * (1.0 / 255.0));
 }
 
+// Raw Iron-owned post math. Reference packs are used only as a capability checklist;
+// these operators use the engine's HDR/depth resources and bounded scene-linear guides.
+vec3 RiBoundedSceneColor(vec2 uv) {
+    vec3 hdr = max(texture(hdrSceneLinear, clamp(uv, vec2(0.0), vec2(1.0))).rgb, vec3(0.0));
+    return hdr / (vec3(1.0) + hdr);
+}
+
+vec3 ApplyRiAdaptiveDeband(vec2 uv, vec2 px, vec3 color) {
+    vec4 p = cameraData.riAdaptiveDebandPack;
+    float strength = clamp(p.x, 0.0, 1.0);
+    if (strength <= 1e-6) return color;
+    float radius = clamp(p.y, 0.0, 128.0);
+    float threshold = clamp(p.z, 0.0001, 0.1);
+    int iterations = clamp(int(p.w + 0.5), 1, 3);
+    vec3 guide = RiBoundedSceneColor(uv);
+    vec3 correction = vec3(0.0);
+    float phase = 6.28318530718 * fract(dot(gl_FragCoord.xy, vec2(0.754877666, 0.569840296)));
+    for (int i = 0; i < 3; ++i) {
+        if (i >= iterations) break;
+        float angle = phase + float(i) * 2.39996323;
+        vec2 direction = vec2(cos(angle), sin(angle));
+        vec2 offset = direction * px * radius * (1.0 + float(i) * 0.618034);
+        vec3 averageGuide = 0.5 * (RiBoundedSceneColor(uv + offset) + RiBoundedSceneColor(uv - offset));
+        vec3 delta = averageGuide - guide;
+        float difference = dot(abs(delta), vec3(0.299, 0.587, 0.114)) + length(delta.gb) * 0.25;
+        float smoothRegion = 1.0 - smoothstep(threshold * 0.35, threshold * 1.8, difference);
+        correction += delta * smoothRegion;
+    }
+    correction /= float(iterations);
+    return clamp(color + correction * strength, 0.0, 1.0);
+}
+
+vec3 ApplyRiLocalSharpen(vec2 uv, vec2 px, vec3 color) {
+    vec4 p = cameraData.riLocalSharpenPack;
+    float strength = clamp(p.x, 0.0, 2.0);
+    if (strength <= 1e-6) return color;
+    vec2 d = px * clamp(p.y, 0.5, 4.0);
+    vec3 centerGuide = RiBoundedSceneColor(uv);
+    vec3 blurGuide = 0.25 * (
+        RiBoundedSceneColor(uv + vec2(d.x, 0.0))
+        + RiBoundedSceneColor(uv - vec2(d.x, 0.0))
+        + RiBoundedSceneColor(uv + vec2(0.0, d.y))
+        + RiBoundedSceneColor(uv - vec2(0.0, d.y)));
+    vec3 highPass = centerGuide - blurGuide;
+    float clampLimit = clamp(p.z, 0.0, 0.25);
+    highPass = clamp(highPass, vec3(-clampLimit), vec3(clampLimit));
+    float edgeMagnitude = length(highPass);
+    float edgeLimiter = mix(1.0, 1.0 - smoothstep(0.04, 0.20, edgeMagnitude), clamp(p.w, 0.0, 1.0));
+    return clamp(color + highPass * strength * edgeLimiter, 0.0, 1.0);
+}
+
+vec3 ApplyRiInkOutline(vec2 uv, vec2 px, vec3 color) {
+    vec4 p0 = cameraData.riOutlinePack0;
+    float strength = clamp(p0.x, 0.0, 1.0);
+    if (strength <= 1e-6) return color;
+    vec4 wobble = cameraData.riOutlineWobbleDebug;
+    float time = cameraData.postProcessSecondary.z * clamp(wobble.y, 0.0, 5.0);
+    vec2 warpedUv = uv + vec2(
+        sin(time + uv.y * clamp(wobble.z, 1.0, 50.0)),
+        cos(time + uv.x * clamp(wobble.z, 1.0, 50.0)))
+        * px * clamp(wobble.x, 0.0, 10.0);
+    vec2 d = px * clamp(p0.y, 0.0, 10.0);
+    float centerDepth = texture(sceneDepth, warpedUv).r;
+    vec3 centerGuide = RiBoundedSceneColor(warpedUv);
+    const vec2 directions[8] = vec2[8](
+        vec2(-1.0, 0.0), vec2(1.0, 0.0), vec2(0.0, -1.0), vec2(0.0, 1.0),
+        vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0));
+    float depthDifference = 0.0;
+    float colorDifference = 0.0;
+    for (int i = 0; i < 8; ++i) {
+        vec2 tapUv = warpedUv + directions[i] * d;
+        depthDifference = max(depthDifference, abs(texture(sceneDepth, tapUv).r - centerDepth));
+        colorDifference = max(colorDifference, length(RiBoundedSceneColor(tapUv) - centerGuide));
+    }
+    float depthEdge = smoothstep(p0.z, max(p0.z * 4.0, p0.z + 1e-5), depthDifference);
+    float colorEdge = smoothstep(p0.w, max(p0.w * 2.0, p0.w + 1e-5), colorDifference);
+    int method = clamp(int(cameraData.riOutlineColorMethod.w + 0.5), 0, 3);
+    float mask = method == 0 ? depthEdge
+        : method == 1 ? colorEdge
+        : method == 2 ? min(depthEdge, colorEdge)
+        : max(depthEdge, colorEdge);
+    mask = clamp(mask * strength, 0.0, 1.0);
+    if (wobble.w > 0.5) return vec3(mask);
+    return mix(color, clamp(cameraData.riOutlineColorMethod.rgb, 0.0, 1.0), mask);
+}
+
+
 void main() {
     vec2 sampleUv = vec2(vUv.x, 1.0 - vUv.y);
     float cropCoverage = 1.0;
@@ -6010,6 +6102,9 @@ void main() {
     mapped = ApplyCreatorFakeMotionBlur(sampleUv, px, mapped);
     mapped = ApplySweetFxCompare(beforeSplit, mapped, sampleUv, cameraData.sweetFxComparePack);
     mapped = ApplySweetFxSplitscreen(beforeSplit, mapped, sampleUv, cameraData.sweetFxSplitscreenModeStrength);
+    mapped = ApplyRiAdaptiveDeband(sampleUv, px, mapped);
+    mapped = ApplyRiLocalSharpen(sampleUv, px, mapped);
+    mapped = ApplyRiInkOutline(sampleUv, px, mapped);
     mapped *= mix(1.0, cropCoverage, clamp(cameraData.cropScaleFinalFilterStrength.w, 0.0, 1.0));
     fragColor = vec4(clamp(mapped, 0.0, 1.0), 1.0);
 }

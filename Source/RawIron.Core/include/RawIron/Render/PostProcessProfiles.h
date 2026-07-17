@@ -757,6 +757,27 @@ struct PostProcessParameters {
     int barbatosFakeHdrPreset = 2;
     /// Reference range is 0..2; zero skips both LUT sampling and its triangular dither.
     float barbatosFakeHdrStrength = 0.0f;
+    /// Raw Iron adaptive gradient debander. Operates in scene-linear space before tonemapping.
+    float riAdaptiveDebandStrength = 0.0f;
+    float riAdaptiveDebandRadius = 24.0f;
+    float riAdaptiveDebandThreshold = 0.012f;
+    int riAdaptiveDebandIterations = 1;
+    /// Raw Iron edge-limited local-contrast sharpening in scene-linear space.
+    float riLocalSharpenStrength = 0.0f;
+    float riLocalSharpenRadius = 1.0f;
+    float riLocalSharpenClamp = 0.08f;
+    float riLocalSharpenEdgeLimit = 0.65f;
+    /// Raw Iron ink outline: method 0 depth, 1 color, 2 both, 3 either.
+    float riOutlineStrength = 0.0f;
+    float riOutlineThickness = 1.5f;
+    float riOutlineDepthSensitivity = 0.01f;
+    float riOutlineColorSensitivity = 0.30f;
+    int riOutlineMethod = 3;
+    ri::math::Vec3 riOutlineColor{0.0f, 0.0f, 0.0f};
+    float riOutlineWobbleAmount = 0.0f;
+    float riOutlineWobbleSpeed = 1.0f;
+    float riOutlineWobbleFrequency = 10.0f;
+    float riOutlineDebug = 0.0f;
 };
 
 struct PostProcessPresetDefinition {
@@ -1729,6 +1750,28 @@ inline PostProcessParameters SanitizePostProcessParameters(const PostProcessPara
     out.cropScaleStrength = ClampFinite(input.cropScaleStrength, 0.0f, 1.0f, 0.0f);
     out.barbatosFakeHdrPreset = std::clamp(input.barbatosFakeHdrPreset, 0, 2);
     out.barbatosFakeHdrStrength = ClampFinite(input.barbatosFakeHdrStrength, 0.0f, 2.0f, 0.0f);
+    out.riAdaptiveDebandStrength = ClampFinite(input.riAdaptiveDebandStrength, 0.0f, 1.0f, 0.0f);
+    out.riAdaptiveDebandRadius = ClampFinite(input.riAdaptiveDebandRadius, 0.0f, 128.0f, 24.0f);
+    out.riAdaptiveDebandThreshold = ClampFinite(input.riAdaptiveDebandThreshold, 0.0001f, 0.1f, 0.012f);
+    out.riAdaptiveDebandIterations = std::clamp(input.riAdaptiveDebandIterations, 1, 3);
+    out.riLocalSharpenStrength = ClampFinite(input.riLocalSharpenStrength, 0.0f, 2.0f, 0.0f);
+    out.riLocalSharpenRadius = ClampFinite(input.riLocalSharpenRadius, 0.5f, 4.0f, 1.0f);
+    out.riLocalSharpenClamp = ClampFinite(input.riLocalSharpenClamp, 0.0f, 0.25f, 0.08f);
+    out.riLocalSharpenEdgeLimit = ClampFinite(input.riLocalSharpenEdgeLimit, 0.0f, 1.0f, 0.65f);
+    out.riOutlineStrength = ClampFinite(input.riOutlineStrength, 0.0f, 1.0f, 0.0f);
+    out.riOutlineThickness = ClampFinite(input.riOutlineThickness, 0.0f, 10.0f, 1.5f);
+    out.riOutlineDepthSensitivity = ClampFinite(input.riOutlineDepthSensitivity, 0.0001f, 0.1f, 0.01f);
+    out.riOutlineColorSensitivity = ClampFinite(input.riOutlineColorSensitivity, 0.001f, 2.0f, 0.30f);
+    out.riOutlineMethod = std::clamp(input.riOutlineMethod, 0, 3);
+    out.riOutlineColor = {
+        ClampUnit(input.riOutlineColor.x),
+        ClampUnit(input.riOutlineColor.y),
+        ClampUnit(input.riOutlineColor.z),
+    };
+    out.riOutlineWobbleAmount = ClampFinite(input.riOutlineWobbleAmount, 0.0f, 10.0f, 0.0f);
+    out.riOutlineWobbleSpeed = ClampFinite(input.riOutlineWobbleSpeed, 0.0f, 5.0f, 1.0f);
+    out.riOutlineWobbleFrequency = ClampFinite(input.riOutlineWobbleFrequency, 1.0f, 50.0f, 10.0f);
+    out.riOutlineDebug = ClampFinite(input.riOutlineDebug, 0.0f, 1.0f, 0.0f);
     return out;
 }
 
@@ -3362,6 +3405,32 @@ inline PostProcessParameters BlendPostProcessParameters(
         .barbatosFakeHdrPreset = (t < 0.5f) ? a.barbatosFakeHdrPreset : b.barbatosFakeHdrPreset,
         .barbatosFakeHdrStrength = a.barbatosFakeHdrStrength
             + ((b.barbatosFakeHdrStrength - a.barbatosFakeHdrStrength) * t),
+        .riAdaptiveDebandStrength = a.riAdaptiveDebandStrength
+            + ((b.riAdaptiveDebandStrength - a.riAdaptiveDebandStrength) * t),
+        .riAdaptiveDebandRadius = a.riAdaptiveDebandRadius + ((b.riAdaptiveDebandRadius - a.riAdaptiveDebandRadius) * t),
+        .riAdaptiveDebandThreshold = a.riAdaptiveDebandThreshold
+            + ((b.riAdaptiveDebandThreshold - a.riAdaptiveDebandThreshold) * t),
+        .riAdaptiveDebandIterations = (t < 0.5f) ? a.riAdaptiveDebandIterations : b.riAdaptiveDebandIterations,
+        .riLocalSharpenStrength = a.riLocalSharpenStrength
+            + ((b.riLocalSharpenStrength - a.riLocalSharpenStrength) * t),
+        .riLocalSharpenRadius = a.riLocalSharpenRadius + ((b.riLocalSharpenRadius - a.riLocalSharpenRadius) * t),
+        .riLocalSharpenClamp = a.riLocalSharpenClamp + ((b.riLocalSharpenClamp - a.riLocalSharpenClamp) * t),
+        .riLocalSharpenEdgeLimit = a.riLocalSharpenEdgeLimit
+            + ((b.riLocalSharpenEdgeLimit - a.riLocalSharpenEdgeLimit) * t),
+        .riOutlineStrength = a.riOutlineStrength + ((b.riOutlineStrength - a.riOutlineStrength) * t),
+        .riOutlineThickness = a.riOutlineThickness + ((b.riOutlineThickness - a.riOutlineThickness) * t),
+        .riOutlineDepthSensitivity = a.riOutlineDepthSensitivity
+            + ((b.riOutlineDepthSensitivity - a.riOutlineDepthSensitivity) * t),
+        .riOutlineColorSensitivity = a.riOutlineColorSensitivity
+            + ((b.riOutlineColorSensitivity - a.riOutlineColorSensitivity) * t),
+        .riOutlineMethod = (t < 0.5f) ? a.riOutlineMethod : b.riOutlineMethod,
+        .riOutlineColor = ri::math::Lerp(a.riOutlineColor, b.riOutlineColor, t),
+        .riOutlineWobbleAmount = a.riOutlineWobbleAmount
+            + ((b.riOutlineWobbleAmount - a.riOutlineWobbleAmount) * t),
+        .riOutlineWobbleSpeed = a.riOutlineWobbleSpeed + ((b.riOutlineWobbleSpeed - a.riOutlineWobbleSpeed) * t),
+        .riOutlineWobbleFrequency = a.riOutlineWobbleFrequency
+            + ((b.riOutlineWobbleFrequency - a.riOutlineWobbleFrequency) * t),
+        .riOutlineDebug = a.riOutlineDebug + ((b.riOutlineDebug - a.riOutlineDebug) * t),
     });
 }
 

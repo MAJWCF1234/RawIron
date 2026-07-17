@@ -1,0 +1,30 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.ink_outline",
+  "name": "Raw Iron Ink Outline",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyRiInkOutline",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "ri_ink_outline",
+      "enabled": true,
+      "blend": 1.0,
+      "params": {
+        "strength": 0.75,
+        "thickness": 1.5,
+        "depth_sensitivity": 0.01,
+        "color_sensitivity": 0.30,
+        "method": 3,
+        "color": [0.0, 0.0, 0.0],
+        "wobble_amount": 0.0,
+        "wobble_speed": 1.0,
+        "wobble_frequency": 10.0,
+        "debug": 0.0
+      }
+    }
+  ],
+  "textures": []
+}

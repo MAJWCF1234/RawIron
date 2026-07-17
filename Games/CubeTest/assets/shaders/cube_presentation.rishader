@@ -11,7 +11,6 @@
     "cas_sharpen_amount": 0.18,
     "cas_contrast_adaptation": 0.28,
     "tone_curve_strength": 0.06,
-    "deband_strength": 0.05,
     "output_dither_strength": 0.16
   },
   "effects": [
@@ -22,6 +21,43 @@
       "params": {
         "preset": 0,
         "strength": 0.15
+      }
+    },
+    {
+      "id": "ri_adaptive_deband",
+      "enabled": true,
+      "blend": 1.0,
+      "params": {
+        "strength": 0.12,
+        "radius": 12.0,
+        "threshold": 0.01,
+        "iterations": 1
+      }
+    },
+    {
+      "id": "ri_local_sharpen",
+      "enabled": true,
+      "blend": 1.0,
+      "params": {
+        "strength": 0.12,
+        "radius": 1.0,
+        "clamp": 0.05,
+        "edge_limit": 0.8
+      }
+    },
+    {
+      "id": "ri_ink_outline",
+      "enabled": true,
+      "blend": 1.0,
+      "params": {
+        "strength": 0.10,
+        "thickness": 1.0,
+        "depth_sensitivity": 0.012,
+        "color_sensitivity": 0.4,
+        "method": 0,
+        "color": [0.02, 0.025, 0.035],
+        "wobble_amount": 0.0,
+        "debug": 0.0
       }
     }
   ],

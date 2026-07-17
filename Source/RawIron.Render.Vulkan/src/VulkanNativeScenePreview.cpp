@@ -469,6 +469,12 @@ struct NativeScenePreviewData {
     std::array<float, 4> cropScaleFinalFilterStrength{};
     /// Barbatos uFakeHDR: x=preset atlas row (0..2), y=strength (0..2), zw unused.
     std::array<float, 4> barbatosFakeHdrPack{};
+    /// Raw Iron native post capabilities.
+    std::array<float, 4> riAdaptiveDebandPack{};
+    std::array<float, 4> riLocalSharpenPack{};
+    std::array<float, 4> riOutlinePack0{};
+    std::array<float, 4> riOutlineColorMethod{};
+    std::array<float, 4> riOutlineWobbleDebug{};
     /// Column-major `mat4` for `NativeSkybox.vert` (`projection * skyRotation`).
     std::array<float, 16> skyClipFromLocal{};
     /// Column-major `mat4`; upper 3x3 maps eye-space directions to world for equirect sampling.
@@ -726,9 +732,14 @@ struct alignas(16) CameraUniformStd140 {
     float cropScaleContentIntermediate[4]{};
     float cropScaleFinalFilterStrength[4]{};
     float barbatosFakeHdrPack[4]{};
+    float riAdaptiveDebandPack[4]{};
+    float riLocalSharpenPack[4]{};
+    float riOutlinePack0[4]{};
+    float riOutlineColorMethod[4]{};
+    float riOutlineWobbleDebug[4]{};
 };
 
-static_assert(sizeof(CameraUniformStd140) == 3712, "Must match NativeScenePreview shader CameraData std140 layout.");
+static_assert(sizeof(CameraUniformStd140) == 3792, "Must match NativeScenePreview shader CameraData std140 layout.");
 
 void StoreMat4ColumnMajorGlsl(const ri::math::Mat4& matrix, float destination[16]) {
     for (int column = 0; column < 4; ++column) {
@@ -3427,6 +3438,36 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
         sanitizedPost.barbatosFakeHdrStrength,
         0.0f,
         0.0f,
+    };
+    outData->riAdaptiveDebandPack = {
+        sanitizedPost.riAdaptiveDebandStrength,
+        sanitizedPost.riAdaptiveDebandRadius,
+        sanitizedPost.riAdaptiveDebandThreshold,
+        static_cast<float>(sanitizedPost.riAdaptiveDebandIterations),
+    };
+    outData->riLocalSharpenPack = {
+        sanitizedPost.riLocalSharpenStrength,
+        sanitizedPost.riLocalSharpenRadius,
+        sanitizedPost.riLocalSharpenClamp,
+        sanitizedPost.riLocalSharpenEdgeLimit,
+    };
+    outData->riOutlinePack0 = {
+        sanitizedPost.riOutlineStrength,
+        sanitizedPost.riOutlineThickness,
+        sanitizedPost.riOutlineDepthSensitivity,
+        sanitizedPost.riOutlineColorSensitivity,
+    };
+    outData->riOutlineColorMethod = {
+        sanitizedPost.riOutlineColor.x,
+        sanitizedPost.riOutlineColor.y,
+        sanitizedPost.riOutlineColor.z,
+        static_cast<float>(sanitizedPost.riOutlineMethod),
+    };
+    outData->riOutlineWobbleDebug = {
+        sanitizedPost.riOutlineWobbleAmount,
+        sanitizedPost.riOutlineWobbleSpeed,
+        sanitizedPost.riOutlineWobbleFrequency,
+        sanitizedPost.riOutlineDebug,
     };
     outData->renderQualityTier = std::clamp(frame.renderQualityTier, 0, 2);
     if (outData->renderQualityTier >= 2) {
@@ -8011,6 +8052,21 @@ bool RunVulkanNativeSceneLoop(const int width,
             std::memcpy(cameraUniform.barbatosFakeHdrPack,
                         sceneData.barbatosFakeHdrPack.data(),
                         sizeof(cameraUniform.barbatosFakeHdrPack));
+            std::memcpy(cameraUniform.riAdaptiveDebandPack,
+                        sceneData.riAdaptiveDebandPack.data(),
+                        sizeof(cameraUniform.riAdaptiveDebandPack));
+            std::memcpy(cameraUniform.riLocalSharpenPack,
+                        sceneData.riLocalSharpenPack.data(),
+                        sizeof(cameraUniform.riLocalSharpenPack));
+            std::memcpy(cameraUniform.riOutlinePack0,
+                        sceneData.riOutlinePack0.data(),
+                        sizeof(cameraUniform.riOutlinePack0));
+            std::memcpy(cameraUniform.riOutlineColorMethod,
+                        sceneData.riOutlineColorMethod.data(),
+                        sizeof(cameraUniform.riOutlineColorMethod));
+            std::memcpy(cameraUniform.riOutlineWobbleDebug,
+                        sceneData.riOutlineWobbleDebug.data(),
+                        sizeof(cameraUniform.riOutlineWobbleDebug));
             std::memcpy(mappedUniformMemory, &cameraUniform, sizeof(CameraUniformStd140));
             SkyUniformStd140 skyUniform{};
             skyUniform.hasSkyTexture = sceneData.skyUseTextureFile;

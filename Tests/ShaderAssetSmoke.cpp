@@ -69,8 +69,11 @@ int main(int argc, char** argv) {
         }
         if (std::string_view(item.game) == "CubeTest"
             && (presentation->parameters.barbatosFakeHdrPreset != 0
-                || presentation->parameters.barbatosFakeHdrStrength != 0.15f)) {
-            std::cerr << "CubeTest: native Barbatos Fake HDR effect was not composed.\n";
+                || presentation->parameters.barbatosFakeHdrStrength != 0.15f
+                || presentation->parameters.riAdaptiveDebandStrength != 0.12f
+                || presentation->parameters.riLocalSharpenStrength != 0.12f
+                || presentation->parameters.riOutlineStrength != 0.10f)) {
+            std::cerr << "CubeTest: native Raw Iron post effects were not composed.\n";
             return 14;
         }
 
@@ -118,6 +121,27 @@ int main(int argc, char** argv) {
         || !fs::is_regular_file(fakeHdr.textures.front().resolvedPath)) {
         std::cerr << "Native Barbatos Fake HDR parameters or texture were not resolved deterministically.\n";
         return 13;
+    }
+
+    const fs::path nativeEffectRoot = workspaceRoot / "Source" / "RawIron.Render.Vulkan" / "shaders" / "NativeEffects";
+    ri::content::RawIronShaderAsset adaptiveDeband{};
+    ri::content::RawIronShaderAsset localSharpen{};
+    ri::content::RawIronShaderAsset inkOutline{};
+    if (!ri::content::LoadRawIronShaderAsset(nativeEffectRoot / "ri_adaptive_deband.rishader", &adaptiveDeband, &cropError)
+        || !ri::content::LoadRawIronShaderAsset(nativeEffectRoot / "ri_local_sharpen.rishader", &localSharpen, &cropError)
+        || !ri::content::LoadRawIronShaderAsset(nativeEffectRoot / "ri_ink_outline.rishader", &inkOutline, &cropError)) {
+        std::cerr << "Raw Iron native post capability failed to load: " << cropError << '\n';
+        return 15;
+    }
+    if (adaptiveDeband.presentation.parameters.riAdaptiveDebandIterations != 2
+        || adaptiveDeband.presentation.parameters.riAdaptiveDebandStrength != 0.65f
+        || localSharpen.presentation.parameters.riLocalSharpenStrength != 0.55f
+        || localSharpen.presentation.parameters.riLocalSharpenEdgeLimit != 0.65f
+        || inkOutline.presentation.parameters.riOutlineMethod != 3
+        || inkOutline.presentation.parameters.riOutlineStrength != 0.75f
+        || inkOutline.presentation.parameters.riOutlineThickness != 1.5f) {
+        std::cerr << "Raw Iron native post capability parameters were not parsed deterministically.\n";
+        return 16;
     }
 
     std::cout << "Validated native .rishader assets and manifest composition.\n";

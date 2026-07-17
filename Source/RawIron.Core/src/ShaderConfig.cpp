@@ -897,9 +897,33 @@ void MergePresentationObject(std::string_view obj, PostProcessParameters& p) {
     if (const std::optional<std::int32_t> v = detail::ExtractJsonInt(obj, "barbatos_fake_hdr_preset")) {
         p.barbatosFakeHdrPreset = *v;
     }
+    set("ri_adaptive_deband_strength", p.riAdaptiveDebandStrength);
+    set("ri_adaptive_deband_radius", p.riAdaptiveDebandRadius);
+    set("ri_adaptive_deband_threshold", p.riAdaptiveDebandThreshold);
+    if (const std::optional<std::int32_t> v = detail::ExtractJsonInt(obj, "ri_adaptive_deband_iterations")) {
+        p.riAdaptiveDebandIterations = *v;
+    }
+    set("ri_local_sharpen_strength", p.riLocalSharpenStrength);
+    set("ri_local_sharpen_radius", p.riLocalSharpenRadius);
+    set("ri_local_sharpen_clamp", p.riLocalSharpenClamp);
+    set("ri_local_sharpen_edge_limit", p.riLocalSharpenEdgeLimit);
+    set("ri_outline_strength", p.riOutlineStrength);
+    set("ri_outline_thickness", p.riOutlineThickness);
+    set("ri_outline_depth_sensitivity", p.riOutlineDepthSensitivity);
+    set("ri_outline_color_sensitivity", p.riOutlineColorSensitivity);
+    set("ri_outline_wobble_amount", p.riOutlineWobbleAmount);
+    set("ri_outline_wobble_speed", p.riOutlineWobbleSpeed);
+    set("ri_outline_wobble_frequency", p.riOutlineWobbleFrequency);
+    set("ri_outline_debug", p.riOutlineDebug);
+    if (const std::optional<std::int32_t> v = detail::ExtractJsonInt(obj, "ri_outline_method")) {
+        p.riOutlineMethod = *v;
+    }
 
     if (const auto lift = TryParseJsonVec3(obj, "lift_rgb")) {
         p.liftRgb = *lift;
+    }
+    if (const auto v = TryParseJsonVec3(obj, "ri_outline_color")) {
+        p.riOutlineColor = *v;
     }
     if (const auto gamma = TryParseJsonVec3(obj, "gamma_rgb")) {
         p.gammaRgb = *gamma;
@@ -4642,6 +4666,30 @@ bool ApplyEffectBlock(std::string_view effect, PostProcessParameters& accum) {
         if (const std::optional<double> v = detail::ExtractJsonDouble(p, "strength")) {
             layer.barbatosFakeHdrStrength = static_cast<float>(*v);
         }
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "ri_adaptive_deband" || typeNorm == "rawiron_adaptive_deband") {
+        if (const auto v = detail::ExtractJsonDouble(p, "strength")) layer.riAdaptiveDebandStrength = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "radius")) layer.riAdaptiveDebandRadius = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "threshold")) layer.riAdaptiveDebandThreshold = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonInt(p, "iterations")) layer.riAdaptiveDebandIterations = *v;
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "ri_local_sharpen" || typeNorm == "rawiron_local_sharpen") {
+        if (const auto v = detail::ExtractJsonDouble(p, "strength")) layer.riLocalSharpenStrength = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "radius")) layer.riLocalSharpenRadius = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "clamp")) layer.riLocalSharpenClamp = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "edge_limit")) layer.riLocalSharpenEdgeLimit = static_cast<float>(*v);
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "ri_ink_outline" || typeNorm == "rawiron_ink_outline") {
+        if (const auto v = detail::ExtractJsonDouble(p, "strength")) layer.riOutlineStrength = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "thickness")) layer.riOutlineThickness = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "depth_sensitivity")) layer.riOutlineDepthSensitivity = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "color_sensitivity")) layer.riOutlineColorSensitivity = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonInt(p, "method")) layer.riOutlineMethod = *v;
+        if (const auto v = TryParseJsonVec3(p, "color")) layer.riOutlineColor = *v;
+        if (const auto v = detail::ExtractJsonDouble(p, "wobble_amount")) layer.riOutlineWobbleAmount = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "wobble_speed")) layer.riOutlineWobbleSpeed = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "wobble_frequency")) layer.riOutlineWobbleFrequency = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "debug")) layer.riOutlineDebug = static_cast<float>(*v);
         MergePresentationObject(p, layer);
     } else if (typeNorm == "legacy_post" || typeNorm == "stylized" || typeNorm == "vintage") {
         MergePresentationObject(p, layer);

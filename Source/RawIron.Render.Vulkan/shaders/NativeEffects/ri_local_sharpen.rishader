@@ -1,0 +1,24 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.local_sharpen",
+  "name": "Raw Iron Local Sharpen",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyRiLocalSharpen",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "ri_local_sharpen",
+      "enabled": true,
+      "blend": 1.0,
+      "params": {
+        "strength": 0.55,
+        "radius": 1.0,
+        "clamp": 0.08,
+        "edge_limit": 0.65
+      }
+    }
+  ],
+  "textures": []
+}

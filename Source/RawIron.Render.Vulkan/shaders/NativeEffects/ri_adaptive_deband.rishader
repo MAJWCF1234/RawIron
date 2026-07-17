@@ -1,0 +1,24 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.adaptive_deband",
+  "name": "Raw Iron Adaptive Deband",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyRiAdaptiveDeband",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "ri_adaptive_deband",
+      "enabled": true,
+      "blend": 1.0,
+      "params": {
+        "strength": 0.65,
+        "radius": 24.0,
+        "threshold": 0.012,
+        "iterations": 2
+      }
+    }
+  ],
+  "textures": []
+}
