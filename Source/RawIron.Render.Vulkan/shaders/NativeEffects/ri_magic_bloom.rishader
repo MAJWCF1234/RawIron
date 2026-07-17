@@ -1,0 +1,35 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.ri_magic_bloom",
+  "name": "Raw Iron Magic Bloom",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyRiMagicBloom",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "ri_magic_bloom",
+      "enabled": true,
+      "blend": 1.0,
+      "math": "Raw Iron bounded multi-radius bloom with local luminance adaptation, screen blend, and native dirt modulation",
+      "params": {
+        "strength": 1.0,
+        "intensity": 1.0,
+        "threshold_power": 2.0,
+        "exposure": 0.5,
+        "dirt_intensity": 0.0,
+        "radius_pixels": 4.0,
+        "adapt_sensitivity": 1.0
+      }
+    }
+  ],
+  "textures": [
+    {
+      "name": "lens_dirt",
+      "path": "native://MagicBloom_Dirt.png",
+      "required": true,
+      "colorSpace": "srgb"
+    }
+  ]
+}

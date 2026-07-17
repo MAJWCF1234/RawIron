@@ -788,6 +788,60 @@ struct PostProcessParameters {
     float riNightVisionGain = 1.5f;
     float riNightVisionNoise = 0.08f;
     float riNightVisionVignette = 0.65f;
+    /// Raw Iron edge-directed reconstruction inspired by the HQ4X capability checklist.
+    float riHq4xStrength = 0.0f;
+    float riHq4xRadiusPixels = 1.5f;
+    float riHq4xSmoothing = 1.0f;
+    float riHq4xEdgeHardness = 1.1f;
+    float riHq4xMinWeight = 0.03f;
+    float riHq4xMaxWeight = 0.75f;
+    float riHq4xLumaBias = 0.33f;
+    /// Eight editable HSL anchor colors: red, orange, yellow, green, cyan, blue, purple, magenta.
+    float riHslShiftStrength = 0.0f;
+    ri::math::Vec3 riHslRed{0.75f, 0.25f, 0.25f};
+    ri::math::Vec3 riHslOrange{0.75f, 0.50f, 0.25f};
+    ri::math::Vec3 riHslYellow{0.75f, 0.75f, 0.25f};
+    ri::math::Vec3 riHslGreen{0.25f, 0.75f, 0.25f};
+    ri::math::Vec3 riHslCyan{0.25f, 0.75f, 0.75f};
+    ri::math::Vec3 riHslBlue{0.25f, 0.25f, 0.75f};
+    ri::math::Vec3 riHslPurple{0.50f, 0.25f, 0.75f};
+    ri::math::Vec3 riHslMagenta{0.75f, 0.25f, 0.75f};
+    /// Per-channel input/output range, gamma, range shift, ACES option, and clipping diagnostics.
+    float riLevelsPlusStrength = 0.0f;
+    ri::math::Vec3 riLevelsPlusInputBlack{16.0f / 255.0f, 18.0f / 255.0f, 20.0f / 255.0f};
+    ri::math::Vec3 riLevelsPlusInputWhite{233.0f / 255.0f, 222.0f / 255.0f, 211.0f / 255.0f};
+    ri::math::Vec3 riLevelsPlusGamma{1.0f, 1.0f, 1.0f};
+    ri::math::Vec3 riLevelsPlusOutputBlack{0.0f, 0.0f, 0.0f};
+    ri::math::Vec3 riLevelsPlusOutputWhite{1.0f, 1.0f, 1.0f};
+    ri::math::Vec3 riLevelsPlusColorShift{0.0f, 0.0f, 0.0f};
+    float riLevelsPlusColorShiftDirection = 0.0f;
+    int riLevelsPlusAcesMode = 0;
+    ri::math::Vec3 riLevelsPlusAcesLuminance{1.0f, 1.0f, 1.0f};
+    float riLevelsPlusClipDebug = 0.0f;
+    /// Single-pass, depth-aware near/far lens blur with optional chroma fringe.
+    float riLightDofStrength = 0.0f;
+    float riLightDofWidthPixels = 5.0f;
+    float riLightDofAmount = 10.0f;
+    float riLightDofManualFocus = 0.0f;
+    float riLightDofAutoFocus = 1.0f;
+    ri::math::Vec2 riLightDofFocusPoint{0.5f, 0.5f};
+    float riLightDofFarChromatic = 0.0f;
+    float riLightDofNearChromatic = 1.0f;
+    /// Multi-radius bounded bloom using the native MagicBloom dirt texture.
+    float riMagicBloomStrength = 0.0f;
+    float riMagicBloomIntensity = 1.0f;
+    float riMagicBloomThresholdPower = 2.0f;
+    float riMagicBloomExposure = 0.5f;
+    float riMagicBloomDirtIntensity = 0.0f;
+    float riMagicBloomRadiusPixels = 4.0f;
+    float riMagicBloomAdaptSensitivity = 1.0f;
+    /// Restores the pre-post image through the native RGB UI mask texture.
+    float riUiMaskStrength = 0.0f;
+    float riUiMaskIntensity = 1.0f;
+    float riUiMaskRed = 1.0f;
+    float riUiMaskGreen = 1.0f;
+    float riUiMaskBlue = 1.0f;
+    float riUiMaskDisplay = 0.0f;
 };
 
 struct PostProcessPresetDefinition {
@@ -1791,6 +1845,80 @@ inline PostProcessParameters SanitizePostProcessParameters(const PostProcessPara
     out.riNightVisionGain = ClampFinite(input.riNightVisionGain, 0.1f, 4.0f, 1.5f);
     out.riNightVisionNoise = ClampFinite(input.riNightVisionNoise, 0.0f, 0.5f, 0.08f);
     out.riNightVisionVignette = ClampFinite(input.riNightVisionVignette, 0.0f, 1.0f, 0.65f);
+    out.riHq4xStrength = ClampFinite(input.riHq4xStrength, 0.0f, 1.0f, 0.0f);
+    out.riHq4xRadiusPixels = ClampFinite(input.riHq4xRadiusPixels, 0.1f, 10.0f, 1.5f);
+    out.riHq4xSmoothing = ClampFinite(input.riHq4xSmoothing, 0.0f, 1.0f, 1.0f);
+    out.riHq4xEdgeHardness = ClampFinite(input.riHq4xEdgeHardness, 0.0f, 2.0f, 1.1f);
+    out.riHq4xMinWeight = ClampFinite(input.riHq4xMinWeight, 0.0f, 1.0f, 0.03f);
+    out.riHq4xMaxWeight = ClampFinite(input.riHq4xMaxWeight, 0.0f, 1.0f, 0.75f);
+    if (out.riHq4xMaxWeight < out.riHq4xMinWeight) std::swap(out.riHq4xMinWeight, out.riHq4xMaxWeight);
+    out.riHq4xLumaBias = ClampFinite(input.riHq4xLumaBias, 0.001f, 1.0f, 0.33f);
+    out.riHslShiftStrength = ClampFinite(input.riHslShiftStrength, 0.0f, 1.0f, 0.0f);
+    const auto sanitizeHslAnchor = [](const ri::math::Vec3& value, const ri::math::Vec3& fallback) {
+        return ri::math::Vec3{
+            ClampFinite(value.x, 0.0f, 1.0f, fallback.x),
+            ClampFinite(value.y, 0.0f, 1.0f, fallback.y),
+            ClampFinite(value.z, 0.0f, 1.0f, fallback.z),
+        };
+    };
+    out.riHslRed = sanitizeHslAnchor(input.riHslRed, {0.75f, 0.25f, 0.25f});
+    out.riHslOrange = sanitizeHslAnchor(input.riHslOrange, {0.75f, 0.50f, 0.25f});
+    out.riHslYellow = sanitizeHslAnchor(input.riHslYellow, {0.75f, 0.75f, 0.25f});
+    out.riHslGreen = sanitizeHslAnchor(input.riHslGreen, {0.25f, 0.75f, 0.25f});
+    out.riHslCyan = sanitizeHslAnchor(input.riHslCyan, {0.25f, 0.75f, 0.75f});
+    out.riHslBlue = sanitizeHslAnchor(input.riHslBlue, {0.25f, 0.25f, 0.75f});
+    out.riHslPurple = sanitizeHslAnchor(input.riHslPurple, {0.50f, 0.25f, 0.75f});
+    out.riHslMagenta = sanitizeHslAnchor(input.riHslMagenta, {0.75f, 0.25f, 0.75f});
+    out.riLevelsPlusStrength = ClampFinite(input.riLevelsPlusStrength, 0.0f, 1.0f, 0.0f);
+    const auto sanitizeLevelsColor = [](const ri::math::Vec3& value, const ri::math::Vec3& fallback) {
+        return ri::math::Vec3{
+            ClampFinite(value.x, -2.0f, 4.0f, fallback.x),
+            ClampFinite(value.y, -2.0f, 4.0f, fallback.y),
+            ClampFinite(value.z, -2.0f, 4.0f, fallback.z),
+        };
+    };
+    out.riLevelsPlusInputBlack = sanitizeLevelsColor(input.riLevelsPlusInputBlack, {16.0f / 255.0f, 18.0f / 255.0f, 20.0f / 255.0f});
+    out.riLevelsPlusInputWhite = sanitizeLevelsColor(input.riLevelsPlusInputWhite, {233.0f / 255.0f, 222.0f / 255.0f, 211.0f / 255.0f});
+    out.riLevelsPlusGamma = {
+        ClampFinite(input.riLevelsPlusGamma.x, 0.01f, 10.0f, 1.0f),
+        ClampFinite(input.riLevelsPlusGamma.y, 0.01f, 10.0f, 1.0f),
+        ClampFinite(input.riLevelsPlusGamma.z, 0.01f, 10.0f, 1.0f),
+    };
+    out.riLevelsPlusOutputBlack = sanitizeLevelsColor(input.riLevelsPlusOutputBlack, {0.0f, 0.0f, 0.0f});
+    out.riLevelsPlusOutputWhite = sanitizeLevelsColor(input.riLevelsPlusOutputWhite, {1.0f, 1.0f, 1.0f});
+    out.riLevelsPlusColorShift = sanitizeLevelsColor(input.riLevelsPlusColorShift, {0.0f, 0.0f, 0.0f});
+    out.riLevelsPlusColorShiftDirection = ClampFinite(input.riLevelsPlusColorShiftDirection, -1.0f, 1.0f, 0.0f);
+    out.riLevelsPlusAcesMode = std::clamp(input.riLevelsPlusAcesMode, 0, 3);
+    out.riLevelsPlusAcesLuminance = {
+        ClampFinite(input.riLevelsPlusAcesLuminance.x, 0.0f, 2.0f, 1.0f),
+        ClampFinite(input.riLevelsPlusAcesLuminance.y, 0.0f, 2.0f, 1.0f),
+        ClampFinite(input.riLevelsPlusAcesLuminance.z, 0.0f, 2.0f, 1.0f),
+    };
+    out.riLevelsPlusClipDebug = ClampFinite(input.riLevelsPlusClipDebug, 0.0f, 1.0f, 0.0f);
+    out.riLightDofStrength = ClampFinite(input.riLightDofStrength, 0.0f, 1.0f, 0.0f);
+    out.riLightDofWidthPixels = ClampFinite(input.riLightDofWidthPixels, 1.0f, 25.0f, 5.0f);
+    out.riLightDofAmount = ClampFinite(input.riLightDofAmount, 0.0f, 10.0f, 10.0f);
+    out.riLightDofManualFocus = ClampFinite(input.riLightDofManualFocus, 0.0f, 1.0f, 0.0f);
+    out.riLightDofAutoFocus = ClampFinite(input.riLightDofAutoFocus, 0.0f, 1.0f, 1.0f);
+    out.riLightDofFocusPoint = {
+        ClampFinite(input.riLightDofFocusPoint.x, 0.0f, 1.0f, 0.5f),
+        ClampFinite(input.riLightDofFocusPoint.y, 0.0f, 1.0f, 0.5f),
+    };
+    out.riLightDofFarChromatic = ClampFinite(input.riLightDofFarChromatic, 0.0f, 1.0f, 0.0f);
+    out.riLightDofNearChromatic = ClampFinite(input.riLightDofNearChromatic, 0.0f, 1.0f, 1.0f);
+    out.riMagicBloomStrength = ClampFinite(input.riMagicBloomStrength, 0.0f, 1.0f, 0.0f);
+    out.riMagicBloomIntensity = ClampFinite(input.riMagicBloomIntensity, 0.0f, 10.0f, 1.0f);
+    out.riMagicBloomThresholdPower = ClampFinite(input.riMagicBloomThresholdPower, 1.0f, 10.0f, 2.0f);
+    out.riMagicBloomExposure = ClampFinite(input.riMagicBloomExposure, 0.0f, 4.0f, 0.5f);
+    out.riMagicBloomDirtIntensity = ClampFinite(input.riMagicBloomDirtIntensity, 0.0f, 1.0f, 0.0f);
+    out.riMagicBloomRadiusPixels = ClampFinite(input.riMagicBloomRadiusPixels, 0.5f, 64.0f, 4.0f);
+    out.riMagicBloomAdaptSensitivity = ClampFinite(input.riMagicBloomAdaptSensitivity, 0.0f, 3.0f, 1.0f);
+    out.riUiMaskStrength = ClampFinite(input.riUiMaskStrength, 0.0f, 1.0f, 0.0f);
+    out.riUiMaskIntensity = ClampFinite(input.riUiMaskIntensity, 0.0f, 1.0f, 1.0f);
+    out.riUiMaskRed = ClampFinite(input.riUiMaskRed, 0.0f, 1.0f, 1.0f);
+    out.riUiMaskGreen = ClampFinite(input.riUiMaskGreen, 0.0f, 1.0f, 1.0f);
+    out.riUiMaskBlue = ClampFinite(input.riUiMaskBlue, 0.0f, 1.0f, 1.0f);
+    out.riUiMaskDisplay = ClampFinite(input.riUiMaskDisplay, 0.0f, 1.0f, 0.0f);
     return out;
 }
 
@@ -3464,6 +3592,57 @@ inline PostProcessParameters BlendPostProcessParameters(
         .riNightVisionNoise = a.riNightVisionNoise + ((b.riNightVisionNoise - a.riNightVisionNoise) * t),
         .riNightVisionVignette = a.riNightVisionVignette
             + ((b.riNightVisionVignette - a.riNightVisionVignette) * t),
+        .riHq4xStrength = std::lerp(a.riHq4xStrength, b.riHq4xStrength, t),
+        .riHq4xRadiusPixels = std::lerp(a.riHq4xRadiusPixels, b.riHq4xRadiusPixels, t),
+        .riHq4xSmoothing = std::lerp(a.riHq4xSmoothing, b.riHq4xSmoothing, t),
+        .riHq4xEdgeHardness = std::lerp(a.riHq4xEdgeHardness, b.riHq4xEdgeHardness, t),
+        .riHq4xMinWeight = std::lerp(a.riHq4xMinWeight, b.riHq4xMinWeight, t),
+        .riHq4xMaxWeight = std::lerp(a.riHq4xMaxWeight, b.riHq4xMaxWeight, t),
+        .riHq4xLumaBias = std::lerp(a.riHq4xLumaBias, b.riHq4xLumaBias, t),
+        .riHslShiftStrength = std::lerp(a.riHslShiftStrength, b.riHslShiftStrength, t),
+        .riHslRed = ri::math::Lerp(a.riHslRed, b.riHslRed, t),
+        .riHslOrange = ri::math::Lerp(a.riHslOrange, b.riHslOrange, t),
+        .riHslYellow = ri::math::Lerp(a.riHslYellow, b.riHslYellow, t),
+        .riHslGreen = ri::math::Lerp(a.riHslGreen, b.riHslGreen, t),
+        .riHslCyan = ri::math::Lerp(a.riHslCyan, b.riHslCyan, t),
+        .riHslBlue = ri::math::Lerp(a.riHslBlue, b.riHslBlue, t),
+        .riHslPurple = ri::math::Lerp(a.riHslPurple, b.riHslPurple, t),
+        .riHslMagenta = ri::math::Lerp(a.riHslMagenta, b.riHslMagenta, t),
+        .riLevelsPlusStrength = std::lerp(a.riLevelsPlusStrength, b.riLevelsPlusStrength, t),
+        .riLevelsPlusInputBlack = ri::math::Lerp(a.riLevelsPlusInputBlack, b.riLevelsPlusInputBlack, t),
+        .riLevelsPlusInputWhite = ri::math::Lerp(a.riLevelsPlusInputWhite, b.riLevelsPlusInputWhite, t),
+        .riLevelsPlusGamma = ri::math::Lerp(a.riLevelsPlusGamma, b.riLevelsPlusGamma, t),
+        .riLevelsPlusOutputBlack = ri::math::Lerp(a.riLevelsPlusOutputBlack, b.riLevelsPlusOutputBlack, t),
+        .riLevelsPlusOutputWhite = ri::math::Lerp(a.riLevelsPlusOutputWhite, b.riLevelsPlusOutputWhite, t),
+        .riLevelsPlusColorShift = ri::math::Lerp(a.riLevelsPlusColorShift, b.riLevelsPlusColorShift, t),
+        .riLevelsPlusColorShiftDirection = std::lerp(a.riLevelsPlusColorShiftDirection, b.riLevelsPlusColorShiftDirection, t),
+        .riLevelsPlusAcesMode = (t < 0.5f) ? a.riLevelsPlusAcesMode : b.riLevelsPlusAcesMode,
+        .riLevelsPlusAcesLuminance = ri::math::Lerp(a.riLevelsPlusAcesLuminance, b.riLevelsPlusAcesLuminance, t),
+        .riLevelsPlusClipDebug = std::lerp(a.riLevelsPlusClipDebug, b.riLevelsPlusClipDebug, t),
+        .riLightDofStrength = std::lerp(a.riLightDofStrength, b.riLightDofStrength, t),
+        .riLightDofWidthPixels = std::lerp(a.riLightDofWidthPixels, b.riLightDofWidthPixels, t),
+        .riLightDofAmount = std::lerp(a.riLightDofAmount, b.riLightDofAmount, t),
+        .riLightDofManualFocus = std::lerp(a.riLightDofManualFocus, b.riLightDofManualFocus, t),
+        .riLightDofAutoFocus = std::lerp(a.riLightDofAutoFocus, b.riLightDofAutoFocus, t),
+        .riLightDofFocusPoint = {
+            std::lerp(a.riLightDofFocusPoint.x, b.riLightDofFocusPoint.x, t),
+            std::lerp(a.riLightDofFocusPoint.y, b.riLightDofFocusPoint.y, t),
+        },
+        .riLightDofFarChromatic = std::lerp(a.riLightDofFarChromatic, b.riLightDofFarChromatic, t),
+        .riLightDofNearChromatic = std::lerp(a.riLightDofNearChromatic, b.riLightDofNearChromatic, t),
+        .riMagicBloomStrength = std::lerp(a.riMagicBloomStrength, b.riMagicBloomStrength, t),
+        .riMagicBloomIntensity = std::lerp(a.riMagicBloomIntensity, b.riMagicBloomIntensity, t),
+        .riMagicBloomThresholdPower = std::lerp(a.riMagicBloomThresholdPower, b.riMagicBloomThresholdPower, t),
+        .riMagicBloomExposure = std::lerp(a.riMagicBloomExposure, b.riMagicBloomExposure, t),
+        .riMagicBloomDirtIntensity = std::lerp(a.riMagicBloomDirtIntensity, b.riMagicBloomDirtIntensity, t),
+        .riMagicBloomRadiusPixels = std::lerp(a.riMagicBloomRadiusPixels, b.riMagicBloomRadiusPixels, t),
+        .riMagicBloomAdaptSensitivity = std::lerp(a.riMagicBloomAdaptSensitivity, b.riMagicBloomAdaptSensitivity, t),
+        .riUiMaskStrength = std::lerp(a.riUiMaskStrength, b.riUiMaskStrength, t),
+        .riUiMaskIntensity = std::lerp(a.riUiMaskIntensity, b.riUiMaskIntensity, t),
+        .riUiMaskRed = std::lerp(a.riUiMaskRed, b.riUiMaskRed, t),
+        .riUiMaskGreen = std::lerp(a.riUiMaskGreen, b.riUiMaskGreen, t),
+        .riUiMaskBlue = std::lerp(a.riUiMaskBlue, b.riUiMaskBlue, t),
+        .riUiMaskDisplay = std::lerp(a.riUiMaskDisplay, b.riUiMaskDisplay, t),
     });
 }
 

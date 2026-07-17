@@ -20,8 +20,22 @@ set(_owned_effect_assets
   ri_ink_outline.rishader
   ri_signal_glitch.rishader
   ri_night_vision.rishader
-  ri_high_pass_sharpen.rishader)
-set(_retired_root_effects Glitch.fx NightVision.fx HighPassSharpen.fx)
+  ri_high_pass_sharpen.rishader
+  ri_blending.rishader
+  ri_text_overlay.rishader
+  ri_shader_macros.rishader
+  ri_shader_contract.rishader
+  ri_shader_ui_contract.rishader
+  ri_hq4x.rishader
+  ri_hsl_shift.rishader
+  ri_levels_plus.rishader
+  ri_light_dof.rishader
+  ri_magic_bloom.rishader
+  ri_ui_mask.rishader)
+set(_retired_root_effects
+  Glitch.fx NightVision.fx HighPassSharpen.fx
+  Blending.fxh DrawText.fxh HQ4X.fx HSLShift.fx LevelsPlus.fx LightDoF.fx
+  Macros.fxh MagicBloom.fx ReShade.fxh ReShadeUI.fxh UIMask.fx)
 set(_pd80_native_asset "${RAWIRON_WORKSPACE}/Source/RawIron.Render.Vulkan/shaders/NativeEffects/pd80_cinetools_lut.rishader")
 set(_retired_pd80_helpers PD80_LUT_v2.fxh PD80_00_Noise_Samplers.fxh PD80_00_Color_Spaces.fxh)
 
@@ -152,7 +166,7 @@ foreach(_pd80_texture IN ITEMS pd80_bluenoise_rgba.png pd80_permtexture.png pd80
   endif()
 endforeach()
 foreach(_needle IN ITEMS
-    "descriptorForNativePostBundle(pd80NativeTexturePaths)"
+    "descriptorForNativePostBundle(nativePostTexturePaths)"
     "layout(set = 7, binding = 0) uniform sampler2D nativePd80BlueNoiseTexture"
     "layout(set = 7, binding = 1) uniform sampler2D nativePd80PermTexture"
     "layout(set = 7, binding = 2) uniform sampler2D nativePd80CineLutTexture"
@@ -192,6 +206,69 @@ foreach(_pack IN ITEMS riSignalGlitchPack riNightVisionPack)
   string(FIND "${_runtime_text}" "cameraUniform.${_pack}" _runtime_pack_found)
   if(_runtime_pack_found EQUAL -1)
     message(FATAL_ERROR "Raw Iron signal/display uniform is not copied by the runtime: ${_pack}")
+  endif()
+endforeach()
+
+foreach(_function IN ITEMS
+    RiBlendLayer RiFontGlyphCoverage RiSafeReciprocal RiBoundedSceneColor
+    ApplyRiHq4x ApplyRiHslShift ApplyRiLevelsPlus ApplyRiLightDof ApplyRiMagicBloom ApplyRiUiMask)
+  foreach(_shader_text IN ITEMS _full_text _fast_text)
+    string(FIND "${${_shader_text}}" "${_function}" _requested_function_found)
+    if(_requested_function_found EQUAL -1)
+      message(FATAL_ERROR "Requested native shader capability missing from a composite path: ${_function}")
+    endif()
+  endforeach()
+endforeach()
+foreach(_function IN ITEMS ApplyRiHq4x ApplyRiHslShift ApplyRiLevelsPlus ApplyRiLightDof ApplyRiMagicBloom ApplyRiUiMask)
+  foreach(_shader_text IN ITEMS _full_text _fast_text)
+    string(REGEX MATCHALL "${_function}\\(" _requested_function_occurrences "${${_shader_text}}")
+    list(LENGTH _requested_function_occurrences _requested_function_count)
+    if(_requested_function_count LESS 2)
+      message(FATAL_ERROR "Requested native effect is declared but not invoked in a composite path: ${_function}")
+    endif()
+  endforeach()
+endforeach()
+foreach(_pack IN ITEMS
+    riHq4xPack0 riHslAnchor0 riLevelsPlusPack0 riLightDofPack0 riMagicBloomPack0 riUiMaskPack0)
+  string(FIND "${_runtime_text}" "cameraUniform.${_pack}" _requested_pack_found)
+  if(_requested_pack_found EQUAL -1)
+    message(FATAL_ERROR "Requested native shader uniform is not copied by the runtime: ${_pack}")
+  endif()
+endforeach()
+foreach(_texture IN ITEMS MagicBloom_Dirt.png FontAtlas.png brussell/UIDetectMaskRGB.png)
+  if(NOT EXISTS "${_native_texture_dir}/${_texture}")
+    message(FATAL_ERROR "Requested native shader texture is missing: ${_texture}")
+  endif()
+endforeach()
+foreach(_binding IN ITEMS
+    "binding = 3) uniform sampler2D riMagicBloomDirtTexture"
+    "binding = 4) uniform sampler2D riUiMaskTexture"
+    "binding = 5) uniform sampler2D riFontAtlasTexture")
+  foreach(_shader_text IN ITEMS _full_text _fast_text)
+    string(FIND "${${_shader_text}}" "${_binding}" _requested_binding_found)
+    if(_requested_binding_found EQUAL -1)
+      message(FATAL_ERROR "Requested native texture binding is missing from a composite path: ${_binding}")
+    endif()
+  endforeach()
+endforeach()
+foreach(_sample IN ITEMS
+    "texture(riMagicBloomDirtTexture"
+    "texture(riUiMaskTexture"
+    "texture(riFontAtlasTexture")
+  foreach(_shader_text IN ITEMS _full_text _fast_text)
+    string(FIND "${${_shader_text}}" "${_sample}" _requested_sample_found)
+    if(_requested_sample_found EQUAL -1)
+      message(FATAL_ERROR "Requested native texture is bound but never sampled: ${_sample}")
+    endif()
+  endforeach()
+endforeach()
+foreach(_path_needle IN ITEMS
+    "nativePostTextureRoot / \"MagicBloom_Dirt.png\""
+    "nativePostTextureRoot / \"brussell\" / \"UIDetectMaskRGB.png\""
+    "nativePostTextureRoot / \"FontAtlas.png\"")
+  string(FIND "${_runtime_text}" "${_path_needle}" _requested_path_found)
+  if(_requested_path_found EQUAL -1)
+    message(FATAL_ERROR "Requested native texture is not loaded by the Vulkan runtime: ${_path_needle}")
   endif()
 endforeach()
 

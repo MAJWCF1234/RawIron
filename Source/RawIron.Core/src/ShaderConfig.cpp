@@ -926,6 +926,38 @@ void MergePresentationObject(std::string_view obj, PostProcessParameters& p) {
     set("ri_night_vision_gain", p.riNightVisionGain);
     set("ri_night_vision_noise", p.riNightVisionNoise);
     set("ri_night_vision_vignette", p.riNightVisionVignette);
+    set("ri_hq4x_strength", p.riHq4xStrength);
+    set("ri_hq4x_radius_pixels", p.riHq4xRadiusPixels);
+    set("ri_hq4x_smoothing", p.riHq4xSmoothing);
+    set("ri_hq4x_edge_hardness", p.riHq4xEdgeHardness);
+    set("ri_hq4x_min_weight", p.riHq4xMinWeight);
+    set("ri_hq4x_max_weight", p.riHq4xMaxWeight);
+    set("ri_hq4x_luma_bias", p.riHq4xLumaBias);
+    set("ri_hsl_shift_strength", p.riHslShiftStrength);
+    set("ri_levels_plus_strength", p.riLevelsPlusStrength);
+    set("ri_levels_plus_color_shift_direction", p.riLevelsPlusColorShiftDirection);
+    set("ri_levels_plus_clip_debug", p.riLevelsPlusClipDebug);
+    if (const auto v = detail::ExtractJsonInt(obj, "ri_levels_plus_aces_mode")) p.riLevelsPlusAcesMode = *v;
+    set("ri_light_dof_strength", p.riLightDofStrength);
+    set("ri_light_dof_width_pixels", p.riLightDofWidthPixels);
+    set("ri_light_dof_amount", p.riLightDofAmount);
+    set("ri_light_dof_manual_focus", p.riLightDofManualFocus);
+    set("ri_light_dof_auto_focus", p.riLightDofAutoFocus);
+    set("ri_light_dof_far_chromatic", p.riLightDofFarChromatic);
+    set("ri_light_dof_near_chromatic", p.riLightDofNearChromatic);
+    set("ri_magic_bloom_strength", p.riMagicBloomStrength);
+    set("ri_magic_bloom_intensity", p.riMagicBloomIntensity);
+    set("ri_magic_bloom_threshold_power", p.riMagicBloomThresholdPower);
+    set("ri_magic_bloom_exposure", p.riMagicBloomExposure);
+    set("ri_magic_bloom_dirt_intensity", p.riMagicBloomDirtIntensity);
+    set("ri_magic_bloom_radius_pixels", p.riMagicBloomRadiusPixels);
+    set("ri_magic_bloom_adapt_sensitivity", p.riMagicBloomAdaptSensitivity);
+    set("ri_ui_mask_strength", p.riUiMaskStrength);
+    set("ri_ui_mask_intensity", p.riUiMaskIntensity);
+    set("ri_ui_mask_red", p.riUiMaskRed);
+    set("ri_ui_mask_green", p.riUiMaskGreen);
+    set("ri_ui_mask_blue", p.riUiMaskBlue);
+    set("ri_ui_mask_display", p.riUiMaskDisplay);
 
     if (const auto lift = TryParseJsonVec3(obj, "lift_rgb")) {
         p.liftRgb = *lift;
@@ -933,6 +965,22 @@ void MergePresentationObject(std::string_view obj, PostProcessParameters& p) {
     if (const auto v = TryParseJsonVec3(obj, "ri_outline_color")) {
         p.riOutlineColor = *v;
     }
+    if (const auto v = TryParseJsonVec3(obj, "ri_hsl_red")) p.riHslRed = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_hsl_orange")) p.riHslOrange = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_hsl_yellow")) p.riHslYellow = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_hsl_green")) p.riHslGreen = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_hsl_cyan")) p.riHslCyan = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_hsl_blue")) p.riHslBlue = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_hsl_purple")) p.riHslPurple = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_hsl_magenta")) p.riHslMagenta = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_levels_plus_input_black")) p.riLevelsPlusInputBlack = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_levels_plus_input_white")) p.riLevelsPlusInputWhite = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_levels_plus_gamma")) p.riLevelsPlusGamma = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_levels_plus_output_black")) p.riLevelsPlusOutputBlack = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_levels_plus_output_white")) p.riLevelsPlusOutputWhite = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_levels_plus_color_shift")) p.riLevelsPlusColorShift = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_levels_plus_aces_luminance")) p.riLevelsPlusAcesLuminance = *v;
+    if (const auto v = TryParseJsonVec2(obj, "ri_light_dof_focus_point")) p.riLightDofFocusPoint = *v;
     if (const auto gamma = TryParseJsonVec3(obj, "gamma_rgb")) {
         p.gammaRgb = *gamma;
     }
@@ -4712,6 +4760,66 @@ bool ApplyEffectBlock(std::string_view effect, PostProcessParameters& accum) {
         if (const auto v = detail::ExtractJsonDouble(p, "gain")) layer.riNightVisionGain = static_cast<float>(*v);
         if (const auto v = detail::ExtractJsonDouble(p, "noise")) layer.riNightVisionNoise = static_cast<float>(*v);
         if (const auto v = detail::ExtractJsonDouble(p, "vignette")) layer.riNightVisionVignette = static_cast<float>(*v);
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "ri_hq4x" || typeNorm == "rawiron_hq4x") {
+        if (const auto v = detail::ExtractJsonDouble(p, "strength")) layer.riHq4xStrength = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "radius_pixels")) layer.riHq4xRadiusPixels = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "smoothing")) layer.riHq4xSmoothing = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "edge_hardness")) layer.riHq4xEdgeHardness = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "min_weight")) layer.riHq4xMinWeight = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "max_weight")) layer.riHq4xMaxWeight = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "luma_bias")) layer.riHq4xLumaBias = static_cast<float>(*v);
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "ri_hsl_shift" || typeNorm == "rawiron_hsl_shift") {
+        if (const auto v = detail::ExtractJsonDouble(p, "strength")) layer.riHslShiftStrength = static_cast<float>(*v);
+        if (const auto v = TryParseJsonVec3(p, "red")) layer.riHslRed = *v;
+        if (const auto v = TryParseJsonVec3(p, "orange")) layer.riHslOrange = *v;
+        if (const auto v = TryParseJsonVec3(p, "yellow")) layer.riHslYellow = *v;
+        if (const auto v = TryParseJsonVec3(p, "green")) layer.riHslGreen = *v;
+        if (const auto v = TryParseJsonVec3(p, "cyan")) layer.riHslCyan = *v;
+        if (const auto v = TryParseJsonVec3(p, "blue")) layer.riHslBlue = *v;
+        if (const auto v = TryParseJsonVec3(p, "purple")) layer.riHslPurple = *v;
+        if (const auto v = TryParseJsonVec3(p, "magenta")) layer.riHslMagenta = *v;
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "ri_levels_plus" || typeNorm == "rawiron_levels_plus") {
+        if (const auto v = detail::ExtractJsonDouble(p, "strength")) layer.riLevelsPlusStrength = static_cast<float>(*v);
+        if (const auto v = TryParseJsonVec3(p, "input_black")) layer.riLevelsPlusInputBlack = *v;
+        if (const auto v = TryParseJsonVec3(p, "input_white")) layer.riLevelsPlusInputWhite = *v;
+        if (const auto v = TryParseJsonVec3(p, "gamma")) layer.riLevelsPlusGamma = *v;
+        if (const auto v = TryParseJsonVec3(p, "output_black")) layer.riLevelsPlusOutputBlack = *v;
+        if (const auto v = TryParseJsonVec3(p, "output_white")) layer.riLevelsPlusOutputWhite = *v;
+        if (const auto v = TryParseJsonVec3(p, "color_shift")) layer.riLevelsPlusColorShift = *v;
+        if (const auto v = detail::ExtractJsonDouble(p, "color_shift_direction")) layer.riLevelsPlusColorShiftDirection = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonInt(p, "aces_mode")) layer.riLevelsPlusAcesMode = *v;
+        if (const auto v = TryParseJsonVec3(p, "aces_luminance")) layer.riLevelsPlusAcesLuminance = *v;
+        if (const auto v = detail::ExtractJsonDouble(p, "clip_debug")) layer.riLevelsPlusClipDebug = static_cast<float>(*v);
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "ri_light_dof" || typeNorm == "rawiron_light_dof") {
+        if (const auto v = detail::ExtractJsonDouble(p, "strength")) layer.riLightDofStrength = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "width_pixels")) layer.riLightDofWidthPixels = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "amount")) layer.riLightDofAmount = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "manual_focus")) layer.riLightDofManualFocus = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonBool(p, "auto_focus")) layer.riLightDofAutoFocus = *v ? 1.0f : 0.0f;
+        if (const auto v = TryParseJsonVec2(p, "focus_point")) layer.riLightDofFocusPoint = *v;
+        if (const auto v = detail::ExtractJsonDouble(p, "far_chromatic")) layer.riLightDofFarChromatic = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "near_chromatic")) layer.riLightDofNearChromatic = static_cast<float>(*v);
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "ri_magic_bloom" || typeNorm == "rawiron_magic_bloom") {
+        if (const auto v = detail::ExtractJsonDouble(p, "strength")) layer.riMagicBloomStrength = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "intensity")) layer.riMagicBloomIntensity = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "threshold_power")) layer.riMagicBloomThresholdPower = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "exposure")) layer.riMagicBloomExposure = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "dirt_intensity")) layer.riMagicBloomDirtIntensity = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "radius_pixels")) layer.riMagicBloomRadiusPixels = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "adapt_sensitivity")) layer.riMagicBloomAdaptSensitivity = static_cast<float>(*v);
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "ri_ui_mask" || typeNorm == "rawiron_ui_mask") {
+        if (const auto v = detail::ExtractJsonDouble(p, "strength")) layer.riUiMaskStrength = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "intensity")) layer.riUiMaskIntensity = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonBool(p, "red")) layer.riUiMaskRed = *v ? 1.0f : 0.0f;
+        if (const auto v = detail::ExtractJsonBool(p, "green")) layer.riUiMaskGreen = *v ? 1.0f : 0.0f;
+        if (const auto v = detail::ExtractJsonBool(p, "blue")) layer.riUiMaskBlue = *v ? 1.0f : 0.0f;
+        if (const auto v = detail::ExtractJsonBool(p, "display")) layer.riUiMaskDisplay = *v ? 1.0f : 0.0f;
         MergePresentationObject(p, layer);
     } else if (typeNorm == "legacy_post" || typeNorm == "stylized" || typeNorm == "vintage") {
         MergePresentationObject(p, layer);

@@ -1,0 +1,13 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.library.shader_ui_contract",
+  "name": "Raw Iron Shader Parameter Contract",
+  "domain": "post_process",
+  "stage": "library",
+  "entryPoint": "ApplyRiHslShift",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [],
+  "capabilities": ["typed_parameters", "ranges", "defaults", "color_fields", "boolean_toggles"],
+  "textures": []
+}

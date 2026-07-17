@@ -1,0 +1,28 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.ri_hq4x",
+  "name": "Raw Iron Edge-Directed Reconstruction",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyRiHq4x",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "ri_hq4x",
+      "enabled": true,
+      "blend": 1.0,
+      "math": "Raw Iron bounded eight-neighbor edge similarity reconstruction with safe low-luma weights",
+      "params": {
+        "strength": 1.0,
+        "radius_pixels": 1.5,
+        "smoothing": 1.0,
+        "edge_hardness": 1.1,
+        "min_weight": 0.03,
+        "max_weight": 0.75,
+        "luma_bias": 0.33
+      }
+    }
+  ],
+  "textures": []
+}

@@ -46,3 +46,23 @@ parameter packing, atlas binding, and blue-noise integration. The migrated refer
 `Glitch.fx`, `NightVision.fx`, and Ioxa's `HighPassSharpen.fx` were used only to identify desired
 engine capabilities; their sampling math, parameter model, timing behavior, resource access, and
 fast/extended integration were not copied. Those checklist sources have been removed.
+
+## Native root shader and helper tranche
+
+The Raw Iron assets `ri_hq4x.rishader`, `ri_hsl_shift.rishader`, `ri_levels_plus.rishader`,
+`ri_light_dof.rishader`, `ri_magic_bloom.rishader`, and `ri_ui_mask.rishader` are native Vulkan
+implementations integrated with Raw Iron's bounded scene color, depth buffer, typed profile API, and
+fast/extended composites. Capability references and credits: the Shadertoy HQ4X reference, HSLShift
+and DrawText by kingeric1992, LevelsPlus by Christian Cann Schuldt Jensen and Kirill Yarovoy,
+Light DoF by luluco250, Magic Bloom by luluco250, and UIMask by Lucas Melo. Light DoF was treated as
+a behavior checklist rather than copied because its source is CC BY-SA 4.0. Magic Bloom and UIMask
+carry MIT notices in their former sources; Raw Iron retains attribution while using its own render
+resource model and independently structured math.
+
+The native blend library covers the mode set credited by the former `Blending.fxh` to originalnicodr,
+prod80, uchu suzume, and Marot Satil, using finite-safe Raw Iron formulas. `ri_shader_contract.rishader`
+and `ri_shader_ui_contract.rishader` replace the CC0 ReShade compatibility headers with engine-native
+scene/depth and typed-parameter contracts. `ri_shader_macros.rishader` replaces TreyM/dddfault UI and
+resource macros with schema-validated assets. `NativeTextures/FontAtlas.png`,
+`NativeTextures/MagicBloom_Dirt.png`, and `NativeTextures/brussell/UIDetectMaskRGB.png` are bound and
+sampled by the native composites. All eleven former root reference files have been removed.

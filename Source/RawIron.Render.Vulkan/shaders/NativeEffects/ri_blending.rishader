@@ -1,0 +1,19 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.library.blending",
+  "name": "Raw Iron Blend Library",
+  "domain": "post_process",
+  "stage": "library",
+  "entryPoint": "RiBlendLayer",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [],
+  "capabilities": [
+    "normal", "darken", "multiply", "color_burn", "linear_burn", "lighten", "screen",
+    "color_dodge", "linear_dodge", "addition", "glow", "overlay", "soft_light", "hard_light",
+    "vivid_light", "linear_light", "pin_light", "hard_mix", "difference", "exclusion", "subtract",
+    "divide", "divide_alt", "divide_photoshop", "reflect", "grain_merge", "grain_extract", "hue",
+    "saturation", "color", "luminosity"
+  ],
+  "textures": []
+}

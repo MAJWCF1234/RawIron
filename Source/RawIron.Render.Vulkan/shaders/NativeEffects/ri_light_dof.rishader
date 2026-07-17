@@ -1,0 +1,29 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.ri_light_dof",
+  "name": "Raw Iron Light Depth of Field",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyRiLightDof",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "ri_light_dof",
+      "enabled": true,
+      "blend": 1.0,
+      "math": "Raw Iron depth circle-of-confusion with bounded disk reconstruction and near/far chroma fringe",
+      "params": {
+        "strength": 1.0,
+        "width_pixels": 5.0,
+        "amount": 10.0,
+        "manual_focus": 0.0,
+        "auto_focus": true,
+        "focus_point": [0.5, 0.5],
+        "far_chromatic": 0.0,
+        "near_chromatic": 1.0
+      }
+    }
+  ],
+  "textures": []
+}

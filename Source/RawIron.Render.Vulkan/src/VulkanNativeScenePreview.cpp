@@ -477,6 +477,30 @@ struct NativeScenePreviewData {
     std::array<float, 4> riOutlineWobbleDebug{};
     std::array<float, 4> riSignalGlitchPack{};
     std::array<float, 4> riNightVisionPack{};
+    std::array<float, 4> riHq4xPack0{};
+    std::array<float, 4> riHq4xPack1{};
+    std::array<float, 4> riHslAnchor0{};
+    std::array<float, 4> riHslAnchor1{};
+    std::array<float, 4> riHslAnchor2{};
+    std::array<float, 4> riHslAnchor3{};
+    std::array<float, 4> riHslAnchor4{};
+    std::array<float, 4> riHslAnchor5{};
+    std::array<float, 4> riHslAnchor6{};
+    std::array<float, 4> riHslAnchor7{};
+    std::array<float, 4> riLevelsPlusPack0{};
+    std::array<float, 4> riLevelsPlusPack1{};
+    std::array<float, 4> riLevelsPlusPack2{};
+    std::array<float, 4> riLevelsPlusPack3{};
+    std::array<float, 4> riLevelsPlusPack4{};
+    std::array<float, 4> riLevelsPlusPack5{};
+    std::array<float, 4> riLevelsPlusPack6{};
+    std::array<float, 4> riLightDofPack0{};
+    std::array<float, 4> riLightDofPack1{};
+    std::array<float, 4> riLightDofPack2{};
+    std::array<float, 4> riMagicBloomPack0{};
+    std::array<float, 4> riMagicBloomPack1{};
+    std::array<float, 4> riUiMaskPack0{};
+    std::array<float, 4> riUiMaskPack1{};
     /// Column-major `mat4` for `NativeSkybox.vert` (`projection * skyRotation`).
     std::array<float, 16> skyClipFromLocal{};
     /// Column-major `mat4`; upper 3x3 maps eye-space directions to world for equirect sampling.
@@ -741,9 +765,33 @@ struct alignas(16) CameraUniformStd140 {
     float riOutlineWobbleDebug[4]{};
     float riSignalGlitchPack[4]{};
     float riNightVisionPack[4]{};
+    float riHq4xPack0[4]{};
+    float riHq4xPack1[4]{};
+    float riHslAnchor0[4]{};
+    float riHslAnchor1[4]{};
+    float riHslAnchor2[4]{};
+    float riHslAnchor3[4]{};
+    float riHslAnchor4[4]{};
+    float riHslAnchor5[4]{};
+    float riHslAnchor6[4]{};
+    float riHslAnchor7[4]{};
+    float riLevelsPlusPack0[4]{};
+    float riLevelsPlusPack1[4]{};
+    float riLevelsPlusPack2[4]{};
+    float riLevelsPlusPack3[4]{};
+    float riLevelsPlusPack4[4]{};
+    float riLevelsPlusPack5[4]{};
+    float riLevelsPlusPack6[4]{};
+    float riLightDofPack0[4]{};
+    float riLightDofPack1[4]{};
+    float riLightDofPack2[4]{};
+    float riMagicBloomPack0[4]{};
+    float riMagicBloomPack1[4]{};
+    float riUiMaskPack0[4]{};
+    float riUiMaskPack1[4]{};
 };
 
-static_assert(sizeof(CameraUniformStd140) == 3824, "Must match NativeScenePreview shader CameraData std140 layout.");
+static_assert(sizeof(CameraUniformStd140) == 4208, "Must match NativeScenePreview shader CameraData std140 layout.");
 
 void StoreMat4ColumnMajorGlsl(const ri::math::Mat4& matrix, float destination[16]) {
     for (int column = 0; column < 4; ++column) {
@@ -3485,6 +3533,68 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
         sanitizedPost.riNightVisionNoise,
         sanitizedPost.riNightVisionVignette,
     };
+    outData->riHq4xPack0 = {
+        sanitizedPost.riHq4xStrength,
+        sanitizedPost.riHq4xRadiusPixels,
+        sanitizedPost.riHq4xSmoothing,
+        sanitizedPost.riHq4xEdgeHardness,
+    };
+    outData->riHq4xPack1 = {
+        sanitizedPost.riHq4xMinWeight,
+        sanitizedPost.riHq4xMaxWeight,
+        sanitizedPost.riHq4xLumaBias,
+        0.0f,
+    };
+    const auto packHslAnchor = [](const ri::math::Vec3& anchor, float w) {
+        return std::array<float, 4>{anchor.x, anchor.y, anchor.z, w};
+    };
+    outData->riHslAnchor0 = packHslAnchor(sanitizedPost.riHslRed, sanitizedPost.riHslShiftStrength);
+    outData->riHslAnchor1 = packHslAnchor(sanitizedPost.riHslOrange, 0.0f);
+    outData->riHslAnchor2 = packHslAnchor(sanitizedPost.riHslYellow, 0.0f);
+    outData->riHslAnchor3 = packHslAnchor(sanitizedPost.riHslGreen, 0.0f);
+    outData->riHslAnchor4 = packHslAnchor(sanitizedPost.riHslCyan, 0.0f);
+    outData->riHslAnchor5 = packHslAnchor(sanitizedPost.riHslBlue, 0.0f);
+    outData->riHslAnchor6 = packHslAnchor(sanitizedPost.riHslPurple, 0.0f);
+    outData->riHslAnchor7 = packHslAnchor(sanitizedPost.riHslMagenta, 0.0f);
+    outData->riLevelsPlusPack0 = packHslAnchor(sanitizedPost.riLevelsPlusInputBlack, sanitizedPost.riLevelsPlusStrength);
+    outData->riLevelsPlusPack1 = packHslAnchor(sanitizedPost.riLevelsPlusInputWhite, sanitizedPost.riLevelsPlusColorShiftDirection);
+    outData->riLevelsPlusPack2 = packHslAnchor(sanitizedPost.riLevelsPlusGamma, static_cast<float>(sanitizedPost.riLevelsPlusAcesMode));
+    outData->riLevelsPlusPack3 = packHslAnchor(sanitizedPost.riLevelsPlusOutputBlack, sanitizedPost.riLevelsPlusClipDebug);
+    outData->riLevelsPlusPack4 = packHslAnchor(sanitizedPost.riLevelsPlusOutputWhite, 0.0f);
+    outData->riLevelsPlusPack5 = packHslAnchor(sanitizedPost.riLevelsPlusColorShift, 0.0f);
+    outData->riLevelsPlusPack6 = packHslAnchor(sanitizedPost.riLevelsPlusAcesLuminance, 0.0f);
+    outData->riLightDofPack0 = {
+        sanitizedPost.riLightDofStrength,
+        sanitizedPost.riLightDofWidthPixels,
+        sanitizedPost.riLightDofAmount,
+        sanitizedPost.riLightDofManualFocus,
+    };
+    outData->riLightDofPack1 = {
+        sanitizedPost.riLightDofAutoFocus,
+        sanitizedPost.riLightDofFocusPoint.x,
+        sanitizedPost.riLightDofFocusPoint.y,
+        sanitizedPost.riLightDofFarChromatic,
+    };
+    outData->riLightDofPack2 = {sanitizedPost.riLightDofNearChromatic, 0.0f, 0.0f, 0.0f};
+    outData->riMagicBloomPack0 = {
+        sanitizedPost.riMagicBloomStrength,
+        sanitizedPost.riMagicBloomIntensity,
+        sanitizedPost.riMagicBloomThresholdPower,
+        sanitizedPost.riMagicBloomExposure,
+    };
+    outData->riMagicBloomPack1 = {
+        sanitizedPost.riMagicBloomDirtIntensity,
+        sanitizedPost.riMagicBloomRadiusPixels,
+        sanitizedPost.riMagicBloomAdaptSensitivity,
+        0.0f,
+    };
+    outData->riUiMaskPack0 = {
+        sanitizedPost.riUiMaskStrength,
+        sanitizedPost.riUiMaskIntensity,
+        sanitizedPost.riUiMaskRed,
+        sanitizedPost.riUiMaskGreen,
+    };
+    outData->riUiMaskPack1 = {sanitizedPost.riUiMaskBlue, sanitizedPost.riUiMaskDisplay, 0.0f, 0.0f};
     outData->renderQualityTier = std::clamp(frame.renderQualityTier, 0, 2);
     if (outData->renderQualityTier >= 2) {
         outData->localLightColorIntensity[3] =
@@ -5228,9 +5338,10 @@ struct NativeAlbedoTextureCache {
     // Native post-processing effects share the six-binding material texture layout so the
     // renderer does not need another descriptor pool/layout family. Unlike
     // descriptorForAbsolutePath(), each binding is intentionally distinct and decoded as
-    // linear data: noise, permutation, and LUT texels must never receive an sRGB transform.
+    // linear data: noise, permutation, LUT, mask, and font texels must never receive an sRGB transform.
+    // Binding 3 is lens dirt and intentionally uses the color texture format.
     [[nodiscard]] VkDescriptorSet descriptorForNativePostBundle(
-        const std::array<fs::path, 3>& absolutePaths) {
+        const std::array<fs::path, 6>& absolutePaths) {
         if (whiteDescriptorSet == VK_NULL_HANDLE) {
             return VK_NULL_HANDLE;
         }
@@ -5244,10 +5355,11 @@ struct NativeAlbedoTextureCache {
             return it->second;
         }
 
-        std::array<const GpuAlbedoImage*, 3> loaded{};
+        std::array<const GpuAlbedoImage*, 6> loaded{};
         for (std::size_t index = 0; index < absolutePaths.size(); ++index) {
             if (!absolutePaths[index].empty()) {
-                loaded[index] = resolveImageForAbsolutePath(absolutePaths[index], kDataTextureFormat);
+                loaded[index] = resolveImageForAbsolutePath(
+                    absolutePaths[index], index == 3 ? kColorTextureFormat : kDataTextureFormat);
             }
         }
         const GpuAlbedoImage& fallback = ResolveFallbackWhite();
@@ -5260,9 +5372,9 @@ struct NativeAlbedoTextureCache {
                                    loaded[0] != nullptr ? *loaded[0] : fallback,
                                    loaded[1] != nullptr ? *loaded[1] : fallback,
                                    loaded[2] != nullptr ? *loaded[2] : fallback,
-                                   fallback,
-                                   fallback,
-                                   fallback);
+                                   loaded[3] != nullptr ? *loaded[3] : fallback,
+                                   loaded[4] != nullptr ? *loaded[4] : fallback,
+                                   loaded[5] != nullptr ? *loaded[5] : fallback);
         descriptorByKey.emplace(std::move(key), set);
         return set;
     }
@@ -7614,10 +7726,13 @@ bool RunVulkanNativeSceneLoop(const int width,
         const fs::path sweetFxSmaaSearchTexturePath = nativePostTextureRoot / "SearchTex.png";
         const fs::path reshadeLutTexturePath = nativePostTextureRoot / "lut.png";
         const fs::path barbatosLutTexturePath = nativePostTextureRoot / "Barbatos" / "Barbatos_LUT_Atlas.png";
-        const std::array<fs::path, 3> pd80NativeTexturePaths = {
+        const std::array<fs::path, 6> nativePostTexturePaths = {
             nativePostTextureRoot / "PD80" / "pd80_bluenoise_rgba.png",
             nativePostTextureRoot / "PD80" / "pd80_permtexture.png",
             nativePostTextureRoot / "PD80" / "pd80_cinelut.png",
+            nativePostTextureRoot / "MagicBloom_Dirt.png",
+            nativePostTextureRoot / "brussell" / "UIDetectMaskRGB.png",
+            nativePostTextureRoot / "FontAtlas.png",
         };
         if (nativePostTextureRoot.empty()) {
             ri::core::LogInfo("Vulkan native post texture bundle unavailable; texture-backed post effects use safe fallbacks.");
@@ -8180,6 +8295,30 @@ bool RunVulkanNativeSceneLoop(const int width,
             std::memcpy(cameraUniform.riNightVisionPack,
                         sceneData.riNightVisionPack.data(),
                         sizeof(cameraUniform.riNightVisionPack));
+            std::memcpy(cameraUniform.riHq4xPack0, sceneData.riHq4xPack0.data(), sizeof(cameraUniform.riHq4xPack0));
+            std::memcpy(cameraUniform.riHq4xPack1, sceneData.riHq4xPack1.data(), sizeof(cameraUniform.riHq4xPack1));
+            std::memcpy(cameraUniform.riHslAnchor0, sceneData.riHslAnchor0.data(), sizeof(cameraUniform.riHslAnchor0));
+            std::memcpy(cameraUniform.riHslAnchor1, sceneData.riHslAnchor1.data(), sizeof(cameraUniform.riHslAnchor1));
+            std::memcpy(cameraUniform.riHslAnchor2, sceneData.riHslAnchor2.data(), sizeof(cameraUniform.riHslAnchor2));
+            std::memcpy(cameraUniform.riHslAnchor3, sceneData.riHslAnchor3.data(), sizeof(cameraUniform.riHslAnchor3));
+            std::memcpy(cameraUniform.riHslAnchor4, sceneData.riHslAnchor4.data(), sizeof(cameraUniform.riHslAnchor4));
+            std::memcpy(cameraUniform.riHslAnchor5, sceneData.riHslAnchor5.data(), sizeof(cameraUniform.riHslAnchor5));
+            std::memcpy(cameraUniform.riHslAnchor6, sceneData.riHslAnchor6.data(), sizeof(cameraUniform.riHslAnchor6));
+            std::memcpy(cameraUniform.riHslAnchor7, sceneData.riHslAnchor7.data(), sizeof(cameraUniform.riHslAnchor7));
+            std::memcpy(cameraUniform.riLevelsPlusPack0, sceneData.riLevelsPlusPack0.data(), sizeof(cameraUniform.riLevelsPlusPack0));
+            std::memcpy(cameraUniform.riLevelsPlusPack1, sceneData.riLevelsPlusPack1.data(), sizeof(cameraUniform.riLevelsPlusPack1));
+            std::memcpy(cameraUniform.riLevelsPlusPack2, sceneData.riLevelsPlusPack2.data(), sizeof(cameraUniform.riLevelsPlusPack2));
+            std::memcpy(cameraUniform.riLevelsPlusPack3, sceneData.riLevelsPlusPack3.data(), sizeof(cameraUniform.riLevelsPlusPack3));
+            std::memcpy(cameraUniform.riLevelsPlusPack4, sceneData.riLevelsPlusPack4.data(), sizeof(cameraUniform.riLevelsPlusPack4));
+            std::memcpy(cameraUniform.riLevelsPlusPack5, sceneData.riLevelsPlusPack5.data(), sizeof(cameraUniform.riLevelsPlusPack5));
+            std::memcpy(cameraUniform.riLevelsPlusPack6, sceneData.riLevelsPlusPack6.data(), sizeof(cameraUniform.riLevelsPlusPack6));
+            std::memcpy(cameraUniform.riLightDofPack0, sceneData.riLightDofPack0.data(), sizeof(cameraUniform.riLightDofPack0));
+            std::memcpy(cameraUniform.riLightDofPack1, sceneData.riLightDofPack1.data(), sizeof(cameraUniform.riLightDofPack1));
+            std::memcpy(cameraUniform.riLightDofPack2, sceneData.riLightDofPack2.data(), sizeof(cameraUniform.riLightDofPack2));
+            std::memcpy(cameraUniform.riMagicBloomPack0, sceneData.riMagicBloomPack0.data(), sizeof(cameraUniform.riMagicBloomPack0));
+            std::memcpy(cameraUniform.riMagicBloomPack1, sceneData.riMagicBloomPack1.data(), sizeof(cameraUniform.riMagicBloomPack1));
+            std::memcpy(cameraUniform.riUiMaskPack0, sceneData.riUiMaskPack0.data(), sizeof(cameraUniform.riUiMaskPack0));
+            std::memcpy(cameraUniform.riUiMaskPack1, sceneData.riUiMaskPack1.data(), sizeof(cameraUniform.riUiMaskPack1));
             std::memcpy(mappedUniformMemory, &cameraUniform, sizeof(CameraUniformStd140));
             SkyUniformStd140 skyUniform{};
             skyUniform.hasSkyTexture = sceneData.skyUseTextureFile;
@@ -8240,7 +8379,7 @@ bool RunVulkanNativeSceneLoop(const int width,
                     loaded != VK_NULL_HANDLE) {
                     barbatosLutTextureSet = loaded;
                 }
-                if (const VkDescriptorSet loaded = textureCache.descriptorForNativePostBundle(pd80NativeTexturePaths);
+                if (const VkDescriptorSet loaded = textureCache.descriptorForNativePostBundle(nativePostTexturePaths);
                     loaded != VK_NULL_HANDLE) {
                     nativePostTextureSet = loaded;
                 }

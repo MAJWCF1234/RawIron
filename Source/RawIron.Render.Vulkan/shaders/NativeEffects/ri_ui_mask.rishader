@@ -1,0 +1,34 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.ri_ui_mask",
+  "name": "Raw Iron RGB UI Mask",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyRiUiMask",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "ri_ui_mask",
+      "enabled": true,
+      "blend": 1.0,
+      "math": "Raw Iron channel-union mask restoring the pre-post presentation image",
+      "params": {
+        "strength": 1.0,
+        "intensity": 1.0,
+        "red": true,
+        "green": true,
+        "blue": true,
+        "display": false
+      }
+    }
+  ],
+  "textures": [
+    {
+      "name": "ui_mask",
+      "path": "native://brussell/UIDetectMaskRGB.png",
+      "required": true,
+      "colorSpace": "data"
+    }
+  ]
+}

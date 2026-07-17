@@ -1,0 +1,13 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.library.shader_contract",
+  "name": "Raw Iron Native Post Contract",
+  "domain": "post_process",
+  "stage": "library",
+  "entryPoint": "RiBoundedSceneColor",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [],
+  "capabilities": ["scene_color", "scene_depth", "pixel_size", "time", "frame_coordinates"],
+  "textures": []
+}

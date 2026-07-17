@@ -365,6 +365,30 @@ layout(std140, set = 0, binding = 0) uniform CameraData {
     vec4 riSignalGlitchPack;
     /// Raw Iron night vision: x=strength, y=gain, z=noise, w=vignette.
     vec4 riNightVisionPack;
+    vec4 riHq4xPack0;
+    vec4 riHq4xPack1;
+    vec4 riHslAnchor0;
+    vec4 riHslAnchor1;
+    vec4 riHslAnchor2;
+    vec4 riHslAnchor3;
+    vec4 riHslAnchor4;
+    vec4 riHslAnchor5;
+    vec4 riHslAnchor6;
+    vec4 riHslAnchor7;
+    vec4 riLevelsPlusPack0;
+    vec4 riLevelsPlusPack1;
+    vec4 riLevelsPlusPack2;
+    vec4 riLevelsPlusPack3;
+    vec4 riLevelsPlusPack4;
+    vec4 riLevelsPlusPack5;
+    vec4 riLevelsPlusPack6;
+    vec4 riLightDofPack0;
+    vec4 riLightDofPack1;
+    vec4 riLightDofPack2;
+    vec4 riMagicBloomPack0;
+    vec4 riMagicBloomPack1;
+    vec4 riUiMaskPack0;
+    vec4 riUiMaskPack1;
 } cameraData;
 
 layout(set = 1, binding = 0) uniform sampler2D hdrSceneLinear;
@@ -375,6 +399,9 @@ layout(set = 3, binding = 0) uniform sampler2D sweetFxSmaaAreaTexture;
 layout(set = 4, binding = 0) uniform sampler2D sweetFxSmaaSearchTexture;
 layout(set = 5, binding = 0) uniform sampler2D reshadeLutTexture;
 layout(set = 6, binding = 0) uniform sampler2D barbatosLutAtlas;
+layout(set = 7, binding = 3) uniform sampler2D riMagicBloomDirtTexture;
+layout(set = 7, binding = 4) uniform sampler2D riUiMaskTexture;
+layout(set = 7, binding = 5) uniform sampler2D riFontAtlasTexture;
 
 vec3 TonemapAcesApprox(vec3 color) {
     const float a = 2.51;
@@ -670,6 +697,314 @@ vec3 ApplyRiNightVision(vec2 uv, vec3 color) {
     return mix(color, clamp(phosphor, 0.0, 1.0), strength);
 }
 
+float RiSafeReciprocal(float value) {
+    return 1.0 / (abs(value) < 1e-6 ? (value < 0.0 ? -1e-6 : 1e-6) : value);
+}
+
+vec3 RiSafePow(vec3 value, vec3 exponentValue) {
+    return pow(max(value, vec3(0.0)), max(exponentValue, vec3(0.01)));
+}
+
+float RiLuma(vec3 color) {
+    return dot(color, vec3(0.2126, 0.7152, 0.0722));
+}
+
+float RiUvInside(vec2 uv) {
+    return step(0.0, uv.x) * step(0.0, uv.y) * step(uv.x, 1.0) * step(uv.y, 1.0);
+}
+
+float RiBlendLum(vec3 color) {
+    return dot(color, vec3(0.30, 0.59, 0.11));
+}
+
+float RiBlendSat(vec3 color) {
+    return max(color.r, max(color.g, color.b)) - min(color.r, min(color.g, color.b));
+}
+
+vec3 RiClipBlendColor(vec3 color) {
+    float luma = RiBlendLum(color);
+    float minimum = min(color.r, min(color.g, color.b));
+    float maximum = max(color.r, max(color.g, color.b));
+    if (minimum < 0.0) color = vec3(luma) + (color - luma) * (luma * RiSafeReciprocal(luma - minimum));
+    if (maximum > 1.0) color = vec3(luma) + (color - luma) * ((1.0 - luma) * RiSafeReciprocal(maximum - luma));
+    return color;
+}
+
+vec3 RiSetBlendLum(vec3 color, float luma) {
+    return RiClipBlendColor(color + (luma - RiBlendLum(color)));
+}
+
+vec3 RiSetBlendSat(vec3 color, float saturation) {
+    float minimum = min(color.r, min(color.g, color.b));
+    float maximum = max(color.r, max(color.g, color.b));
+    float span = maximum - minimum;
+    if (span <= 1e-6) return vec3(0.0);
+    return (color - minimum) * (saturation * RiSafeReciprocal(span));
+}
+
+vec3 RiBlendLayer(int mode, vec3 base, vec3 layer, float opacity) {
+    vec3 blended = layer;
+    if (mode == 1) blended = min(base, layer);
+    else if (mode == 2) blended = base * layer;
+    else if (mode == 3) blended = 1.0 - (1.0 - base) / max(layer, vec3(1e-5));
+    else if (mode == 4) blended = base + layer - 1.0;
+    else if (mode == 5) blended = max(base, layer);
+    else if (mode == 6) blended = 1.0 - (1.0 - base) * (1.0 - layer);
+    else if (mode == 7) blended = base / max(1.0 - layer, vec3(1e-5));
+    else if (mode == 8 || mode == 9) blended = base + layer;
+    else if (mode == 10) blended = layer * layer / max(1.0 - base, vec3(1e-5));
+    else if (mode == 11) {
+        blended = mix(2.0 * base * layer, 1.0 - 2.0 * (1.0 - base) * (1.0 - layer), step(vec3(0.5), base));
+    } else if (mode == 12) {
+        blended = mix(base - (1.0 - 2.0 * layer) * base * (1.0 - base),
+                      base + (2.0 * layer - 1.0) * (sqrt(max(base, vec3(0.0))) - base),
+                      step(vec3(0.5), layer));
+    } else if (mode == 13) {
+        blended = mix(2.0 * base * layer, 1.0 - 2.0 * (1.0 - base) * (1.0 - layer), step(vec3(0.5), layer));
+    } else if (mode == 14) {
+        vec3 burn = 1.0 - (1.0 - base) / max(2.0 * layer, vec3(1e-5));
+        vec3 dodge = base / max(2.0 * (1.0 - layer), vec3(1e-5));
+        blended = mix(burn, dodge, step(vec3(0.5), layer));
+    } else if (mode == 15) blended = base + 2.0 * layer - 1.0;
+    else if (mode == 16) {
+        blended = mix(min(base, 2.0 * layer), max(base, 2.0 * layer - 1.0), step(vec3(0.5), layer));
+    } else if (mode == 17) {
+        vec3 vivid = mix(1.0 - (1.0 - base) / max(2.0 * layer, vec3(1e-5)),
+                         base / max(2.0 * (1.0 - layer), vec3(1e-5)),
+                         step(vec3(0.5), layer));
+        blended = step(vec3(0.5), vivid);
+    } else if (mode == 18) blended = abs(base - layer);
+    else if (mode == 19) blended = base + layer - 2.0 * base * layer;
+    else if (mode == 20) blended = base - layer;
+    else if (mode == 21) blended = base / max(layer, vec3(1e-5));
+    else if (mode == 22) blended = layer / max(base, vec3(1e-5));
+    else if (mode == 23) blended = (1.0 - base) / max(layer, vec3(1e-5));
+    else if (mode == 24) blended = base * base / max(1.0 - layer, vec3(1e-5));
+    else if (mode == 25) blended = base + layer - 0.5;
+    else if (mode == 26) blended = base - layer + 0.5;
+    else if (mode == 27) blended = RiSetBlendLum(RiSetBlendSat(layer, RiBlendSat(base)), RiBlendLum(base));
+    else if (mode == 28) blended = RiSetBlendLum(RiSetBlendSat(base, RiBlendSat(layer)), RiBlendLum(base));
+    else if (mode == 29) blended = RiSetBlendLum(layer, RiBlendLum(base));
+    else if (mode == 30) blended = RiSetBlendLum(base, RiBlendLum(layer));
+    return mix(base, blended, clamp(opacity, 0.0, 1.0));
+}
+
+float RiFontGlyphCoverage(int asciiCode, vec2 glyphUv) {
+    int glyph = clamp(asciiCode - 32, 0, 95);
+    vec2 cell = vec2(float(glyph % 14), float(glyph / 14));
+    vec2 atlasUv = (cell + clamp(glyphUv, vec2(0.0), vec2(1.0))) / vec2(14.0, 7.0);
+    return texture(riFontAtlasTexture, atlasUv).r * RiUvInside(glyphUv);
+}
+
+vec3 ApplyRiHq4x(vec2 uv, vec2 px, vec3 color) {
+    vec4 p0 = cameraData.riHq4xPack0;
+    vec4 p1 = cameraData.riHq4xPack1;
+    float strength = clamp(p0.x, 0.0, 1.0);
+    if (strength <= 1e-6) return color;
+    vec2 d = px * clamp(p0.y, 0.1, 10.0);
+    const vec2 direction[8] = vec2[8](
+        vec2(-1.0, 0.0), vec2(1.0, 0.0), vec2(0.0, -1.0), vec2(0.0, 1.0),
+        vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0));
+    vec3 center = RiBoundedSceneColor(uv);
+    vec3 sum = center;
+    float weightSum = 1.0;
+    float minWeight = clamp(p1.x, 0.0, 1.0);
+    float maxWeight = max(minWeight, clamp(p1.y, 0.0, 1.0));
+    float hardness = clamp(p0.w, 0.0, 2.0);
+    float lumaBias = max(p1.z, 0.001);
+    for (int i = 0; i < 8; ++i) {
+        vec3 tap = RiBoundedSceneColor(uv + direction[i] * d);
+        float difference = dot(abs(tap - center), vec3(0.333333));
+        float luminanceScale = lumaBias + 0.125 * (RiLuma(tap) + RiLuma(center));
+        float weight = exp(-difference * hardness * 8.0 * RiSafeReciprocal(luminanceScale));
+        weight = clamp(weight + clamp(p0.z, 0.0, 1.0) * 0.12, minWeight, maxWeight);
+        sum += tap * weight;
+        weightSum += weight;
+    }
+    vec3 filtered = sum * RiSafeReciprocal(weightSum);
+    vec3 reconstructed = color + (filtered - center);
+    return mix(color, clamp(reconstructed, 0.0, 1.0), strength);
+}
+
+vec3 RiRgbToHsl(vec3 color) {
+    float maximum = max(color.r, max(color.g, color.b));
+    float minimum = min(color.r, min(color.g, color.b));
+    float chroma = maximum - minimum;
+    float lightness = 0.5 * (maximum + minimum);
+    float hue = 0.0;
+    if (chroma > 1e-6) {
+        if (maximum == color.r) hue = mod((color.g - color.b) / chroma, 6.0);
+        else if (maximum == color.g) hue = (color.b - color.r) / chroma + 2.0;
+        else hue = (color.r - color.g) / chroma + 4.0;
+        hue = fract(hue / 6.0);
+    }
+    float saturation = chroma * RiSafeReciprocal(1.0 - abs(2.0 * lightness - 1.0));
+    return vec3(hue, clamp(saturation, 0.0, 1.0), lightness);
+}
+
+vec3 RiHueToRgb(float hue) {
+    return clamp(vec3(abs(hue * 6.0 - 3.0) - 1.0,
+                      2.0 - abs(hue * 6.0 - 2.0),
+                      2.0 - abs(hue * 6.0 - 4.0)), 0.0, 1.0);
+}
+
+vec3 RiHslToRgb(vec3 hsl) {
+    float chroma = (1.0 - abs(2.0 * hsl.z - 1.0)) * hsl.y;
+    return (RiHueToRgb(fract(hsl.x)) - 0.5) * chroma + hsl.z;
+}
+
+vec3 RiHslAnchor(int index) {
+    if (index == 0 || index == 8) return cameraData.riHslAnchor0.rgb;
+    if (index == 1) return cameraData.riHslAnchor1.rgb;
+    if (index == 2) return cameraData.riHslAnchor2.rgb;
+    if (index == 3) return cameraData.riHslAnchor3.rgb;
+    if (index == 4) return cameraData.riHslAnchor4.rgb;
+    if (index == 5) return cameraData.riHslAnchor5.rgb;
+    if (index == 6) return cameraData.riHslAnchor6.rgb;
+    return cameraData.riHslAnchor7.rgb;
+}
+
+vec3 ApplyRiHslShift(vec3 color) {
+    float strength = clamp(cameraData.riHslAnchor0.w, 0.0, 1.0);
+    if (strength <= 1e-6) return color;
+    vec3 sourceHsl = RiRgbToHsl(clamp(color, 0.0, 1.0));
+    float hueDegrees = sourceHsl.x * 360.0;
+    const float boundary[9] = float[9](0.0, 30.0, 60.0, 120.0, 180.0, 240.0, 270.0, 300.0, 360.0);
+    int segment = 0;
+    for (int i = 0; i < 8; ++i) {
+        if (hueDegrees >= boundary[i]) segment = i;
+    }
+    float segmentWeight = clamp((hueDegrees - boundary[segment])
+        * RiSafeReciprocal(boundary[segment + 1] - boundary[segment]), 0.0, 1.0);
+    vec3 anchor0 = RiRgbToHsl(RiHslAnchor(segment));
+    vec3 anchor1 = RiRgbToHsl(RiHslAnchor(segment + 1));
+    if (anchor1.x < anchor0.x) anchor1.x += 1.0;
+    vec3 target = mix(anchor0, anchor1, segmentWeight);
+    float chromaInfluence = sourceHsl.y * (1.0 - sourceHsl.z);
+    vec3 shiftedHsl;
+    shiftedHsl.x = fract(target.x);
+    shiftedHsl.y = clamp(sourceHsl.y * mix(1.0, target.y * 2.0, chromaInfluence), 0.0, 1.0);
+    shiftedHsl.z = clamp(sourceHsl.z * (1.0 + (target.z - 0.5) * 2.0 * chromaInfluence), 0.0, 1.0);
+    return mix(color, clamp(RiHslToRgb(shiftedHsl), 0.0, 1.0), strength);
+}
+
+vec3 RiAcesFitted(vec3 color) {
+    vec3 inputColor = vec3(
+        dot(color, vec3(0.59719, 0.35458, 0.04823)),
+        dot(color, vec3(0.07600, 0.90834, 0.01566)),
+        dot(color, vec3(0.02840, 0.13383, 0.83777)));
+    vec3 a = inputColor * (inputColor + 0.0245786) - 0.000090537;
+    vec3 b = inputColor * (0.983729 * inputColor + 0.432951) + 0.238081;
+    vec3 fitted = a / max(b, vec3(1e-6));
+    return clamp(vec3(
+        dot(fitted, vec3(1.60475, -0.53108, -0.07367)),
+        dot(fitted, vec3(-0.10208, 1.10813, -0.00605)),
+        dot(fitted, vec3(-0.00327, -0.07276, 1.07602))), 0.0, 1.0);
+}
+
+vec3 ApplyRiLevelsPlus(vec3 color) {
+    vec4 p0 = cameraData.riLevelsPlusPack0;
+    float strength = clamp(p0.w, 0.0, 1.0);
+    if (strength <= 1e-6) return color;
+    vec3 denominator = cameraData.riLevelsPlusPack1.rgb - p0.rgb;
+    denominator = sign(denominator + vec3(1e-8)) * max(abs(denominator), vec3(1e-5));
+    vec3 shifted = color + cameraData.riLevelsPlusPack5.rgb * cameraData.riLevelsPlusPack1.w;
+    vec3 normalized = (shifted - p0.rgb) / denominator;
+    vec3 mapped = RiSafePow(normalized, cameraData.riLevelsPlusPack2.rgb);
+    mapped = mapped * (cameraData.riLevelsPlusPack4.rgb - cameraData.riLevelsPlusPack3.rgb)
+        + cameraData.riLevelsPlusPack3.rgb;
+    vec3 unclipped = mapped;
+    int acesMode = clamp(int(cameraData.riLevelsPlusPack2.w + 0.5), 0, 3);
+    vec3 acesInput = max(mapped * cameraData.riLevelsPlusPack6.rgb, vec3(0.0));
+    if (acesMode == 1) {
+        mapped = (acesInput * (15.8 * acesInput + 2.12))
+            / max(acesInput * (1.2 * acesInput + 5.92) + 1.9, vec3(1e-6));
+    } else if (acesMode == 2) {
+        mapped = (acesInput * (0.98 * acesInput + 0.3))
+            / max(acesInput * (0.22 * acesInput) + 0.025, vec3(1e-6));
+    } else if (acesMode == 3) {
+        mapped = RiAcesFitted(acesInput);
+    }
+    if (cameraData.riLevelsPlusPack3.w > 0.5) {
+        bool someHigh = any(greaterThan(unclipped, vec3(1.0)));
+        bool allHigh = all(greaterThan(unclipped, vec3(1.0)));
+        bool someLow = any(lessThan(unclipped, vec3(0.0)));
+        bool allLow = all(lessThan(unclipped, vec3(0.0)));
+        if (someHigh) mapped = vec3(1.0, 1.0, 0.0);
+        if (allHigh) mapped = vec3(1.0, 0.0, 0.0);
+        if (someLow) mapped = vec3(0.0, 1.0, 1.0);
+        if (allLow) mapped = vec3(0.0, 0.0, 1.0);
+    }
+    return mix(color, clamp(mapped, 0.0, 1.0), strength);
+}
+
+vec3 ApplyRiLightDof(vec2 uv, vec2 px, vec3 color) {
+    vec4 p0 = cameraData.riLightDofPack0;
+    float strength = clamp(p0.x, 0.0, 1.0);
+    if (strength <= 1e-6) return color;
+    vec4 p1 = cameraData.riLightDofPack1;
+    float focusDepth = mix(clamp(p0.w, 0.0, 1.0),
+                           texture(sceneDepth, clamp(p1.yz, vec2(0.0), vec2(1.0))).r,
+                           step(0.5, p1.x));
+    float centerDepth = texture(sceneDepth, uv).r;
+    float coc = clamp(abs(centerDepth - focusDepth) * clamp(p0.z, 0.0, 10.0), 0.0, 1.0) * strength;
+    if (coc <= 1e-5) return color;
+    const vec2 disk[8] = vec2[8](
+        vec2(-0.326, -0.406), vec2(-0.840, -0.074), vec2(-0.696, 0.457), vec2(-0.203, 0.621),
+        vec2(0.962, -0.195), vec2(0.473, -0.480), vec2(0.519, 0.767), vec2(0.185, -0.893));
+    vec3 centerGuide = RiBoundedSceneColor(uv);
+    vec3 blurGuide = vec3(0.0);
+    vec2 spread = px * clamp(p0.y, 1.0, 25.0) * coc;
+    for (int i = 0; i < 8; ++i) {
+        blurGuide += RiBoundedSceneColor(uv + disk[i] * spread);
+    }
+    blurGuide *= 0.125;
+    float fringe = centerDepth < focusDepth ? cameraData.riLightDofPack2.x : p1.w;
+    vec2 caOffset = vec2(spread.x * clamp(fringe, 0.0, 1.0), 0.0);
+    blurGuide.r = RiBoundedSceneColor(uv + caOffset).r;
+    blurGuide.b = RiBoundedSceneColor(uv - caOffset).b;
+    return mix(color, clamp(color + (blurGuide - centerGuide), 0.0, 1.0), coc);
+}
+
+vec3 ApplyRiMagicBloom(vec2 uv, vec2 px, vec3 color) {
+    vec4 p0 = cameraData.riMagicBloomPack0;
+    float strength = clamp(p0.x, 0.0, 1.0);
+    if (strength <= 1e-6) return color;
+    vec4 p1 = cameraData.riMagicBloomPack1;
+    const vec2 taps[12] = vec2[12](
+        vec2(-1.0, 0.0), vec2(1.0, 0.0), vec2(0.0, -1.0), vec2(0.0, 1.0),
+        vec2(-0.707, -0.707), vec2(0.707, -0.707), vec2(-0.707, 0.707), vec2(0.707, 0.707),
+        vec2(-2.4, 0.0), vec2(2.4, 0.0), vec2(0.0, -2.4), vec2(0.0, 2.4));
+    vec3 bloom = vec3(0.0);
+    vec2 radius = px * clamp(p1.y, 0.5, 64.0);
+    float thresholdPower = clamp(p0.z, 1.0, 10.0);
+    for (int i = 0; i < 12; ++i) {
+        vec3 sampleColor = RiBoundedSceneColor(uv + taps[i] * radius);
+        bloom += pow(max(sampleColor, vec3(0.0)), vec3(thresholdPower));
+    }
+    bloom *= (1.0 / 12.0) * clamp(p0.y, 0.0, 10.0);
+    float adaptation = max(RiLuma(RiBoundedSceneColor(uv)) * clamp(p1.z, 0.0, 3.0), 0.05);
+    bloom *= clamp(p0.w, 0.0, 4.0) * RiSafeReciprocal(adaptation);
+    bloom = bloom / (vec3(1.0) + bloom);
+    vec3 dirt = texture(riMagicBloomDirtTexture, uv).rgb;
+    bloom *= 1.0 + dirt * clamp(p1.x, 0.0, 1.0);
+    return RiBlendLayer(6, color, clamp(bloom, 0.0, 1.0), strength);
+}
+
+vec3 ApplyRiUiMask(vec2 uv, vec3 backup, vec3 color) {
+    vec4 p0 = cameraData.riUiMaskPack0;
+    float strength = clamp(p0.x, 0.0, 1.0);
+    if (strength <= 1e-6) return color;
+    vec3 maskRgb = clamp(texture(riUiMaskTexture, uv).rgb, 0.0, 1.0);
+    vec3 enabled = clamp(vec3(p0.z, p0.w, cameraData.riUiMaskPack1.x), 0.0, 1.0);
+    float mask = 1.0 - (1.0 - maskRgb.r * enabled.r)
+        * (1.0 - maskRgb.g * enabled.g)
+        * (1.0 - maskRgb.b * enabled.b);
+    mask *= clamp(p0.y, 0.0, 1.0) * strength;
+    if (cameraData.riUiMaskPack1.y > 0.5) return vec3(mask);
+    return mix(color, backup, clamp(mask, 0.0, 1.0));
+}
+
 
 void main() {
     vec2 sampleUv = vec2(vUv.x, 1.0 - vUv.y);
@@ -734,11 +1069,17 @@ void main() {
         mapped *= clamp(vig, 0.0, 1.0);
     }
 
+    vec3 uiBackup = clamp(LinearToSrgb(mapped), 0.0, 1.0);
     mapped = ApplyLitePresentationFx(mapped, sampleUv);
+    mapped = ApplyRiLightDof(sampleUv, texel, mapped);
+    mapped = ApplyRiMagicBloom(sampleUv, texel, mapped);
     mapped = ApplyRiAdaptiveDeband(sampleUv, texel, mapped);
     mapped = ApplyRiLocalSharpen(sampleUv, texel, mapped);
     vec3 srgb = clamp(LinearToSrgb(mapped), 0.0, 1.0);
     srgb = ApplyBarbatosFakeHdr(srgb);
+    srgb = ApplyRiHq4x(sampleUv, texel, srgb);
+    srgb = ApplyRiHslShift(srgb);
+    srgb = ApplyRiLevelsPlus(srgb);
     srgb = ApplyRiSignalGlitch(sampleUv, texel, srgb);
     srgb = ApplyRiNightVision(sampleUv, srgb);
     srgb = ApplyRiInkOutline(sampleUv, texel, srgb);
@@ -748,6 +1089,7 @@ void main() {
             - LiteHash21(gl_FragCoord.yx + vec2(7.31, 13.17));
         srgb += vec3(triangular * outputDither * (1.0 / 255.0));
     }
+    srgb = ApplyRiUiMask(sampleUv, uiBackup, srgb);
     srgb *= mix(1.0, cropCoverage, clamp(cameraData.cropScaleFinalFilterStrength.w, 0.0, 1.0));
     fragColor = vec4(clamp(srgb, 0.0, 1.0), 1.0);
 }

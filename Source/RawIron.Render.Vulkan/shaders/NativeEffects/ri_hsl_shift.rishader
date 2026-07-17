@@ -1,0 +1,30 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.ri_hsl_shift",
+  "name": "Raw Iron Eight-Anchor HSL Shift",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyRiHslShift",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "ri_hsl_shift",
+      "enabled": true,
+      "blend": 1.0,
+      "math": "Raw Iron circular hue-segment interpolation with saturation and lightness-aware anchor influence",
+      "params": {
+        "strength": 1.0,
+        "red": [0.75, 0.25, 0.25],
+        "orange": [0.75, 0.50, 0.25],
+        "yellow": [0.75, 0.75, 0.25],
+        "green": [0.25, 0.75, 0.25],
+        "cyan": [0.25, 0.75, 0.75],
+        "blue": [0.25, 0.25, 0.75],
+        "purple": [0.50, 0.25, 0.75],
+        "magenta": [0.75, 0.25, 0.75]
+      }
+    }
+  ],
+  "textures": []
+}

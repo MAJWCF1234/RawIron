@@ -201,6 +201,65 @@ int main(int argc, char** argv) {
         return 22;
     }
 
+    const char* libraryAssets[] = {
+        "ri_blending.rishader",
+        "ri_text_overlay.rishader",
+        "ri_shader_macros.rishader",
+        "ri_shader_contract.rishader",
+        "ri_shader_ui_contract.rishader",
+    };
+    for (const char* assetName : libraryAssets) {
+        ri::content::RawIronShaderAsset library{};
+        if (!ri::content::LoadRawIronShaderAsset(nativeEffectRoot / assetName, &library, &cropError)
+            || library.stage != "library") {
+            std::cerr << "Raw Iron shader library asset failed to load: " << assetName << ": " << cropError << '\n';
+            return 23;
+        }
+        for (const auto& texture : library.textures) {
+            if (!texture.relativePath.starts_with("native://") || !fs::is_regular_file(texture.resolvedPath)) {
+                std::cerr << "Raw Iron shader library texture was not resolved: " << assetName << '\n';
+                return 24;
+            }
+        }
+    }
+
+    ri::content::RawIronShaderAsset hq4x{};
+    ri::content::RawIronShaderAsset hslShift{};
+    ri::content::RawIronShaderAsset levelsPlus{};
+    ri::content::RawIronShaderAsset lightDof{};
+    ri::content::RawIronShaderAsset magicBloom{};
+    ri::content::RawIronShaderAsset uiMask{};
+    if (!ri::content::LoadRawIronShaderAsset(nativeEffectRoot / "ri_hq4x.rishader", &hq4x, &cropError)
+        || !ri::content::LoadRawIronShaderAsset(nativeEffectRoot / "ri_hsl_shift.rishader", &hslShift, &cropError)
+        || !ri::content::LoadRawIronShaderAsset(nativeEffectRoot / "ri_levels_plus.rishader", &levelsPlus, &cropError)
+        || !ri::content::LoadRawIronShaderAsset(nativeEffectRoot / "ri_light_dof.rishader", &lightDof, &cropError)
+        || !ri::content::LoadRawIronShaderAsset(nativeEffectRoot / "ri_magic_bloom.rishader", &magicBloom, &cropError)
+        || !ri::content::LoadRawIronShaderAsset(nativeEffectRoot / "ri_ui_mask.rishader", &uiMask, &cropError)) {
+        std::cerr << "Raw Iron requested shader tranche failed to load: " << cropError << '\n';
+        return 25;
+    }
+    if (hq4x.presentation.parameters.riHq4xStrength != 1.0f
+        || hq4x.presentation.parameters.riHq4xRadiusPixels != 1.5f
+        || hslShift.presentation.parameters.riHslShiftStrength != 1.0f
+        || hslShift.presentation.parameters.riHslOrange.y != 0.50f
+        || levelsPlus.presentation.parameters.riLevelsPlusStrength != 1.0f
+        || levelsPlus.presentation.parameters.riLevelsPlusAcesMode != 0
+        || levelsPlus.presentation.parameters.riLevelsPlusGamma.z != 1.0f
+        || lightDof.presentation.parameters.riLightDofStrength != 1.0f
+        || lightDof.presentation.parameters.riLightDofAutoFocus != 1.0f
+        || lightDof.presentation.parameters.riLightDofNearChromatic != 1.0f
+        || magicBloom.presentation.parameters.riMagicBloomStrength != 1.0f
+        || magicBloom.presentation.parameters.riMagicBloomThresholdPower != 2.0f
+        || magicBloom.textures.size() != 1U
+        || !magicBloom.textures.front().srgb
+        || uiMask.presentation.parameters.riUiMaskStrength != 1.0f
+        || uiMask.presentation.parameters.riUiMaskBlue != 1.0f
+        || uiMask.textures.size() != 1U
+        || uiMask.textures.front().srgb) {
+        std::cerr << "Raw Iron requested shader parameters or textures were not parsed deterministically.\n";
+        return 26;
+    }
+
     std::cout << "Validated native .rishader assets and manifest composition.\n";
     return 0;
 }

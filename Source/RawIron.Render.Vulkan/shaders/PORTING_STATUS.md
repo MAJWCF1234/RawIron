@@ -1,7 +1,7 @@
 # Reference shader migration status
 
 The migration source initially contained 781 files: 419 `.fx` effects, 222 `.fxh` includes, 131 PNG textures,
-and nine other assets. All 139 texture assets are now centralized under `shaders/NativeTextures`; 631 reference source/checklist files remain. A reference source is removed only after its native Raw Iron replacement builds in both
+and nine other assets. All 139 texture assets are now centralized under `shaders/NativeTextures`; 620 reference source/checklist files remain. A reference source is removed only after its native Raw Iron replacement builds in both
 applicable shader paths, has a `.rishader` asset, preserves required notices, and has regression coverage.
 
 ## Completed
@@ -27,6 +27,17 @@ resource use, parameter model, naming, fast-path behavior, and extended-path int
 | root `Glitch.fx` | `NativeEffects/ri_signal_glitch.rishader` | Bounded row events, source-relative chroma displacement, burst quantization |
 | root `NightVision.fx` | `NativeEffects/ri_night_vision.rishader` | Luminance phosphor response, stable grain, scan modulation, aspect-correct falloff |
 | root `HighPassSharpen.fx` | `NativeEffects/ri_high_pass_sharpen.rishader` | Existing scene-bounded high-pass guide, soft clamp, large-edge rejection |
+| root `HQ4X.fx` | `NativeEffects/ri_hq4x.rishader` | Bounded eight-neighbor edge reconstruction with finite low-luma weighting |
+| root `HSLShift.fx` | `NativeEffects/ri_hsl_shift.rishader` | Eight editable circular hue anchors with chroma-aware saturation/lightness shaping |
+| root `LevelsPlus.fx` | `NativeEffects/ri_levels_plus.rishader` | Per-channel in/out/gamma mapping, range shift, clipping diagnostics, three ACES options |
+| root `LightDoF.fx` | `NativeEffects/ri_light_dof.rishader` | Depth circle-of-confusion, focus point/manual focus, disk blur, near/far chroma fringe |
+| root `MagicBloom.fx` | `NativeEffects/ri_magic_bloom.rishader` | Bounded multi-radius bloom, local adaptation, native dirt texture, screen blend |
+| root `UIMask.fx` | `NativeEffects/ri_ui_mask.rishader` | RGB-channel union mask restoring the pre-post presentation image |
+| `Blending.fxh` | `NativeEffects/ri_blending.rishader` | Thirty-one finite-safe blend modes exposed by `RiBlendLayer` |
+| `DrawText.fxh` | `NativeEffects/ri_text_overlay.rishader` | Native 14x7 FontAtlas binding and glyph coverage lookup |
+| `Macros.fxh` | `NativeEffects/ri_shader_macros.rishader` | Typed asset parameters plus finite math/luma/UV helpers |
+| `ReShade.fxh` | `NativeEffects/ri_shader_contract.rishader` | Native scene color, scene depth, viewport, time, and frame-coordinate contract |
+| `ReShadeUI.fxh` | `NativeEffects/ri_shader_ui_contract.rishader` | `.rishader` typed parameters, ranges, defaults, colors, and toggles |
 
 ## Migration constraints
 

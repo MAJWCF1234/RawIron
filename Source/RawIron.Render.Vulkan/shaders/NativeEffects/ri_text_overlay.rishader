@@ -1,0 +1,19 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.library.text_overlay",
+  "name": "Raw Iron Text Overlay Library",
+  "domain": "post_process",
+  "stage": "library",
+  "entryPoint": "RiFontGlyphCoverage",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [],
+  "textures": [
+    {
+      "name": "font_atlas",
+      "path": "native://FontAtlas.png",
+      "required": true,
+      "colorSpace": "data"
+    }
+  ]
+}
