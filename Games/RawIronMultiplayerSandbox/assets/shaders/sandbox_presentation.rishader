@@ -1,0 +1,16 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "sandbox.presentation",
+  "name": "Multiplayer Sandbox Presentation",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "main",
+  "replace": false,
+  "blendWeight": 1.0,
+  "post": {
+    "cas_sharpen_amount": 0.12,
+    "deband_strength": 0.04,
+    "output_dither_strength": 0.12
+  },
+  "textures": []
+}

@@ -5,6 +5,7 @@
 #include "RawIron/Content/GameManifest.h"
 #include "RawIron/Content/GameRuntimeSupport.h"
 #include "RawIron/Content/ScriptScalars.h"
+#include "RawIron/Content/ShaderAsset.h"
 #include "RawIron/Core/Log.h"
 #include "RawIron/Games/GameConfigContracts.h"
 #include "RawIron/Games/GamePluginRuntimeBridge.h"
@@ -653,8 +654,16 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     std::string shaderCfgError;
     if (ri::render::TryLoadShaderCfgFromRoot(manifest.rootPath, &state.shaderPresentation, &shaderCfgError)) {
         ri::core::LogInfo("Loaded sandbox shader.cfg from game root.");
-    } else if (!shaderCfgError.empty()) {
-        ri::core::LogInfo("shader.cfg: " + shaderCfgError);
+    } else {
+        std::vector<std::string> shaderManifestErrors;
+        if (ri::content::TryLoadRawIronShaderPresentation(
+                manifest.rootPath, &state.shaderPresentation, &shaderManifestErrors)) {
+            ri::core::LogInfo("Loaded sandbox native .rishader presentation.");
+        } else if (!shaderCfgError.empty()) {
+            ri::core::LogInfo("shader.cfg: " + shaderCfgError);
+        } else if (!shaderManifestErrors.empty()) {
+            ri::core::LogInfo("sandbox shaders.manifest: " + shaderManifestErrors.front());
+        }
     }
 
     const ri::math::Vec3 center = ri::spatial::Center(state.movement.body.bounds);

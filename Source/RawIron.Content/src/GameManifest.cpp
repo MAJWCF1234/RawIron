@@ -1,4 +1,5 @@
 #include "RawIron/Content/GameManifest.h"
+#include "RawIron/Content/ShaderAsset.h"
 #include "RawIron/Core/Detail/JsonScan.h"
 
 #include <algorithm>
@@ -474,6 +475,9 @@ std::vector<std::string> ValidateGameProjectFormat(const GameManifest& manifest)
     if (const fs::path shadersManifestPath = root / "assets" / "shaders.manifest";
         fs::exists(shadersManifestPath) && !IsNonEmptyFile(shadersManifestPath)) {
         issues.push_back("assets/shaders.manifest must be a non-empty file.");
+    } else if (fs::exists(shadersManifestPath)) {
+        std::vector<std::string> shaderIssues = ValidateRawIronShaderManifest(root);
+        issues.insert(issues.end(), shaderIssues.begin(), shaderIssues.end());
     }
     if (const fs::path entityRegistryPath = root / "data" / "entity.registry";
         fs::exists(entityRegistryPath) && !IsNonEmptyFile(entityRegistryPath)) {

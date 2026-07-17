@@ -1,1 +1,3 @@
-# RawIron shaders manifest
+# key=relative_shader_path
+cube.surface=assets/shaders/cube_surface.rishader
+cube.presentation=assets/shaders/cube_presentation.rishader

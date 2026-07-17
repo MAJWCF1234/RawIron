@@ -819,8 +819,7 @@ int main(int argc, char** argv) {
         ri::core::LogInfo(
             "  --no-hybrid-hdr      Forward-only presentation (skip hybrid SSR/AO/emissive pass). Default: hybrid on.");
         ri::core::LogInfo(
-            "  Reference HLSL packs resolve from Source/RawIron.Render.Vulkan/ReferenceShaders "
-            "(legacy: vulkan/reference-shaders beside the exe); runtime tuning is shader.cfg.");
+            "  Native post textures ship with SPIR-V under shaders/NativeTextures; runtime tuning is shader.cfg.");
         return 0;
     }
 

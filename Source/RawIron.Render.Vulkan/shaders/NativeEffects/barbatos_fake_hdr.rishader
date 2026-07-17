@@ -1,0 +1,30 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.barbatos_fake_hdr",
+  "name": "Barbatos Fake HDR",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyBarbatosFakeHdr",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "barbatos_fake_hdr",
+      "enabled": true,
+      "blend": 1.0,
+      "math": "uFakeHDR v3.2 64-cube atlas with blue-slice interpolation and triangular dither",
+      "params": {
+        "preset": 2,
+        "strength": 1.0
+      }
+    }
+  ],
+  "textures": [
+    {
+      "name": "barbatosLutAtlas",
+      "path": "Textures/Barbatos_LUT_Atlas.png",
+      "required": true,
+      "colorSpace": "linear"
+    }
+  ]
+}

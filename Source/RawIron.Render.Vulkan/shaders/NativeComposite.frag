@@ -350,6 +350,12 @@ layout(std140, set = 0, binding = 0) uniform CameraData {
     vec4 creatorReflectiveBumpMappingPack2;
     /// ReflectiveBumpMapping.fx: rgb color masks for cyan/blue/magenta, w=depthFarPlane.
     vec4 creatorReflectiveBumpMappingPack3;
+    /// Native CropResize: xy=content size pixels, zw=intermediate size pixels.
+    vec4 cropScaleContentIntermediate;
+    /// Native CropResize: xy=final size pixels, z=filter (0 point/1 linear), w=strength.
+    vec4 cropScaleFinalFilterStrength;
+    /// Barbatos uFakeHDR: x=preset atlas row (0..2), y=strength (0..2), zw unused.
+    vec4 barbatosFakeHdrPack;
 } cameraData;
 
 layout(set = 1, binding = 0) uniform sampler2D hdrSceneLinear;
@@ -359,6 +365,7 @@ layout(set = 2, binding = 0) uniform sampler2D sweetFxLayerTexture;
 layout(set = 3, binding = 0) uniform sampler2D sweetFxSmaaAreaTexture;
 layout(set = 4, binding = 0) uniform sampler2D sweetFxSmaaSearchTexture;
 layout(set = 5, binding = 0) uniform sampler2D reshadeLutTexture;
+layout(set = 6, binding = 0) uniform sampler2D barbatosLutAtlas;
 
 vec3 TonemapAcesApprox(vec3 color) {
     const float a = 2.51;
@@ -5884,11 +5891,74 @@ vec3 ApplyCreatorFakeMotionBlur(vec2 sampleUv, vec2 px, vec3 colorIn) {
     return mix(curr, blurredPrev, diff + 0.1);
 }
 
+// Native port of CropResize/Resizer.fx (Edward Jeffrey; MIT). The original two centered
+// resize passes collapse to one coordinate transform; point filtering preserves its
+// intermediate virtual-pixel grid while linear mode leaves hardware interpolation active.
+vec2 ApplyNativeCropScale(vec2 uv, out float coverage) {
+    vec2 viewportSize = max(cameraData.viewportMetrics.xy, vec2(1.0));
+    vec4 ci = cameraData.cropScaleContentIntermediate;
+    vec4 ff = cameraData.cropScaleFinalFilterStrength;
+    float strength = clamp(ff.w, 0.0, 1.0);
+    coverage = 1.0;
+    if (strength <= 1e-6) {
+        return uv;
+    }
+    vec2 contentSize = vec2(ci.x > 0.5 ? ci.x : viewportSize.x,
+                            ci.y > 0.5 ? ci.y : viewportSize.y);
+    vec2 finalSize = vec2(ff.x > 0.5 ? ff.x : viewportSize.x,
+                          ff.y > 0.5 ? ff.y : viewportSize.y);
+    vec2 intermediateSize = vec2(ci.z > 0.5 ? ci.z : finalSize.x,
+                                 ci.w > 0.5 ? ci.w : finalSize.y);
+    contentSize = clamp(contentSize, vec2(1.0), viewportSize);
+    finalSize = clamp(finalSize, vec2(1.0), viewportSize);
+    intermediateSize = max(intermediateSize, vec2(1.0));
+    vec2 finalUvSize = finalSize / viewportSize;
+    vec2 finalMin = vec2(0.5) - finalUvSize * 0.5;
+    vec2 finalMax = vec2(0.5) + finalUvSize * 0.5;
+    coverage = (all(greaterThanEqual(uv, finalMin)) && all(lessThanEqual(uv, finalMax))) ? 1.0 : 0.0;
+    vec2 localUv = (uv - finalMin) / max(finalUvSize, vec2(1e-6));
+    if (ff.z < 0.5) {
+        localUv = (floor(localUv * intermediateSize) + vec2(0.5)) / intermediateSize;
+    }
+    vec2 contentUvSize = contentSize / viewportSize;
+    vec2 sourceUv = vec2(0.5) - contentUvSize * 0.5 + localUv * contentUvSize;
+    vec2 texel = cameraData.viewportMetrics.zw;
+    return clamp(mix(uv, sourceUv, strength), texel * 0.5, vec2(1.0) - texel * 0.5);
+}
+
+// Native port of Barbatos uFakeHDR v3.2 (CC0). The 4096x192 atlas contains
+// three 64^3 strip LUTs stacked vertically: Natural, Vivid, and FakeHDR.
+vec3 ApplyBarbatosFakeHdr(vec3 color) {
+    float strength = clamp(cameraData.barbatosFakeHdrPack.y, 0.0, 2.0);
+    if (strength <= 1e-6) {
+        return color;
+    }
+    const float lutSize = 64.0;
+    vec3 clampedColor = clamp(color, 0.0, 1.0);
+    vec3 uvw = clampedColor * ((lutSize - 1.0) / lutSize) + (0.5 / lutSize);
+    float slice = clampedColor.b * (lutSize - 1.0);
+    float slice0 = floor(slice);
+    float u0 = (slice0 + uvw.r) / lutSize;
+    float u1 = (min(slice0 + 1.0, lutSize - 1.0) + uvw.r) / lutSize;
+    float preset = clamp(floor(cameraData.barbatosFakeHdrPack.x + 0.5), 0.0, 2.0);
+    float atlasV = (uvw.g + preset) / 3.0;
+    vec3 lut0 = texture(barbatosLutAtlas, vec2(u0, atlasV)).rgb;
+    vec3 lut1 = texture(barbatosLutAtlas, vec2(u1, atlasV)).rgb;
+    vec3 graded = mix(color, mix(lut0, lut1, fract(slice)), strength);
+    float magicDot = dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715));
+    float noise1 = fract(52.9829189 * fract(magicDot));
+    float noise2 = fract(52.9829189 * fract(magicDot + 0.036473855));
+    return graded + vec3((noise1 + noise2 - 1.0) * (1.0 / 255.0));
+}
+
 void main() {
     vec2 sampleUv = vec2(vUv.x, 1.0 - vUv.y);
+    float cropCoverage = 1.0;
+    sampleUv = ApplyNativeCropScale(sampleUv, cropCoverage);
     vec2 px = vec2(cameraData.viewportMetrics.z, cameraData.viewportMetrics.w);
     if (cameraData.reshadeDisplayDepthPack.y > 1.5) {
-        fragColor = vec4(texture(hdrSceneLinear, sampleUv).rgb, 1.0);
+        float cropStrength = clamp(cameraData.cropScaleFinalFilterStrength.w, 0.0, 1.0);
+        fragColor = vec4(texture(hdrSceneLinear, sampleUv).rgb * mix(1.0, cropCoverage, cropStrength), 1.0);
         return;
     }
     float ditherAmt = clamp(cameraData.presentationColorGrading.y, 0.0, 1.0);
@@ -5910,6 +5980,7 @@ void main() {
     mapped = ApplyReShadeDaltonize(mapped, cameraData.reshadeDaltonizePack);
     mapped = ApplyReShadeDisplayDepth(sampleUv, px, mapped, cameraData.reshadeDisplayDepthPack);
     mapped = ApplyReShadeLut(mapped, cameraData.reshadeLutPack);
+    mapped = ApplyBarbatosFakeHdr(mapped);
     mapped = ApplyPd80BonusLutPack(sampleUv, mapped);
     mapped = ApplyPd80CinetoolsLut(sampleUv, mapped);
     mapped = ApplyPd80LutCreator(sampleUv, mapped);
@@ -5939,5 +6010,6 @@ void main() {
     mapped = ApplyCreatorFakeMotionBlur(sampleUv, px, mapped);
     mapped = ApplySweetFxCompare(beforeSplit, mapped, sampleUv, cameraData.sweetFxComparePack);
     mapped = ApplySweetFxSplitscreen(beforeSplit, mapped, sampleUv, cameraData.sweetFxSplitscreenModeStrength);
+    mapped *= mix(1.0, cropCoverage, clamp(cameraData.cropScaleFinalFilterStrength.w, 0.0, 1.0));
     fragColor = vec4(clamp(mapped, 0.0, 1.0), 1.0);
 }

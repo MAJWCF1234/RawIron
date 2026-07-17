@@ -6,8 +6,6 @@ find_program(RAWIRON_GLSLANG_VALIDATOR
 )
 
 set(RAWIRON_VULKAN_SHADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
-# ReShade-style HLSL/FX reference pack (not compiled by glslang). Same tree as former Assets/Shaders.
-set(RAWIRON_VULKAN_REFERENCE_SHADER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/ReferenceShaders")
 set(RAWIRON_VULKAN_SHADER_OUTPUTS)
 
 if(RAWIRON_GLSLANG_VALIDATOR)
@@ -23,6 +21,30 @@ if(RAWIRON_GLSLANG_VALIDATOR)
     )
     list(APPEND RAWIRON_VULKAN_SHADER_OUTPUTS "${shader_output}")
   endforeach()
+
+  foreach(texture_name IN ITEMS Layer.png AreaTex.png SearchTex.png lut.png)
+    set(texture_input "${CMAKE_CURRENT_SOURCE_DIR}/shaders/NativeTextures/${texture_name}")
+    set(texture_output "${RAWIRON_VULKAN_SHADER_DIR}/NativeTextures/${texture_name}")
+    add_custom_command(
+      OUTPUT "${texture_output}"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${RAWIRON_VULKAN_SHADER_DIR}/NativeTextures"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${texture_input}" "${texture_output}"
+      DEPENDS "${texture_input}"
+      VERBATIM
+    )
+    list(APPEND RAWIRON_VULKAN_SHADER_OUTPUTS "${texture_output}")
+  endforeach()
+
+  set(barbatos_lut_input "${CMAKE_CURRENT_SOURCE_DIR}/shaders/NativeEffects/Textures/Barbatos_LUT_Atlas.png")
+  set(barbatos_lut_output "${RAWIRON_VULKAN_SHADER_DIR}/NativeTextures/Barbatos_LUT_Atlas.png")
+  add_custom_command(
+    OUTPUT "${barbatos_lut_output}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${RAWIRON_VULKAN_SHADER_DIR}/NativeTextures"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${barbatos_lut_input}" "${barbatos_lut_output}"
+    DEPENDS "${barbatos_lut_input}"
+    VERBATIM
+  )
+  list(APPEND RAWIRON_VULKAN_SHADER_OUTPUTS "${barbatos_lut_output}")
 
   add_custom_target(RawIron.Render.Vulkan.Shaders DEPENDS ${RAWIRON_VULKAN_SHADER_OUTPUTS})
 endif()
@@ -69,10 +91,6 @@ target_link_libraries(RawIron.Render.Vulkan
     Vulkan::Vulkan
 )
 
-target_compile_definitions(RawIron.Render.Vulkan PRIVATE
-  RAWIRON_VULKAN_REFERENCE_SHADER_DIR="${RAWIRON_VULKAN_REFERENCE_SHADER_ROOT}"
-)
-
 if (UNIX AND NOT APPLE AND CMAKE_DL_LIBS)
   target_link_libraries(RawIron.Render.Vulkan
     PRIVATE
@@ -109,5 +127,13 @@ if(RAWIRON_BUILD_TESTS)
       -DSHADER_PATH=${CMAKE_CURRENT_SOURCE_DIR}/shaders/NativeComposite.frag
       -DLITE_SHADER_PATH=${CMAKE_CURRENT_SOURCE_DIR}/shaders/NativeHybridComposite.frag
       -P ${CMAKE_SOURCE_DIR}/Tests/VerifyExtendedCompositeWiring.cmake
+  )
+
+  add_test(
+    NAME RawIron.Render.Vulkan.ReferenceShaderMigrationSmoke
+    COMMAND ${CMAKE_COMMAND}
+      -DRAWIRON_WORKSPACE=${CMAKE_SOURCE_DIR}
+      -DRAWIRON_BINARY_SHADER_DIR=${RAWIRON_VULKAN_SHADER_DIR}
+      -P ${CMAKE_SOURCE_DIR}/Tests/VerifyReferenceShaderMigration.cmake
   )
 endif()

@@ -743,6 +743,20 @@ struct PostProcessParameters {
     float reflectiveBumpMappingColorMaskBlue = 1.0f;
     float reflectiveBumpMappingColorMaskMagenta = 1.0f;
     float reflectiveBumpMappingDepthFarPlane = 1000.0f;
+    /// Native CropResize/Resizer port. Pixel dimensions <= 0 inherit the current viewport.
+    float cropScaleContentWidth = 0.0f;
+    float cropScaleContentHeight = 0.0f;
+    float cropScaleIntermediateWidth = 0.0f;
+    float cropScaleIntermediateHeight = 0.0f;
+    float cropScaleFinalWidth = 0.0f;
+    float cropScaleFinalHeight = 0.0f;
+    /// 0 = point/virtual-pixel sampling, 1 = linear sampling.
+    int cropScaleFilter = 0;
+    float cropScaleStrength = 0.0f;
+    /// Barbatos uFakeHDR v3.2: atlas row 0 Natural, 1 Vivid, 2 FakeHDR.
+    int barbatosFakeHdrPreset = 2;
+    /// Reference range is 0..2; zero skips both LUT sampling and its triangular dither.
+    float barbatosFakeHdrStrength = 0.0f;
 };
 
 struct PostProcessPresetDefinition {
@@ -1705,6 +1719,16 @@ inline PostProcessParameters SanitizePostProcessParameters(const PostProcessPara
         ClampFinite(input.reflectiveBumpMappingColorMaskMagenta, 0.0f, 1.0f, 1.0f);
     out.reflectiveBumpMappingDepthFarPlane =
         ClampFinite(input.reflectiveBumpMappingDepthFarPlane, 1.0f, 10000.0f, 1000.0f);
+    out.cropScaleContentWidth = ClampFinite(input.cropScaleContentWidth, 0.0f, 65536.0f, 0.0f);
+    out.cropScaleContentHeight = ClampFinite(input.cropScaleContentHeight, 0.0f, 65536.0f, 0.0f);
+    out.cropScaleIntermediateWidth = ClampFinite(input.cropScaleIntermediateWidth, 0.0f, 65536.0f, 0.0f);
+    out.cropScaleIntermediateHeight = ClampFinite(input.cropScaleIntermediateHeight, 0.0f, 65536.0f, 0.0f);
+    out.cropScaleFinalWidth = ClampFinite(input.cropScaleFinalWidth, 0.0f, 65536.0f, 0.0f);
+    out.cropScaleFinalHeight = ClampFinite(input.cropScaleFinalHeight, 0.0f, 65536.0f, 0.0f);
+    out.cropScaleFilter = std::clamp(input.cropScaleFilter, 0, 1);
+    out.cropScaleStrength = ClampFinite(input.cropScaleStrength, 0.0f, 1.0f, 0.0f);
+    out.barbatosFakeHdrPreset = std::clamp(input.barbatosFakeHdrPreset, 0, 2);
+    out.barbatosFakeHdrStrength = ClampFinite(input.barbatosFakeHdrStrength, 0.0f, 2.0f, 0.0f);
     return out;
 }
 
@@ -3325,6 +3349,19 @@ inline PostProcessParameters BlendPostProcessParameters(
             + ((b.reflectiveBumpMappingColorMaskMagenta - a.reflectiveBumpMappingColorMaskMagenta) * t),
         .reflectiveBumpMappingDepthFarPlane = a.reflectiveBumpMappingDepthFarPlane
             + ((b.reflectiveBumpMappingDepthFarPlane - a.reflectiveBumpMappingDepthFarPlane) * t),
+        .cropScaleContentWidth = a.cropScaleContentWidth + ((b.cropScaleContentWidth - a.cropScaleContentWidth) * t),
+        .cropScaleContentHeight = a.cropScaleContentHeight + ((b.cropScaleContentHeight - a.cropScaleContentHeight) * t),
+        .cropScaleIntermediateWidth = a.cropScaleIntermediateWidth
+            + ((b.cropScaleIntermediateWidth - a.cropScaleIntermediateWidth) * t),
+        .cropScaleIntermediateHeight = a.cropScaleIntermediateHeight
+            + ((b.cropScaleIntermediateHeight - a.cropScaleIntermediateHeight) * t),
+        .cropScaleFinalWidth = a.cropScaleFinalWidth + ((b.cropScaleFinalWidth - a.cropScaleFinalWidth) * t),
+        .cropScaleFinalHeight = a.cropScaleFinalHeight + ((b.cropScaleFinalHeight - a.cropScaleFinalHeight) * t),
+        .cropScaleFilter = (t < 0.5f) ? a.cropScaleFilter : b.cropScaleFilter,
+        .cropScaleStrength = a.cropScaleStrength + ((b.cropScaleStrength - a.cropScaleStrength) * t),
+        .barbatosFakeHdrPreset = (t < 0.5f) ? a.barbatosFakeHdrPreset : b.barbatosFakeHdrPreset,
+        .barbatosFakeHdrStrength = a.barbatosFakeHdrStrength
+            + ((b.barbatosFakeHdrStrength - a.barbatosFakeHdrStrength) * t),
     });
 }
 

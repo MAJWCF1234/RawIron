@@ -1,0 +1,9 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "vfx.fog",
+  "name": "Liminal Volume Fog",
+  "domain": "vfx",
+  "stage": "volume_fog",
+  "entryPoint": "main",
+  "textures": []
+}

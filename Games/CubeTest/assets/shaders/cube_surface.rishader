@@ -1,0 +1,9 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "cube.surface",
+  "name": "Cube Test Material Surface",
+  "domain": "surface",
+  "stage": "pbr_material",
+  "entryPoint": "main",
+  "textures": []
+}

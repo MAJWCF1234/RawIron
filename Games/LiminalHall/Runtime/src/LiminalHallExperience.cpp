@@ -11,6 +11,7 @@
 #include "RawIron/Content/PluginProjectData.h"
 #include "RawIron/Content/PluginRuntime.h"
 #include "RawIron/Content/ScriptScalars.h"
+#include "RawIron/Content/ShaderAsset.h"
 #include "RawIron/Audio/AudioBackendMiniaudio.h"
 #include "RawIron/Audio/AudioManager.h"
 #include "RawIron/Core/CommandLine.h"
@@ -2521,6 +2522,13 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
     const auto benchmarkStart = std::chrono::steady_clock::now();
 
     const fs::path textureRootForVulkan = state.previewOptions.textureRoot.value_or(fs::path{});
+    ri::render::ShaderPresentationConfig shaderPresentation{};
+    std::vector<std::string> shaderManifestErrors;
+    if (!ri::content::TryLoadRawIronShaderPresentation(
+            state.gameRoot, &shaderPresentation, &shaderManifestErrors)
+        && !shaderManifestErrors.empty()) {
+        ri::core::LogInfo("Liminal native shader manifest: " + shaderManifestErrors.front());
+    }
     const ri::render::vulkan::VulkanPreviewWindowOptions windowOptions{
         .windowTitle = options.windowTitle,
         .presentModePreference = ToVulkanPresentModePreference(options.presentMode),
@@ -2530,6 +2538,7 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
         .outClientHwnd = &state.hwnd,
         .enableHybridHdrPresentation = true,
         .initialRenderQualityTier = state.nativeRenderTuning.qualityTier,
+        .shaderPresentation = shaderPresentation,
     };
 
     const ri::render::vulkan::VulkanNativeSceneFrameCallback buildFrame =

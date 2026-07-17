@@ -13,6 +13,7 @@ add_library(RawIron.Content
   src/PluginRuntime.cpp
   src/PrefabExpansion.cpp
   src/ScriptScalars.cpp
+  src/ShaderAsset.cpp
   src/Value.cpp
   src/ValueSchema.cpp
   src/WorldVolumeContent.cpp
@@ -46,6 +47,10 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(BundledPluginProjectDataSmoke ${CMAKE_SOURCE_DIR}/Tests/BundledPluginProjectDataSmoke.cpp)
   target_link_libraries(BundledPluginProjectDataSmoke PRIVATE RawIron::Content)
   add_test(NAME RawIron.Content.BundledPluginProjectDataSmoke COMMAND BundledPluginProjectDataSmoke)
+
+  add_executable(ShaderAssetSmoke ${CMAKE_SOURCE_DIR}/Tests/ShaderAssetSmoke.cpp)
+  target_link_libraries(ShaderAssetSmoke PRIVATE RawIron::Content)
+  add_test(NAME RawIron.Content.ShaderAssetSmoke COMMAND ShaderAssetSmoke ${CMAKE_SOURCE_DIR})
 
   add_executable(ExtensionDescriptorSmoke ${CMAKE_SOURCE_DIR}/Tests/ExtensionDescriptorSmoke.cpp)
   target_link_libraries(ExtensionDescriptorSmoke PRIVATE RawIron::Content)

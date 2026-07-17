@@ -1,1 +1,2 @@
-# RawIron shaders manifest
+# key=relative_shader_path
+editor.ui=assets/shaders/editor_ui.rishader

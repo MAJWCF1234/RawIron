@@ -1,0 +1,29 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.crop_resize",
+  "name": "Crop and Resize",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyNativeCropScale",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "crop_resize",
+      "enabled": true,
+      "blend": 1.0,
+      "math": "CropResize/Resizer.fx centered two-pass coordinate collapse",
+      "params": {
+        "content_width": 0,
+        "content_height": 0,
+        "intermediate_width": 0,
+        "intermediate_height": 0,
+        "final_width": 0,
+        "final_height": 0,
+        "filter": 0,
+        "strength": 0
+      }
+    }
+  ],
+  "textures": []
+}

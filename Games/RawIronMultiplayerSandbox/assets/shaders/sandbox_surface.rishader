@@ -1,0 +1,9 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "sandbox.surface",
+  "name": "Multiplayer Sandbox Surface",
+  "domain": "surface",
+  "stage": "pbr_material",
+  "entryPoint": "main",
+  "textures": []
+}

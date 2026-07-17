@@ -4,6 +4,7 @@
 #include "RawIron/Content/GameManifest.h"
 #include "RawIron/Content/GameRuntimeSupport.h"
 #include "RawIron/Content/ScriptScalars.h"
+#include "RawIron/Content/ShaderAsset.h"
 #include "RawIron/Core/Log.h"
 #include "RawIron/Games/GameConfigContracts.h"
 #include "RawIron/Games/GamePluginRuntimeBridge.h"
@@ -400,6 +401,13 @@ bool RunNativeLoop(const StandaloneOptions& options,
     }
 
     int frameCount = 0;
+    ri::render::ShaderPresentationConfig shaderPresentation{};
+    std::vector<std::string> shaderManifestErrors;
+    if (!ri::content::TryLoadRawIronShaderPresentation(
+            manifest.rootPath, &shaderPresentation, &shaderManifestErrors)
+        && !shaderManifestErrors.empty()) {
+        ri::core::LogInfo("Cube Test native shader manifest: " + shaderManifestErrors.front());
+    }
     const ri::render::vulkan::VulkanPreviewWindowOptions windowOptions{
         .windowTitle = "RawIron Cube Test",
         .presentModePreference = ri::render::vulkan::VulkanPresentModePreference::Auto,
@@ -411,6 +419,7 @@ bool RunNativeLoop(const StandaloneOptions& options,
         .enableHybridHdrPresentation = options.hybridHdr,
         .enableExtendedPostProcessShader = options.extendedPostProcess,
         .initialRenderQualityTier = state.renderQualityTier,
+        .shaderPresentation = shaderPresentation,
     };
 
     int runtimeFrameIndex = 0;

@@ -1,0 +1,9 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "logic.beam",
+  "name": "Logic Beam",
+  "domain": "vfx",
+  "stage": "emissive_beam",
+  "entryPoint": "main",
+  "textures": []
+}

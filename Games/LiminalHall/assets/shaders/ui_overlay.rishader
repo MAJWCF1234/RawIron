@@ -1,0 +1,9 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "ui.overlay",
+  "name": "Liminal UI Overlay",
+  "domain": "ui",
+  "stage": "overlay",
+  "entryPoint": "main",
+  "textures": []
+}

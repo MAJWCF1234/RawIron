@@ -1,0 +1,9 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "terrain.base",
+  "name": "Wilderness Terrain",
+  "domain": "surface",
+  "stage": "terrain_pbr",
+  "entryPoint": "main",
+  "textures": []
+}

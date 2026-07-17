@@ -202,7 +202,19 @@ struct ScaffoldTemplateFile {
         {"assets/dependencies.json", "{\n  \"packages\": []\n}\n"},
         {"assets/materials.manifest", "# RawIron materials manifest\n"},
         {"assets/vfx.manifest", "# RawIron vfx manifest\n"},
-        {"assets/shaders.manifest", "# RawIron shaders manifest\n"},
+        {"assets/shaders.manifest",
+         "# RawIron native shader manifest\n"
+         + manifest.id + ".surface=assets/shaders/default_surface.rishader\n"},
+        {"assets/shaders/default_surface.rishader",
+         "{\n"
+         "  \"rawironShaderVersion\": 1,\n"
+         "  \"id\": \"" + manifest.id + ".surface\",\n"
+         "  \"name\": \"Default Surface\",\n"
+         "  \"domain\": \"surface\",\n"
+         "  \"stage\": \"material\",\n"
+         "  \"entryPoint\": \"main\",\n"
+         "  \"textures\": []\n"
+         "}\n"},
         {"assets/streaming.manifest", "# RawIron streaming manifest\n"},
         {"assets/audio.banks", "# RawIron audio banks\n"},
         {"assets/fonts.manifest", "# RawIron fonts manifest\n"},

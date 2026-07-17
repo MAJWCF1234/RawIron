@@ -1,0 +1,9 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "ui.overlay",
+  "name": "Wilderness UI Overlay",
+  "domain": "ui",
+  "stage": "overlay",
+  "entryPoint": "main",
+  "textures": []
+}

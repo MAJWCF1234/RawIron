@@ -883,6 +883,20 @@ void MergePresentationObject(std::string_view obj, PostProcessParameters& p) {
     set("reflective_bump_mapping_color_mask_blue", p.reflectiveBumpMappingColorMaskBlue);
     set("reflective_bump_mapping_color_mask_magenta", p.reflectiveBumpMappingColorMaskMagenta);
     set("reflective_bump_mapping_depth_far_plane", p.reflectiveBumpMappingDepthFarPlane);
+    set("crop_scale_content_width", p.cropScaleContentWidth);
+    set("crop_scale_content_height", p.cropScaleContentHeight);
+    set("crop_scale_intermediate_width", p.cropScaleIntermediateWidth);
+    set("crop_scale_intermediate_height", p.cropScaleIntermediateHeight);
+    set("crop_scale_final_width", p.cropScaleFinalWidth);
+    set("crop_scale_final_height", p.cropScaleFinalHeight);
+    set("crop_scale_strength", p.cropScaleStrength);
+    if (const std::optional<std::int32_t> v = detail::ExtractJsonInt(obj, "crop_scale_filter")) {
+        p.cropScaleFilter = *v;
+    }
+    set("barbatos_fake_hdr_strength", p.barbatosFakeHdrStrength);
+    if (const std::optional<std::int32_t> v = detail::ExtractJsonInt(obj, "barbatos_fake_hdr_preset")) {
+        p.barbatosFakeHdrPreset = *v;
+    }
 
     if (const auto lift = TryParseJsonVec3(obj, "lift_rgb")) {
         p.liftRgb = *lift;
@@ -4595,6 +4609,40 @@ bool ApplyEffectBlock(std::string_view effect, PostProcessParameters& accum) {
     } else if (typeNorm == "reflective_bump_mapping" || typeNorm == "reflective_bumpmapping"
         || typeNorm == "reshade_reflective_bump_mapping" || typeNorm == "rbm" || typeNorm == "marty_rbm") {
         MergeReflectiveBumpMapping(p, layer);
+    } else if (typeNorm == "crop_resize" || typeNorm == "crop_scale" || typeNorm == "resizer") {
+        if (const std::optional<double> v = detail::ExtractJsonDouble(p, "content_width")) {
+            layer.cropScaleContentWidth = static_cast<float>(*v);
+        }
+        if (const std::optional<double> v = detail::ExtractJsonDouble(p, "content_height")) {
+            layer.cropScaleContentHeight = static_cast<float>(*v);
+        }
+        if (const std::optional<double> v = detail::ExtractJsonDouble(p, "intermediate_width")) {
+            layer.cropScaleIntermediateWidth = static_cast<float>(*v);
+        }
+        if (const std::optional<double> v = detail::ExtractJsonDouble(p, "intermediate_height")) {
+            layer.cropScaleIntermediateHeight = static_cast<float>(*v);
+        }
+        if (const std::optional<double> v = detail::ExtractJsonDouble(p, "final_width")) {
+            layer.cropScaleFinalWidth = static_cast<float>(*v);
+        }
+        if (const std::optional<double> v = detail::ExtractJsonDouble(p, "final_height")) {
+            layer.cropScaleFinalHeight = static_cast<float>(*v);
+        }
+        if (const std::optional<std::int32_t> v = detail::ExtractJsonInt(p, "filter")) {
+            layer.cropScaleFilter = *v;
+        }
+        if (const std::optional<double> v = detail::ExtractJsonDouble(p, "strength")) {
+            layer.cropScaleStrength = static_cast<float>(*v);
+        }
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "barbatos_fake_hdr" || typeNorm == "ufakehdr" || typeNorm == "u_fake_hdr") {
+        if (const std::optional<std::int32_t> v = detail::ExtractJsonInt(p, "preset")) {
+            layer.barbatosFakeHdrPreset = *v;
+        }
+        if (const std::optional<double> v = detail::ExtractJsonDouble(p, "strength")) {
+            layer.barbatosFakeHdrStrength = static_cast<float>(*v);
+        }
+        MergePresentationObject(p, layer);
     } else if (typeNorm == "legacy_post" || typeNorm == "stylized" || typeNorm == "vintage") {
         MergePresentationObject(p, layer);
     } else {

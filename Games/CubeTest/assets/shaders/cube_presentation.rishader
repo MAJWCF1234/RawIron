@@ -1,0 +1,29 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "cube.presentation",
+  "name": "Cube Test Native Presentation",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "main",
+  "replace": false,
+  "blendWeight": 1.0,
+  "post": {
+    "cas_sharpen_amount": 0.18,
+    "cas_contrast_adaptation": 0.28,
+    "tone_curve_strength": 0.06,
+    "deband_strength": 0.05,
+    "output_dither_strength": 0.16
+  },
+  "effects": [
+    {
+      "id": "barbatos_fake_hdr",
+      "enabled": true,
+      "blend": 1.0,
+      "params": {
+        "preset": 0,
+        "strength": 0.15
+      }
+    }
+  ],
+  "textures": []
+}

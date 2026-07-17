@@ -1,0 +1,9 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "editor.ui",
+  "name": "Editor UI Smoke Overlay",
+  "domain": "ui",
+  "stage": "overlay",
+  "entryPoint": "main",
+  "textures": []
+}

@@ -83,6 +83,9 @@ namespace ri::render {
 ///   `reflective_bump_mapping` / `rbm` / `reshade_reflective_bump_mapping` (ReflectiveBumpMapping.fx Marty McFly —
 ///     screen-space glossy relief reflections; params `strength` (0 = skip), `blur_width`, `sample_count`,
 ///     `relief_height`, fresnel/threshold/color-mask knobs),
+///   `crop_resize` / `crop_scale` / `resizer` (MIT CropResize/Resizer.fx — centered content crop and final
+///     presentation scaling; params `content_width`, `content_height`, `intermediate_width`,
+///     `intermediate_height`, `final_width`, `final_height`, `filter` 0 point / 1 linear, `strength`),
 ///   `preset` (uses `preset`/`name` slug + `blend`), plus `output`.
 ///
 /// Resolution order: see `ResolveShaderCfgPath`.

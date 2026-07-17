@@ -1,0 +1,9 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "hall.surface",
+  "name": "Liminal Hall Surface",
+  "domain": "surface",
+  "stage": "pbr_material",
+  "entryPoint": "main",
+  "textures": []
+}

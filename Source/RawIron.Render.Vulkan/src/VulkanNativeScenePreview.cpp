@@ -463,6 +463,12 @@ struct NativeScenePreviewData {
     std::array<float, 4> creatorReflectiveBumpMappingPack2{};
     /// ReflectiveBumpMapping.fx: rgb color masks for cyan/blue/magenta, w=depthFarPlane.
     std::array<float, 4> creatorReflectiveBumpMappingPack3{};
+    /// Native CropResize: xy=content size pixels, zw=intermediate size pixels.
+    std::array<float, 4> cropScaleContentIntermediate{};
+    /// Native CropResize: xy=final size pixels, z=filter (0 point/1 linear), w=strength.
+    std::array<float, 4> cropScaleFinalFilterStrength{};
+    /// Barbatos uFakeHDR: x=preset atlas row (0..2), y=strength (0..2), zw unused.
+    std::array<float, 4> barbatosFakeHdrPack{};
     /// Column-major `mat4` for `NativeSkybox.vert` (`projection * skyRotation`).
     std::array<float, 16> skyClipFromLocal{};
     /// Column-major `mat4`; upper 3x3 maps eye-space directions to world for equirect sampling.
@@ -717,9 +723,12 @@ struct alignas(16) CameraUniformStd140 {
     float creatorReflectiveBumpMappingPack1[4]{};
     float creatorReflectiveBumpMappingPack2[4]{};
     float creatorReflectiveBumpMappingPack3[4]{};
+    float cropScaleContentIntermediate[4]{};
+    float cropScaleFinalFilterStrength[4]{};
+    float barbatosFakeHdrPack[4]{};
 };
 
-static_assert(sizeof(CameraUniformStd140) == 3664, "Must match NativeScenePreview shader CameraData std140 layout.");
+static_assert(sizeof(CameraUniformStd140) == 3712, "Must match NativeScenePreview shader CameraData std140 layout.");
 
 void StoreMat4ColumnMajorGlsl(const ri::math::Mat4& matrix, float destination[16]) {
     for (int column = 0; column < 4; ++column) {
@@ -1214,7 +1223,7 @@ ri::math::Mat4 BuildOrthographicMatrix(const float left,
     return fs::exists(directory / "NativeScenePreview.vert.spv", ec);
 }
 
-[[nodiscard]] bool ReferenceShaderTextureBundleMarkerExists(const fs::path& directory) {
+[[nodiscard]] bool NativePostTextureBundleMarkerExists(const fs::path& directory) {
     std::error_code ec{};
     return fs::exists(directory / "Layer.png", ec) && fs::exists(directory / "AreaTex.png", ec)
         && fs::exists(directory / "SearchTex.png", ec) && fs::exists(directory / "lut.png", ec);
@@ -1328,56 +1337,15 @@ template <typename Predicate>
 #endif
 }
 
-/// Reference HLSL/FX assets are authored once in the repo tree. Prefer direct workspace lookup and
-/// keep the old beside-the-exe path as a compatibility fallback for manually staged portable runs.
-[[nodiscard]] fs::path ResolveVulkanReferenceShaderTextureDirectory() {
-    const auto normalizeReferenceRoot = [](const fs::path& root) -> fs::path {
-        if (ReferenceShaderTextureBundleMarkerExists(root)) {
-            return root;
-        }
-        const fs::path sweetFx = root / "Textures" / "SweetFX";
-        if (ReferenceShaderTextureBundleMarkerExists(sweetFx)) {
-            return sweetFx;
-        }
+/// Post-process textures are part of the compiled native shader bundle. This keeps runtime behavior
+/// independent from the migration-only ReferenceShaders tree and works for portable staged builds.
+[[nodiscard]] fs::path ResolveVulkanNativePostTextureDirectory() {
+    const fs::path nativeShaderRoot = ResolveVulkanNativeShaderDirectory();
+    if (nativeShaderRoot.empty()) {
         return {};
-    };
-
-    if (const std::optional<fs::path> env = EnvironmentPath("RAWIRON_VULKAN_REFERENCE_SHADER_DIR"); env.has_value()) {
-        if (const fs::path fromEnv = normalizeReferenceRoot(*env); !fromEnv.empty()) {
-            return fromEnv;
-        }
     }
-#if defined(RAWIRON_VULKAN_REFERENCE_SHADER_DIR)
-    {
-        if (const fs::path compileTime = normalizeReferenceRoot(fs::path(RAWIRON_VULKAN_REFERENCE_SHADER_DIR));
-            !compileTime.empty()) {
-            return compileTime;
-        }
-    }
-#endif
-#if defined(_WIN32)
-    {
-        const fs::path besideExe = ExecutableDirectory() / "vulkan" / "reference-shaders";
-        if (const fs::path portable = normalizeReferenceRoot(besideExe); !portable.empty()) {
-            return portable;
-        }
-        if (const std::optional<fs::path> sourceTree = FindFirstMatchingDirectory(
-                ExecutableDirectory(), [&normalizeReferenceRoot](const fs::path& candidateRoot) {
-                    return !normalizeReferenceRoot(candidateRoot / "ReferenceShaders").empty();
-                });
-            sourceTree.has_value()) {
-            return normalizeReferenceRoot(*sourceTree / "ReferenceShaders");
-        }
-    }
-#endif
-    if (const std::optional<fs::path> sourceTree = FindFirstMatchingDirectory(
-            fs::current_path(), [&normalizeReferenceRoot](const fs::path& candidateRoot) {
-                return !normalizeReferenceRoot(candidateRoot / "ReferenceShaders").empty();
-            });
-        sourceTree.has_value()) {
-        return normalizeReferenceRoot(*sourceTree / "ReferenceShaders");
-    }
-    return {};
+    const fs::path bundled = nativeShaderRoot / "NativeTextures";
+    return NativePostTextureBundleMarkerExists(bundled) ? bundled : fs::path{};
 }
 
 std::vector<char> ReadBinaryFile(const fs::path& path) {
@@ -3442,6 +3410,24 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
         sanitizedPost.reflectiveBumpMappingColorMaskMagenta,
         sanitizedPost.reflectiveBumpMappingDepthFarPlane,
     };
+    outData->cropScaleContentIntermediate = {
+        sanitizedPost.cropScaleContentWidth,
+        sanitizedPost.cropScaleContentHeight,
+        sanitizedPost.cropScaleIntermediateWidth,
+        sanitizedPost.cropScaleIntermediateHeight,
+    };
+    outData->cropScaleFinalFilterStrength = {
+        sanitizedPost.cropScaleFinalWidth,
+        sanitizedPost.cropScaleFinalHeight,
+        static_cast<float>(sanitizedPost.cropScaleFilter),
+        sanitizedPost.cropScaleStrength,
+    };
+    outData->barbatosFakeHdrPack = {
+        static_cast<float>(sanitizedPost.barbatosFakeHdrPreset),
+        sanitizedPost.barbatosFakeHdrStrength,
+        0.0f,
+        0.0f,
+    };
     outData->renderQualityTier = std::clamp(frame.renderQualityTier, 0, 2);
     if (outData->renderQualityTier >= 2) {
         outData->localLightColorIntensity[3] =
@@ -5114,7 +5100,7 @@ struct NativeAlbedoTextureCache {
         decodedWarmupCache.Clear();
     }
 
-    [[nodiscard]] VkDescriptorSet descriptorForAbsolutePath(const fs::path& absolutePath) {
+    [[nodiscard]] VkDescriptorSet descriptorForAbsolutePath(const fs::path& absolutePath, const bool srgb = true) {
         if (whiteDescriptorSet == VK_NULL_HANDLE) {
             return VK_NULL_HANDLE;
         }
@@ -5122,12 +5108,14 @@ struct NativeAlbedoTextureCache {
             return whiteDescriptorSet;
         }
 
-        const std::string key = std::string("__abs__|") + absolutePath.generic_string();
+        const VkFormat format = srgb ? kColorTextureFormat : kDataTextureFormat;
+        const std::string key = std::string("__abs__|") + absolutePath.generic_string()
+            + "|fmt=" + std::to_string(static_cast<int>(format));
         if (const auto it = descriptorByKey.find(key); it != descriptorByKey.end()) {
             return it->second;
         }
 
-        const GpuAlbedoImage* loaded = resolveImageForAbsolutePath(absolutePath, kColorTextureFormat);
+        const GpuAlbedoImage* loaded = resolveImageForAbsolutePath(absolutePath, format);
         if (loaded == nullptr) {
             descriptorByKey.emplace(key, whiteDescriptorSet);
             return whiteDescriptorSet;
@@ -5217,6 +5205,7 @@ void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
                                           VkDescriptorSet smaaAreaTextureDescriptorSet,
                                           VkDescriptorSet smaaSearchTextureDescriptorSet,
                                           VkDescriptorSet lutTextureDescriptorSet,
+                                          VkDescriptorSet barbatosLutTextureDescriptorSet,
                                           VkImage swapchainImage,
                                           VkImage fakeMotionBlurHistoryImage,
                                           float fakeMotionBlurRecall);
@@ -5263,6 +5252,7 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                               VkDescriptorSet hybridCompositeSmaaAreaDescriptorSet,
                               VkDescriptorSet hybridCompositeSmaaSearchDescriptorSet,
                               VkDescriptorSet hybridCompositeLutDescriptorSet,
+                              VkDescriptorSet hybridCompositeBarbatosLutDescriptorSet,
                               VkFramebuffer hybridBundleFramebuffer,
                               VkRenderPass hybridBundleRenderPass,
                               VkPipeline hybridBundlePipeline,
@@ -5586,6 +5576,7 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                                          hybridCompositeSmaaAreaDescriptorSet,
                                          hybridCompositeSmaaSearchDescriptorSet,
                                          hybridCompositeLutDescriptorSet,
+                                         hybridCompositeBarbatosLutDescriptorSet,
                                          swapchainImage,
                                          fakeMotionBlurHistoryImage,
                                          fakeMotionBlurRecall);
@@ -5604,6 +5595,7 @@ void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
                                           VkDescriptorSet smaaAreaTextureDescriptorSet,
                                           VkDescriptorSet smaaSearchTextureDescriptorSet,
                                           VkDescriptorSet lutTextureDescriptorSet,
+                                          VkDescriptorSet barbatosLutTextureDescriptorSet,
                                           VkImage swapchainImage,
                                           VkImage fakeMotionBlurHistoryImage,
                                           float fakeMotionBlurRecall) {
@@ -5611,7 +5603,7 @@ void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
         || compositePipeline == VK_NULL_HANDLE || compositePipelineLayout == VK_NULL_HANDLE
         || hdrTextureDescriptorSet == VK_NULL_HANDLE || layerTextureDescriptorSet == VK_NULL_HANDLE
         || smaaAreaTextureDescriptorSet == VK_NULL_HANDLE || smaaSearchTextureDescriptorSet == VK_NULL_HANDLE
-        || lutTextureDescriptorSet == VK_NULL_HANDLE) {
+        || lutTextureDescriptorSet == VK_NULL_HANDLE || barbatosLutTextureDescriptorSet == VK_NULL_HANDLE) {
         return;
     }
     const VkClearValue compositeClear{};
@@ -5642,13 +5634,14 @@ void RecordHybridCompositeInCommandBuffer(VkCommandBuffer commandBuffer,
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline);
     vkCmdSetViewport(commandBuffer, 0, 1, &compositeViewport);
     vkCmdSetScissor(commandBuffer, 0, 1, &compositeScissor);
-    const std::array<VkDescriptorSet, 6> compositeSets = {
+    const std::array<VkDescriptorSet, 7> compositeSets = {
         cameraDescriptorSet,
         hdrTextureDescriptorSet,
         layerTextureDescriptorSet,
         smaaAreaTextureDescriptorSet,
         smaaSearchTextureDescriptorSet,
-        lutTextureDescriptorSet};
+        lutTextureDescriptorSet,
+        barbatosLutTextureDescriptorSet};
     vkCmdBindDescriptorSets(commandBuffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
                             compositePipelineLayout,
@@ -6479,9 +6472,10 @@ bool RunVulkanNativeSceneLoop(const int width,
             ExpectVk(vkCreateDescriptorSetLayout(device, &compositeHdrSamplerLayoutInfo, nullptr, &compositeHdrTextureSetLayout),
                      "vkCreateDescriptorSetLayout(composite-hdr)");
 
-            const std::array<VkDescriptorSetLayout, 6> compositePipelineSetLayouts = {
+            const std::array<VkDescriptorSetLayout, 7> compositePipelineSetLayouts = {
                 cameraSetLayout,
                 compositeHdrTextureSetLayout,
+                textureSetLayout,
                 textureSetLayout,
                 textureSetLayout,
                 textureSetLayout,
@@ -7471,11 +7465,17 @@ bool RunVulkanNativeSceneLoop(const int width,
                                 textureSetLayout,
                                 textureDescriptorPool,
                                 linearSampler);
-        const fs::path sweetFxTextureRoot = ResolveVulkanReferenceShaderTextureDirectory();
-        const fs::path sweetFxLayerTexturePath = sweetFxTextureRoot / "Layer.png";
-        const fs::path sweetFxSmaaAreaTexturePath = sweetFxTextureRoot / "AreaTex.png";
-        const fs::path sweetFxSmaaSearchTexturePath = sweetFxTextureRoot / "SearchTex.png";
-        const fs::path reshadeLutTexturePath = sweetFxTextureRoot / "lut.png";
+        const fs::path nativePostTextureRoot = ResolveVulkanNativePostTextureDirectory();
+        const fs::path sweetFxLayerTexturePath = nativePostTextureRoot / "Layer.png";
+        const fs::path sweetFxSmaaAreaTexturePath = nativePostTextureRoot / "AreaTex.png";
+        const fs::path sweetFxSmaaSearchTexturePath = nativePostTextureRoot / "SearchTex.png";
+        const fs::path reshadeLutTexturePath = nativePostTextureRoot / "lut.png";
+        const fs::path barbatosLutTexturePath = nativePostTextureRoot / "Barbatos_LUT_Atlas.png";
+        if (nativePostTextureRoot.empty()) {
+            ri::core::LogInfo("Vulkan native post texture bundle unavailable; texture-backed post effects use safe fallbacks.");
+        } else {
+            ri::core::LogInfo("Vulkan native post textures: " + nativePostTextureRoot.generic_string());
+        }
 
         CachedGpuMesh skyMesh = CreateStaticUnitCubeGpuMesh(selection.physicalDevice, device);
 
@@ -8002,6 +8002,15 @@ bool RunVulkanNativeSceneLoop(const int width,
             std::memcpy(cameraUniform.creatorReflectiveBumpMappingPack3,
                         sceneData.creatorReflectiveBumpMappingPack3.data(),
                         sizeof(cameraUniform.creatorReflectiveBumpMappingPack3));
+            std::memcpy(cameraUniform.cropScaleContentIntermediate,
+                        sceneData.cropScaleContentIntermediate.data(),
+                        sizeof(cameraUniform.cropScaleContentIntermediate));
+            std::memcpy(cameraUniform.cropScaleFinalFilterStrength,
+                        sceneData.cropScaleFinalFilterStrength.data(),
+                        sizeof(cameraUniform.cropScaleFinalFilterStrength));
+            std::memcpy(cameraUniform.barbatosFakeHdrPack,
+                        sceneData.barbatosFakeHdrPack.data(),
+                        sizeof(cameraUniform.barbatosFakeHdrPack));
             std::memcpy(mappedUniformMemory, &cameraUniform, sizeof(CameraUniformStd140));
             SkyUniformStd140 skyUniform{};
             skyUniform.hasSkyTexture = sceneData.skyUseTextureFile;
@@ -8039,22 +8048,27 @@ bool RunVulkanNativeSceneLoop(const int width,
             VkDescriptorSet sweetFxSmaaAreaTextureSet = textureCache.whiteDescriptorSet;
             VkDescriptorSet sweetFxSmaaSearchTextureSet = textureCache.whiteDescriptorSet;
             VkDescriptorSet reshadeLutTextureSet = textureCache.whiteDescriptorSet;
+            VkDescriptorSet barbatosLutTextureSet = textureCache.whiteDescriptorSet;
             if (enableHybridHdr) {
                 if (const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(sweetFxLayerTexturePath);
                     loaded != VK_NULL_HANDLE) {
                     sweetFxLayerTextureSet = loaded;
                 }
-                if (const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(sweetFxSmaaAreaTexturePath);
+                if (const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(sweetFxSmaaAreaTexturePath, false);
                     loaded != VK_NULL_HANDLE) {
                     sweetFxSmaaAreaTextureSet = loaded;
                 }
-                if (const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(sweetFxSmaaSearchTexturePath);
+                if (const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(sweetFxSmaaSearchTexturePath, false);
                     loaded != VK_NULL_HANDLE) {
                     sweetFxSmaaSearchTextureSet = loaded;
                 }
-                if (const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(reshadeLutTexturePath);
+                if (const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(reshadeLutTexturePath, false);
                     loaded != VK_NULL_HANDLE) {
                     reshadeLutTextureSet = loaded;
+                }
+                if (const VkDescriptorSet loaded = textureCache.descriptorForAbsolutePath(barbatosLutTexturePath, false);
+                    loaded != VK_NULL_HANDLE) {
+                    barbatosLutTextureSet = loaded;
                 }
             }
 
@@ -8130,6 +8144,7 @@ bool RunVulkanNativeSceneLoop(const int width,
                                      enableHybridHdr ? sweetFxSmaaAreaTextureSet : VK_NULL_HANDLE,
                                      enableHybridHdr ? sweetFxSmaaSearchTextureSet : VK_NULL_HANDLE,
                                      enableHybridHdr ? reshadeLutTextureSet : VK_NULL_HANDLE,
+                                     enableHybridHdr ? barbatosLutTextureSet : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundleFramebuffer : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundleRenderPass : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundlePipeline : VK_NULL_HANDLE,

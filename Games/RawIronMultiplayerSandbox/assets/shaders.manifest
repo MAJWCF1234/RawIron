@@ -1,1 +1,3 @@
-# placeholder
+# key=relative_shader_path
+sandbox.surface=assets/shaders/sandbox_surface.rishader
+sandbox.presentation=assets/shaders/sandbox_presentation.rishader

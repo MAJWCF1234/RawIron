@@ -1,0 +1,9 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "foliage.wind",
+  "name": "Wind-Animated Foliage",
+  "domain": "surface",
+  "stage": "foliage_pbr",
+  "entryPoint": "main",
+  "textures": []
+}
