@@ -36,7 +36,10 @@ struct ScaffoldTemplateFile {
          "floor,plane,,0,0,0,0,0,0,12,1,12,starter_floor,smooth_stone.png,4,4,0.72,0.74,0.78,1\n"
          "spawn_block,cube,,0,1,0,0,0,0,1,1,1,starter_block,iron_block.png,1,1,0.55,0.58,0.62,1\n"},
         {"levels/assembly.colliders.csv", "name,type,px,py,pz,sx,sy,sz\nfloor_collider,box,0,0,0,12,1,12\n"},
-        {"levels/assembly.navmesh", "# RawIron navmesh placeholder\n"},
+        {"levels/assembly.navmesh",
+         "# RawIron NavMesh Descriptor v1\n"
+         "# regionId,minX,minY,minZ,maxX,maxY,maxZ,areaCost,flags\n"
+         "starter-region,-64.0,-2.0,-64.0,64.0,16.0,64.0,1.0,walk\n"},
         {"levels/assembly.ai.nodes", "name,px,py,pz\nspawn_anchor,0,1,0\n"},
         {"levels/assembly.lighting.csv",
          "name,type,px,py,pz,dx,dy,dz,r,g,b,intensity,range\nsun,directional,0,0,0,-0.4,-1.0,0.2,0.92,0.94,1.0,1.35,0\n"},

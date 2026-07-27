@@ -4773,6 +4773,9 @@ struct NativeAlbedoTextureCache {
     VkQueue graphicsQueue = VK_NULL_HANDLE;
     ProceduralMapGpuGenerator gpuGenerator{};
     VkDescriptorPool textureDescriptorPool = VK_NULL_HANDLE;
+    std::vector<VkDescriptorPool> textureDescriptorPools{};
+    std::uint32_t descriptorSetsPerPool = 0;
+    std::uint32_t allocatedDescriptorSetCount = 0;
     VkDescriptorSetLayout textureSetLayout = VK_NULL_HANDLE;
     VkSampler linearSampler = VK_NULL_HANDLE;
     GpuAlbedoImage whiteImage{};
@@ -4780,7 +4783,7 @@ struct NativeAlbedoTextureCache {
     GpuAlbedoImage flatNormalImage{};
     GpuAlbedoImage ormDefaultImage{};
     VkDescriptorSet whiteDescriptorSet = VK_NULL_HANDLE;
-    mutable bool loggedDescriptorPoolExhaustion = false;
+    bool loggedDescriptorPoolFailure = false;
     std::unordered_map<std::string, GpuAlbedoImage> imagesByKey{};
     std::unordered_map<std::string, VkDescriptorSet> descriptorByKey{};
     std::unordered_map<std::string, fs::path> siblingMapByKey{};
@@ -4794,10 +4797,15 @@ struct NativeAlbedoTextureCache {
         gpuGenerator.destroy();
         descriptorByKey.clear();
         whiteDescriptorSet = VK_NULL_HANDLE;
-        if (textureDescriptorPool != VK_NULL_HANDLE) {
-            vkDestroyDescriptorPool(device, textureDescriptorPool, nullptr);
-            textureDescriptorPool = VK_NULL_HANDLE;
+        for (const VkDescriptorPool pool : textureDescriptorPools) {
+            if (pool != VK_NULL_HANDLE) {
+                vkDestroyDescriptorPool(device, pool, nullptr);
+            }
         }
+        textureDescriptorPools.clear();
+        textureDescriptorPool = VK_NULL_HANDLE;
+        descriptorSetsPerPool = 0;
+        allocatedDescriptorSetCount = 0;
         for (auto& entry : imagesByKey) {
             DestroyGpuAlbedoImage(device, entry.second);
         }
@@ -5066,24 +5074,59 @@ struct NativeAlbedoTextureCache {
         return generated;
     }
 
-    [[nodiscard]] VkDescriptorSet allocateDescriptorSet() const {
+    [[nodiscard]] VkDescriptorPool createAdditionalDescriptorPool() {
+        if (device == VK_NULL_HANDLE || descriptorSetsPerPool == 0) {
+            return VK_NULL_HANDLE;
+        }
+        const VkDescriptorPoolSize poolSize{
+            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = descriptorSetsPerPool * 6U,
+        };
+        const VkDescriptorPoolCreateInfo poolInfo{
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+            .maxSets = descriptorSetsPerPool,
+            .poolSizeCount = 1,
+            .pPoolSizes = &poolSize,
+        };
+        VkDescriptorPool pool = VK_NULL_HANDLE;
+        if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &pool) != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+        textureDescriptorPools.push_back(pool);
+        textureDescriptorPool = pool;
+        ri::core::LogInfo(
+            "Vulkan texture descriptors: grew to " + std::to_string(textureDescriptorPools.size())
+            + " pools (" + std::to_string(textureDescriptorPools.size() * descriptorSetsPerPool)
+            + " material sets capacity).");
+        return pool;
+    }
+
+    [[nodiscard]] VkDescriptorSet allocateDescriptorSet() {
         VkDescriptorSet set = VK_NULL_HANDLE;
-        const VkDescriptorSetAllocateInfo allocateInfo{
+        VkDescriptorSetAllocateInfo allocateInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
             .descriptorPool = textureDescriptorPool,
             .descriptorSetCount = 1,
             .pSetLayouts = &textureSetLayout,
         };
-        if (vkAllocateDescriptorSets(device, &allocateInfo, &set) != VK_SUCCESS) {
-            if (!loggedDescriptorPoolExhaustion) {
-                loggedDescriptorPoolExhaustion = true;
+        VkResult result = vkAllocateDescriptorSets(device, &allocateInfo, &set);
+        if (result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL) {
+            allocateInfo.descriptorPool = createAdditionalDescriptorPool();
+            if (allocateInfo.descriptorPool != VK_NULL_HANDLE) {
+                result = vkAllocateDescriptorSets(device, &allocateInfo, &set);
+            }
+        }
+        if (result != VK_SUCCESS) {
+            if (!loggedDescriptorPoolFailure) {
+                loggedDescriptorPoolFailure = true;
                 ri::core::LogInfo(
-                    "Vulkan texture descriptor pool exhausted; further materials fall back to the "
-                    "white placeholder set. Raise kMaxTextureSets if the scene needs more unique "
-                    "material texture combinations.");
+                    "Vulkan texture descriptor allocation failed after automatic pool growth; "
+                    "the affected material uses the white fallback. VkResult="
+                    + std::to_string(static_cast<int>(result)) + ".");
             }
             return VK_NULL_HANDLE;
         }
+        ++allocatedDescriptorSetCount;
         return set;
     }
 
@@ -5424,6 +5467,7 @@ struct NativeAlbedoTextureCache {
                     std::uint32_t queueFamily,
                     VkDescriptorSetLayout textureLayout,
                     VkDescriptorPool texturePool,
+                    std::uint32_t setsPerPool,
                     VkSampler sampler) {
         physicalDevice = physDevice;
         device = dev;
@@ -5431,6 +5475,8 @@ struct NativeAlbedoTextureCache {
         graphicsQueue = queue;
         textureSetLayout = textureLayout;
         textureDescriptorPool = texturePool;
+        textureDescriptorPools.push_back(texturePool);
+        descriptorSetsPerPool = setsPerPool;
         linearSampler = sampler;
 
         if (kNativeGenerateMissingMaterialMaps) {
@@ -7757,6 +7803,7 @@ bool RunVulkanNativeSceneLoop(const int width,
                                 selection.graphicsQueueFamily,
                                 textureSetLayout,
                                 textureDescriptorPool,
+                                kMaxTextureSets,
                                 linearSampler);
         const fs::path nativePostTextureRoot = ResolveVulkanNativePostTextureDirectory();
         const fs::path sweetFxLayerTexturePath = nativePostTextureRoot / "Layer.png";

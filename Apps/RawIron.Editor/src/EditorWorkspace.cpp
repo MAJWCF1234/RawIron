@@ -3,6 +3,7 @@
 #include "RawIron/Content/GameRuntimeSupport.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <fstream>
 #include <string_view>
@@ -238,6 +239,45 @@ std::vector<WorkspaceResourceEntry> CollectWorkspaceGameResources(const fs::path
                                 }),
                     resources.end());
     return resources;
+}
+
+void WorkspaceResourceIndex::Request(fs::path gameRoot) {
+    requestedRoot_ = std::move(gameRoot);
+    ++requestedGeneration_;
+    if (!activeScan_.valid()) {
+        StartRequestedScan();
+    }
+}
+
+std::optional<std::vector<WorkspaceResourceEntry>> WorkspaceResourceIndex::Poll() {
+    if (!activeScan_.valid()
+        || activeScan_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        return std::nullopt;
+    }
+
+    ScanResult completed = activeScan_.get();
+    if (completed.generation == requestedGeneration_) {
+        return std::move(completed.entries);
+    }
+
+    StartRequestedScan();
+    return std::nullopt;
+}
+
+bool WorkspaceResourceIndex::Busy() const noexcept {
+    return activeScan_.valid();
+}
+
+void WorkspaceResourceIndex::StartRequestedScan() {
+    const fs::path root = requestedRoot_;
+    activeGeneration_ = requestedGeneration_;
+    const std::uint64_t generation = activeGeneration_;
+    activeScan_ = std::async(std::launch::async, [root, generation]() {
+        return ScanResult{
+            .generation = generation,
+            .entries = CollectWorkspaceGameResources(root),
+        };
+    });
 }
 
 void EnsureProjectDevConfig(const fs::path& gameRoot) {

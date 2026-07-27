@@ -9,6 +9,7 @@ add_library(RawIron.World
   src/HudChannelTtlScheduler.cpp
   src/LevelFlowPresentationState.cpp
   src/MissionCompletionFlow.cpp
+  src/NavMesh.cpp
   src/InteractionPromptState.cpp
   src/InventoryState.cpp
   src/NpcAgentState.cpp
@@ -57,4 +58,11 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(WorldStateSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/WorldStateSafetySmoke.cpp)
   target_link_libraries(WorldStateSafetySmoke PRIVATE RawIron::World)
   add_test(NAME RawIron.World.StateSafetySmoke COMMAND WorldStateSafetySmoke)
+
+  add_executable(NavMeshPathfindingSmoke ${CMAKE_SOURCE_DIR}/Tests/NavMeshPathfindingSmoke.cpp)
+  target_link_libraries(NavMeshPathfindingSmoke PRIVATE RawIron::World)
+  add_test(
+    NAME RawIron.World.NavMeshPathfindingSmoke
+    COMMAND NavMeshPathfindingSmoke ${CMAKE_SOURCE_DIR}
+  )
 endif()

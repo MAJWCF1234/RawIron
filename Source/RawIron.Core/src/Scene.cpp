@@ -451,8 +451,11 @@ int Scene::AddMaterial(Material material) {
 }
 
 int Scene::AddMesh(Mesh mesh) {
-    meshes_.push_back(std::move(mesh));
-    return static_cast<int>(meshes_.size() - 1U);
+    if (meshes_.use_count() != 1) {
+        meshes_ = std::make_shared<std::vector<Mesh>>(*meshes_);
+    }
+    meshes_->push_back(std::move(mesh));
+    return static_cast<int>(meshes_->size() - 1U);
 }
 
 int Scene::AddCamera(Camera camera) {
@@ -471,12 +474,18 @@ int Scene::AddCameraConfinementVolume(CameraConfinementVolume volume) {
 }
 
 int Scene::AddMeshInstanceBatch(MeshInstanceBatch batch) {
-    meshInstanceBatches_.push_back(std::move(batch));
-    return static_cast<int>(meshInstanceBatches_.size() - 1U);
+    if (meshInstanceBatches_.use_count() != 1) {
+        meshInstanceBatches_ = std::make_shared<std::vector<MeshInstanceBatch>>(*meshInstanceBatches_);
+    }
+    meshInstanceBatches_->push_back(std::move(batch));
+    return static_cast<int>(meshInstanceBatches_->size() - 1U);
 }
 
 void Scene::AddMeshInstance(int batchHandle, const Transform& transform) {
-    meshInstanceBatches_.at(static_cast<std::size_t>(batchHandle)).transforms.push_back(transform);
+    if (meshInstanceBatches_.use_count() != 1) {
+        meshInstanceBatches_ = std::make_shared<std::vector<MeshInstanceBatch>>(*meshInstanceBatches_);
+    }
+    meshInstanceBatches_->at(static_cast<std::size_t>(batchHandle)).transforms.push_back(transform);
 }
 
 void Scene::AttachMesh(int nodeHandle, int meshHandle, int materialHandle) {
@@ -503,7 +512,10 @@ Material& Scene::GetMaterial(int handle) {
 }
 
 Mesh& Scene::GetMesh(int handle) {
-    return meshes_.at(static_cast<std::size_t>(handle));
+    if (meshes_.use_count() != 1) {
+        meshes_ = std::make_shared<std::vector<Mesh>>(*meshes_);
+    }
+    return meshes_->at(static_cast<std::size_t>(handle));
 }
 
 Camera& Scene::GetCamera(int handle) {
@@ -519,7 +531,10 @@ CameraConfinementVolume& Scene::GetCameraConfinementVolume(int handle) {
 }
 
 MeshInstanceBatch& Scene::GetMeshInstanceBatch(int handle) {
-    return meshInstanceBatches_.at(static_cast<std::size_t>(handle));
+    if (meshInstanceBatches_.use_count() != 1) {
+        meshInstanceBatches_ = std::make_shared<std::vector<MeshInstanceBatch>>(*meshInstanceBatches_);
+    }
+    return meshInstanceBatches_->at(static_cast<std::size_t>(handle));
 }
 
 const Material& Scene::GetMaterial(int handle) const {
@@ -527,7 +542,7 @@ const Material& Scene::GetMaterial(int handle) const {
 }
 
 const Mesh& Scene::GetMesh(int handle) const {
-    return meshes_.at(static_cast<std::size_t>(handle));
+    return meshes_->at(static_cast<std::size_t>(handle));
 }
 
 const Camera& Scene::GetCamera(int handle) const {
@@ -543,7 +558,7 @@ const CameraConfinementVolume& Scene::GetCameraConfinementVolume(int handle) con
 }
 
 const MeshInstanceBatch& Scene::GetMeshInstanceBatch(int handle) const {
-    return meshInstanceBatches_.at(static_cast<std::size_t>(handle));
+    return meshInstanceBatches_->at(static_cast<std::size_t>(handle));
 }
 
 ri::math::Mat4 Scene::ComputeWorldMatrix(int nodeHandle) const {
@@ -565,7 +580,7 @@ std::string Scene::Describe() const {
     std::string out;
     out += "Scene: " + name_ + '\n';
     out += "Nodes=" + std::to_string(nodes_.size()) +
-           " Meshes=" + std::to_string(meshes_.size()) +
+           " Meshes=" + std::to_string(meshes_->size()) +
            " Materials=" + std::to_string(materials_.size()) +
            " Cameras=" + std::to_string(cameras_.size()) +
            " Lights=" + std::to_string(lights_.size()) +
@@ -585,7 +600,7 @@ std::size_t Scene::MaterialCount() const noexcept {
 }
 
 std::size_t Scene::MeshCount() const noexcept {
-    return meshes_.size();
+    return meshes_->size();
 }
 
 std::size_t Scene::CameraCount() const noexcept {
@@ -601,12 +616,12 @@ std::size_t Scene::CameraConfinementVolumeCount() const noexcept {
 }
 
 std::size_t Scene::MeshInstanceBatchCount() const noexcept {
-    return meshInstanceBatches_.size();
+    return meshInstanceBatches_->size();
 }
 
 std::size_t Scene::MeshInstanceCount() const noexcept {
     std::size_t count = 0;
-    for (const MeshInstanceBatch& batch : meshInstanceBatches_) {
+    for (const MeshInstanceBatch& batch : *meshInstanceBatches_) {
         count += batch.transforms.size();
     }
     return count;

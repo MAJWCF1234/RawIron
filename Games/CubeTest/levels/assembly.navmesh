@@ -1,1 +1,3 @@
-# RawIron navmesh placeholder
+# RawIron NavMesh Descriptor v1
+# regionId,minX,minY,minZ,maxX,maxY,maxZ,areaCost,flags
+cube-test-floor,-16.0,-1.0,-16.0,16.0,8.0,16.0,1.0,walk

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -105,11 +106,16 @@ private:
     std::string name_;
     std::vector<Node> nodes_;
     std::vector<Material> materials_;
-    std::vector<Mesh> meshes_;
+    // Render geometry is normally immutable after import. Sharing it between Scene
+    // copies keeps editor/render snapshots cheap; mutable access detaches first.
+    std::shared_ptr<std::vector<Mesh>> meshes_ = std::make_shared<std::vector<Mesh>>();
     std::vector<Camera> cameras_;
     std::vector<Light> lights_;
     std::vector<CameraConfinementVolume> cameraConfinementVolumes_;
-    std::vector<MeshInstanceBatch> meshInstanceBatches_;
+    // Instance batches can be very large, so snapshots share them until a caller
+    // requests mutable access.
+    std::shared_ptr<std::vector<MeshInstanceBatch>> meshInstanceBatches_ =
+        std::make_shared<std::vector<MeshInstanceBatch>>();
     mutable std::vector<ri::math::Mat4> worldMatrixCache_{};
     mutable std::vector<std::uint8_t> worldMatrixValid_{};
     mutable bool transformCacheDirty_ = true;

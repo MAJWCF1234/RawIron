@@ -24,6 +24,10 @@ add_executable(FrameArenaSmoke FrameArenaSmoke.cpp)
 target_link_libraries(FrameArenaSmoke PRIVATE RawIron::Core)
 add_test(NAME RawIron.Core.FrameArenaSmoke COMMAND FrameArenaSmoke)
 
+add_executable(SceneSnapshotStorageSmoke SceneSnapshotStorageSmoke.cpp)
+target_link_libraries(SceneSnapshotStorageSmoke PRIVATE RawIron::Core)
+add_test(NAME RawIron.Core.SceneSnapshotStorageSmoke COMMAND SceneSnapshotStorageSmoke)
+
 add_executable(BundledGameExperiencesSmoke BundledGameExperiencesSmoke.cpp)
 target_link_libraries(BundledGameExperiencesSmoke
   PRIVATE

@@ -1,4 +1,5 @@
-# Fast Windows smoke: subset of targets + UiMenu headless + core/tool/plugin contract smoke.
+# Windows validation: compile the complete workspace and run every registered
+# headless/smoke test. GPU presentation remains a separate hardware-lane concern.
 name: CI
 
 on:
@@ -28,7 +29,7 @@ jobs:
       # humbletim/install-vulkan-sdk unpacks the Windows .exe with 7z; recent LunarG layouts can omit headers
       # under VULKAN_SDK (CMake then finds no vulkan.h). jakoch runs the SDK installer and sets VULKAN_SDK correctly.
       - name: Install Vulkan SDK
-        uses: jakoch/install-vulkan-sdk-action@v1.5.5
+        uses: jakoch/install-vulkan-sdk-action@v1.6.0
         with:
           vulkan_version: latest
           install_runtime: true
@@ -70,11 +71,10 @@ jobs:
       - name: Configure CMake (preset dev-msvc)
         run: cmake --preset dev-msvc -DRAWIRON_BUILD_TESTS=ON -DRAWIRON_BUILD_TOOLS=ON
 
-      - name: Build smoke targets (CI)
+      - name: Build complete workspace (CI)
         shell: pwsh
         run: |
-          cmake --build build/dev-msvc --config RelWithDebInfo --parallel `
-            --target RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame ri_tool CommandLineSmoke FixedStepAccumulatorSmoke PluginProjectDataSmoke EditorPluginManagerSmoke
+          cmake --build build/dev-msvc --config RelWithDebInfo --parallel
 
       - name: UiMenu headless smoke
         shell: pwsh
@@ -84,7 +84,31 @@ jobs:
           & $exe --workspace="${{ github.workspace }}" --headless
           if ($LASTEXITCODE -ne 0) { throw "UiMenu --headless exited $LASTEXITCODE" }
 
-      - name: Core, CLI, and plugin contract smoke
+      - name: Complete registered test suite
         shell: pwsh
         run: |
-          ctest --test-dir build/dev-msvc -C RelWithDebInfo --output-on-failure -R "RawIron\.(Core\.(CommandLineSmoke|FixedStepAccumulatorSmoke)|Tool\.(Formats|Workspace|ListProjects|DescribeProject|DoctorProject|ListProjectResources|SceneKitTargets)|Content\.PluginProjectDataSmoke|Editor\.PluginManagerSmoke)"
+          ctest --test-dir build/dev-msvc -C RelWithDebInfo --output-on-failure --timeout 180
+
+      - name: Configure memory-safety lane
+        run: cmake --preset dev-msvc-sanitized
+
+      - name: Build memory-safety targets
+        shell: pwsh
+        run: |
+          cmake --build build/dev-msvc-sanitized --config RelWithDebInfo --parallel `
+            --target CommandLineSmoke CoreUtilitiesSafetySmoke FixedStepAccumulatorSmoke FrameArenaSmoke SceneSnapshotStorageSmoke
+
+      - name: Stage AddressSanitizer runtime
+        shell: pwsh
+        run: |
+          if (-not $env:VCToolsInstallDir) { throw 'VCToolsInstallDir is unavailable' }
+          $runtimeDir = Join-Path $env:VCToolsInstallDir 'bin\Hostx64\x64'
+          $runtimeDll = Join-Path $runtimeDir 'clang_rt.asan_dynamic-x86_64.dll'
+          if (-not (Test-Path -LiteralPath $runtimeDll)) { throw "Missing MSVC ASan runtime: $runtimeDll" }
+          Add-Content -Path $env:GITHUB_PATH -Value $runtimeDir
+
+      - name: Run memory-safety tests
+        shell: pwsh
+        run: |
+          ctest --test-dir build/dev-msvc-sanitized -C RelWithDebInfo --output-on-failure --timeout 180 `
+            -R "RawIron\.Core\.(CommandLineSmoke|UtilitiesSafetySmoke|FixedStepAccumulatorSmoke|FrameArenaSmoke|SceneSnapshotStorageSmoke)"

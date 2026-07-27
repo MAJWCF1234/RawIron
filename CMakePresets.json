@@ -39,6 +39,15 @@
       "binaryDir": "$env{LOCALAPPDATA}/RawIron/cmake-build/dev-msvc"
     },
     {
+      "name": "dev-msvc-sanitized",
+      "inherits": "dev-msvc",
+      "displayName": "Development (MSVC AddressSanitizer)",
+      "binaryDir": "${sourceDir}/build/dev-msvc-sanitized",
+      "cacheVariables": {
+        "RAWIRON_ENABLE_SANITIZERS": "ON"
+      }
+    },
+    {
       "name": "dev-clang",
       "inherits": "dev-base",
       "displayName": "Development (Clang)",
@@ -75,6 +84,11 @@
     {
       "name": "build-dev-msvc-localappdata",
       "configurePreset": "dev-msvc-localappdata",
+      "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "build-dev-msvc-sanitized",
+      "configurePreset": "dev-msvc-sanitized",
       "configuration": "RelWithDebInfo"
     },
     {

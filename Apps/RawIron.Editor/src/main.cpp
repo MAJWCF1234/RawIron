@@ -156,6 +156,7 @@ using ri::editor::WorkspaceCategoryShortLabel;
 using ri::editor::WorkspaceGameEntry;
 using ri::editor::WorkspaceResourceCategory;
 using ri::editor::WorkspaceResourceEntry;
+using ri::editor::WorkspaceResourceIndex;
 using ri::editor::ApplyAtmospherePreset;
 using ri::editor::AtmospherePresetLabel;
 using ri::editor::CreateNewGameProject;
@@ -2231,6 +2232,7 @@ enum class UiWorkbenchTextEditTarget {
         const std::chrono::duration<double> delta = now - lastTick_;
         lastTick_ = now;
         elapsedSeconds_ += delta.count();
+        PollWorkspaceResourceRows();
         const bool windowMinimized = IsIconic(hwnd_) != FALSE;
         if (windowMinimized) {
             AdaptEditorTimerInterval();
@@ -2979,7 +2981,7 @@ enum class UiWorkbenchTextEditTarget {
         RefreshWorkspaceResourceRows();
     }
 
-    void RefreshWorkspaceResourceRows() {
+    void RefreshWorkspaceResourceRows(const bool background = true) {
         if (!ResolveDirtyResourceBeforeContextSwitch("refreshing resources")) {
             if (hwnd_ != nullptr) {
                 InvalidateRect(hwnd_, nullptr, FALSE);
@@ -2997,12 +2999,45 @@ enum class UiWorkbenchTextEditTarget {
         DestroyResourceTextEditorControl();
         if (focusedWorkspaceGameIndex_ >= 0 &&
             focusedWorkspaceGameIndex_ < static_cast<int>(workspaceGames_.size())) {
-            resourceCatalogEntries_ = CollectWorkspaceGameResources(
-                workspaceGames_[static_cast<std::size_t>(focusedWorkspaceGameIndex_)].rootPath);
+            const fs::path gameRoot =
+                workspaceGames_[static_cast<std::size_t>(focusedWorkspaceGameIndex_)].rootPath;
+            if (background) {
+                resourceCatalogLoading_ = true;
+                workspaceResourceIndex_.Request(gameRoot);
+            } else {
+                resourceCatalogEntries_ = CollectWorkspaceGameResources(gameRoot);
+                resourceCatalogLoading_ = false;
+            }
+        } else {
+            resourceCatalogLoading_ = false;
         }
         RebuildFilteredResourceRows();
         if (hwnd_ != nullptr) {
             InvalidateRect(hwnd_, nullptr, FALSE);
+        }
+    }
+
+    void PollWorkspaceResourceRows() {
+        if (!resourceCatalogLoading_) {
+            return;
+        }
+        try {
+            std::optional<std::vector<WorkspaceResourceEntry>> completed = workspaceResourceIndex_.Poll();
+            if (!completed.has_value()) {
+                return;
+            }
+            resourceCatalogEntries_ = std::move(*completed);
+            resourceCatalogLoading_ = workspaceResourceIndex_.Busy();
+            RebuildFilteredResourceRows();
+            if (hwnd_ != nullptr) {
+                InvalidateRect(hwnd_, nullptr, FALSE);
+            }
+        } catch (const std::exception& error) {
+            resourceCatalogLoading_ = false;
+            lastIoStatus_ = "Resource indexing failed: " + std::string(error.what());
+            if (hwnd_ != nullptr) {
+                InvalidateRect(hwnd_, nullptr, FALSE);
+            }
         }
     }
 
@@ -3834,7 +3869,7 @@ enum class UiWorkbenchTextEditTarget {
         int rowIndex = ri::editor::FindResourceRowByRelativePath(resourceCatalogEntries_, relativePath);
         if (rowIndex < 0 && sceneConfig_.gameManifest.has_value()) {
             TryScaffoldMountedGame();
-            RefreshWorkspaceResourceRows();
+            RefreshWorkspaceResourceRows(false);
             RebuildFilteredResourceRows();
             rowIndex = ri::editor::FindResourceRowByRelativePath(resourceCatalogEntries_, relativePath);
         }
@@ -8925,9 +8960,11 @@ enum class UiWorkbenchTextEditTarget {
                 ? (std::to_string(starterScene_.scene.NodeCount()) + " nodes")
                 : (leftPanelMode_ == LeftPanelMode::Create
                        ? "Creator Lab · quick-start templates"
-                       : (std::to_string(workspaceGames_.size()) + " games · " +
+                       : (resourceCatalogLoading_
+                              ? (std::to_string(workspaceGames_.size()) + " games · indexing files…")
+                              : (std::to_string(workspaceGames_.size()) + " games · " +
                           std::to_string(filteredResourceRows_.size()) + "/" +
-                          std::to_string(resourceCatalogEntries_.size()) + " files"));
+                          std::to_string(resourceCatalogEntries_.size()) + " files")));
         DrawPanelHeader(dc,
                         hierarchy,
                         leftPanelMode_ == LeftPanelMode::Scene
@@ -9883,6 +9920,8 @@ enum class UiWorkbenchTextEditTarget {
     std::chrono::steady_clock::time_point lastCatalogThumbnailPrewarm_{};
     std::vector<WorkspaceGameEntry> workspaceGames_;
     int focusedWorkspaceGameIndex_ = 0;
+    WorkspaceResourceIndex workspaceResourceIndex_{};
+    bool resourceCatalogLoading_ = false;
     std::vector<WorkspaceResourceEntry> resourceCatalogEntries_;
     std::vector<int> filteredResourceRows_;
     std::vector<int> filteredHierarchyOrder_;

@@ -16,7 +16,8 @@ struct LogicKitNodeFactoryResult {
 };
 
 /// Maps LogicKit `id` strings (and legacy aliases) to runtime \ref LogicNodeDefinition nodes.
-/// Returns empty when the kit id is unknown or not yet implemented (e.g. unmapped `sense_*` kits).
+/// Returns empty when the kit id is unknown. Supported authoring sense kits are
+/// executed by LogicAuthoringSenseRuntime rather than being silently discarded.
 [[nodiscard]] std::optional<LogicKitNodeFactoryResult> CreateLogicNodeFromKitId(std::string_view kitId,
                                                                                 std::string nodeInstanceId);
 
