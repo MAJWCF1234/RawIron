@@ -842,6 +842,23 @@ struct PostProcessParameters {
     float riUiMaskGreen = 1.0f;
     float riUiMaskBlue = 1.0f;
     float riUiMaskDisplay = 0.0f;
+    /// Creator-facing luminance isolation with a soft knee; zero strength is a true skip.
+    float riLuminanceThresholdStrength = 0.0f;
+    float riLuminanceThreshold = 0.8f;
+    float riLuminanceThresholdSoftness = 0.5f;
+    /// Bounded LDR posterization with optional source-relative pixel grid and dither.
+    float riColorQuantizeStrength = 0.0f;
+    float riColorQuantizePixelate = 0.0f;
+    ri::math::Vec2 riColorQuantizeResolution{128.0f, 128.0f};
+    float riColorQuantizeDither = 0.0f;
+    int riColorQuantizeDitherMode = 0;
+    ri::math::Vec3 riColorQuantizeLevels{8.0f, 8.0f, 8.0f};
+    /// Polar image remap with bounded segment count; can form mirrors and kaleidoscopes.
+    float riKaleidoscopeStrength = 0.0f;
+    float riKaleidoscopeSegments = 6.0f;
+    float riKaleidoscopeRotation = 0.0f;
+    float riKaleidoscopeSymmetry = 1.0f;
+    float riKaleidoscopeZoom = 1.0f;
 };
 
 struct PostProcessPresetDefinition {
@@ -1919,6 +1936,27 @@ inline PostProcessParameters SanitizePostProcessParameters(const PostProcessPara
     out.riUiMaskGreen = ClampFinite(input.riUiMaskGreen, 0.0f, 1.0f, 1.0f);
     out.riUiMaskBlue = ClampFinite(input.riUiMaskBlue, 0.0f, 1.0f, 1.0f);
     out.riUiMaskDisplay = ClampFinite(input.riUiMaskDisplay, 0.0f, 1.0f, 0.0f);
+    out.riLuminanceThresholdStrength = ClampFinite(input.riLuminanceThresholdStrength, 0.0f, 1.0f, 0.0f);
+    out.riLuminanceThreshold = ClampFinite(input.riLuminanceThreshold, 0.0f, 1.0f, 0.8f);
+    out.riLuminanceThresholdSoftness = ClampFinite(input.riLuminanceThresholdSoftness, 0.0f, 1.0f, 0.5f);
+    out.riColorQuantizeStrength = ClampFinite(input.riColorQuantizeStrength, 0.0f, 1.0f, 0.0f);
+    out.riColorQuantizePixelate = ClampFinite(input.riColorQuantizePixelate, 0.0f, 1.0f, 0.0f);
+    out.riColorQuantizeResolution = {
+        ClampFinite(input.riColorQuantizeResolution.x, 16.0f, 4096.0f, 128.0f),
+        ClampFinite(input.riColorQuantizeResolution.y, 16.0f, 4096.0f, 128.0f),
+    };
+    out.riColorQuantizeDither = ClampFinite(input.riColorQuantizeDither, 0.0f, 1.0f, 0.0f);
+    out.riColorQuantizeDitherMode = std::clamp(input.riColorQuantizeDitherMode, 0, 2);
+    out.riColorQuantizeLevels = {
+        ClampFinite(input.riColorQuantizeLevels.x, 1.0f, 256.0f, 8.0f),
+        ClampFinite(input.riColorQuantizeLevels.y, 1.0f, 256.0f, 8.0f),
+        ClampFinite(input.riColorQuantizeLevels.z, 1.0f, 256.0f, 8.0f),
+    };
+    out.riKaleidoscopeStrength = ClampFinite(input.riKaleidoscopeStrength, 0.0f, 1.0f, 0.0f);
+    out.riKaleidoscopeSegments = ClampFinite(input.riKaleidoscopeSegments, 1.0f, 64.0f, 6.0f);
+    out.riKaleidoscopeRotation = ClampFinite(input.riKaleidoscopeRotation, -6.2831853f, 6.2831853f, 0.0f);
+    out.riKaleidoscopeSymmetry = ClampFinite(input.riKaleidoscopeSymmetry, 0.0f, 1.0f, 1.0f);
+    out.riKaleidoscopeZoom = ClampFinite(input.riKaleidoscopeZoom, 0.1f, 4.0f, 1.0f);
     return out;
 }
 
@@ -3643,6 +3681,23 @@ inline PostProcessParameters BlendPostProcessParameters(
         .riUiMaskGreen = std::lerp(a.riUiMaskGreen, b.riUiMaskGreen, t),
         .riUiMaskBlue = std::lerp(a.riUiMaskBlue, b.riUiMaskBlue, t),
         .riUiMaskDisplay = std::lerp(a.riUiMaskDisplay, b.riUiMaskDisplay, t),
+        .riLuminanceThresholdStrength = std::lerp(a.riLuminanceThresholdStrength, b.riLuminanceThresholdStrength, t),
+        .riLuminanceThreshold = std::lerp(a.riLuminanceThreshold, b.riLuminanceThreshold, t),
+        .riLuminanceThresholdSoftness = std::lerp(a.riLuminanceThresholdSoftness, b.riLuminanceThresholdSoftness, t),
+        .riColorQuantizeStrength = std::lerp(a.riColorQuantizeStrength, b.riColorQuantizeStrength, t),
+        .riColorQuantizePixelate = std::lerp(a.riColorQuantizePixelate, b.riColorQuantizePixelate, t),
+        .riColorQuantizeResolution = {
+            std::lerp(a.riColorQuantizeResolution.x, b.riColorQuantizeResolution.x, t),
+            std::lerp(a.riColorQuantizeResolution.y, b.riColorQuantizeResolution.y, t),
+        },
+        .riColorQuantizeDither = std::lerp(a.riColorQuantizeDither, b.riColorQuantizeDither, t),
+        .riColorQuantizeDitherMode = (t < 0.5f) ? a.riColorQuantizeDitherMode : b.riColorQuantizeDitherMode,
+        .riColorQuantizeLevels = ri::math::Lerp(a.riColorQuantizeLevels, b.riColorQuantizeLevels, t),
+        .riKaleidoscopeStrength = std::lerp(a.riKaleidoscopeStrength, b.riKaleidoscopeStrength, t),
+        .riKaleidoscopeSegments = std::lerp(a.riKaleidoscopeSegments, b.riKaleidoscopeSegments, t),
+        .riKaleidoscopeRotation = std::lerp(a.riKaleidoscopeRotation, b.riKaleidoscopeRotation, t),
+        .riKaleidoscopeSymmetry = std::lerp(a.riKaleidoscopeSymmetry, b.riKaleidoscopeSymmetry, t),
+        .riKaleidoscopeZoom = std::lerp(a.riKaleidoscopeZoom, b.riKaleidoscopeZoom, t),
     });
 }
 

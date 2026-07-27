@@ -1,0 +1,26 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.ri_kaleidoscope",
+  "name": "Raw Iron Kaleidoscope",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyRiKaleidoscopeUv",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "ri_kaleidoscope",
+      "enabled": true,
+      "blend": 1.0,
+      "math": "Raw Iron bounded polar coordinate folding with optional symmetric sectors",
+      "params": {
+        "strength": 1.0,
+        "segments": 6.0,
+        "rotation": 0.0,
+        "symmetry": true,
+        "zoom": 1.0
+      }
+    }
+  ],
+  "textures": []
+}

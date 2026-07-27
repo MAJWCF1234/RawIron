@@ -501,6 +501,12 @@ struct NativeScenePreviewData {
     std::array<float, 4> riMagicBloomPack1{};
     std::array<float, 4> riUiMaskPack0{};
     std::array<float, 4> riUiMaskPack1{};
+    std::array<float, 4> riLuminanceThresholdPack{};
+    std::array<float, 4> riColorQuantizePack0{};
+    std::array<float, 4> riColorQuantizePack1{};
+    std::array<float, 4> riColorQuantizePack2{};
+    std::array<float, 4> riKaleidoscopePack0{};
+    std::array<float, 4> riKaleidoscopePack1{};
     /// Column-major `mat4` for `NativeSkybox.vert` (`projection * skyRotation`).
     std::array<float, 16> skyClipFromLocal{};
     /// Column-major `mat4`; upper 3x3 maps eye-space directions to world for equirect sampling.
@@ -789,9 +795,15 @@ struct alignas(16) CameraUniformStd140 {
     float riMagicBloomPack1[4]{};
     float riUiMaskPack0[4]{};
     float riUiMaskPack1[4]{};
+    float riLuminanceThresholdPack[4]{};
+    float riColorQuantizePack0[4]{};
+    float riColorQuantizePack1[4]{};
+    float riColorQuantizePack2[4]{};
+    float riKaleidoscopePack0[4]{};
+    float riKaleidoscopePack1[4]{};
 };
 
-static_assert(sizeof(CameraUniformStd140) == 4208, "Must match NativeScenePreview shader CameraData std140 layout.");
+static_assert(sizeof(CameraUniformStd140) == 4304, "Must match NativeScenePreview shader CameraData std140 layout.");
 
 void StoreMat4ColumnMajorGlsl(const ri::math::Mat4& matrix, float destination[16]) {
     for (int column = 0; column < 4; ++column) {
@@ -3595,6 +3607,32 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
         sanitizedPost.riUiMaskGreen,
     };
     outData->riUiMaskPack1 = {sanitizedPost.riUiMaskBlue, sanitizedPost.riUiMaskDisplay, 0.0f, 0.0f};
+    outData->riLuminanceThresholdPack = {
+        sanitizedPost.riLuminanceThresholdStrength,
+        sanitizedPost.riLuminanceThreshold,
+        sanitizedPost.riLuminanceThresholdSoftness,
+        0.0f,
+    };
+    outData->riColorQuantizePack0 = {
+        sanitizedPost.riColorQuantizeStrength,
+        sanitizedPost.riColorQuantizePixelate,
+        sanitizedPost.riColorQuantizeResolution.x,
+        sanitizedPost.riColorQuantizeResolution.y,
+    };
+    outData->riColorQuantizePack1 = {
+        sanitizedPost.riColorQuantizeDither,
+        static_cast<float>(sanitizedPost.riColorQuantizeDitherMode),
+        sanitizedPost.riColorQuantizeLevels.x,
+        sanitizedPost.riColorQuantizeLevels.y,
+    };
+    outData->riColorQuantizePack2 = {sanitizedPost.riColorQuantizeLevels.z, 0.0f, 0.0f, 0.0f};
+    outData->riKaleidoscopePack0 = {
+        sanitizedPost.riKaleidoscopeStrength,
+        sanitizedPost.riKaleidoscopeSegments,
+        sanitizedPost.riKaleidoscopeRotation,
+        sanitizedPost.riKaleidoscopeSymmetry,
+    };
+    outData->riKaleidoscopePack1 = {sanitizedPost.riKaleidoscopeZoom, 0.0f, 0.0f, 0.0f};
     outData->renderQualityTier = std::clamp(frame.renderQualityTier, 0, 2);
     if (outData->renderQualityTier >= 2) {
         outData->localLightColorIntensity[3] =
@@ -8319,6 +8357,24 @@ bool RunVulkanNativeSceneLoop(const int width,
             std::memcpy(cameraUniform.riMagicBloomPack1, sceneData.riMagicBloomPack1.data(), sizeof(cameraUniform.riMagicBloomPack1));
             std::memcpy(cameraUniform.riUiMaskPack0, sceneData.riUiMaskPack0.data(), sizeof(cameraUniform.riUiMaskPack0));
             std::memcpy(cameraUniform.riUiMaskPack1, sceneData.riUiMaskPack1.data(), sizeof(cameraUniform.riUiMaskPack1));
+            std::memcpy(cameraUniform.riLuminanceThresholdPack,
+                        sceneData.riLuminanceThresholdPack.data(),
+                        sizeof(cameraUniform.riLuminanceThresholdPack));
+            std::memcpy(cameraUniform.riColorQuantizePack0,
+                        sceneData.riColorQuantizePack0.data(),
+                        sizeof(cameraUniform.riColorQuantizePack0));
+            std::memcpy(cameraUniform.riColorQuantizePack1,
+                        sceneData.riColorQuantizePack1.data(),
+                        sizeof(cameraUniform.riColorQuantizePack1));
+            std::memcpy(cameraUniform.riColorQuantizePack2,
+                        sceneData.riColorQuantizePack2.data(),
+                        sizeof(cameraUniform.riColorQuantizePack2));
+            std::memcpy(cameraUniform.riKaleidoscopePack0,
+                        sceneData.riKaleidoscopePack0.data(),
+                        sizeof(cameraUniform.riKaleidoscopePack0));
+            std::memcpy(cameraUniform.riKaleidoscopePack1,
+                        sceneData.riKaleidoscopePack1.data(),
+                        sizeof(cameraUniform.riKaleidoscopePack1));
             std::memcpy(mappedUniformMemory, &cameraUniform, sizeof(CameraUniformStd140));
             SkyUniformStd140 skyUniform{};
             skyUniform.hasSkyTexture = sceneData.skyUseTextureFile;

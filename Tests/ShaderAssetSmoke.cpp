@@ -260,6 +260,32 @@ int main(int argc, char** argv) {
         return 26;
     }
 
+    ri::content::RawIronShaderAsset luminanceThreshold{};
+    ri::content::RawIronShaderAsset colorQuantize{};
+    ri::content::RawIronShaderAsset kaleidoscope{};
+    if (!ri::content::LoadRawIronShaderAsset(
+            nativeEffectRoot / "ri_luminance_threshold.rishader", &luminanceThreshold, &cropError)
+        || !ri::content::LoadRawIronShaderAsset(nativeEffectRoot / "ri_color_quantize.rishader", &colorQuantize, &cropError)
+        || !ri::content::LoadRawIronShaderAsset(nativeEffectRoot / "ri_kaleidoscope.rishader", &kaleidoscope, &cropError)) {
+        std::cerr << "Raw Iron CShade capability assets failed to load: " << cropError << '\n';
+        return 27;
+    }
+    if (luminanceThreshold.presentation.parameters.riLuminanceThresholdStrength != 1.0f
+        || luminanceThreshold.presentation.parameters.riLuminanceThreshold != 0.8f
+        || luminanceThreshold.presentation.parameters.riLuminanceThresholdSoftness != 0.5f
+        || colorQuantize.presentation.parameters.riColorQuantizeStrength != 1.0f
+        || colorQuantize.presentation.parameters.riColorQuantizePixelate != 0.0f
+        || colorQuantize.presentation.parameters.riColorQuantizeResolution.x != 128.0f
+        || colorQuantize.presentation.parameters.riColorQuantizeDitherMode != 0
+        || colorQuantize.presentation.parameters.riColorQuantizeLevels.z != 8.0f
+        || kaleidoscope.presentation.parameters.riKaleidoscopeStrength != 1.0f
+        || kaleidoscope.presentation.parameters.riKaleidoscopeSegments != 6.0f
+        || kaleidoscope.presentation.parameters.riKaleidoscopeSymmetry != 1.0f
+        || kaleidoscope.presentation.parameters.riKaleidoscopeZoom != 1.0f) {
+        std::cerr << "Raw Iron CShade capability parameters were not parsed deterministically.\n";
+        return 28;
+    }
+
     std::cout << "Validated native .rishader assets and manifest composition.\n";
     return 0;
 }

@@ -31,11 +31,15 @@ set(_owned_effect_assets
   ri_levels_plus.rishader
   ri_light_dof.rishader
   ri_magic_bloom.rishader
-  ri_ui_mask.rishader)
+  ri_ui_mask.rishader
+  ri_luminance_threshold.rishader
+  ri_color_quantize.rishader
+  ri_kaleidoscope.rishader)
 set(_retired_root_effects
   Glitch.fx NightVision.fx HighPassSharpen.fx
   Blending.fxh DrawText.fxh HQ4X.fx HSLShift.fx LevelsPlus.fx LightDoF.fx
   Macros.fxh MagicBloom.fx ReShade.fxh ReShadeUI.fxh UIMask.fx)
+set(_retired_cshade_effects cThreshold.fx cQuantize.fx kMirror.fx)
 set(_pd80_native_asset "${RAWIRON_WORKSPACE}/Source/RawIron.Render.Vulkan/shaders/NativeEffects/pd80_cinetools_lut.rishader")
 set(_retired_pd80_helpers PD80_LUT_v2.fxh PD80_00_Noise_Samplers.fxh PD80_00_Color_Spaces.fxh)
 
@@ -56,6 +60,11 @@ endforeach()
 foreach(_source IN LISTS _retired_root_effects)
   if(EXISTS "${RAWIRON_WORKSPACE}/Source/RawIron.Render.Vulkan/ReferenceShaders/Shaders/${_source}")
     message(FATAL_ERROR "Retired root capability-checklist source still exists: ${_source}")
+  endif()
+endforeach()
+foreach(_source IN LISTS _retired_cshade_effects)
+  if(EXISTS "${RAWIRON_WORKSPACE}/Source/RawIron.Render.Vulkan/ReferenceShaders/Shaders/CShade/${_source}")
+    message(FATAL_ERROR "Retired CShade capability-checklist source still exists: ${_source}")
   endif()
 endforeach()
 foreach(_asset IN LISTS _owned_effect_assets)
@@ -211,7 +220,8 @@ endforeach()
 
 foreach(_function IN ITEMS
     RiBlendLayer RiFontGlyphCoverage RiSafeReciprocal RiBoundedSceneColor
-    ApplyRiHq4x ApplyRiHslShift ApplyRiLevelsPlus ApplyRiLightDof ApplyRiMagicBloom ApplyRiUiMask)
+    ApplyRiHq4x ApplyRiHslShift ApplyRiLevelsPlus ApplyRiLightDof ApplyRiMagicBloom ApplyRiUiMask
+    ApplyRiLuminanceThreshold ApplyRiColorQuantize ApplyRiKaleidoscopeUv)
   foreach(_shader_text IN ITEMS _full_text _fast_text)
     string(FIND "${${_shader_text}}" "${_function}" _requested_function_found)
     if(_requested_function_found EQUAL -1)
@@ -219,7 +229,9 @@ foreach(_function IN ITEMS
     endif()
   endforeach()
 endforeach()
-foreach(_function IN ITEMS ApplyRiHq4x ApplyRiHslShift ApplyRiLevelsPlus ApplyRiLightDof ApplyRiMagicBloom ApplyRiUiMask)
+foreach(_function IN ITEMS
+    ApplyRiHq4x ApplyRiHslShift ApplyRiLevelsPlus ApplyRiLightDof ApplyRiMagicBloom ApplyRiUiMask
+    ApplyRiLuminanceThreshold ApplyRiColorQuantize ApplyRiKaleidoscopeUv)
   foreach(_shader_text IN ITEMS _full_text _fast_text)
     string(REGEX MATCHALL "${_function}\\(" _requested_function_occurrences "${${_shader_text}}")
     list(LENGTH _requested_function_occurrences _requested_function_count)
@@ -233,6 +245,12 @@ foreach(_pack IN ITEMS
   string(FIND "${_runtime_text}" "cameraUniform.${_pack}" _requested_pack_found)
   if(_requested_pack_found EQUAL -1)
     message(FATAL_ERROR "Requested native shader uniform is not copied by the runtime: ${_pack}")
+  endif()
+endforeach()
+foreach(_pack IN ITEMS riLuminanceThresholdPack riColorQuantizePack0 riColorQuantizePack2 riKaleidoscopePack0 riKaleidoscopePack1)
+  string(FIND "${_runtime_text}" "cameraUniform.${_pack}" _requested_pack_found)
+  if(_requested_pack_found EQUAL -1)
+    message(FATAL_ERROR "Raw Iron CShade uniform is not copied by the runtime: ${_pack}")
   endif()
 endforeach()
 foreach(_texture IN ITEMS MagicBloom_Dirt.png FontAtlas.png brussell/UIDetectMaskRGB.png)
@@ -287,4 +305,4 @@ foreach(_shader_text IN ITEMS _full_text _fast_text)
   endif()
 endforeach()
 
-message(STATUS "Verified native CropResize and Barbatos uFakeHDR migrations and reference removal")
+message(STATUS "Verified native post migrations and completed reference removal")

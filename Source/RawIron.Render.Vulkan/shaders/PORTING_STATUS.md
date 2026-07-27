@@ -1,7 +1,7 @@
 # Reference shader migration status
 
 The migration source initially contained 781 files: 419 `.fx` effects, 222 `.fxh` includes, 131 PNG textures,
-and nine other assets. All 139 texture assets are now centralized under `shaders/NativeTextures`; 620 reference source/checklist files remain. A reference source is removed only after its native Raw Iron replacement builds in both
+and nine other assets. All 139 texture assets are now centralized under `shaders/NativeTextures`; 617 reference source/checklist files remain. A reference source is removed only after its native Raw Iron replacement builds in both
 applicable shader paths, has a `.rishader` asset, preserves required notices, and has regression coverage.
 
 ## Completed
@@ -38,6 +38,9 @@ resource use, parameter model, naming, fast-path behavior, and extended-path int
 | `Macros.fxh` | `NativeEffects/ri_shader_macros.rishader` | Typed asset parameters plus finite math/luma/UV helpers |
 | `ReShade.fxh` | `NativeEffects/ri_shader_contract.rishader` | Native scene color, scene depth, viewport, time, and frame-coordinate contract |
 | `ReShadeUI.fxh` | `NativeEffects/ri_shader_ui_contract.rishader` | `.rishader` typed parameters, ranges, defaults, colors, and toggles |
+| `CShade/cThreshold.fx` | `NativeEffects/ri_luminance_threshold.rishader` | Finite-safe luminance isolation with a creator-controlled soft knee |
+| `CShade/cQuantize.fx` | `NativeEffects/ri_color_quantize.rishader` | Bounded RGB posterization, source-grid pixelation, and stable dither choices |
+| `CShade/kMirror.fx` | `NativeEffects/ri_kaleidoscope.rishader` | Bounded polar folding with configurable symmetry, segments, rotation, and zoom |
 
 ## Migration constraints
 

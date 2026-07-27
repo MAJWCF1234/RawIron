@@ -958,6 +958,18 @@ void MergePresentationObject(std::string_view obj, PostProcessParameters& p) {
     set("ri_ui_mask_green", p.riUiMaskGreen);
     set("ri_ui_mask_blue", p.riUiMaskBlue);
     set("ri_ui_mask_display", p.riUiMaskDisplay);
+    set("ri_luminance_threshold_strength", p.riLuminanceThresholdStrength);
+    set("ri_luminance_threshold", p.riLuminanceThreshold);
+    set("ri_luminance_threshold_softness", p.riLuminanceThresholdSoftness);
+    set("ri_color_quantize_strength", p.riColorQuantizeStrength);
+    set("ri_color_quantize_pixelate", p.riColorQuantizePixelate);
+    set("ri_color_quantize_dither", p.riColorQuantizeDither);
+    if (const auto v = detail::ExtractJsonInt(obj, "ri_color_quantize_dither_mode")) p.riColorQuantizeDitherMode = *v;
+    set("ri_kaleidoscope_strength", p.riKaleidoscopeStrength);
+    set("ri_kaleidoscope_segments", p.riKaleidoscopeSegments);
+    set("ri_kaleidoscope_rotation", p.riKaleidoscopeRotation);
+    set("ri_kaleidoscope_symmetry", p.riKaleidoscopeSymmetry);
+    set("ri_kaleidoscope_zoom", p.riKaleidoscopeZoom);
 
     if (const auto lift = TryParseJsonVec3(obj, "lift_rgb")) {
         p.liftRgb = *lift;
@@ -981,6 +993,8 @@ void MergePresentationObject(std::string_view obj, PostProcessParameters& p) {
     if (const auto v = TryParseJsonVec3(obj, "ri_levels_plus_color_shift")) p.riLevelsPlusColorShift = *v;
     if (const auto v = TryParseJsonVec3(obj, "ri_levels_plus_aces_luminance")) p.riLevelsPlusAcesLuminance = *v;
     if (const auto v = TryParseJsonVec2(obj, "ri_light_dof_focus_point")) p.riLightDofFocusPoint = *v;
+    if (const auto v = TryParseJsonVec2(obj, "ri_color_quantize_resolution")) p.riColorQuantizeResolution = *v;
+    if (const auto v = TryParseJsonVec3(obj, "ri_color_quantize_levels")) p.riColorQuantizeLevels = *v;
     if (const auto gamma = TryParseJsonVec3(obj, "gamma_rgb")) {
         p.gammaRgb = *gamma;
     }
@@ -4820,6 +4834,26 @@ bool ApplyEffectBlock(std::string_view effect, PostProcessParameters& accum) {
         if (const auto v = detail::ExtractJsonBool(p, "green")) layer.riUiMaskGreen = *v ? 1.0f : 0.0f;
         if (const auto v = detail::ExtractJsonBool(p, "blue")) layer.riUiMaskBlue = *v ? 1.0f : 0.0f;
         if (const auto v = detail::ExtractJsonBool(p, "display")) layer.riUiMaskDisplay = *v ? 1.0f : 0.0f;
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "ri_luminance_threshold" || typeNorm == "rawiron_luminance_threshold") {
+        if (const auto v = detail::ExtractJsonDouble(p, "strength")) layer.riLuminanceThresholdStrength = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "threshold")) layer.riLuminanceThreshold = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "softness")) layer.riLuminanceThresholdSoftness = static_cast<float>(*v);
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "ri_color_quantize" || typeNorm == "rawiron_color_quantize") {
+        if (const auto v = detail::ExtractJsonDouble(p, "strength")) layer.riColorQuantizeStrength = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonBool(p, "pixelate")) layer.riColorQuantizePixelate = *v ? 1.0f : 0.0f;
+        if (const auto v = TryParseJsonVec2(p, "resolution")) layer.riColorQuantizeResolution = *v;
+        if (const auto v = detail::ExtractJsonBool(p, "dither")) layer.riColorQuantizeDither = *v ? 1.0f : 0.0f;
+        if (const auto v = detail::ExtractJsonInt(p, "dither_mode")) layer.riColorQuantizeDitherMode = *v;
+        if (const auto v = TryParseJsonVec3(p, "levels")) layer.riColorQuantizeLevels = *v;
+        MergePresentationObject(p, layer);
+    } else if (typeNorm == "ri_kaleidoscope" || typeNorm == "rawiron_kaleidoscope") {
+        if (const auto v = detail::ExtractJsonDouble(p, "strength")) layer.riKaleidoscopeStrength = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "segments")) layer.riKaleidoscopeSegments = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonDouble(p, "rotation")) layer.riKaleidoscopeRotation = static_cast<float>(*v);
+        if (const auto v = detail::ExtractJsonBool(p, "symmetry")) layer.riKaleidoscopeSymmetry = *v ? 1.0f : 0.0f;
+        if (const auto v = detail::ExtractJsonDouble(p, "zoom")) layer.riKaleidoscopeZoom = static_cast<float>(*v);
         MergePresentationObject(p, layer);
     } else if (typeNorm == "legacy_post" || typeNorm == "stylized" || typeNorm == "vintage") {
         MergePresentationObject(p, layer);

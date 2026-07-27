@@ -1,0 +1,27 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.ri_color_quantize",
+  "name": "Raw Iron Color Quantize",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyRiColorQuantize",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "ri_color_quantize",
+      "enabled": true,
+      "blend": 1.0,
+      "math": "Raw Iron bounded RGB posterization with optional source-grid pixelation and stable dithering",
+      "params": {
+        "strength": 1.0,
+        "pixelate": false,
+        "resolution": [128.0, 128.0],
+        "dither": false,
+        "dither_mode": 0,
+        "levels": [8.0, 8.0, 8.0]
+      }
+    }
+  ],
+  "textures": []
+}

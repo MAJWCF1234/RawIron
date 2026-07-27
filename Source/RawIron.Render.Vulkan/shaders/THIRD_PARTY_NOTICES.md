@@ -66,3 +66,12 @@ scene/depth and typed-parameter contracts. `ri_shader_macros.rishader` replaces 
 resource macros with schema-validated assets. `NativeTextures/FontAtlas.png`,
 `NativeTextures/MagicBloom_Dirt.png`, and `NativeTextures/brussell/UIDetectMaskRGB.png` are bound and
 sampled by the native composites. All eleven former root reference files have been removed.
+
+## Native CShade capability tranche
+
+`ri_luminance_threshold.rishader`, `ri_color_quantize.rishader`, and `ri_kaleidoscope.rishader`
+are independent Raw Iron presentation operators. CShade's `cThreshold.fx`, `cQuantize.fx`, and
+`kMirror.fx` were used as capability checklists only; Raw Iron owns the parameter schema, finite
+guardrails, coordinate transform, noise model, and fast/extended integration. The former sources
+have been removed after regression coverage was added. The `kMirror.fx` source credited Keijiro
+Takahashi under MIT; this capability-level attribution is retained.

@@ -389,6 +389,12 @@ layout(std140, set = 0, binding = 0) uniform CameraData {
     vec4 riMagicBloomPack1;
     vec4 riUiMaskPack0;
     vec4 riUiMaskPack1;
+    vec4 riLuminanceThresholdPack;
+    vec4 riColorQuantizePack0;
+    vec4 riColorQuantizePack1;
+    vec4 riColorQuantizePack2;
+    vec4 riKaleidoscopePack0;
+    vec4 riKaleidoscopePack1;
 } cameraData;
 
 layout(set = 1, binding = 0) uniform sampler2D hdrSceneLinear;
@@ -1005,11 +1011,65 @@ vec3 ApplyRiUiMask(vec2 uv, vec3 backup, vec3 color) {
     return mix(color, backup, clamp(mask, 0.0, 1.0));
 }
 
+vec2 ApplyRiKaleidoscopeUv(vec2 uv) {
+    vec4 p0 = cameraData.riKaleidoscopePack0;
+    float strength = clamp(p0.x, 0.0, 1.0);
+    if (strength <= 1e-6) return uv;
+    float segments = clamp(floor(p0.y + 0.5), 1.0, 64.0);
+    float zoom = clamp(cameraData.riKaleidoscopePack1.x, 0.1, 4.0);
+    vec2 centered = (uv - 0.5) / zoom;
+    float radius = length(centered);
+    float wedge = 6.28318530718 / segments;
+    float angle = atan(centered.y, centered.x) + clamp(p0.z, -6.28318530718, 6.28318530718);
+    angle = mod(angle + 6.28318530718, wedge);
+    if (p0.w > 0.5) angle = min(angle, wedge - angle);
+    vec2 remapped = vec2(cos(angle), sin(angle)) * radius + 0.5;
+    remapped = 1.0 - abs(mod(remapped, 2.0) - 1.0);
+    return mix(uv, remapped, strength);
+}
+
+float RiQuantizeNoise(vec2 p, int mode) {
+    if (mode == 1) return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+    float salt = (mode == 2) ? 19.19 : 0.61803399;
+    return fract(sin(dot(p + salt, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
+vec3 ApplyRiLuminanceThreshold(vec3 color) {
+    vec4 p = cameraData.riLuminanceThresholdPack;
+    float strength = clamp(p.x, 0.0, 1.0);
+    if (strength <= 1e-6) return color;
+    float luma = RiLuma(max(color, vec3(0.0)));
+    float knee = max(p.y * clamp(p.z, 0.0, 1.0), 1e-5);
+    float soft = clamp(luma - (p.y - knee), 0.0, 2.0 * knee);
+    soft = (soft * soft) * (0.25 / knee);
+    float response = max(soft, luma - p.y) / max(luma, 1e-5);
+    return mix(color, clamp(color * response, 0.0, 1.0), strength);
+}
+
+vec3 ApplyRiColorQuantize(vec2 uv, vec3 color) {
+    vec4 p0 = cameraData.riColorQuantizePack0;
+    float strength = clamp(p0.x, 0.0, 1.0);
+    if (strength <= 1e-6) return color;
+    vec3 source = color;
+    if (p0.y > 0.5) {
+        vec2 resolution = max(p0.zw, vec2(16.0));
+        vec2 snappedUv = (floor(uv * resolution) + 0.5) / resolution;
+        source = RiBoundedSceneColor(snappedUv);
+    }
+    vec4 p1 = cameraData.riColorQuantizePack1;
+    vec3 levels = max(vec3(p1.z, p1.w, cameraData.riColorQuantizePack2.x), vec3(1.0));
+    float noise = (RiQuantizeNoise(gl_FragCoord.xy, clamp(int(p1.y + 0.5), 0, 2)) * 2.0 - 1.0)
+        * clamp(p1.x, 0.0, 1.0);
+    vec3 quantized = floor(clamp(source + noise / levels, 0.0, 1.0) * levels) / levels;
+    return mix(color, quantized, strength);
+}
+
 
 void main() {
     vec2 sampleUv = vec2(vUv.x, 1.0 - vUv.y);
     float cropCoverage = 1.0;
     sampleUv = ApplyNativeCropScale(sampleUv, cropCoverage);
+    sampleUv = ApplyRiKaleidoscopeUv(sampleUv);
     vec2 texel = vec2(cameraData.viewportMetrics.z, cameraData.viewportMetrics.w);
     vec2 centeredUv = sampleUv * 2.0 - 1.0;
     float radial = dot(centeredUv, centeredUv);
@@ -1083,6 +1143,8 @@ void main() {
     srgb = ApplyRiSignalGlitch(sampleUv, texel, srgb);
     srgb = ApplyRiNightVision(sampleUv, srgb);
     srgb = ApplyRiInkOutline(sampleUv, texel, srgb);
+    srgb = ApplyRiLuminanceThreshold(srgb);
+    srgb = ApplyRiColorQuantize(sampleUv, srgb);
     float outputDither = clamp(cameraData.presentationColorGrading.y, 0.0, 1.0);
     if (outputDither > 1e-5) {
         float triangular = LiteHash21(gl_FragCoord.xy + 0.37)

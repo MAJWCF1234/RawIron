@@ -1,0 +1,24 @@
+{
+  "rawironShaderVersion": 1,
+  "id": "rawiron.post.ri_luminance_threshold",
+  "name": "Raw Iron Luminance Threshold",
+  "domain": "post_process",
+  "stage": "presentation",
+  "entryPoint": "ApplyRiLuminanceThreshold",
+  "replace": false,
+  "blendWeight": 1.0,
+  "effects": [
+    {
+      "id": "ri_luminance_threshold",
+      "enabled": true,
+      "blend": 1.0,
+      "math": "Raw Iron finite-safe luminance isolation with a soft threshold knee",
+      "params": {
+        "strength": 1.0,
+        "threshold": 0.8,
+        "softness": 0.5
+      }
+    }
+  ],
+  "textures": []
+}
