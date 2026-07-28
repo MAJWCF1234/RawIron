@@ -11,12 +11,22 @@ namespace ri::content {
 
 namespace {
 
-std::unordered_map<std::string, PluginHookHandler, std::hash<std::string>, std::equal_to<>> g_handlers{};
+struct PluginHookRegistration {
+    PluginHookHandler handler;
+    std::string requiredCapability;
+};
+
+std::unordered_map<std::string, PluginHookRegistration, std::hash<std::string>, std::equal_to<>> g_handlers{};
 std::mutex g_handlersMutex{};
 bool g_builtinsRegistered = false;
 
-void RegisterPluginHookHandlerUnsafe(const std::string_view eventName, PluginHookHandler handler) {
-    g_handlers[std::string(eventName)] = std::move(handler);
+void RegisterPluginHookHandlerUnsafe(const std::string_view eventName,
+                                     const std::string_view requiredCapability,
+                                     PluginHookHandler handler) {
+    g_handlers[std::string(eventName)] = PluginHookRegistration{
+        .handler = std::move(handler),
+        .requiredCapability = std::string(requiredCapability),
+    };
 }
 
 void EnsureBuiltinHandlers() {
@@ -26,7 +36,7 @@ void EnsureBuiltinHandlers() {
     }
     g_builtinsRegistered = true;
 
-    RegisterPluginHookHandlerUnsafe("bootstrap", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
+    RegisterPluginHookHandlerUnsafe("bootstrap", "", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
         context.runtimeScalars["plugin." + invocation.pluginId + ".bootstrapped"] = 1.0f;
         context.results.push_back(PluginHookResult{
             .pluginId = invocation.pluginId,
@@ -37,7 +47,7 @@ void EnsureBuiltinHandlers() {
         return true;
     });
 
-    RegisterPluginHookHandlerUnsafe("frame_sample", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
+    RegisterPluginHookHandlerUnsafe("frame_sample", "telemetry.runtime", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
         context.results.push_back(PluginHookResult{
             .pluginId = invocation.pluginId,
             .eventName = invocation.eventName,
@@ -47,7 +57,7 @@ void EnsureBuiltinHandlers() {
         return true;
     });
 
-    RegisterPluginHookHandlerUnsafe("audio_zones_bind", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
+    RegisterPluginHookHandlerUnsafe("audio_zones_bind", "audio.runtime", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
         context.runtimeScalars["plugin." + invocation.pluginId + ".audio_bound"] = 1.0f;
         context.results.push_back(PluginHookResult{
             .pluginId = invocation.pluginId,
@@ -58,7 +68,7 @@ void EnsureBuiltinHandlers() {
         return true;
     });
 
-    RegisterPluginHookHandlerUnsafe("ambient_tick", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
+    RegisterPluginHookHandlerUnsafe("ambient_tick", "audio.runtime", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
         const float gain = ScriptScalarOr(context.runtimeScalars, "ambient_presence_gain", 0.85f);
         context.runtimeScalars["plugin." + invocation.pluginId + ".ambient_gain"] = gain;
         context.results.push_back(PluginHookResult{
@@ -70,7 +80,7 @@ void EnsureBuiltinHandlers() {
         return true;
     });
 
-    RegisterPluginHookHandlerUnsafe("quest_marker_refresh", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
+    RegisterPluginHookHandlerUnsafe("quest_marker_refresh", "ui.overlay", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
         context.results.push_back(PluginHookResult{
             .pluginId = invocation.pluginId,
             .eventName = invocation.eventName,
@@ -80,7 +90,7 @@ void EnsureBuiltinHandlers() {
         return true;
     });
 
-    RegisterPluginHookHandlerUnsafe("ai_policy_bind", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
+    RegisterPluginHookHandlerUnsafe("ai_policy_bind", "gameplay.ai", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
         context.results.push_back(PluginHookResult{
             .pluginId = invocation.pluginId,
             .eventName = invocation.eventName,
@@ -90,7 +100,7 @@ void EnsureBuiltinHandlers() {
         return true;
     });
 
-    RegisterPluginHookHandlerUnsafe("timeline_register", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
+    RegisterPluginHookHandlerUnsafe("timeline_register", "gameplay.cinematics", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
         context.results.push_back(PluginHookResult{
             .pluginId = invocation.pluginId,
             .eventName = invocation.eventName,
@@ -100,7 +110,7 @@ void EnsureBuiltinHandlers() {
         return true;
     });
 
-    RegisterPluginHookHandlerUnsafe("mode_update", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
+    RegisterPluginHookHandlerUnsafe("mode_update", "gameplay.ai", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
         context.results.push_back(PluginHookResult{
             .pluginId = invocation.pluginId,
             .eventName = invocation.eventName,
@@ -110,7 +120,7 @@ void EnsureBuiltinHandlers() {
         return true;
     });
 
-    RegisterPluginHookHandlerUnsafe("zone_cutscene_trigger", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
+    RegisterPluginHookHandlerUnsafe("zone_cutscene_trigger", "gameplay.cinematics", [](PluginHookContext& context, const PluginHookInvocation& invocation) {
         context.results.push_back(PluginHookResult{
             .pluginId = invocation.pluginId,
             .eventName = invocation.eventName,
@@ -152,6 +162,8 @@ void EmitPluginRuntimeEvent(PluginHookContext& context,
             .eventName = invocation.eventName,
             .hookPhase = std::string(context.hookPhase),
             .handled = result.handled,
+            .capabilityDenied = result.capabilityDenied,
+            .requiredCapability = result.requiredCapability,
             .message = result.message,
         });
     } catch (...) {
@@ -166,11 +178,17 @@ void RegisterBuiltinPluginHookHandlers() {
 }
 
 void RegisterPluginHookHandler(const std::string_view eventName, PluginHookHandler handler) {
+    RegisterPluginHookHandler(eventName, "", std::move(handler));
+}
+
+void RegisterPluginHookHandler(const std::string_view eventName,
+                               const std::string_view requiredCapability,
+                               PluginHookHandler handler) {
     if (eventName.empty() || !handler) {
         return;
     }
     std::lock_guard lock(g_handlersMutex);
-    RegisterPluginHookHandlerUnsafe(eventName, std::move(handler));
+    RegisterPluginHookHandlerUnsafe(eventName, requiredCapability, std::move(handler));
 }
 
 void ClearPluginHookHandlers() {
@@ -182,7 +200,8 @@ void ClearPluginHookHandlers() {
 bool IsPluginHookHandlerRegistered(const std::string_view eventName) {
     EnsureBuiltinHandlers();
     std::lock_guard lock(g_handlersMutex);
-    return g_handlers.find(std::string(eventName)) != g_handlers.end();
+    const auto handler = g_handlers.find(std::string(eventName));
+    return handler != g_handlers.end() && static_cast<bool>(handler->second.handler);
 }
 
 std::vector<std::string> RegisteredPluginHookHandlerNames() {
@@ -190,8 +209,8 @@ std::vector<std::string> RegisteredPluginHookHandlerNames() {
     std::lock_guard lock(g_handlersMutex);
     std::vector<std::string> names{};
     names.reserve(g_handlers.size());
-    for (const auto& [name, handler] : g_handlers) {
-        if (handler) {
+    for (const auto& [name, registration] : g_handlers) {
+        if (registration.handler) {
             names.push_back(name);
         }
     }
@@ -199,17 +218,64 @@ std::vector<std::string> RegisteredPluginHookHandlerNames() {
     return names;
 }
 
+std::vector<PluginHookHandlerInfo> RegisteredPluginHookHandlers() {
+    EnsureBuiltinHandlers();
+    std::lock_guard lock(g_handlersMutex);
+    std::vector<PluginHookHandlerInfo> info{};
+    info.reserve(g_handlers.size());
+    for (const auto& [name, registration] : g_handlers) {
+        if (registration.handler) {
+            info.push_back(PluginHookHandlerInfo{
+                .eventName = name,
+                .requiredCapability = registration.requiredCapability,
+            });
+        }
+    }
+    std::sort(info.begin(), info.end(), [](const PluginHookHandlerInfo& a, const PluginHookHandlerInfo& b) {
+        return a.eventName < b.eventName;
+    });
+    return info;
+}
+
 void AppendPluginHookHandlerIssues(const PluginProjectData& data, std::vector<PluginValidationIssue>& issues) {
     EnsureBuiltinHandlers();
-    std::set<std::string> reported{};
+    std::set<std::string> missingHandlersReported{};
+    std::set<std::string> capabilityDenialsReported{};
     for (const PluginHookBinding& hook : data.hookBindings) {
-        if (IsPluginHookHandlerRegistered(hook.eventName) || reported.contains(hook.eventName)) {
+        if (!IsPluginHookHandlerRegistered(hook.eventName)) {
+            if (missingHandlersReported.insert(hook.eventName).second) {
+                issues.push_back(PluginValidationIssue{
+                    .message = "Hook event has no engine handler: " + hook.eventName + " (plugin " + hook.pluginId + ")",
+                });
+            }
             continue;
         }
-        reported.insert(hook.eventName);
-        issues.push_back(PluginValidationIssue{
-            .message = "Hook event has no engine handler: " + hook.eventName + " (plugin " + hook.pluginId + ")",
-        });
+        if (!data.policy.enforceDeclaredCapabilities) {
+            continue;
+        }
+
+        std::string requiredCapability;
+        {
+            std::lock_guard lock(g_handlersMutex);
+            const auto handler = g_handlers.find(hook.eventName);
+            if (handler != g_handlers.end()) {
+                requiredCapability = handler->second.requiredCapability;
+            }
+        }
+        if (requiredCapability.empty()) {
+            continue;
+        }
+        const PluginRegistryEntry* registry = FindRegistry(data, hook.pluginId);
+        const bool granted = registry != nullptr
+            && std::find(registry->capabilities.begin(), registry->capabilities.end(), requiredCapability)
+                != registry->capabilities.end();
+        const std::string denialKey = hook.pluginId + '\n' + requiredCapability;
+        if (!granted && capabilityDenialsReported.insert(denialKey).second) {
+            issues.push_back(PluginValidationIssue{
+                .message = "Plugin capability not granted: " + hook.pluginId + " requires "
+                    + requiredCapability + " for event " + hook.eventName,
+            });
+        }
     }
 }
 
@@ -264,17 +330,18 @@ std::size_t DispatchPluginHooks(PluginHookContext& context, const std::string_vi
         };
         if (registry != nullptr) {
             invocation.hookGroup = registry->hookGroup;
+            invocation.grantedCapabilities = registry->capabilities;
         }
         if (const PluginManifestEntry* manifest = FindManifest(data, hook.pluginId)) {
             invocation.category = manifest->category;
         }
 
-        PluginHookHandler handler;
+        PluginHookRegistration registration{};
         {
             std::lock_guard lock(g_handlersMutex);
             const auto handlerIt = g_handlers.find(hook.eventName);
             if (handlerIt != g_handlers.end()) {
-                handler = handlerIt->second;
+                registration = handlerIt->second;
             }
         }
         PluginHookResult result{
@@ -283,10 +350,22 @@ std::size_t DispatchPluginHooks(PluginHookContext& context, const std::string_vi
             .handled = false,
             .message = "No handler registered for event '" + hook.eventName + "'",
         };
-        if (handler) {
+        const bool capabilityGranted = registration.requiredCapability.empty()
+            || !data.policy.enforceDeclaredCapabilities
+            || std::find(invocation.grantedCapabilities.begin(),
+                         invocation.grantedCapabilities.end(),
+                         registration.requiredCapability) != invocation.grantedCapabilities.end();
+        if (registration.handler && !capabilityGranted) {
+            result.capabilityDenied = true;
+            result.requiredCapability = registration.requiredCapability;
+            result.message = "Capability denied: plugin '" + hook.pluginId + "' requires '"
+                + registration.requiredCapability + "' for event '" + hook.eventName + "'";
+            context.results.push_back(result);
+            context.capabilityDenials += 1U;
+        } else if (registration.handler) {
             const std::size_t resultsBefore = context.results.size();
             try {
-                const bool handled = handler(context, invocation);
+                const bool handled = registration.handler(context, invocation);
                 if (context.results.size() > resultsBefore) {
                     result = context.results.back();
                 } else {
@@ -384,8 +463,9 @@ std::size_t GamePluginRuntimeSession::TickRuntime(const double elapsedSeconds) {
 std::string DescribePluginModificationModel() {
     return
         "RawIron plugins are declarative project packages. Policy gates what may load; manifest + registry "
-        "declare inventory; load_order.cfg defines precedence; hooks.riplugin binds startup/runtime events. "
-        "At runtime DispatchPluginHooks executes event handlers that may tune scalars, bind authored CSV "
+        "declare inventory and capability grants; load_order.cfg defines precedence; hooks.riplugin binds "
+        "startup/runtime events. At runtime DispatchPluginHooks capability-checks and executes event handlers "
+        "that may tune scalars, bind authored CSV "
         "surfaces, and emit RuntimeEventBus topics — without recompiling the game executable.";
 }
 

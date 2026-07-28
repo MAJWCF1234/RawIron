@@ -5,7 +5,8 @@
       "enabled": true,
       "hookGroup": "runtime.telemetry",
       "description": "Forest Ruins runtime diagnostics telemetry.",
-      "author": "RawIron"
+      "author": "RawIron",
+      "capabilities": []
     }
   ]
 }

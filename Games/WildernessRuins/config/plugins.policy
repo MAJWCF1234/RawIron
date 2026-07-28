@@ -1,2 +1,3 @@
 # Required by RawIron game format v1.3.5.
 allow_unsigned_plugins = 0
+enforce_plugin_capabilities = 1

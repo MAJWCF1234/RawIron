@@ -2,6 +2,7 @@
 
 #include "RawIron/Core/Detail/JsonScan.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -80,6 +81,7 @@ int main() {
             "runtime,rawiron.telemetry-lite,frame_sample,35",
         },
         .manifestLine = "rawiron.telemetry-lite,1.0.0,telemetry,plugins/hooks.riplugin",
+        .extension = {.capabilities = {"telemetry.runtime", "diagnostics.overlay"}},
     };
 
     const ri::editor::PluginInstallResult install = ri::editor::InstallPluginStorePackage(root, package);
@@ -93,6 +95,16 @@ int main() {
         return EXIT_FAILURE;
     }
     if (!ContainsLine(hooksAfterInstall, "runtime,rawiron.telemetry-lite,frame_sample,35")) {
+        return EXIT_FAILURE;
+    }
+    const ri::content::PluginProjectData installedData = ri::content::LoadPluginProjectData(root);
+    const auto installedRegistry = std::find_if(
+        installedData.registryEntries.begin(),
+        installedData.registryEntries.end(),
+        [](const ri::content::PluginRegistryEntry& entry) { return entry.id == "rawiron.telemetry-lite"; });
+    if (installedRegistry == installedData.registryEntries.end()
+        || installedRegistry->capabilities.size() != 2U
+        || installedRegistry->capabilities.front() != "telemetry.runtime") {
         return EXIT_FAILURE;
     }
 

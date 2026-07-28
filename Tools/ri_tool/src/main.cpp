@@ -1658,6 +1658,12 @@ bool InspectProjectPlugins(const ProjectCommandContext& context, const bool doct
         if (manifest.blockedByPolicy) {
             ri::core::LogInfo("  policy=" + manifest.policyBlockReason);
         }
+        if (registry != data.registryEntries.end()) {
+            ri::core::LogInfo(
+                "  capabilities="
+                + (registry->capabilities.empty() ? std::string("<none>")
+                                                  : JoinStrings(registry->capabilities, ",")));
+        }
     }
     if (data.issues.empty()) {
         ri::core::LogInfo(std::string(doctorMode ? "Plugin doctor result: healthy" : "Plugin validation: pass"));
@@ -1672,10 +1678,13 @@ bool InspectProjectPlugins(const ProjectCommandContext& context, const bool doct
 }
 
 void PrintPluginHandlers() {
-    const std::vector<std::string> handlers = ri::content::RegisteredPluginHookHandlerNames();
+    const std::vector<ri::content::PluginHookHandlerInfo> handlers =
+        ri::content::RegisteredPluginHookHandlers();
     ri::core::LogInfo("Registered Raw Iron plugin hook handlers:");
-    for (const std::string& handler : handlers) {
-        ri::core::LogInfo("  " + handler);
+    for (const ri::content::PluginHookHandlerInfo& handler : handlers) {
+        ri::core::LogInfo(
+            "  " + handler.eventName + " capability="
+            + (handler.requiredCapability.empty() ? std::string("<none>") : handler.requiredCapability));
     }
     ri::core::LogInfo("Handler count: " + std::to_string(handlers.size()));
 }
@@ -1943,19 +1952,30 @@ void PrintPostProcessPresets() {
 
 void PrintVulkanDiagnostics() {
     const VulkanToolingDiagnostics tooling = CollectVulkanToolingDiagnostics();
+    std::string platformName = "Unknown";
+#if defined(_WIN32)
+    platformName = "Windows";
+#elif defined(__linux__)
+    platformName = "Linux";
+#elif defined(__APPLE__)
+    platformName = "macOS";
+#endif
+    ri::core::LogInfo("Vulkan platform: " + platformName);
+    ri::core::LogInfo("Vulkan SDK root: " + (tooling.sdkRoot.empty() ? std::string("<not set>") : tooling.sdkRoot));
+
     ri::render::vulkan::VulkanBootstrapSummary diagnostics{};
     try {
         diagnostics = ri::render::vulkan::RunBootstrap(ri::render::vulkan::VulkanBootstrapOptions{
             .windowTitle = "ri_tool Vulkan Diagnostics",
             .createSurface = false,
         });
-    } catch (const std::exception&) {
-        ri::core::LogInfo("Vulkan diagnostics unavailable. The platform Vulkan runtime could not be loaded.");
+    } catch (const std::exception& error) {
+        ri::core::LogInfo("Vulkan runtime status: unavailable");
+        ri::core::LogInfo("Vulkan runtime detail: " + std::string(error.what()));
         return;
     }
 
-    ri::core::LogInfo("Vulkan platform: " + diagnostics.platformName);
-    ri::core::LogInfo("Vulkan SDK root: " + (tooling.sdkRoot.empty() ? std::string("<not set>") : tooling.sdkRoot));
+    ri::core::LogInfo("Vulkan runtime status: ready");
     ri::core::LogInfo("Vulkan runtime library: " + diagnostics.loaderPath);
     ri::core::LogInfo("Vulkan instance API version: " +
                       (diagnostics.instanceApiVersion.empty() ? std::string("<unknown>") : diagnostics.instanceApiVersion));

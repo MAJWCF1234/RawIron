@@ -58,17 +58,20 @@ liminal.cinematics=30
     {
       "id": "liminal.telemetry",
       "enabled": true,
-      "hookGroup": "runtime.telemetry"
+      "hookGroup": "runtime.telemetry",
+      "capabilities": ["telemetry.runtime"]
     },
     {
       "id": "liminal.ai.bridge",
       "enabled": true,
-      "hookGroup": "runtime.ai"
+      "hookGroup": "runtime.ai",
+      "capabilities": ["gameplay.ai"]
     },
     {
       "id": "liminal.cinematics",
       "enabled": true,
-      "hookGroup": "runtime.cinematics"
+      "hookGroup": "runtime.cinematics",
+      "capabilities": ["gameplay.cinematics"]
     }
   ]
 }
@@ -93,6 +96,7 @@ runtime,liminal.cinematics,zone_cutscene_trigger,60
 ```text
 allow_runtime_plugin_overrides = 1
 allow_unsigned_plugins = 0
+enforce_plugin_capabilities = 1
 max_plugin_hook_chain = 16
 plugin_startup_timeout_ms = 250
 plugin_sandbox_level = 2
@@ -132,6 +136,8 @@ RawIron loads plugins as **declarative project data** — not native DLLs. The C
 | `BootstrapGamePlugins(gameRoot)` | One-shot load + startup hook dispatch for games and editor |
 | `PluginRuntimeEventSink` | Optional callback wired to `RuntimeEventBus` in games |
 | `DispatchPluginHooks(context, phase)` | Executes registered event handlers (`bootstrap`, `ambient_tick`, …) |
+| `RegisterPluginHookHandler(event, capability, handler)` | Registers a native handler behind an explicit capability grant |
+| `RegisteredPluginHookHandlers()` | Lists handlers and their required capabilities for tooling/editor catalogs |
 | `DescribePluginModificationModel()` | Human-readable summary of the mod pipeline |
 
 Plugin manifest and registry IDs must be unique. Ambiguous duplicate IDs are reported and excluded from the active
@@ -150,6 +156,20 @@ result reports the elapsed time and skipped count. Sandbox levels add progressiv
 
 When `allow_runtime_plugin_overrides` is disabled, authored values from `scripts/plugins.riscript` win over
 same-named runtime scalar overrides. Runtime-only keys produced by handlers still persist between dispatches.
+
+When `enforce_plugin_capabilities` is enabled, a hook is rejected before its handler runs unless the plugin's
+`registry.json` entry grants the handler's required capability. Denials are reported through
+`PluginHookResult::capabilityDenied`, counted in `PluginHookContext::capabilityDenials`, and forwarded to runtime
+event sinks. The built-in protected surfaces are:
+
+- `telemetry.runtime` — frame sampling
+- `audio.runtime` — audio-zone binding and ambient audio ticks
+- `ui.overlay` — quest-marker overlay refresh
+- `gameplay.ai` — AI policy binding and mode updates
+- `gameplay.cinematics` — timeline registration and cutscene triggers
+
+The `bootstrap` lifecycle hook has no capability requirement. Legacy projects retain their previous behavior until
+they enable capability enforcement; newly scaffolded and bundled projects enable it by default.
 
 Hook handlers live in `Source/RawIron.Content/src/PluginRuntime.cpp`. Games use `Games/Common/GamePluginRuntimeBridge` for bootstrap, throttled ticks, render tuning, and optional `RuntimeEventBus` fan-out.
 

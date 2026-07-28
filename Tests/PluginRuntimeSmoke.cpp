@@ -102,6 +102,43 @@ int main() {
     }
 
     ri::content::ClearPluginHookHandlers();
+    bool capabilityHandlerCalled = false;
+    ri::content::RegisterPluginHookHandler(
+        "capability_test",
+        "test.secure",
+        [&capabilityHandlerCalled](ri::content::PluginHookContext&,
+                                   const ri::content::PluginHookInvocation&) {
+            capabilityHandlerCalled = true;
+            return true;
+        });
+    ri::content::PluginProjectData capabilityData{};
+    capabilityData.policy.enforceDeclaredCapabilities = true;
+    capabilityData.registryEntries.push_back(
+        ri::content::PluginRegistryEntry{.id = "capability.test", .enabled = true});
+    capabilityData.activePlugins.push_back(ri::content::ActivePlugin{
+        .manifest = {.id = "capability.test", .category = "test"},
+        .registry = {.id = "capability.test", .enabled = true},
+        .hooks = {
+            {.hookPhase = "secure", .pluginId = "capability.test", .eventName = "capability_test", .priority = 0},
+        },
+    });
+    ri::content::PluginHookContext deniedContext{.projectData = &capabilityData};
+    const std::size_t deniedExecuted = ri::content::DispatchPluginHooks(deniedContext, "secure");
+    if (deniedExecuted != 1U || capabilityHandlerCalled || deniedContext.capabilityDenials != 1U
+        || deniedContext.results.size() != 1U || !deniedContext.results.front().capabilityDenied
+        || deniedContext.results.front().requiredCapability != "test.secure") {
+        return EXIT_FAILURE;
+    }
+
+    capabilityData.registryEntries.front().capabilities.push_back("test.secure");
+    ri::content::PluginHookContext grantedContext{.projectData = &capabilityData};
+    const std::size_t grantedExecuted = ri::content::DispatchPluginHooks(grantedContext, "secure");
+    if (grantedExecuted != 1U || !capabilityHandlerCalled || grantedContext.capabilityDenials != 0U
+        || grantedContext.results.size() != 1U || !grantedContext.results.front().handled) {
+        return EXIT_FAILURE;
+    }
+
+    ri::content::ClearPluginHookHandlers();
     std::atomic<bool> registrationFailed = false;
     std::vector<std::thread> workers;
     for (int index = 0; index < 8; ++index) {

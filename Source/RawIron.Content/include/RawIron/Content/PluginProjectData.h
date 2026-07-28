@@ -48,6 +48,8 @@ struct PluginRegistryEntry {
     std::string hookGroup;
     std::string description;
     std::string author;
+    /// Explicit engine surfaces granted to this plugin (for example `audio.runtime`).
+    std::vector<std::string> capabilities;
 };
 
 /// Hook binding from `plugins/hooks.riplugin`.
@@ -64,6 +66,8 @@ struct PluginPolicy {
     bool allowUnsignedPlugins = false;
     bool allowModPlugins = true;
     bool allowProjectPlugins = true;
+    /// When enabled, hooks may only call handlers whose required capability is granted in registry.json.
+    bool enforceDeclaredCapabilities = false;
     int maxHookChain = 16;
     int startupTimeoutMs = 250;
     int sandboxLevel = 2;

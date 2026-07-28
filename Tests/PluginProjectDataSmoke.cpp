@@ -1,5 +1,6 @@
 #include "RawIron/Content/PluginProjectData.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -24,9 +25,11 @@ bool Expect(bool condition) {
 int main() {
     const fs::path root = fs::temp_directory_path() / "rawiron_plugin_project_data_smoke";
     const fs::path duplicateRoot = fs::temp_directory_path() / "rawiron_plugin_project_duplicate_smoke";
+    const fs::path capabilityRoot = fs::temp_directory_path() / "rawiron_plugin_project_capability_smoke";
     std::error_code ec{};
     fs::remove_all(root, ec);
     fs::remove_all(duplicateRoot, ec);
+    fs::remove_all(capabilityRoot, ec);
 
     WriteTextFile(root / "plugins" / "manifest.plugins",
                   "legacy.telemetry,1.0,telemetry,plugins/hooks.riplugin\n"
@@ -150,7 +153,42 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    WriteTextFile(capabilityRoot / "plugins" / "manifest.plugins",
+                  "capability.test,1.0,telemetry,plugins/hooks.riplugin\n");
+    WriteTextFile(capabilityRoot / "plugins" / "load_order.cfg", "capability.test=10\n");
+    WriteTextFile(capabilityRoot / "plugins" / "registry.json",
+                  "{\"plugins\":[{\"id\":\"capability.test\",\"enabled\":true,\"capabilities\":[]}]}\n");
+    WriteTextFile(capabilityRoot / "plugins" / "hooks.riplugin",
+                  "runtime,capability.test,frame_sample,10\n");
+    WriteTextFile(capabilityRoot / "config" / "plugins.policy",
+                  "allow_project_plugins=1\n"
+                  "enforce_plugin_capabilities=1\n");
+    const ri::content::PluginProjectData deniedCapabilityData =
+        ri::content::LoadPluginProjectData(capabilityRoot);
+    const bool sawCapabilityIssue = std::any_of(
+        deniedCapabilityData.issues.begin(),
+        deniedCapabilityData.issues.end(),
+        [](const ri::content::PluginValidationIssue& issue) {
+            return issue.message.find(
+                       "Plugin capability not granted: capability.test requires telemetry.runtime")
+                != std::string::npos;
+        });
+    if (!sawCapabilityIssue) {
+        return EXIT_FAILURE;
+    }
+
+    WriteTextFile(capabilityRoot / "plugins" / "registry.json",
+                  "{\"plugins\":[{\"id\":\"capability.test\",\"enabled\":true,"
+                  "\"capabilities\":[\"telemetry.runtime\"]}]}\n");
+    const ri::content::PluginProjectData grantedCapabilityData =
+        ri::content::LoadPluginProjectData(capabilityRoot);
+    if (!grantedCapabilityData.ok() || grantedCapabilityData.activePlugins.size() != 1U
+        || grantedCapabilityData.registryEntries.front().capabilities.size() != 1U) {
+        return EXIT_FAILURE;
+    }
+
     fs::remove_all(root, ec);
     fs::remove_all(duplicateRoot, ec);
+    fs::remove_all(capabilityRoot, ec);
     return EXIT_SUCCESS;
 }

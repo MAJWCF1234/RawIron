@@ -96,7 +96,8 @@ jobs:
         shell: pwsh
         run: |
           cmake --build build/dev-msvc-sanitized --config RelWithDebInfo --parallel `
-            --target CommandLineSmoke CoreUtilitiesSafetySmoke FixedStepAccumulatorSmoke FrameArenaSmoke SceneSnapshotStorageSmoke
+            --target CommandLineSmoke CoreUtilitiesSafetySmoke FixedStepAccumulatorSmoke FrameArenaSmoke `
+              SceneSnapshotStorageSmoke PluginProjectDataSmoke PluginRuntimeSmoke
 
       - name: Stage AddressSanitizer runtime
         shell: pwsh
@@ -111,4 +112,4 @@ jobs:
         shell: pwsh
         run: |
           ctest --test-dir build/dev-msvc-sanitized -C RelWithDebInfo --output-on-failure --timeout 180 `
-            -R "RawIron\.Core\.(CommandLineSmoke|UtilitiesSafetySmoke|FixedStepAccumulatorSmoke|FrameArenaSmoke|SceneSnapshotStorageSmoke)"
+            -R "RawIron\.(Core\.(CommandLineSmoke|UtilitiesSafetySmoke|FixedStepAccumulatorSmoke|FrameArenaSmoke|SceneSnapshotStorageSmoke)|Content\.(PluginProjectDataSmoke|PluginRuntimeSmoke))"

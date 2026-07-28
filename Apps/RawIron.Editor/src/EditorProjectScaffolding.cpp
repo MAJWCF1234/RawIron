@@ -29,7 +29,11 @@ struct ScaffoldTemplateFile {
         {"config/input.map", "# RawIron input map\nmove_forward=W\nmove_back=S\nmove_left=A\nmove_right=D\njump=Space\nsprint=Shift\n"},
         {"config/network.cfg", "# RawIron network config\nnet_mode=listen\nmax_peers=16\nserver_tick=60\n"},
         {"config/build.profile", "# RawIron build profile\ncontent_profile=dev\nrender_profile=balanced\n"},
-        {"config/plugins.policy", "# RawIron plugin policy\nallow_mod_plugins=1\nallow_project_plugins=1\n"},
+        {"config/plugins.policy",
+         "# RawIron plugin policy\n"
+         "allow_mod_plugins=1\n"
+         "allow_project_plugins=1\n"
+         "enforce_plugin_capabilities=1\n"},
         {"config/security.policy", "# RawIron security policy\nallow_local_scripts=1\nallow_network_bootstrap=1\n"},
         {"levels/assembly.primitives.csv",
          "name,primitive,parent,px,py,pz,rx,ry,rz,sx,sy,sz,material,texture,tx,ty,r,g,b,a\n"

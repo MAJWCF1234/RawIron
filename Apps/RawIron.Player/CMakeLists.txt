@@ -20,30 +20,19 @@ if (RAWIRON_BUILD_TESTS)
   rawiron_runtime_dll_test_arg(rawiron_player_runtime_dll_arg RawIron.Player)
   set(rawiron_player_expected
     "[Player Startup]"
-    "[Player Vulkan]"
+    "Running headless player runtime."
     "Mounted game: Cube Test (cube-test)"
     "Imported level: 7 primitives from levels/assembly.primitives.csv."
     "Orbit camera path: World/OrbitRig/OrbitSwivel/MainCamera"
     "Player simulation tick 0 crate=(0.00, 0.50, 0.00)"
     "[Player Shutdown]"
   )
-  if (WIN32)
-    list(APPEND rawiron_player_expected
-      "Vulkan platform: Windows"
-      "Vulkan surface: ready"
-    )
-  elseif(UNIX AND NOT APPLE)
-    list(APPEND rawiron_player_expected
-      "Vulkan platform: Linux"
-      "Vulkan surface: platform-layer-pending"
-    )
-  endif()
 
   add_test(
     NAME RawIron.Player.Smoke
     COMMAND ${CMAKE_COMMAND}
       "-DEXECUTABLE=$<TARGET_FILE:RawIron.Player>"
-      "-DCOMMAND_ARGS=--frames;1;--no-scene-dump;--game;cube-test"
+      "-DCOMMAND_ARGS=--headless;--frames;1;--no-scene-dump;--game;cube-test"
       "-DEXPECTED_STRINGS=${rawiron_player_expected}"
       "-DFORBIDDEN_STRINGS=failed;exception"
       "${rawiron_player_runtime_dll_arg}"

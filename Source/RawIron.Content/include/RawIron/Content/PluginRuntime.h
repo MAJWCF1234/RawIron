@@ -17,12 +17,15 @@ struct PluginHookInvocation {
     int priority = 0;
     std::string hookGroup;
     std::string category;
+    std::vector<std::string> grantedCapabilities;
 };
 
 struct PluginHookResult {
     std::string pluginId;
     std::string eventName;
     bool handled = false;
+    bool capabilityDenied = false;
+    std::string requiredCapability;
     std::string message;
 };
 
@@ -33,6 +36,8 @@ struct PluginRuntimeEvent {
     std::string eventName;
     std::string hookPhase;
     bool handled = false;
+    bool capabilityDenied = false;
+    std::string requiredCapability;
     std::string message;
 };
 
@@ -49,6 +54,8 @@ struct PluginHookContext {
     PluginRuntimeEventSink eventSink;
     /// Counts event-sink callback failures isolated by the runtime boundary.
     std::size_t eventSinkFailures = 0;
+    /// Hooks rejected before handler execution because their registry grant was missing.
+    std::size_t capabilityDenials = 0;
     /// Cooperative phase-budget diagnostics. A running native handler is never forcefully terminated;
     /// once the startup budget is exhausted, remaining hooks are skipped.
     bool hookBudgetExceeded = false;
@@ -68,16 +75,28 @@ struct GamePluginBootstrap {
 
 using PluginHookHandler = std::function<bool(PluginHookContext&, const PluginHookInvocation&)>;
 
+struct PluginHookHandlerInfo {
+    std::string eventName;
+    std::string requiredCapability;
+};
+
 /// Registers built-in handlers for documented event names (bootstrap, frame_sample, …).
 void RegisterBuiltinPluginHookHandlers();
 
 void RegisterPluginHookHandler(std::string_view eventName, PluginHookHandler handler);
+
+/// Registers a handler that may only execute for plugins granted `requiredCapability`.
+void RegisterPluginHookHandler(std::string_view eventName,
+                               std::string_view requiredCapability,
+                               PluginHookHandler handler);
 
 void ClearPluginHookHandlers();
 
 [[nodiscard]] bool IsPluginHookHandlerRegistered(std::string_view eventName);
 
 [[nodiscard]] std::vector<std::string> RegisteredPluginHookHandlerNames();
+
+[[nodiscard]] std::vector<PluginHookHandlerInfo> RegisteredPluginHookHandlers();
 
 /// Appends validation issues for hook bindings whose event names have no registered handler.
 void AppendPluginHookHandlerIssues(const PluginProjectData& data, std::vector<PluginValidationIssue>& issues);

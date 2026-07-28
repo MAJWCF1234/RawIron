@@ -232,6 +232,7 @@ void LoadRegistryJson(const fs::path& path, std::vector<PluginRegistryEntry>& ou
         if (const std::optional<std::string> author = ri::core::detail::ExtractJsonString(objectText, "author")) {
             entry.author = *author;
         }
+        entry.capabilities = ri::core::detail::ExtractJsonStringArray(objectText, "capabilities");
         out.push_back(std::move(entry));
     }
 }
@@ -243,6 +244,8 @@ PluginPolicy LoadPluginPolicy(const fs::path& path) {
     policy.allowUnsignedPlugins = ScriptScalarOrBool(scalars, "allow_unsigned_plugins", false);
     policy.allowModPlugins = ScriptScalarOrBool(scalars, "allow_mod_plugins", true);
     policy.allowProjectPlugins = ScriptScalarOrBool(scalars, "allow_project_plugins", true);
+    policy.enforceDeclaredCapabilities =
+        ScriptScalarOrBool(scalars, "enforce_plugin_capabilities", false);
     policy.maxHookChain = ScriptScalarOrIntClamped(scalars, "max_plugin_hook_chain", 16, 1, 128);
     policy.startupTimeoutMs = ScriptScalarOrIntClamped(scalars, "plugin_startup_timeout_ms", 250, 16, 10000);
     policy.sandboxLevel = ScriptScalarOrIntClamped(scalars, "plugin_sandbox_level", 2, 0, 4);
@@ -259,6 +262,18 @@ void ValidatePluginProjectDataInternal(PluginProjectData& data) {
             AppendUniqueIssue(data.issues, "Duplicate registry plugin id: " + entry.id);
         }
         registryById[entry.id] = entry;
+        std::vector<std::string> capabilities = entry.capabilities;
+        std::sort(capabilities.begin(), capabilities.end());
+        for (std::size_t index = 0; index < capabilities.size(); ++index) {
+            if (capabilities[index].empty()) {
+                AppendUniqueIssue(data.issues, "Registry plugin has an empty capability: " + entry.id);
+            }
+            if (index > 0U && capabilities[index] == capabilities[index - 1U]) {
+                AppendUniqueIssue(data.issues,
+                                  "Registry plugin has a duplicate capability: " + entry.id
+                                      + " (" + capabilities[index] + ")");
+            }
+        }
     }
 
     std::map<std::string, PluginManifestEntry, std::less<>> manifestById{};

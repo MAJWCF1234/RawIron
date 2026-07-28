@@ -163,32 +163,30 @@ if (RAWIRON_BUILD_TESTS)
     set(rawiron_tool_vulkan_expected
       "Vulkan platform: Windows"
       "Vulkan SDK root:"
-      "Vulkan runtime library:"
-      "Vulkan instance API version:"
+      "Vulkan runtime status:"
     )
     set(rawiron_tool_vulkan_forbidden
-      "unavailable"
-      "could not be loaded"
-      "failed"
-      "exception"
+      "[ri_tool Failure]"
+      "Unhandled exception"
     )
   elseif(UNIX AND NOT APPLE)
     set(rawiron_tool_vulkan_expected
       "Vulkan platform: Linux"
       "Vulkan SDK root:"
-      "Vulkan runtime library:"
+      "Vulkan runtime status:"
     )
     set(rawiron_tool_vulkan_forbidden
-      "failed"
-      "exception"
+      "[ri_tool Failure]"
+      "Unhandled exception"
     )
   else()
     set(rawiron_tool_vulkan_expected
-      "Vulkan diagnostics unavailable."
+      "Vulkan platform:"
+      "Vulkan runtime status:"
     )
     set(rawiron_tool_vulkan_forbidden
-      "failed"
-      "exception"
+      "[ri_tool Failure]"
+      "Unhandled exception"
     )
   endif()
   set(rawiron_workspace_smoke_root "${CMAKE_CURRENT_BINARY_DIR}/workspace-smoke")

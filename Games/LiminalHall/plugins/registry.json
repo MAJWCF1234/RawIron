@@ -3,17 +3,20 @@
     {
       "id": "liminal.telemetry",
       "enabled": true,
-      "hookGroup": "runtime.telemetry"
+      "hookGroup": "runtime.telemetry",
+      "capabilities": ["telemetry.runtime"]
     },
     {
       "id": "liminal.ai.bridge",
       "enabled": true,
-      "hookGroup": "runtime.ai"
+      "hookGroup": "runtime.ai",
+      "capabilities": ["gameplay.ai"]
     },
     {
       "id": "liminal.cinematics",
       "enabled": true,
-      "hookGroup": "runtime.cinematics"
+      "hookGroup": "runtime.cinematics",
+      "capabilities": ["gameplay.cinematics"]
     }
   ]
 }

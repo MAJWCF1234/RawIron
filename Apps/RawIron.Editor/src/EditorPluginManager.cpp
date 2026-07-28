@@ -43,6 +43,18 @@ std::vector<std::string> SplitCsvColumns(std::string_view line) {
     return columns;
 }
 
+std::string SerializeJsonStringArray(const std::vector<std::string>& values) {
+    std::string json = "[";
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index > 0U) {
+            json += ", ";
+        }
+        json += "\"" + ri::core::detail::EscapeJsonString(values[index]) + "\"";
+    }
+    json += "]";
+    return json;
+}
+
 AppendLineResult AppendLineIfMissing(const fs::path& path, const std::string& line) {
     std::ifstream input(path);
     if (input.is_open()) {
@@ -377,7 +389,8 @@ PluginInstallResult InstallPluginStorePackage(const fs::path& gameRoot, const Pl
         "      \"enabled\": true,\n"
         "      \"hookGroup\": \"" + ri::core::detail::EscapeJsonString(package.hookGroup) + "\",\n"
         "      \"description\": \"" + ri::core::detail::EscapeJsonString(package.description) + "\",\n"
-        "      \"author\": \"" + ri::core::detail::EscapeJsonString(package.author) + "\"\n"
+        "      \"author\": \"" + ri::core::detail::EscapeJsonString(package.author) + "\",\n"
+        "      \"capabilities\": " + SerializeJsonStringArray(package.extension.capabilities) + "\n"
         "    }";
     const std::size_t insertPos = registryText.rfind(']');
     if (insertPos == std::string::npos) {

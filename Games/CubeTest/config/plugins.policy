@@ -1,3 +1,4 @@
 # RawIron plugin policy
 allow_mod_plugins=1
 allow_project_plugins=1
+enforce_plugin_capabilities=1
