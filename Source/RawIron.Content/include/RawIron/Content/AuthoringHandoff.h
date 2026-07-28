@@ -9,6 +9,7 @@ namespace ri::content {
 
 enum class AuthoringAssetKind {
     ModelSource,
+    PrimitiveModel,
     Rig,
     Unknown,
 };

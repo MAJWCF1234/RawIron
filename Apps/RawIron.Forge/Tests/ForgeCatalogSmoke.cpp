@@ -66,15 +66,43 @@ int main() {
         return 6;
     }
 
-    const ri::forge::AssetCatalog finalCatalog = ri::forge::ScanAssetCatalog(root);
-    if (finalCatalog.modelCount != 2U || finalCatalog.rigCount != 4U || finalCatalog.invalidRigCount != 1U) {
+    const fs::path primitiveModel = ri::forge::CreateUniquePrimitiveModel(root, &createError);
+    std::string groupId;
+    std::string partId;
+    if (primitiveModel.empty() || !createError.empty()
+        || !ri::forge::AppendGroupToModel(
+            primitiveModel, "Arm", "root", {}, &groupId, &createError)
+        || !ri::forge::AppendPrimitiveToModel(
+            primitiveModel, "capsule", groupId, &partId, &createError)
+        || groupId.empty() || partId.empty() || !createError.empty()) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    if (ri::forge::AppendPrimitiveToModel(
+            primitiveModel, "missing_preset", "root", nullptr, &createError)
+        || createError.empty()) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    const ri::forge::PrimitiveModelBakeSummary bake =
+        ri::forge::BakePrimitiveModelAsset(primitiveModel);
+    if (!bake.valid || !fs::is_regular_file(bake.outputPath)
+        || bake.inputPartCount != 2U || bake.outputTriangleCount == 0U) {
         fs::remove_all(root, error);
         return 7;
     }
 
+    const ri::forge::AssetCatalog finalCatalog = ri::forge::ScanAssetCatalog(root);
+    if (finalCatalog.modelCount != 3U || finalCatalog.primitiveModelCount != 1U
+        || finalCatalog.rigCount != 4U || finalCatalog.invalidRigCount != 1U
+        || finalCatalog.invalidPrimitiveModelCount != 0U) {
+        fs::remove_all(root, error);
+        return 8;
+    }
+
     fs::remove_all(root, error);
     if (error) {
-        return 8;
+        return 9;
     }
     std::cout << "Raw Iron Forge catalog smoke passed.\n";
     return 0;

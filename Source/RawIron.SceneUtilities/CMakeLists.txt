@@ -37,6 +37,7 @@ add_library(RawIron.SceneUtilities
   src/StructuralPrimitiveBundle.cpp
   src/StructuralPrimitivePresets.cpp
   src/PrimitivesCsvIO.cpp
+  src/PrimitiveModelBake.cpp
   src/Raycast.cpp
   src/RigAuthoring.cpp
   src/RuntimeMeshFactory.cpp
@@ -69,6 +70,7 @@ target_include_directories(RawIron.SceneUtilities
 target_link_libraries(RawIron.SceneUtilities
   PUBLIC
     RawIron::Core
+    RawIron::Content
     RawIron::Structural
     RawIron::Trace
   PRIVATE
@@ -114,4 +116,8 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(SceneEntityPhysicsSmoke ${CMAKE_SOURCE_DIR}/Tests/SceneEntityPhysicsSmoke.cpp)
   target_link_libraries(SceneEntityPhysicsSmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.SceneEntityPhysicsSmoke COMMAND SceneEntityPhysicsSmoke)
+
+  add_executable(PrimitiveModelBakeSmoke ${CMAKE_SOURCE_DIR}/Tests/PrimitiveModelBakeSmoke.cpp)
+  target_link_libraries(PrimitiveModelBakeSmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.PrimitiveModelBakeSmoke COMMAND PrimitiveModelBakeSmoke)
 endif()

@@ -1,4 +1,5 @@
 #include "RawIron/Content/AuthoringHandoff.h"
+#include "RawIron/Content/PrimitiveModelDocument.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -21,6 +22,30 @@ int main() {
     if (!valid.valid || valid.assetKind != ri::content::AuthoringAssetKind::ModelSource
         || valid.workspaceRelativePath.generic_string() != "Assets/Source/models/crate.obj"
         || valid.editorArguments.size() != 7U || valid.editorArguments[3] != "--open-asset") {
+        fs::remove_all(root, error);
+        return EXIT_FAILURE;
+    }
+
+    ri::content::PrimitiveModelDocument primitive =
+        ri::content::CreatePrimitiveModelDocument("crate_native", "Native Crate");
+    if (ri::content::AddPrimitiveModelPart(primitive, "rounded_box", "root", "Body").empty()) {
+        fs::remove_all(root, error);
+        return EXIT_FAILURE;
+    }
+    const fs::path primitivePath =
+        root / "Assets" / "Source" / "models" / "crate_native.ri_model.json";
+    if (!ri::content::SavePrimitiveModelDocument(primitivePath, primitive)) {
+        fs::remove_all(root, error);
+        return EXIT_FAILURE;
+    }
+    const ri::content::AuthoringHandoffReport primitiveHandoff =
+        ri::content::BuildAuthoringHandoff({
+            .workspaceRoot = root,
+            .assetPath = primitivePath,
+        });
+    if (!primitiveHandoff.valid
+        || primitiveHandoff.assetKind != ri::content::AuthoringAssetKind::PrimitiveModel
+        || ri::content::ToString(primitiveHandoff.assetKind) != "primitive-model") {
         fs::remove_all(root, error);
         return EXIT_FAILURE;
     }

@@ -11,6 +11,7 @@ add_library(RawIron.Content
   src/PluginHookBindingParser.cpp
   src/PluginProjectData.cpp
   src/PluginRuntime.cpp
+  src/PrimitiveModelDocument.cpp
   src/PrefabExpansion.cpp
   src/ScriptScalars.cpp
   src/ShaderAsset.cpp
@@ -59,6 +60,10 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(AuthoringHandoffSmoke ${CMAKE_SOURCE_DIR}/Tests/AuthoringHandoffSmoke.cpp)
   target_link_libraries(AuthoringHandoffSmoke PRIVATE RawIron::Content)
   add_test(NAME RawIron.Content.AuthoringHandoffSmoke COMMAND AuthoringHandoffSmoke)
+
+  add_executable(PrimitiveModelDocumentSmoke ${CMAKE_SOURCE_DIR}/Tests/PrimitiveModelDocumentSmoke.cpp)
+  target_link_libraries(PrimitiveModelDocumentSmoke PRIVATE RawIron::Content)
+  add_test(NAME RawIron.Content.PrimitiveModelDocumentSmoke COMMAND PrimitiveModelDocumentSmoke)
 
   add_executable(PluginRuntimeSmoke ${CMAKE_SOURCE_DIR}/Tests/PluginRuntimeSmoke.cpp)
   target_link_libraries(PluginRuntimeSmoke PRIVATE RawIron::Content)

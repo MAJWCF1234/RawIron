@@ -1,8 +1,11 @@
 #include "ForgeCatalog.h"
 
+#include "RawIron/Content/PrimitiveModelDocument.h"
+#include "RawIron/Scene/PrimitiveModelBake.h"
 #include "RawIron/Scene/RigAuthoring.h"
 #include "RawIron/Scene/ModelLoader.h"
 #include "RawIron/Scene/Scene.h"
+#include "RawIron/Scene/StructuralPrimitivePresets.h"
 
 #include <algorithm>
 #include <cctype>
@@ -69,6 +72,43 @@ AssetEntry InspectRig(const fs::path& absolutePath, std::string relativePath) {
     return entry;
 }
 
+AssetEntry InspectPrimitiveModel(const fs::path& absolutePath, std::string relativePath) {
+    AssetEntry entry{
+        .absolutePath = absolutePath,
+        .relativePath = std::move(relativePath),
+        .kind = AssetKind::PrimitiveModel,
+        .valid = false,
+        .summary = "Primitive model could not be parsed.",
+    };
+    const auto model = ri::content::LoadPrimitiveModelDocument(absolutePath);
+    if (!model.has_value()) {
+        return entry;
+    }
+    const ri::content::PrimitiveModelValidationReport report =
+        ri::content::ValidatePrimitiveModelDocument(*model);
+    entry.valid = report.valid;
+    entry.summary = model->displayName + " | " + std::to_string(model->groups.size()) + " groups | "
+        + std::to_string(model->parts.size()) + " parts | "
+        + std::to_string(report.enabledPartCount) + " enabled";
+    if (!model->rigPath.empty()) {
+        entry.summary += " | rig " + model->rigPath;
+    }
+    entry.summary += report.valid ? " | valid" : " | invalid";
+    if (!report.errors.empty()) {
+        entry.summary += " | " + report.errors.front();
+    } else if (!report.warnings.empty()) {
+        entry.summary += " | " + report.warnings.front();
+    }
+    for (const auto& part : model->parts) {
+        if (!ri::scene::FindStructuralPreset(part.primitivePreset).has_value()) {
+            entry.valid = false;
+            entry.summary += " | unknown primitive " + part.primitivePreset;
+            break;
+        }
+    }
+    return entry;
+}
+
 } // namespace
 
 bool IsModelSourcePath(const fs::path& path) {
@@ -79,6 +119,10 @@ bool IsModelSourcePath(const fs::path& path) {
 
 bool IsRigPath(const fs::path& path) {
     return LowerAscii(path.filename().string()).ends_with(".ri_rig.json");
+}
+
+bool IsPrimitiveModelPath(const fs::path& path) {
+    return LowerAscii(path.filename().string()).ends_with(".ri_model.json");
 }
 
 AssetCatalog ScanAssetCatalog(const fs::path& workspaceRoot) {
@@ -112,7 +156,14 @@ AssetCatalog ScanAssetCatalog(const fs::path& workspaceRoot) {
                 relativePath = absolutePath.filename();
             }
 
-            if (IsRigPath(absolutePath)) {
+            if (IsPrimitiveModelPath(absolutePath)) {
+                AssetEntry entry = InspectPrimitiveModel(absolutePath, relativePath.generic_string());
+                ++catalog.primitiveModelCount;
+                if (!entry.valid) {
+                    ++catalog.invalidPrimitiveModelCount;
+                }
+                catalog.entries.push_back(std::move(entry));
+            } else if (IsRigPath(absolutePath)) {
                 AssetEntry entry = InspectRig(absolutePath, relativePath.generic_string());
                 ++catalog.rigCount;
                 if (!entry.valid) {
@@ -135,7 +186,7 @@ AssetCatalog ScanAssetCatalog(const fs::path& workspaceRoot) {
 
     std::sort(catalog.entries.begin(), catalog.entries.end(), [](const AssetEntry& left, const AssetEntry& right) {
         if (left.kind != right.kind) {
-            return left.kind == AssetKind::Rig;
+            return static_cast<int>(left.kind) > static_cast<int>(right.kind);
         }
         return LowerAscii(left.relativePath) < LowerAscii(right.relativePath);
     });
@@ -190,6 +241,164 @@ fs::path CreateUniqueHumanoidRig(const fs::path& workspaceRoot, std::string* err
         return {};
     }
     return output;
+}
+
+fs::path CreateUniquePrimitiveModel(const fs::path& workspaceRoot, std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    const fs::path modelFolder = workspaceRoot / "Assets" / "Source" / "models";
+    std::error_code folderError{};
+    fs::create_directories(modelFolder, folderError);
+    if (folderError) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not create the model source folder: " + folderError.message();
+        }
+        return {};
+    }
+    fs::path output = modelFolder / "primitive_model.ri_model.json";
+    std::string id = "primitive_model";
+    for (int suffix = 2; fs::exists(output) && suffix < 10000; ++suffix) {
+        id = "primitive_model_" + std::to_string(suffix);
+        output = modelFolder / (id + ".ri_model.json");
+    }
+    if (fs::exists(output)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not choose an unused primitive model filename.";
+        }
+        return {};
+    }
+    ri::content::PrimitiveModelDocument document =
+        ri::content::CreatePrimitiveModelDocument(id, "Primitive Model");
+    (void)ri::content::AddPrimitiveModelPart(document, "rounded_box", "root", "Body");
+    if (!ri::content::SavePrimitiveModelDocument(output, document)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not save a valid primitive model document.";
+        }
+        return {};
+    }
+    return output;
+}
+
+bool AppendPrimitiveToModel(const fs::path& modelPath,
+                            const std::string_view primitivePreset,
+                            const std::string_view groupId,
+                            std::string* insertedPartId,
+                            std::string* errorMessage) {
+    if (insertedPartId != nullptr) {
+        insertedPartId->clear();
+    }
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    if (!ri::scene::FindStructuralPreset(primitivePreset).has_value()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Unknown Raw Iron primitive preset: " + std::string(primitivePreset);
+        }
+        return false;
+    }
+    auto document = ri::content::LoadPrimitiveModelDocument(modelPath);
+    if (!document.has_value()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not load primitive model: " + modelPath.string();
+        }
+        return false;
+    }
+    const std::string id = ri::content::AddPrimitiveModelPart(
+        *document,
+        std::string(primitivePreset),
+        std::string(groupId),
+        std::string(primitivePreset));
+    if (id.empty() || !ri::content::SavePrimitiveModelDocument(modelPath, *document)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not append primitive to model.";
+        }
+        return false;
+    }
+    if (insertedPartId != nullptr) {
+        *insertedPartId = id;
+    }
+    return true;
+}
+
+bool AppendGroupToModel(const fs::path& modelPath,
+                        const std::string_view name,
+                        const std::string_view parentId,
+                        const std::string_view boneName,
+                        std::string* insertedGroupId,
+                        std::string* errorMessage) {
+    if (insertedGroupId != nullptr) {
+        insertedGroupId->clear();
+    }
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    auto document = ri::content::LoadPrimitiveModelDocument(modelPath);
+    if (!document.has_value()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not load primitive model: " + modelPath.string();
+        }
+        return false;
+    }
+    const std::string id = ri::content::AddPrimitiveModelGroup(
+        *document,
+        std::string(name),
+        std::string(parentId),
+        std::string(boneName));
+    if (id.empty() || !ri::content::SavePrimitiveModelDocument(modelPath, *document)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not append group to primitive model.";
+        }
+        return false;
+    }
+    if (insertedGroupId != nullptr) {
+        *insertedGroupId = id;
+    }
+    return true;
+}
+
+PrimitiveModelBakeSummary BakePrimitiveModelAsset(const fs::path& modelPath,
+                                                  const fs::path& requestedOutputPath) {
+    PrimitiveModelBakeSummary summary{};
+    const auto document = ri::content::LoadPrimitiveModelDocument(modelPath);
+    if (!document.has_value()) {
+        summary.summary = "Could not load primitive model: " + modelPath.string();
+        return summary;
+    }
+    const ri::scene::PrimitiveModelBakeResult bake =
+        ri::scene::BakePrimitiveModel(*document, modelPath.parent_path());
+    summary.inputPartCount = bake.inputPartCount;
+    summary.inputTriangleCount = bake.inputTriangleCount;
+    summary.outputTriangleCount = bake.outputTriangleCount;
+    summary.culledTriangleCount =
+        bake.culledInternalTriangleCount + bake.culledDuplicateTriangleCount;
+    summary.boneBoundVertexCount = static_cast<std::size_t>(std::count_if(
+        bake.vertexBoneNames.begin(),
+        bake.vertexBoneNames.end(),
+        [](const std::string& bone) { return !bone.empty(); }));
+    if (!bake.valid) {
+        summary.summary = bake.errors.empty() ? "Primitive model bake produced no geometry."
+                                              : bake.errors.front();
+        return summary;
+    }
+    summary.outputPath = requestedOutputPath.empty()
+        ? fs::path(modelPath.string().substr(0, modelPath.string().size() - std::string(".ri_model.json").size())
+                   + ".baked.obj")
+        : requestedOutputPath;
+    summary.valid = ri::scene::SavePrimitiveModelBakeObj(summary.outputPath, bake);
+    if (summary.valid && summary.boneBoundVertexCount > 0U) {
+        summary.rigMapPath = summary.outputPath;
+        summary.rigMapPath.replace_extension(".ri_skin.json");
+        summary.valid = ri::scene::SavePrimitiveModelBakeRigMap(summary.rigMapPath, bake);
+    }
+    summary.summary = summary.valid
+        ? "Baked " + std::to_string(summary.inputPartCount) + " parts: "
+            + std::to_string(summary.inputTriangleCount) + " -> "
+            + std::to_string(summary.outputTriangleCount) + " triangles, culled "
+            + std::to_string(summary.culledTriangleCount) + ", rigid-bound "
+            + std::to_string(summary.boneBoundVertexCount) + " vertices."
+        : "Could not write primitive model bake: " + summary.outputPath.string();
+    return summary;
 }
 
 } // namespace ri::forge

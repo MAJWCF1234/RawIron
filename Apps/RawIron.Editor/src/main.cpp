@@ -38,6 +38,7 @@
 #include "EditorPluginManager.h"
 #include "RawIron/Content/PluginProjectData.h"
 #include "RawIron/Content/PluginRuntime.h"
+#include "RawIron/Content/PrimitiveModelDocument.h"
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Render/ScenePreviewPlacement.h"
 #include "RawIron/Render/ScenePreviewRenderingScript.h"
@@ -46,6 +47,7 @@
 #include "RawIron/Scene/Components.h"
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Scene/PrimitivesCsvIO.h"
+#include "RawIron/Scene/PrimitiveModelBake.h"
 #include "RawIron/Scene/SceneStateIO.h"
 #include "RawIron/Scene/SemanticStructuralPartition.h"
 #include "RawIron/Scene/StructuralBrush.h"
@@ -3898,6 +3900,33 @@ enum class UiWorkbenchTextEditTarget {
             return;
         }
 
+        std::string primitiveModelStatus{};
+        if (handoff.assetKind == ri::content::AuthoringAssetKind::PrimitiveModel) {
+            const auto document = ri::content::LoadPrimitiveModelDocument(handoff.assetPath);
+            if (!document.has_value()) {
+                lastIoStatus_ += "  Forge primitive model could not be loaded.";
+                return;
+            }
+            const ri::scene::PrimitiveModelInstantiationResult instantiated =
+                ri::scene::InstantiatePrimitiveModel(
+                    starterScene_.scene,
+                    starterScene_.handles.root,
+                    *document,
+                    handoff.assetPath.parent_path());
+            if (!instantiated.valid) {
+                lastIoStatus_ += "  Forge primitive model rejected: "
+                    + (instantiated.errors.empty() ? std::string("unknown instantiation error")
+                                                   : instantiated.errors.front());
+                return;
+            }
+            selectedNode_ = instantiated.rootNode >= 0
+                ? static_cast<std::size_t>(instantiated.rootNode)
+                : selectedNode_;
+            primitiveModelStatus = " Instantiated " + std::to_string(instantiated.partNodes.size())
+                + " primitive parts in " + std::to_string(instantiated.groupNodes.size())
+                + " groups.";
+        }
+
         int rowIndex = -1;
         for (int index = 0; index < static_cast<int>(resourceCatalogEntries_.size()); ++index) {
             if (resourceCatalogEntries_[static_cast<std::size_t>(index)].absolutePath == handoff.assetPath) {
@@ -3918,7 +3947,8 @@ enum class UiWorkbenchTextEditTarget {
         SelectWorkspaceResourceRow(rowIndex);
         inspectorPanel_ = InspectorPanel::Files;
         lastIoStatus_ = "Forge handoff opened " + handoff.workspaceRelativePath.generic_string()
-            + " (" + std::string(ri::content::ToString(handoff.assetKind)) + ").";
+            + " (" + std::string(ri::content::ToString(handoff.assetKind)) + ")."
+            + primitiveModelStatus;
     }
 
     void SelectWorkspaceResourceRow(const int rowIndex) {

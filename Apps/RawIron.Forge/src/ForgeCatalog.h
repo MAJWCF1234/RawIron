@@ -9,6 +9,7 @@ namespace ri::forge {
 
 enum class AssetKind {
     ModelSource,
+    PrimitiveModel,
     Rig,
 };
 
@@ -25,7 +26,9 @@ struct AssetCatalog {
     std::filesystem::path sourceRoot;
     std::vector<AssetEntry> entries;
     std::size_t modelCount = 0;
+    std::size_t primitiveModelCount = 0;
     std::size_t rigCount = 0;
+    std::size_t invalidPrimitiveModelCount = 0;
     std::size_t invalidRigCount = 0;
 };
 
@@ -39,6 +42,7 @@ struct ModelSourceValidationReport {
 };
 
 [[nodiscard]] bool IsModelSourcePath(const std::filesystem::path& path);
+[[nodiscard]] bool IsPrimitiveModelPath(const std::filesystem::path& path);
 [[nodiscard]] bool IsRigPath(const std::filesystem::path& path);
 [[nodiscard]] AssetCatalog ScanAssetCatalog(const std::filesystem::path& workspaceRoot);
 /// Runs the real engine importer for OBJ/glTF/GLB/FBX sources. Blend files are reported as export-required.
@@ -46,5 +50,36 @@ struct ModelSourceValidationReport {
 [[nodiscard]] std::filesystem::path CreateUniqueHumanoidRig(
     const std::filesystem::path& workspaceRoot,
     std::string* errorMessage = nullptr);
+
+[[nodiscard]] std::filesystem::path CreateUniquePrimitiveModel(
+    const std::filesystem::path& workspaceRoot,
+    std::string* errorMessage = nullptr);
+[[nodiscard]] bool AppendPrimitiveToModel(const std::filesystem::path& modelPath,
+                                          std::string_view primitivePreset,
+                                          std::string_view groupId,
+                                          std::string* insertedPartId = nullptr,
+                                          std::string* errorMessage = nullptr);
+[[nodiscard]] bool AppendGroupToModel(const std::filesystem::path& modelPath,
+                                      std::string_view name,
+                                      std::string_view parentId,
+                                      std::string_view boneName,
+                                      std::string* insertedGroupId = nullptr,
+                                      std::string* errorMessage = nullptr);
+
+struct PrimitiveModelBakeSummary {
+    bool valid = false;
+    std::filesystem::path outputPath;
+    std::filesystem::path rigMapPath;
+    std::size_t inputPartCount = 0;
+    std::size_t inputTriangleCount = 0;
+    std::size_t outputTriangleCount = 0;
+    std::size_t culledTriangleCount = 0;
+    std::size_t boneBoundVertexCount = 0;
+    std::string summary;
+};
+
+[[nodiscard]] PrimitiveModelBakeSummary BakePrimitiveModelAsset(
+    const std::filesystem::path& modelPath,
+    const std::filesystem::path& outputPath = {});
 
 } // namespace ri::forge

@@ -1,5 +1,7 @@
 #include "RawIron/Content/AuthoringHandoff.h"
 
+#include "RawIron/Content/PrimitiveModelDocument.h"
+
 #include <algorithm>
 #include <cctype>
 
@@ -19,6 +21,9 @@ AuthoringAssetKind ClassifyAsset(const fs::path& path) {
     const std::string filename = LowerAscii(path.filename().string());
     if (filename.ends_with(".ri_rig.json")) {
         return AuthoringAssetKind::Rig;
+    }
+    if (filename.ends_with(".ri_model.json")) {
+        return AuthoringAssetKind::PrimitiveModel;
     }
     const std::string extension = LowerAscii(path.extension().string());
     if (extension == ".obj" || extension == ".gltf" || extension == ".glb"
@@ -42,6 +47,8 @@ std::string_view ToString(const AuthoringAssetKind kind) noexcept {
     switch (kind) {
         case AuthoringAssetKind::ModelSource:
             return "model-source";
+        case AuthoringAssetKind::PrimitiveModel:
+            return "primitive-model";
         case AuthoringAssetKind::Rig:
             return "rig";
         case AuthoringAssetKind::Unknown:
@@ -80,10 +87,23 @@ AuthoringHandoffReport BuildAuthoringHandoff(const AuthoringHandoffRequest& requ
 
     report.assetKind = ClassifyAsset(report.assetPath);
     if (report.assetKind == AuthoringAssetKind::Unknown) {
-        report.issues.push_back("Handoff asset is not a supported model source or Raw Iron rig.");
+        report.issues.push_back("Handoff asset is not a supported model source, primitive model, or Raw Iron rig.");
         return report;
     }
-
+    if (report.assetKind == AuthoringAssetKind::PrimitiveModel) {
+        const auto model = LoadPrimitiveModelDocument(report.assetPath);
+        if (!model.has_value()) {
+            report.issues.push_back("Primitive model handoff document could not be parsed.");
+            return report;
+        }
+        const PrimitiveModelValidationReport validation = ValidatePrimitiveModelDocument(*model);
+        if (!validation.valid) {
+            report.issues.push_back(
+                validation.errors.empty() ? "Primitive model handoff validation failed."
+                                          : validation.errors.front());
+            return report;
+        }
+    }
     report.editorArguments = {
         "--editor-ui",
         "--workspace-root",

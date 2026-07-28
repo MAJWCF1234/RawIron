@@ -3,9 +3,12 @@ rawiron_add_app(
   SOURCES
     src/main.cpp
     src/ForgeCatalog.cpp
+    ${CMAKE_SOURCE_DIR}/Apps/RawIron.Editor/src/EditorVulkanViewport.cpp
   LIBRARIES
     RawIron::Content
     RawIron::Core
+    RawIron::RenderSoftware
+    RawIron::RenderVulkan
     RawIron::SceneUtilities
   WIN32_LIBRARIES
     user32
@@ -20,6 +23,11 @@ rawiron_add_app(
     "exception"
   SMOKE_ARGS
     "--headless"
+  BUNDLE_ENGINE_TEXTURES
+)
+
+target_include_directories(RawIron.Forge PRIVATE
+  ${CMAKE_SOURCE_DIR}/Apps/RawIron.Editor/src
 )
 
 if (RAWIRON_BUILD_TESTS)
