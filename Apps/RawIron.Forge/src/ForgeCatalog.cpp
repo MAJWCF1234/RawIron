@@ -193,6 +193,29 @@ AssetCatalog ScanAssetCatalog(const fs::path& workspaceRoot) {
     return catalog;
 }
 
+std::vector<std::size_t> FilterAssetCatalogIndices(
+    const AssetCatalog& catalog,
+    const std::string_view query) {
+    const std::string needle = LowerAscii(std::string(query));
+    std::vector<std::size_t> indices{};
+    indices.reserve(catalog.entries.size());
+    for (std::size_t index = 0; index < catalog.entries.size(); ++index) {
+        const AssetEntry& entry = catalog.entries[index];
+        std::string kind = "model source";
+        if (entry.kind == AssetKind::PrimitiveModel) {
+            kind = "primitive forge model";
+        } else if (entry.kind == AssetKind::Rig) {
+            kind = "rig skeleton";
+        }
+        const std::string searchable =
+            LowerAscii(entry.relativePath + "\n" + entry.summary + "\n" + kind);
+        if (needle.empty() || searchable.find(needle) != std::string::npos) {
+            indices.push_back(index);
+        }
+    }
+    return indices;
+}
+
 ModelSourceValidationReport ValidateModelSource(const fs::path& sourcePath) {
     const ri::scene::ModelSourceValidationReport shared = ri::scene::ValidateModelSource(sourcePath);
     ModelSourceValidationReport report{};

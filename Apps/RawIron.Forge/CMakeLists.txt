@@ -3,6 +3,8 @@ rawiron_add_app(
   SOURCES
     src/main.cpp
     src/ForgeCatalog.cpp
+    src/ForgeCatalogIndex.cpp
+    src/ForgePreviewBuilder.cpp
     ${CMAKE_SOURCE_DIR}/Apps/RawIron.Editor/src/EditorVulkanViewport.cpp
   LIBRARIES
     RawIron::Content
@@ -11,9 +13,12 @@ rawiron_add_app(
     RawIron::RenderVulkan
     RawIron::SceneUtilities
   WIN32_LIBRARIES
+    comctl32
+    dwmapi
     user32
     gdi32
     shell32
+    uxtheme
   EXPECTED_STRINGS
     "[Forge Ready]"
     "Model sources:"
@@ -34,6 +39,8 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(RawIron.Forge.CatalogSmoke
     Tests/ForgeCatalogSmoke.cpp
     src/ForgeCatalog.cpp
+    src/ForgeCatalogIndex.cpp
+    src/ForgePreviewBuilder.cpp
   )
   target_include_directories(RawIron.Forge.CatalogSmoke PRIVATE src)
   target_link_libraries(RawIron.Forge.CatalogSmoke PRIVATE RawIron::Content RawIron::SceneUtilities)

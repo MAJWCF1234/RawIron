@@ -1998,7 +1998,8 @@ public:
         if (viewportGpuAllowed_) {
             StartVulkanViewport();
         }
-        SetTimer(hwnd_, 1, 33, nullptr);
+        editorTimerIntervalMs_ = 33U;
+        SetTimer(hwnd_, 1, editorTimerIntervalMs_, nullptr);
         lastTick_ = std::chrono::steady_clock::now();
 
         MSG message{};
@@ -2203,8 +2204,8 @@ enum class UiWorkbenchTextEditTarget {
                 break;
             case WM_GETMINMAXINFO: {
                 auto* minMax = reinterpret_cast<MINMAXINFO*>(lParam);
-                minMax->ptMinTrackSize.x = 680;
-                minMax->ptMinTrackSize.y = 520;
+                minMax->ptMinTrackSize.x = ri::editor::MinimumEditorWindowWidth();
+                minMax->ptMinTrackSize.y = ri::editor::MinimumEditorWindowHeight();
                 return 0;
             }
             case WM_PAINT:
@@ -2243,7 +2244,6 @@ enum class UiWorkbenchTextEditTarget {
         statsOverlayState_.RecordFrameDeltaSeconds(delta.count());
         statsOverlayState_.SetAttached(true);
         statsOverlayState_.SetVisible(statsOverlayVisible_);
-        const ri::editor::ViewportCameraState previousCamera = SnapshotViewportCameraState();
         if (ri::editor::ShouldRunEditorPreviewAnimation(
                 windowMinimized, now - lastEditorPreviewAnimation_)) {
             lastEditorPreviewAnimation_ = now;
@@ -2266,17 +2266,15 @@ enum class UiWorkbenchTextEditTarget {
         } else {
             logicPreviewFrameCounter_ = 0;
         }
-        if (!autoOrbitPreview_) {
-            ApplyEditorOrbitToScene();
-        } else {
+        bool cameraChanged = false;
+        if (autoOrbitPreview_) {
             editorOrbitState_.yawDegrees =
                 ri::editor::AdvanceAutoOrbitYaw(editorOrbitState_.yawDegrees, delta.count());
             ApplyEditorOrbitToScene();
+            cameraChanged = true;
         }
         UpdateCameraRailSpringStates(now);
-        ApplyCameraRailVelocity(delta.count());
-        const bool cameraChanged =
-            ri::editor::HasCameraStateChanged(previousCamera, SnapshotViewportCameraState());
+        cameraChanged = ApplyCameraRailVelocity(delta.count()) || cameraChanged;
         const bool viewportInteractiveMotion = ri::editor::IsViewportInteractiveMotion(
             cameraChanged,
             cameraDragMode_ != CameraDragMode::None,
@@ -2285,9 +2283,7 @@ enum class UiWorkbenchTextEditTarget {
         viewportPreviewDirty_ = viewportPreviewDirty_ || cameraChanged;
         const EditorLayout layout = ComputeLayout();
         UpdateCameraPlotRect(layout.viewportInner);
-        if (viewportGpuEnabled_) {
-            vulkanViewport_.SetBounds(cameraPlotRect_);
-        }
+        SyncVulkanViewportBounds();
         if (ri::editor::ShouldPollGamePreviewScripts(
                 sceneConfig_.gameManifest.has_value(), now - lastGamePreviewScriptPoll_)) {
             lastGamePreviewScriptPoll_ = now;
@@ -2305,12 +2301,12 @@ enum class UiWorkbenchTextEditTarget {
         }
         bool viewportRendered = false;
         if (viewportGpuEnabled_ && vulkanViewport_.Running()) {
-            vulkanViewport_.SetVisible(true);
+            SetVulkanViewportVisible(true);
             PublishVulkanViewportFrame(cameraPlotRect_, viewportInteractiveMotion);
             viewportPreviewDirty_ = false;
         } else {
             if (viewportGpuEnabled_) {
-                vulkanViewport_.SetVisible(false);
+                SetVulkanViewportVisible(false);
             }
             if (viewportGpuEnabled_ && !vulkanViewport_.RestartInFlight()) {
                 const std::string error = vulkanViewport_.LastError();
@@ -2389,6 +2385,33 @@ enum class UiWorkbenchTextEditTarget {
         viewportSceneSnapshotDirty_ = true;
     }
 
+    void MarkViewportCameraDirty() {
+        viewportPreviewDirty_ = true;
+        viewportCameraSnapshotDirty_ = true;
+    }
+
+    void SyncVulkanViewportBounds() {
+        if (!viewportGpuEnabled_) {
+            return;
+        }
+        if (vulkanViewportBoundsValid_
+            && EqualRect(&lastVulkanViewportBounds_, &cameraPlotRect_) != FALSE) {
+            return;
+        }
+        vulkanViewport_.SetBounds(cameraPlotRect_);
+        lastVulkanViewportBounds_ = cameraPlotRect_;
+        vulkanViewportBoundsValid_ = true;
+    }
+
+    void SetVulkanViewportVisible(const bool visible) {
+        if (vulkanViewportVisibilityValid_ && vulkanViewportVisible_ == visible) {
+            return;
+        }
+        vulkanViewport_.SetVisible(visible);
+        vulkanViewportVisible_ = visible;
+        vulkanViewportVisibilityValid_ = true;
+    }
+
     void AdaptEditorTimerInterval() {
         const bool viewportInteractiveMotion = ri::editor::IsViewportInteractiveMotion(
             false,
@@ -2398,7 +2421,10 @@ enum class UiWorkbenchTextEditTarget {
         const UINT intervalMs = ri::editor::ComputeViewportTimerIntervalMs(
             viewportInteractiveMotion,
             lastViewportPreviewMs_);
-        SetTimer(hwnd_, 1, intervalMs, nullptr);
+        if (editorTimerIntervalMs_ != intervalMs) {
+            SetTimer(hwnd_, 1, intervalMs, nullptr);
+            editorTimerIntervalMs_ = intervalMs;
+        }
     }
 
     [[nodiscard]] fs::path DiscoverEditorTextureRoot() const {
@@ -2446,13 +2472,14 @@ enum class UiWorkbenchTextEditTarget {
         if (!viewportGpuEnabled_ || !vulkanViewport_.Running()) {
             return;
         }
-        const bool needsPublish = viewportSceneSnapshotDirty_ || viewportInteractiveMotion;
+        const bool needsPublish =
+            viewportSceneSnapshotDirty_ || viewportCameraSnapshotDirty_ || viewportInteractiveMotion;
         if (!needsPublish) {
             return;
         }
         const auto now = std::chrono::steady_clock::now();
-        const auto publishInterval =
-            viewportInteractiveMotion ? std::chrono::milliseconds(11) : std::chrono::milliseconds(33);
+        const auto publishInterval = std::chrono::milliseconds(
+            ri::editor::ComputeVulkanPublishIntervalMs(viewportInteractiveMotion));
         if (lastVulkanViewportPublish_.time_since_epoch().count() != 0
             && now - lastVulkanViewportPublish_ < publishInterval) {
             return;
@@ -2467,6 +2494,7 @@ enum class UiWorkbenchTextEditTarget {
                                 viewportSceneSnapshotDirty_);
         lastVulkanViewportPublish_ = now;
         viewportSceneSnapshotDirty_ = false;
+        viewportCameraSnapshotDirty_ = false;
     }
 
     void StartVulkanViewport() {
@@ -2484,8 +2512,18 @@ enum class UiWorkbenchTextEditTarget {
                                 true);
         viewportGpuEnabled_ = vulkanViewport_.Start(hwnd_, cameraPlotRect_);
         if (viewportGpuEnabled_) {
+            lastVulkanViewportBounds_ = cameraPlotRect_;
+            vulkanViewportBoundsValid_ = true;
+            vulkanViewportVisible_ = true;
+            vulkanViewportVisibilityValid_ = true;
+            viewportPreviewDirty_ = false;
+            viewportSceneSnapshotDirty_ = false;
+            viewportCameraSnapshotDirty_ = false;
+            lastVulkanViewportPublish_ = std::chrono::steady_clock::now();
             lastIoStatus_ = "Viewport: native Vulkan GPU renderer active.";
         } else {
+            vulkanViewportBoundsValid_ = false;
+            vulkanViewportVisibilityValid_ = false;
             lastIoStatus_ = "Viewport: Vulkan unavailable; CPU software fallback active. "
                 + vulkanViewport_.LastError();
         }
@@ -2499,6 +2537,8 @@ enum class UiWorkbenchTextEditTarget {
         UpdateCameraPlotRect(layout.viewportInner);
         viewportSceneSnapshotDirty_ = true;
         vulkanViewport_.RestartAsync(hwnd_, cameraPlotRect_);
+        lastVulkanViewportBounds_ = cameraPlotRect_;
+        vulkanViewportBoundsValid_ = true;
     }
 
     void RebuildViewportPreviewBitmap() {
@@ -2561,31 +2601,6 @@ enum class UiWorkbenchTextEditTarget {
         viewportPreviewReady_ = !viewportPreviewScratch_.pixels.empty();
         ++viewportPreviewBlitGeneration_;
         viewportPreviewDirty_ = false;
-    }
-
-    [[nodiscard]] ri::editor::ViewportCameraState SnapshotViewportCameraState() const {
-        if (starterScene_.handles.orbitCamera.cameraNode != ri::scene::kInvalidHandle) {
-            const ri::scene::Node& cameraNode =
-                starterScene_.scene.GetNode(starterScene_.handles.orbitCamera.cameraNode);
-            const ri::math::Vec3 position =
-                starterScene_.scene.ComputeWorldPosition(starterScene_.handles.orbitCamera.cameraNode);
-            return {
-                .targetX = position.x,
-                .targetY = position.y,
-                .targetZ = position.z,
-                .distance = cameraNode.localTransform.rotationDegrees.x,
-                .yawDegrees = cameraNode.localTransform.rotationDegrees.y,
-                .pitchDegrees = cameraNode.localTransform.rotationDegrees.z,
-            };
-        }
-        return {
-            .targetX = editorOrbitState_.target.x,
-            .targetY = editorOrbitState_.target.y,
-            .targetZ = editorOrbitState_.target.z,
-            .distance = editorOrbitState_.distance,
-            .yawDegrees = editorOrbitState_.yawDegrees,
-            .pitchDegrees = editorOrbitState_.pitchDegrees,
-        };
     }
 
     void ApplyEditorOrbitToScene() {
@@ -2659,11 +2674,11 @@ enum class UiWorkbenchTextEditTarget {
         UpdateRailPadSpring(depthRailPad_, now);
     }
 
-    void ApplyCameraRailVelocity(const double deltaSeconds) {
+    [[nodiscard]] bool ApplyCameraRailVelocity(const double deltaSeconds) {
         if (cameraDragMode_ == CameraDragMode::RailTrackball
             || cameraDragMode_ == CameraDragMode::RailPan
             || cameraDragMode_ == CameraDragMode::RailDepth) {
-            return;
+            return false;
         }
         const float frameScale = static_cast<float>(std::clamp(deltaSeconds * 60.0, 0.2, 2.0));
         const float orbitX = ApplyRailDeadzone(orbitRailPad_.offsetX);
@@ -2675,7 +2690,7 @@ enum class UiWorkbenchTextEditTarget {
         if (orbitX == 0.0f && orbitY == 0.0f
             && panX == 0.0f && panY == 0.0f
             && depthX == 0.0f && depthY == 0.0f) {
-            return;
+            return false;
         }
 
         if (orbitX != 0.0f || orbitY != 0.0f) {
@@ -2694,7 +2709,8 @@ enum class UiWorkbenchTextEditTarget {
             lastIoStatus_ = depthY < 0.0f ? "View rig: zoom in." : "View rig: zoom out.";
         }
         ApplyEditorOrbitToScene();
-        viewportPreviewDirty_ = true;
+        MarkViewportCameraDirty();
+        return true;
     }
 
     void ApplyDirectCameraRailDrag(const int dx, const int dy) {
@@ -2714,7 +2730,7 @@ enum class UiWorkbenchTextEditTarget {
             return;
         }
         ApplyEditorOrbitToScene();
-        viewportPreviewDirty_ = true;
+        MarkViewportCameraDirty();
     }
 
     void UpdateCameraRailPadFromPoint(const POINT& point, const RECT& railRect) {
@@ -2774,7 +2790,7 @@ enum class UiWorkbenchTextEditTarget {
             return;
         }
         ApplyEditorOrbitToScene();
-        viewportPreviewDirty_ = true;
+        MarkViewportCameraDirty();
         AdaptEditorTimerInterval();
     }
 
@@ -5170,7 +5186,7 @@ enum class UiWorkbenchTextEditTarget {
                 const float factor = std::exp(-steps * 0.14f);
                 editorOrbitState_.distance *= factor;
                 ApplyEditorOrbitToScene();
-                viewportPreviewDirty_ = true;
+                MarkViewportCameraDirty();
                 lastIoStatus_ = "Camera: zoom.";
             }
             InvalidateViewportAndRail();
@@ -5586,6 +5602,8 @@ enum class UiWorkbenchTextEditTarget {
         }
         if (key == VK_SPACE) {
             autoOrbitPreview_ = !autoOrbitPreview_;
+            MarkViewportCameraDirty();
+            AdaptEditorTimerInterval();
             lastIoStatus_ = autoOrbitPreview_ ? "Camera: auto-orbit preview ON." : "Camera: auto-orbit preview OFF.";
             InvalidateRect(hwnd_, nullptr, FALSE);
             return true;
@@ -9877,6 +9895,7 @@ enum class UiWorkbenchTextEditTarget {
     std::chrono::steady_clock::time_point lastVulkanViewportPublish_{};
     std::chrono::steady_clock::time_point lastRailInputSteady_{};
     std::chrono::steady_clock::time_point lastViewportResizeSteady_{};
+    UINT editorTimerIntervalMs_ = 0U;
     double lastAutosaveStatusSeconds_ = -999.0;
     bool autosavePending_ = false;
     ri::scene::StarterScene starterScene_{};
@@ -9897,8 +9916,13 @@ enum class UiWorkbenchTextEditTarget {
     double lastViewportPreviewMs_ = 0.0;
     bool viewportPreviewDirty_ = true;
     bool viewportSceneSnapshotDirty_ = true;
+    bool viewportCameraSnapshotDirty_ = true;
     bool viewportRestartPending_ = false;
     bool liveWindowMoveSize_ = false;
+    RECT lastVulkanViewportBounds_{};
+    bool vulkanViewportBoundsValid_ = false;
+    bool vulkanViewportVisible_ = false;
+    bool vulkanViewportVisibilityValid_ = false;
     ri::render::software::ScenePreviewCache viewportPreviewCache_{};
     ri::render::software::SoftwareImage viewportPreviewScratch_{};
     ri::render::software::SoftwareImage viewportPreviewDisplayScratch_{};

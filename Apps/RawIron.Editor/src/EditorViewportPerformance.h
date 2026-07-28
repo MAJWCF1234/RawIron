@@ -30,7 +30,7 @@ struct ViewportCameraState {
 };
 
 [[nodiscard]] inline int DefaultHierarchyPanelWidth() {
-    return 224;
+    return 248;
 }
 
 [[nodiscard]] inline int DefaultEditorStartupWidth() {
@@ -39,6 +39,14 @@ struct ViewportCameraState {
 
 [[nodiscard]] inline int DefaultEditorStartupHeight() {
     return 960;
+}
+
+[[nodiscard]] inline int MinimumEditorWindowWidth() {
+    return 1080;
+}
+
+[[nodiscard]] inline int MinimumEditorWindowHeight() {
+    return 680;
 }
 
 template <typename PadState>
@@ -120,7 +128,7 @@ inline void AdvanceRailPadSpring(
         if (lastRenderMs >= 16.0) {
             return 12U;
         }
-        return 8U;
+        return 12U;
     }
     if (lastRenderMs > 60.0) {
         return 100U;
@@ -132,6 +140,11 @@ inline void AdvanceRailPadSpring(
         return 50U;
     }
     return 50U;
+}
+
+[[nodiscard]] inline unsigned int ComputeVulkanPublishIntervalMs(
+    const bool interactiveMotion) {
+    return interactiveMotion ? 16U : 50U;
 }
 
 [[nodiscard]] inline bool HasCameraStateChanged(

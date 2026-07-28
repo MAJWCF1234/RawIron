@@ -1,18 +1,22 @@
 #include "Apps/RawIron.Editor/src/EditorViewportPerformance.h"
 #include "Apps/RawIron.Editor/src/EditorViewportRenderer.h"
 
+#include <array>
 #include <chrono>
 #include <cstdlib>
 
 int main() {
     using ri::editor::ComputeViewportRenderSize;
     using ri::editor::ComputeViewportTimerIntervalMs;
+    using ri::editor::ComputeVulkanPublishIntervalMs;
     using ri::editor::AdvanceAutoOrbitYaw;
     using ri::editor::AdvanceRailPadSpring;
     using ri::editor::BeginRailPadSpring;
     using ri::editor::DefaultEditorStartupHeight;
     using ri::editor::DefaultEditorStartupWidth;
     using ri::editor::DefaultHierarchyPanelWidth;
+    using ri::editor::MinimumEditorWindowHeight;
+    using ri::editor::MinimumEditorWindowWidth;
     using ri::editor::HasCameraStateChanged;
     using ri::editor::NeedsEditorBackBufferResize;
     using ri::editor::ShouldRenderViewportPreview;
@@ -56,11 +60,24 @@ int main() {
     if (unscaledMovingSize.width != settledSize.width || unscaledMovingSize.height != settledSize.height) {
         return EXIT_FAILURE;
     }
-    if (ComputeViewportTimerIntervalMs(true, 22.0) != 12U
+    if (ComputeViewportTimerIntervalMs(true, 5.0) != 12U
+        || ComputeViewportTimerIntervalMs(true, 22.0) != 12U
         || ComputeViewportTimerIntervalMs(true, 40.0) != 16U
         || ComputeViewportTimerIntervalMs(false, 50.0) != 66U
-        || ComputeViewportTimerIntervalMs(false, 10.0) != 50U) {
+        || ComputeViewportTimerIntervalMs(false, 10.0) != 50U
+        || ComputeVulkanPublishIntervalMs(true) != 16U
+        || ComputeVulkanPublishIntervalMs(false) != 50U) {
         return EXIT_FAILURE;
+    }
+    unsigned int previousIdleInterval = 0U;
+    for (const double renderMs : std::array<double, 7>{0.0, 8.0, 16.0, 23.0, 46.0, 61.0, 120.0}) {
+        const unsigned int interactiveInterval = ComputeViewportTimerIntervalMs(true, renderMs);
+        const unsigned int idleInterval = ComputeViewportTimerIntervalMs(false, renderMs);
+        if (interactiveInterval < 12U || interactiveInterval > 16U
+            || idleInterval < 50U || idleInterval < previousIdleInterval) {
+            return EXIT_FAILURE;
+        }
+        previousIdleInterval = idleInterval;
     }
 
     if (!IsViewportInteractiveMotion(false, true, false, false)
@@ -170,10 +187,15 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    if (DefaultHierarchyPanelWidth() < 208) {
+    if (DefaultHierarchyPanelWidth() < 240) {
         return EXIT_FAILURE;
     }
     if (DefaultEditorStartupWidth() < 1640 || DefaultEditorStartupHeight() < 940) {
+        return EXIT_FAILURE;
+    }
+    if (MinimumEditorWindowWidth() < 1080 || MinimumEditorWindowHeight() < 680
+        || MinimumEditorWindowWidth() > DefaultEditorStartupWidth()
+        || MinimumEditorWindowHeight() > DefaultEditorStartupHeight()) {
         return EXIT_FAILURE;
     }
 

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ri::forge {
@@ -45,6 +46,10 @@ struct ModelSourceValidationReport {
 [[nodiscard]] bool IsPrimitiveModelPath(const std::filesystem::path& path);
 [[nodiscard]] bool IsRigPath(const std::filesystem::path& path);
 [[nodiscard]] AssetCatalog ScanAssetCatalog(const std::filesystem::path& workspaceRoot);
+/// Case-insensitive creator-facing filter over asset path, summary, and asset kind.
+[[nodiscard]] std::vector<std::size_t> FilterAssetCatalogIndices(
+    const AssetCatalog& catalog,
+    std::string_view query);
 /// Runs the real engine importer for OBJ/glTF/GLB/FBX sources. Blend files are reported as export-required.
 [[nodiscard]] ModelSourceValidationReport ValidateModelSource(const std::filesystem::path& sourcePath);
 [[nodiscard]] std::filesystem::path CreateUniqueHumanoidRig(
