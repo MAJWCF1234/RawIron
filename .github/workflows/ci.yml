@@ -108,7 +108,7 @@ jobs:
         run: |
           cmake --build build/dev-msvc-sanitized --config RelWithDebInfo --parallel `
             --target CommandLineSmoke CoreUtilitiesSafetySmoke FixedStepAccumulatorSmoke ImageComparisonSmoke FrameArenaSmoke `
-              SceneSnapshotStorageSmoke PluginProjectDataSmoke PluginRuntimeSmoke NativePluginHostSmoke `
+              SceneSnapshotStorageSmoke PluginProjectDataSmoke PluginRuntimeSmoke NativePluginHostSmoke PackageResolverSmoke `
               SnapshotReplicationSmoke MovementControllerDurationSmoke NavMeshPathfindingSmoke
 
       - name: Stage AddressSanitizer runtime
@@ -124,4 +124,4 @@ jobs:
         shell: pwsh
         run: |
           ctest --test-dir build/dev-msvc-sanitized -C RelWithDebInfo --output-on-failure --timeout 180 `
-            -R "RawIron\.(Core\.(CommandLineSmoke|UtilitiesSafetySmoke|FixedStepAccumulatorSmoke|ImageComparisonSmoke|FrameArenaSmoke|SceneSnapshotStorageSmoke)|Content\.(PluginProjectDataSmoke|PluginRuntimeSmoke|NativePluginHostSmoke)|Runtime\.SnapshotReplicationSmoke|Trace\.MovementControllerDurationSmoke|World\.NavMeshPathfindingSmoke)"
+            -R "RawIron\.(Core\.(CommandLineSmoke|UtilitiesSafetySmoke|FixedStepAccumulatorSmoke|ImageComparisonSmoke|FrameArenaSmoke|SceneSnapshotStorageSmoke)|Content\.(PluginProjectDataSmoke|PluginRuntimeSmoke|NativePluginHostSmoke|PackageResolverSmoke)|Runtime\.SnapshotReplicationSmoke|Trace\.MovementControllerDurationSmoke|World\.NavMeshPathfindingSmoke)"

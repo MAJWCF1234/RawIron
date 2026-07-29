@@ -55,6 +55,10 @@ CLI inspection is available through `ri_tool --plugins-list`, `--plugins-doctor`
 
 Plugins and mods are not hidden internal features. They are first-class authored project content and are included in the shipped workspace.
 
+The shared `.ripak` package protocol is the distribution and dependency layer beneath these
+extension classes. See [[02 Engine/12 Package Runtime|Package runtime]] for manifest version 2,
+dependency resolution, capabilities, permissions, and runtime entry points.
+
 ## Typical policy posture
 
 Project policies can control things like script allowance and unsigned plugin allowance. Those policies belong in project config, not scattered through game code.

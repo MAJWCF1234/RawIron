@@ -343,6 +343,17 @@ if (RAWIRON_BUILD_TESTS)
   )
 
   add_test(
+    NAME RawIron.Tool.AssetPackageResolve
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--asset-package-resolve;logickit;--root;${PROJECT_SOURCE_DIR}"
+      "-DEXPECTED_STRINGS=RawIron package resolution:;Root: logickit *;Activation order:;logickit@0.1.0"
+      "-DFORBIDDEN_STRINGS=failed;exception;Issue:"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
     NAME RawIron.Tool.RigToolchainReport
     COMMAND ${CMAKE_COMMAND}
       "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"

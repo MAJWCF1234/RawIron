@@ -27,21 +27,44 @@ struct AssetPackageDependency {
     bool optional = false;
 };
 
+struct AssetPackageRuntime {
+    /// data, native, wasm, lua, process, or script. Only data packages require no executable entry point.
+    std::string executionMode = "data";
+    std::string entryPoint{};
+    std::uint32_t abiVersion = 0;
+};
+
 struct AssetPackageManifest {
-    static constexpr int kFormatVersion = 1;
+    static constexpr int kLegacyFormatVersion = 1;
+    static constexpr int kFormatVersion = 2;
 
     int formatVersion = kFormatVersion;
     std::string packageId{};
     std::string displayName{};
-    std::string packageKind = "asset-pack";
+    /// content, world, avatar, system, script, plugin, or mixed.
+    /// Legacy v1 package-kind names remain accepted when loading old archives.
+    std::string packageKind = "content";
     std::string packageVersion = "0.1.0";
+    std::string author{};
+    std::string description{};
     std::string installScope = "project";
     std::string mountPoint{};
     std::string sourceRoot{};
     std::string generatedAtUtc{};
+    /// Semantic-version requirement for the public Raw Iron package/runtime API.
+    std::string engineApiRequirement = "*";
+    /// Empty means platform-neutral. Tokens use names such as windows-x64 or linux-x64.
+    std::vector<std::string> supportedPlatforms{};
     std::vector<std::string> tags{};
+    /// Engine/package capabilities made available after activation.
+    std::vector<std::string> providesCapabilities{};
+    /// Engine capabilities required before the package may activate.
+    std::vector<std::string> requiredCapabilities{};
+    /// Requested host permissions. Granting is a resolver/host policy decision.
+    std::vector<std::string> permissions{};
     std::vector<AssetPackageDependency> dependencies{};
     std::vector<std::string> conflicts{};
+    AssetPackageRuntime runtime{};
     std::vector<AssetPackageEntry> assets{};
 };
 

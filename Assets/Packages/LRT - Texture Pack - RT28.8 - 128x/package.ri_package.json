@@ -18835,11 +18835,11 @@
     {
       "id": "tile_rt2_chiseled_resin_bricks___s_png",
       "type": "texture",
-      "path": "assets/tile/rt2_chiseled_resin_bricks¨_s.png.ri_asset.json",
+      "path": "assets/tile/rt2_chiseled_resin_bricks_s.png.ri_asset.json",
       "installPath": "",
-      "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_chiseled_resin_bricks¨_s.png",
-      "sizeBytes": 503,
-      "signature": "fnv1a64:6cb1d8b6c1a5649f"
+      "sourcePath": "Assets/LRT - Texture Pack - RT28.8 - 128x/tile/rt2_chiseled_resin_bricks_s.png",
+      "sizeBytes": 497,
+      "signature": "fnv1a64:9d07395183bd660d"
     },
     {
       "id": "tile_rt2_chiseled_sandstone_png",

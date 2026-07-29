@@ -5,6 +5,7 @@
 #include "RawIron/Content/PluginRuntime.h"
 #include "RawIron/Content/AssetDocument.h"
 #include "RawIron/Content/AssetPackageManifest.h"
+#include "RawIron/Content/PackageResolver.h"
 #include "RawIron/Core/Detail/JsonScan.h"
 #include "RawIron/Core/Log.h"
 #include "RawIron/Core/Version.h"
@@ -32,6 +33,7 @@
 #include <fstream>
 #include <iomanip>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -1044,6 +1046,10 @@ void ValidateAssetPackage(const ri::core::CommandLine& commandLine) {
     ri::core::LogInfo("RawIron asset package validated.");
     ri::core::LogInfo("  Manifest: " + manifestPath.string());
     ri::core::LogInfo("  Package: " + manifest->packageId);
+    ri::core::LogInfo("  Kind: " + manifest->packageKind);
+    ri::core::LogInfo("  Version: " + manifest->packageVersion);
+    ri::core::LogInfo("  Engine API: " + manifest->engineApiRequirement);
+    ri::core::LogInfo("  Runtime: " + manifest->runtime.executionMode);
     ri::core::LogInfo("  Assets: " + std::to_string(manifest->assets.size()));
 }
 
@@ -1129,6 +1135,101 @@ fs::path ResolveProjectRootOption(const WorkspaceLayout& workspace, const ri::co
         return fs::weakly_canonical(fs::path(*projectArg));
     }
     return workspace.root;
+}
+
+std::vector<std::string> SplitPackageOptionList(const std::string_view value) {
+    std::vector<std::string> tokens;
+    std::size_t cursor = 0U;
+    while (cursor < value.size()) {
+        const std::size_t delimiter = value.find_first_of(",;", cursor);
+        const std::size_t end = delimiter == std::string_view::npos ? value.size() : delimiter;
+        std::string token(value.substr(cursor, end - cursor));
+        token.erase(token.begin(), std::find_if(token.begin(), token.end(), [](const unsigned char ch) {
+            return std::isspace(ch) == 0;
+        }));
+        token.erase(std::find_if(token.rbegin(), token.rend(), [](const unsigned char ch) {
+            return std::isspace(ch) == 0;
+        }).base(), token.end());
+        if (!token.empty()) {
+            tokens.push_back(std::move(token));
+        }
+        if (delimiter == std::string_view::npos) {
+            break;
+        }
+        cursor = delimiter + 1U;
+    }
+    return tokens;
+}
+
+void ResolveAssetPackageGraph(
+    const WorkspaceLayout& workspace,
+    const ri::core::CommandLine& commandLine) {
+    const std::optional<std::string> rootId = commandLine.GetValue("--asset-package-resolve");
+    if (!rootId.has_value() || rootId->empty()) {
+        throw std::runtime_error("Missing --asset-package-resolve <package-id>.");
+    }
+    const fs::path projectRoot = ResolveProjectRootOption(workspace, commandLine);
+    std::vector<fs::path> manifestPaths =
+        ri::content::FindAssetPackageManifestPaths(projectRoot);
+    const std::vector<fs::path> workspacePackagePaths =
+        ri::content::FindAssetPackageManifestPaths(workspace.root / "Assets");
+    manifestPaths.insert(manifestPaths.end(), workspacePackagePaths.begin(), workspacePackagePaths.end());
+
+    std::set<std::string, std::less<>> loadedIdentities;
+    std::vector<ri::content::AssetPackageManifest> catalog;
+    for (const fs::path& manifestPath : manifestPaths) {
+        const std::optional<ri::content::AssetPackageManifest> manifest =
+            ri::content::LoadAssetPackageManifest(manifestPath);
+        if (!manifest.has_value()) {
+            ri::core::LogInfo("  Skipped unreadable package manifest: " + manifestPath.string());
+            continue;
+        }
+        const std::string identity = manifest->packageId + "@" + manifest->packageVersion;
+        if (loadedIdentities.insert(identity).second) {
+            catalog.push_back(*manifest);
+        }
+    }
+
+    ri::content::PackageResolverOptions options{};
+    options.engineApiVersion = commandLine.GetValue("--engine-api").value_or("1.0.0");
+#if defined(_WIN32)
+    options.platform = commandLine.GetValue("--platform").value_or("windows-x64");
+#elif defined(__linux__)
+    options.platform = commandLine.GetValue("--platform").value_or("linux-x64");
+#else
+    options.platform = commandLine.GetValue("--platform").value_or("unknown");
+#endif
+    if (const std::optional<std::string> capabilities = commandLine.GetValue("--capabilities")) {
+        options.engineCapabilities = SplitPackageOptionList(*capabilities);
+    }
+    if (const std::optional<std::string> permissions = commandLine.GetValue("--grant-permissions")) {
+        options.grantedPermissions = SplitPackageOptionList(*permissions);
+    }
+    options.enforcePermissions = !commandLine.HasFlag("--ignore-package-permissions");
+    options.includeOptionalDependencies = commandLine.HasFlag("--include-optional-packages");
+
+    const std::vector<ri::content::PackageRequest> roots{{
+        .packageId = *rootId,
+        .versionRequirement = commandLine.GetValue("--package-version").value_or("*"),
+    }};
+    const ri::content::PackageResolutionResult resolution =
+        ri::content::ResolvePackages(catalog, roots, options);
+    ri::core::LogInfo("RawIron package resolution:");
+    ri::core::LogInfo("  Root: " + *rootId + " " + roots.front().versionRequirement);
+    ri::core::LogInfo("  Catalog packages: " + std::to_string(catalog.size()));
+    if (!resolution.resolved) {
+        for (const std::string& issue : resolution.issues) {
+            ri::core::LogInfo("  Issue: " + issue);
+        }
+        throw std::runtime_error("RawIron package dependency resolution failed.");
+    }
+    ri::core::LogInfo("  Activation order:");
+    for (std::size_t index = 0U; index < resolution.loadOrder.size(); ++index) {
+        const ri::content::ResolvedPackage& package = resolution.loadOrder[index];
+        ri::core::LogInfo(
+            "    " + std::to_string(index + 1U) + ". "
+            + package.packageId + "@" + package.packageVersion);
+    }
 }
 
 std::optional<ri::content::InstalledAssetPackage> LoadValidatedPackageForInstall(const fs::path& packageArg) {
@@ -1730,6 +1831,7 @@ void PrintToolHelp() {
     ri::core::LogInfo("Assets and authoring:");
     ri::core::LogInfo("  --formats | --asset-standardize <path> | --asset-standardize-dir <dir>");
     ri::core::LogInfo("  --asset-package-build | --asset-package-validate | --asset-package-import | --asset-package-install");
+    ri::core::LogInfo("  --asset-package-resolve <id> [--package-version <range>] [--project <root>]");
     ri::core::LogInfo("  --rig-toolchain-report | --rig-create-humanoid <id> | --rig-validate <path>");
     ri::core::LogInfo("Rendering and diagnostics:");
     ri::core::LogInfo("  --scenekit-targets | --scenekit-checks | --scenekit-example <slug>");
@@ -1742,7 +1844,7 @@ bool CommandRequested(const ri::core::CommandLine& commandLine, const std::strin
 }
 
 void ValidateSinglePrimaryCommand(const ri::core::CommandLine& commandLine) {
-    static constexpr std::array<std::string_view, 31> commands = {{
+    static constexpr std::array<std::string_view, 32> commands = {{
         "--workspace",
         "--list-projects",
         "--ensure-workspace",
@@ -1765,6 +1867,7 @@ void ValidateSinglePrimaryCommand(const ri::core::CommandLine& commandLine) {
         "--asset-package-validate",
         "--asset-package-import",
         "--asset-package-install",
+        "--asset-package-resolve",
         "--scenekit-targets",
         "--postprocess-presets",
         "--scenekit-checks",
@@ -2317,6 +2420,11 @@ int main(int argc, char** argv) {
 
         if (CommandRequested(commandLine, "--asset-package-install")) {
             InstallAssetPackage(workspace, commandLine);
+            return 0;
+        }
+
+        if (CommandRequested(commandLine, "--asset-package-resolve")) {
+            ResolveAssetPackageGraph(workspace, commandLine);
             return 0;
         }
 
