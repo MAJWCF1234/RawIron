@@ -1,8 +1,11 @@
 #include "RawIron/Content/GameManifest.h"
 #include "RawIron/Content/ShaderAsset.h"
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <iostream>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -37,6 +40,7 @@ int main(int argc, char** argv) {
         {"RawIronMultiplayerSandbox", 2U, true},
         {"WildernessRuins", 4U, false},
     };
+    std::set<std::string, std::less<>> validatedManifestGames;
 
     for (const ExpectedManifest& item : expected) {
         const fs::path gameRoot = workspaceRoot / "Games" / item.game;
@@ -47,6 +51,7 @@ int main(int argc, char** argv) {
                       << (errors.empty() ? "unknown error" : errors.front()) << '\n';
             return 2;
         }
+        validatedManifestGames.insert(item.game);
         if (entries.size() != item.entries) {
             std::cerr << item.game << ": unexpected shader entry count.\n";
             return 3;
@@ -98,6 +103,62 @@ int main(int argc, char** argv) {
                       << projectIssues.front() << '\n';
             return 9;
         }
+    }
+
+    // Keep the fixed expectations above for known samples, but also discover every future game
+    // manifest so adding a project cannot bypass native shader validation by omitting this test list.
+    std::error_code discoveryError;
+    for (const fs::directory_entry& game :
+         fs::directory_iterator(workspaceRoot / "Games", fs::directory_options::skip_permission_denied, discoveryError)) {
+        if (discoveryError || !game.is_directory()) {
+            continue;
+        }
+        const fs::path manifestPath = game.path() / "assets" / "shaders.manifest";
+        if (!fs::is_regular_file(manifestPath, discoveryError)
+            || validatedManifestGames.contains(game.path().filename().string())) {
+            discoveryError.clear();
+            continue;
+        }
+        std::vector<ri::content::RawIronShaderManifestEntry> entries;
+        std::vector<std::string> errors;
+        if (!ri::content::LoadRawIronShaderManifest(game.path(), &entries, &errors) || entries.empty()) {
+            std::cerr << game.path().filename().string() << ": discovered shader manifest failed: "
+                      << (errors.empty() ? "unknown error" : errors.front()) << '\n';
+            return 21;
+        }
+    }
+    if (discoveryError) {
+        std::cerr << "Unable to enumerate game shader manifests: " << discoveryError.message() << '\n';
+        return 22;
+    }
+
+    std::size_t discoveredShaderAssets = 0U;
+    for (fs::recursive_directory_iterator asset(
+             workspaceRoot / "Games", fs::directory_options::skip_permission_denied, discoveryError), end;
+         asset != end;
+         asset.increment(discoveryError)) {
+        if (discoveryError) {
+            std::cerr << "Unable to enumerate game shader assets: " << discoveryError.message() << '\n';
+            return 23;
+        }
+        std::string extension = asset->path().extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+        if (!asset->is_regular_file() || extension != ".rishader") {
+            continue;
+        }
+        ++discoveredShaderAssets;
+        ri::content::RawIronShaderAsset parsedAsset{};
+        std::string assetError;
+        if (!ri::content::LoadRawIronShaderAsset(asset->path(), &parsedAsset, &assetError)) {
+            std::cerr << "Discovered native shader asset failed: " << assetError << '\n';
+            return 24;
+        }
+    }
+    if (discoveredShaderAssets == 0U) {
+        std::cerr << "No game-native shader assets were discovered.\n";
+        return 25;
     }
 
     ri::content::RawIronShaderAsset cropResize{};

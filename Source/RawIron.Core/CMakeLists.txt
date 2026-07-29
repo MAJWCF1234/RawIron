@@ -6,6 +6,7 @@ add_library(RawIron.Core
   src/FixedStepAccumulator.cpp
   src/GameSimulationClock.cpp
   src/FrameArena.cpp
+  src/ImageComparison.cpp
   src/InputLabelFormat.cpp
   src/InputPolling.cpp
   src/JsonScan.cpp
@@ -31,6 +32,12 @@ target_compile_definitions(RawIron.Core
   PUBLIC
     RAWIRON_ENABLE_STACKTRACE_DIAGNOSTICS=$<BOOL:${RAWIRON_ENABLE_STACKTRACE_DIAGNOSTICS}>
 )
+
+if (RAWIRON_BUILD_TESTS)
+  add_executable(ImageComparisonSmoke ${CMAKE_SOURCE_DIR}/Tests/ImageComparisonSmoke.cpp)
+  target_link_libraries(ImageComparisonSmoke PRIVATE RawIron::Core)
+  add_test(NAME RawIron.Core.ImageComparisonSmoke COMMAND ImageComparisonSmoke)
+endif()
 
 if (RAWIRON_ENABLE_STACKTRACE_DIAGNOSTICS)
   target_compile_definitions(RawIron.Core

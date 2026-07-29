@@ -1,3 +1,4 @@
+#include "RawIron/Core/ImageComparison.h"
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Scene/Helpers.h"
 
@@ -96,8 +97,26 @@ int main() {
     }
     const ri::render::software::SoftwareImage nearFirst = RenderLayeredCubes(true);
     const ri::render::software::SoftwareImage farFirst = RenderLayeredCubes(false);
-    if (nearFirst.width != farFirst.width || nearFirst.height != farFirst.height
-        || nearFirst.pixels != farFirst.pixels || nearFirst.pixels.empty()) {
+    const ri::core::ImageComparisonResult orderComparison = ri::core::CompareImages(
+        {
+            .width = nearFirst.width,
+            .height = nearFirst.height,
+            .channelCount = 3U,
+            .pixels = nearFirst.pixels,
+        },
+        {
+            .width = farFirst.width,
+            .height = farFirst.height,
+            .channelCount = 3U,
+            .pixels = farFirst.pixels,
+        },
+        {
+            .perChannelTolerance = 0U,
+            .maximumMeanAbsoluteError = 0.0,
+            .maximumRootMeanSquareError = 0.0,
+            .maximumOutlierFraction = 0.0,
+        });
+    if (!orderComparison.comparable || !orderComparison.matched || nearFirst.pixels.empty()) {
         return EXIT_FAILURE;
     }
 

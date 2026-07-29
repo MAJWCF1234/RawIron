@@ -76,6 +76,68 @@ namespace {
         * (region.maximum.z - region.minimum.z);
 }
 
+[[nodiscard]] ri::math::Vec3 ClampToRegion(
+    const NavMeshRegion& region,
+    const ri::math::Vec3& point) {
+    return {
+        std::clamp(point.x, region.minimum.x, region.maximum.x),
+        std::clamp(point.y, region.minimum.y, region.maximum.y),
+        std::clamp(point.z, region.minimum.z, region.maximum.z),
+    };
+}
+
+[[nodiscard]] bool NearlySamePoint(
+    const ri::math::Vec3& lhs,
+    const ri::math::Vec3& rhs) {
+    constexpr float kWaypointEpsilonSquared = 0.000001f;
+    const float dx = lhs.x - rhs.x;
+    const float dy = lhs.y - rhs.y;
+    const float dz = lhs.z - rhs.z;
+    return dx * dx + dy * dy + dz * dz <= kWaypointEpsilonSquared;
+}
+
+void AppendUniqueWaypoint(
+    std::vector<ri::math::Vec3>& waypoints,
+    const ri::math::Vec3& waypoint) {
+    if (waypoints.empty() || !NearlySamePoint(waypoints.back(), waypoint)) {
+        waypoints.push_back(waypoint);
+    }
+}
+
+/// Produces a point on the shared AABB portal when regions touch/overlap. Explicit off-mesh links
+/// receive an exit and entry point so path followers do not incorrectly walk through empty space.
+[[nodiscard]] std::vector<ri::math::Vec3> TransitionWaypoints(
+    const NavMeshRegion& from,
+    const NavMeshRegion& to,
+    const ri::math::Vec3& goal) {
+    const ri::math::Vec3 overlapMinimum{
+        std::max(from.minimum.x, to.minimum.x),
+        std::max(from.minimum.y, to.minimum.y),
+        std::max(from.minimum.z, to.minimum.z),
+    };
+    const ri::math::Vec3 overlapMaximum{
+        std::min(from.maximum.x, to.maximum.x),
+        std::min(from.maximum.y, to.maximum.y),
+        std::min(from.maximum.z, to.maximum.z),
+    };
+    if (overlapMinimum.x <= overlapMaximum.x
+        && overlapMinimum.y <= overlapMaximum.y
+        && overlapMinimum.z <= overlapMaximum.z) {
+        return {{
+            std::clamp(goal.x, overlapMinimum.x, overlapMaximum.x),
+            std::clamp(goal.y, overlapMinimum.y, overlapMaximum.y),
+            std::clamp(goal.z, overlapMinimum.z, overlapMaximum.z),
+        }};
+    }
+
+    const ri::math::Vec3 exitPoint = ClampToRegion(from, RegionCenter(to));
+    const ri::math::Vec3 entryPoint = ClampToRegion(to, exitPoint);
+    if (NearlySamePoint(exitPoint, entryPoint)) {
+        return {exitPoint};
+    }
+    return {exitPoint, entryPoint};
+}
+
 [[nodiscard]] bool HasFlagToken(const std::string_view flags, const std::string_view wanted) {
     if (wanted.empty()) {
         return true;
@@ -179,6 +241,9 @@ std::optional<NavMesh> NavMesh::LoadDescriptor(const std::filesystem::path& path
         if (!mesh.regionById_.contains(link.fromRegion) || !mesh.regionById_.contains(link.toRegion)) {
             return fail("link '" + link.id + "' references an unknown region");
         }
+        if (link.fromRegion == link.toRegion) {
+            return fail("link '" + link.id + "' cannot connect a region to itself");
+        }
     }
     mesh.adjacency_.assign(mesh.regions_.size(), {});
     for (const NavMeshLink& link : mesh.links_) {
@@ -188,6 +253,10 @@ std::optional<NavMesh> NavMesh::LoadDescriptor(const std::filesystem::path& path
         if (link.bidirectional) {
             mesh.adjacency_[to].push_back(from);
         }
+    }
+    for (std::vector<std::size_t>& neighbors : mesh.adjacency_) {
+        std::sort(neighbors.begin(), neighbors.end());
+        neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
     }
     mesh.minimumAreaCost_ = std::max(
         0.001f,
@@ -313,6 +382,7 @@ NavMeshPath NavMesh::FindPath(
             open.push(OpenEntry{.score = candidate + heuristic(neighbor), .region = neighbor});
         }
     }
+    result.visitedRegionCount = visited;
 
     if (!closed[*goalRegion]) {
         result.diagnostic = visited >= query.maxVisitedRegions
@@ -330,18 +400,30 @@ NavMeshPath NavMesh::FindPath(
     }
     std::reverse(reversed.begin(), reversed.end());
     result.regionIds.reserve(reversed.size());
-    result.waypoints.reserve(reversed.size() + 1U);
-    result.waypoints.push_back(start);
+    result.waypoints.reserve(reversed.size() * 2U + 1U);
+    AppendUniqueWaypoint(result.waypoints, start);
+    float routeCost = 0.0f;
+    ri::math::Vec3 previousWaypoint = start;
     for (std::size_t index = 0; index < reversed.size(); ++index) {
         result.regionIds.push_back(regions_[reversed[index]].id);
-        if (index > 0U && index + 1U < reversed.size()) {
-            result.waypoints.push_back(RegionCenter(regions_[reversed[index]]));
+        if (index + 1U >= reversed.size()) {
+            continue;
+        }
+        const std::vector<ri::math::Vec3> transition = TransitionWaypoints(
+            regions_[reversed[index]],
+            regions_[reversed[index + 1U]],
+            goal);
+        for (const ri::math::Vec3& waypoint : transition) {
+            routeCost += ri::math::Distance(previousWaypoint, waypoint)
+                * regions_[reversed[index]].areaCost;
+            AppendUniqueWaypoint(result.waypoints, waypoint);
+            previousWaypoint = waypoint;
         }
     }
-    result.waypoints.push_back(goal);
-    result.traversalCost = cost[*goalRegion]
-        + ri::math::Distance(start, RegionCenter(regions_[*startRegion])) * regions_[*startRegion].areaCost
-        + ri::math::Distance(RegionCenter(regions_[*goalRegion]), goal) * regions_[*goalRegion].areaCost;
+    routeCost += ri::math::Distance(previousWaypoint, goal)
+        * regions_[*goalRegion].areaCost;
+    AppendUniqueWaypoint(result.waypoints, goal);
+    result.traversalCost = routeCost;
     result.found = true;
     result.diagnostic = "Path found across " + std::to_string(result.regionIds.size()) + " region(s).";
     return result;

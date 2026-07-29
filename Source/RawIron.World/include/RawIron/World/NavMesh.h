@@ -38,6 +38,8 @@ struct NavMeshPathQuery {
 struct NavMeshPath {
     bool found = false;
     float traversalCost = 0.0f;
+    /// Number of regions removed from the A* open set. Useful for AI/query-budget telemetry.
+    std::size_t visitedRegionCount = 0;
     std::vector<std::string> regionIds;
     std::vector<ri::math::Vec3> waypoints;
     std::string diagnostic;
