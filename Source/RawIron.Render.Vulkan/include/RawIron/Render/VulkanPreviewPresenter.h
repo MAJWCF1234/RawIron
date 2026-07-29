@@ -5,6 +5,7 @@
 #include "RawIron/Render/VulkanWarmupCache.h"
 #include "RawIron/Scene/PhotoModeCamera.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -49,6 +50,19 @@ struct PreviewImageData {
     std::vector<std::uint8_t> pixels;
 };
 
+struct VulkanNativeSceneResourceStats {
+    std::size_t descriptorPoolCount = 0;
+    std::size_t allocatedDescriptorSetCount = 0;
+    std::size_t cachedDescriptorCount = 0;
+    std::size_t uploadedTextureCount = 0;
+    /// Unique authored texture references that could not be decoded or uploaded.
+    std::size_t missingTextureFallbackCount = 0;
+    /// Descriptor allocations that still failed after automatic pool growth.
+    std::size_t descriptorAllocationFailureCount = 0;
+
+    bool operator==(const VulkanNativeSceneResourceStats&) const = default;
+};
+
 struct VulkanPreviewWindowOptions {
     std::string windowTitle = "RawIron Vulkan Preview";
     VulkanPresentModePreference presentModePreference = VulkanPresentModePreference::Auto;
@@ -90,6 +104,8 @@ struct VulkanPreviewWindowOptions {
     bool enablePersistentPipelineWarmupCache = true;
     /// Empty selects Saved/Cache/Vulkan/native-scene-pipelines.riwarm under the working directory.
     std::filesystem::path pipelineWarmupCachePath{};
+    /// Reports material/texture pressure whenever counters change. Callback failures are isolated.
+    std::function<void(const VulkanNativeSceneResourceStats&)> onResourceStats{};
 };
 
 struct VulkanNativeSceneFrame {

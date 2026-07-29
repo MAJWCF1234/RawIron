@@ -11,8 +11,8 @@ namespace ri::runtime {
 namespace {
 
 constexpr std::uint8_t kSnapshotPacketMarker = 0xA7U;
-constexpr std::uint8_t kSnapshotPacketVersion = 1U;
-constexpr std::size_t kSnapshotPacketHeaderSize = 14U;
+constexpr std::uint8_t kSnapshotPacketVersion = 2U;
+constexpr std::size_t kSnapshotPacketHeaderSize = 18U;
 constexpr std::size_t kMaxSnapshotPayloadBytes = 4U * 1024U * 1024U;
 
 void WriteU32(std::vector<std::uint8_t>& out, const std::uint32_t value) {
@@ -42,6 +42,7 @@ NetPacket EncodeSnapshotPacket(const SnapshotDeltaPacket& snapshot) {
     packet.payload.push_back(kSnapshotPacketVersion);
     WriteU32(packet.payload, snapshot.baseTick);
     WriteU32(packet.payload, snapshot.targetTick);
+    WriteU32(packet.payload, snapshot.payloadChecksum);
     WriteU32(packet.payload, static_cast<std::uint32_t>(snapshot.encodedOps.size()));
     packet.payload.insert(packet.payload.end(), snapshot.encodedOps.begin(), snapshot.encodedOps.end());
     return packet;
@@ -55,7 +56,8 @@ std::optional<SnapshotDeltaPacket> DecodeSnapshotPacket(const NetPacket& packet)
     SnapshotDeltaPacket snapshot{};
     std::uint32_t encodedSize = 0U;
     if (!ReadU32(packet.payload, 2U, snapshot.baseTick) || !ReadU32(packet.payload, 6U, snapshot.targetTick) ||
-        !ReadU32(packet.payload, 10U, encodedSize) || encodedSize > kMaxSnapshotPayloadBytes ||
+        !ReadU32(packet.payload, 10U, snapshot.payloadChecksum) || !ReadU32(packet.payload, 14U, encodedSize)
+        || encodedSize > kMaxSnapshotPayloadBytes ||
         static_cast<std::size_t>(encodedSize) != packet.payload.size() - kSnapshotPacketHeaderSize) {
         return std::nullopt;
     }

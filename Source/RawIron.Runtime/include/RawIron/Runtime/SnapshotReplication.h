@@ -18,6 +18,8 @@ struct SnapshotBlob {
 struct SnapshotDeltaPacket {
     std::uint32_t baseTick = 0;
     std::uint32_t targetTick = 0;
+    /// FNV-1a checksum of the fully reconstructed target snapshot.
+    std::uint32_t payloadChecksum = 0;
     std::vector<std::uint8_t> encodedOps;
 };
 
@@ -34,6 +36,7 @@ struct SnapshotReplicationStats {
     std::uint64_t deltaSnapshots = 0;
     std::uint64_t bytesFull = 0;
     std::uint64_t bytesDelta = 0;
+    std::uint64_t rejectedSnapshots = 0;
 };
 
 /// Maintains per-peer baseline history and produces either full or delta snapshots.

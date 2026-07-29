@@ -4,6 +4,7 @@
 #include "RawIron/Scene/Scene.h"
 
 #include <atomic>
+#include <cstddef>
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
@@ -24,6 +25,15 @@
 namespace ri::editor {
 
 #if defined(_WIN32)
+struct EditorVulkanResourceStats {
+    std::size_t descriptorPoolCount = 0;
+    std::size_t allocatedDescriptorSetCount = 0;
+    std::size_t cachedDescriptorCount = 0;
+    std::size_t uploadedTextureCount = 0;
+    std::size_t missingTextureFallbackCount = 0;
+    std::size_t descriptorAllocationFailureCount = 0;
+};
+
 class EditorVulkanViewport {
 public:
     EditorVulkanViewport() = default;
@@ -47,6 +57,7 @@ public:
     [[nodiscard]] bool RestartInFlight() const noexcept;
     [[nodiscard]] HWND ChildHwnd() const noexcept;
     [[nodiscard]] std::string LastError() const;
+    [[nodiscard]] EditorVulkanResourceStats ResourceStats() const;
     static LRESULT CALLBACK HostWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
 private:
@@ -84,6 +95,8 @@ private:
     bool lastBoundsValid_ = false;
     mutable std::mutex errorMutex_{};
     std::string lastError_{};
+    mutable std::mutex resourceStatsMutex_{};
+    EditorVulkanResourceStats resourceStats_{};
 };
 #endif
 

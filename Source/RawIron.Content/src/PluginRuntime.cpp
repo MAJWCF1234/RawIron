@@ -1,8 +1,10 @@
 #include "RawIron/Content/PluginRuntime.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <exception>
+#include <filesystem>
 #include <mutex>
 #include <set>
 #include <unordered_map>
@@ -171,6 +173,45 @@ void EmitPluginRuntimeEvent(PluginHookContext& context,
     }
 }
 
+[[nodiscard]] bool IsNativeModulePath(const std::filesystem::path& path) {
+    std::string extension = path.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+#if defined(_WIN32)
+    return extension == ".dll";
+#elif defined(__APPLE__)
+    return extension == ".dylib" || extension == ".so";
+#else
+    return extension == ".so";
+#endif
+}
+
+[[nodiscard]] std::vector<NativePluginLoadResult> LoadNativeProjectPlugins(
+    PluginProjectData& projectData,
+    NativePluginHost& host) {
+    std::vector<NativePluginLoadResult> results;
+    for (const ActivePlugin& plugin : projectData.activePlugins) {
+        if (!IsNativeModulePath(plugin.manifest.resolvedEntryPath)) {
+            continue;
+        }
+        NativePluginLoadOptions options{};
+        options.allowedRoot = plugin.manifest.sourceKind == PluginSourceKind::External
+            ? plugin.manifest.resolvedEntryPath.parent_path()
+            : projectData.gameRoot;
+        options.allowedCapabilities = plugin.registry.capabilities;
+        options.enforceAllowedCapabilities = true;
+        NativePluginLoadResult result = host.Load(plugin.manifest.resolvedEntryPath, options);
+        if (!result.loaded) {
+            projectData.issues.push_back({
+                .message = "Native plugin load failed: " + plugin.manifest.id + " (" + result.diagnostic + ")",
+            });
+        }
+        results.push_back(std::move(result));
+    }
+    return results;
+}
+
 } // namespace
 
 void RegisterBuiltinPluginHookHandlers() {
@@ -195,6 +236,11 @@ void ClearPluginHookHandlers() {
     std::lock_guard lock(g_handlersMutex);
     g_handlers.clear();
     g_builtinsRegistered = false;
+}
+
+bool UnregisterPluginHookHandler(const std::string_view eventName) {
+    std::lock_guard lock(g_handlersMutex);
+    return g_handlers.erase(std::string(eventName)) > 0U;
 }
 
 bool IsPluginHookHandlerRegistered(const std::string_view eventName) {
@@ -243,6 +289,11 @@ void AppendPluginHookHandlerIssues(const PluginProjectData& data, std::vector<Pl
     std::set<std::string> capabilityDenialsReported{};
     for (const PluginHookBinding& hook : data.hookBindings) {
         if (!IsPluginHookHandlerRegistered(hook.eventName)) {
+            const PluginManifestEntry* manifest = FindManifest(data, hook.pluginId);
+            if (manifest != nullptr && IsNativeModulePath(manifest->resolvedEntryPath)) {
+                // The versioned module registers this event after project policy/path validation.
+                continue;
+            }
             if (missingHandlersReported.insert(hook.eventName).second) {
                 issues.push_back(PluginValidationIssue{
                     .message = "Hook event has no engine handler: " + hook.eventName + " (plugin " + hook.pluginId + ")",
@@ -402,6 +453,8 @@ GamePluginBootstrap BootstrapGamePlugins(const std::filesystem::path& gameRoot) 
     GamePluginBootstrap bootstrap{};
     bootstrap.projectData = LoadPluginProjectData(gameRoot);
     RegisterBuiltinPluginHookHandlers();
+    NativePluginHost nativeHost;
+    bootstrap.nativePluginLoads = LoadNativeProjectPlugins(bootstrap.projectData, nativeHost);
 
     PluginHookContext context{
         .gameRoot = gameRoot,
@@ -418,8 +471,13 @@ GamePluginBootstrap BootstrapGamePlugins(const std::filesystem::path& gameRoot) 
 }
 
 void GamePluginRuntimeSession::Bootstrap() {
+    if (nativePluginHost) {
+        nativePluginHost->UnloadAll();
+    }
     projectData = LoadPluginProjectData(gameRoot);
     RegisterBuiltinPluginHookHandlers();
+    nativePluginHost = std::make_shared<NativePluginHost>();
+    nativePluginLoads = LoadNativeProjectPlugins(projectData, *nativePluginHost);
     PluginHookContext context{
         .gameRoot = gameRoot,
         .projectData = &projectData,
@@ -462,11 +520,12 @@ std::size_t GamePluginRuntimeSession::TickRuntime(const double elapsedSeconds) {
 
 std::string DescribePluginModificationModel() {
     return
-        "RawIron plugins are declarative project packages. Policy gates what may load; manifest + registry "
+        "RawIron plugins are policy-gated project packages. Manifest + registry "
         "declare inventory and capability grants; load_order.cfg defines precedence; hooks.riplugin binds "
         "startup/runtime events. At runtime DispatchPluginHooks capability-checks and executes event handlers "
         "that may tune scalars, bind authored CSV "
-        "surfaces, and emit RuntimeEventBus topics — without recompiling the game executable.";
+        "surfaces, and emit RuntimeEventBus topics. Versioned native modules may additionally register C-ABI "
+        "handlers through NativePluginHost; their paths and requested capabilities are validated before load.";
 }
 
 } // namespace ri::content

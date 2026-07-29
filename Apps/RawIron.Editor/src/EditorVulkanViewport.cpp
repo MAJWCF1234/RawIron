@@ -72,6 +72,10 @@ bool EditorVulkanViewport::StartRenderLoop(const HWND parent, const RECT& bounds
         std::scoped_lock lock(errorMutex_);
         lastError_.clear();
     }
+    {
+        std::scoped_lock lock(resourceStatsMutex_);
+        resourceStats_ = {};
+    }
 
     renderThread_ = std::jthread([this, width, height]() {
         ri::render::vulkan::VulkanPreviewWindowOptions options{};
@@ -81,6 +85,18 @@ bool EditorVulkanViewport::StartRenderLoop(const HWND parent, const RECT& bounds
         options.presentModePreference = ri::render::vulkan::VulkanPresentModePreference::Mailbox;
         options.enableHybridHdrPresentation = true;
         options.initialRenderQualityTier = 1;
+        options.onResourceStats = [this](
+                                      const ri::render::vulkan::VulkanNativeSceneResourceStats& stats) {
+            std::scoped_lock lock(resourceStatsMutex_);
+            resourceStats_ = {
+                .descriptorPoolCount = stats.descriptorPoolCount,
+                .allocatedDescriptorSetCount = stats.allocatedDescriptorSetCount,
+                .cachedDescriptorCount = stats.cachedDescriptorCount,
+                .uploadedTextureCount = stats.uploadedTextureCount,
+                .missingTextureFallbackCount = stats.missingTextureFallbackCount,
+                .descriptorAllocationFailureCount = stats.descriptorAllocationFailureCount,
+            };
+        };
 
         std::string error;
         const bool ok = ri::render::vulkan::RunVulkanNativeSceneLoop(
@@ -262,6 +278,11 @@ HWND EditorVulkanViewport::ChildHwnd() const noexcept {
 std::string EditorVulkanViewport::LastError() const {
     std::scoped_lock lock(errorMutex_);
     return lastError_;
+}
+
+EditorVulkanResourceStats EditorVulkanViewport::ResourceStats() const {
+    std::scoped_lock lock(resourceStatsMutex_);
+    return resourceStats_;
 }
 
 bool EditorVulkanViewport::EnsureHostWindow(const HWND parent) {

@@ -74,4 +74,8 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(RuntimeEventBusSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/RuntimeEventBusSafetySmoke.cpp)
   target_link_libraries(RuntimeEventBusSafetySmoke PRIVATE RawIron::Runtime)
   add_test(NAME RawIron.Runtime.EventBusSafetySmoke COMMAND RuntimeEventBusSafetySmoke)
+
+  add_executable(SnapshotReplicationSmoke ${CMAKE_SOURCE_DIR}/Tests/SnapshotReplicationSmoke.cpp)
+  target_link_libraries(SnapshotReplicationSmoke PRIVATE RawIron::Runtime)
+  add_test(NAME RawIron.Runtime.SnapshotReplicationSmoke COMMAND SnapshotReplicationSmoke)
 endif()

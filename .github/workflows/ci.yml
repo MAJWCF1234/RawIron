@@ -89,6 +89,17 @@ jobs:
         run: |
           ctest --test-dir build/dev-msvc -C RelWithDebInfo --output-on-failure --timeout 180
 
+      - name: Configure ENet network lane
+        run: cmake --preset dev-msvc-network
+
+      - name: Build and verify real ENet backend
+        shell: pwsh
+        run: |
+          cmake --build build/dev-msvc-network --config RelWithDebInfo --parallel `
+            --target RuntimeNetcodeSmoke RawIron.DedicatedServer RawIron.BotClient
+          ctest --test-dir build/dev-msvc-network -C RelWithDebInfo --output-on-failure --timeout 180 `
+            -R "RawIron\.(Runtime\.NetcodeSmoke|DedicatedServer\.Smoke|BotClient\.Smoke)"
+
       - name: Configure memory-safety lane
         run: cmake --preset dev-msvc-sanitized
 
@@ -97,7 +108,8 @@ jobs:
         run: |
           cmake --build build/dev-msvc-sanitized --config RelWithDebInfo --parallel `
             --target CommandLineSmoke CoreUtilitiesSafetySmoke FixedStepAccumulatorSmoke FrameArenaSmoke `
-              SceneSnapshotStorageSmoke PluginProjectDataSmoke PluginRuntimeSmoke
+              SceneSnapshotStorageSmoke PluginProjectDataSmoke PluginRuntimeSmoke NativePluginHostSmoke `
+              SnapshotReplicationSmoke MovementControllerDurationSmoke
 
       - name: Stage AddressSanitizer runtime
         shell: pwsh
@@ -112,4 +124,4 @@ jobs:
         shell: pwsh
         run: |
           ctest --test-dir build/dev-msvc-sanitized -C RelWithDebInfo --output-on-failure --timeout 180 `
-            -R "RawIron\.(Core\.(CommandLineSmoke|UtilitiesSafetySmoke|FixedStepAccumulatorSmoke|FrameArenaSmoke|SceneSnapshotStorageSmoke)|Content\.(PluginProjectDataSmoke|PluginRuntimeSmoke))"
+            -R "RawIron\.(Core\.(CommandLineSmoke|UtilitiesSafetySmoke|FixedStepAccumulatorSmoke|FrameArenaSmoke|SceneSnapshotStorageSmoke)|Content\.(PluginProjectDataSmoke|PluginRuntimeSmoke|NativePluginHostSmoke)|Runtime\.SnapshotReplicationSmoke|Trace\.MovementControllerDurationSmoke)"

@@ -81,6 +81,16 @@ ri::core::FrameContext Frame(const int index) {
 } // namespace
 
 int main() {
+#if defined(RAWIRON_HAS_ENET)
+    {
+        std::unique_ptr<ri::runtime::INetTransport> enet = ri::runtime::CreateEnetTransport();
+        if (!enet || !enet->StartClient()) {
+            return EXIT_FAILURE;
+        }
+        enet->Shutdown();
+    }
+#endif
+
     auto link = std::make_shared<TestLink>();
     ri::runtime::AuthoritativeNetConfig serverConfig{};
     serverConfig.mode = ri::runtime::NetMode::Dedicated;

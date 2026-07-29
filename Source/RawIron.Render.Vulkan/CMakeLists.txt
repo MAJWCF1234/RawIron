@@ -106,6 +106,9 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(VulkanWarmupCacheSmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanWarmupCacheSmoke.cpp)
   target_link_libraries(VulkanWarmupCacheSmoke PRIVATE RawIron::RenderVulkan)
   add_test(NAME RawIron.Render.Vulkan.WarmupCacheSmoke COMMAND VulkanWarmupCacheSmoke)
+  add_executable(VulkanResourceTelemetrySmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanResourceTelemetrySmoke.cpp)
+  target_link_libraries(VulkanResourceTelemetrySmoke PRIVATE RawIron::RenderVulkan)
+  add_test(NAME RawIron.Render.Vulkan.ResourceTelemetrySmoke COMMAND VulkanResourceTelemetrySmoke)
   add_test(
     NAME RawIron.Render.Vulkan.NativeScenePreviewDetailNormalSmoke
     COMMAND ${CMAKE_COMMAND}

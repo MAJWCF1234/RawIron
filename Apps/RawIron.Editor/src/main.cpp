@@ -2304,6 +2304,20 @@ enum class UiWorkbenchTextEditTarget {
             SetVulkanViewportVisible(true);
             PublishVulkanViewportFrame(cameraPlotRect_, viewportInteractiveMotion);
             viewportPreviewDirty_ = false;
+            const ri::editor::EditorVulkanResourceStats resourceStats = vulkanViewport_.ResourceStats();
+            const std::size_t fallbackCount =
+                resourceStats.missingTextureFallbackCount
+                + resourceStats.descriptorAllocationFailureCount;
+            if (fallbackCount > lastReportedVulkanResourceFallbacks_) {
+                lastReportedVulkanResourceFallbacks_ = fallbackCount;
+                lastIoStatus_ =
+                    "Viewport resources: " + std::to_string(resourceStats.missingTextureFallbackCount)
+                    + " missing texture fallback(s), "
+                    + std::to_string(resourceStats.descriptorAllocationFailureCount)
+                    + " descriptor failure(s), "
+                    + std::to_string(resourceStats.allocatedDescriptorSetCount)
+                    + " material set(s).";
+            }
         } else {
             if (viewportGpuEnabled_) {
                 SetVulkanViewportVisible(false);
@@ -9912,6 +9926,7 @@ enum class UiWorkbenchTextEditTarget {
     bool viewportResolutionScalingEnabled_ = true;
     bool viewportGpuEnabled_ = false;
     ri::editor::EditorVulkanViewport vulkanViewport_{};
+    std::size_t lastReportedVulkanResourceFallbacks_ = 0U;
     bool viewportPreviewReady_ = false;
     double lastViewportPreviewMs_ = 0.0;
     bool viewportPreviewDirty_ = true;

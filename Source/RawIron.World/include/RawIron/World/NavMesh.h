@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace ri::world {
@@ -28,6 +29,10 @@ struct NavMeshLink {
 struct NavMeshPathQuery {
     float maxEndpointSnapDistance = 2.0f;
     std::size_t maxVisitedRegions = 4096;
+    /// Optional token that must be present in a region's `flags` field.
+    std::string requiredFlag;
+    /// Optional token that makes a region unavailable to this query.
+    std::string excludedFlag;
 };
 
 struct NavMeshPath {
@@ -55,6 +60,10 @@ public:
 private:
     std::vector<NavMeshRegion> regions_;
     std::vector<NavMeshLink> links_;
+    /// Immutable topology compiled once at descriptor load instead of rebuilt for every AI query.
+    std::unordered_map<std::string, std::size_t> regionById_;
+    std::vector<std::vector<std::size_t>> adjacency_;
+    float minimumAreaCost_ = 1.0f;
 };
 
 } // namespace ri::world

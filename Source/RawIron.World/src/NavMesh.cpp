@@ -8,7 +8,6 @@
 #include <queue>
 #include <sstream>
 #include <string_view>
-#include <unordered_map>
 
 namespace ri::world {
 namespace {
@@ -77,6 +76,30 @@ namespace {
         * (region.maximum.z - region.minimum.z);
 }
 
+[[nodiscard]] bool HasFlagToken(const std::string_view flags, const std::string_view wanted) {
+    if (wanted.empty()) {
+        return true;
+    }
+    std::size_t cursor = 0;
+    while (cursor < flags.size()) {
+        cursor = flags.find_first_not_of(" \t|;+/", cursor);
+        if (cursor == std::string_view::npos) {
+            return false;
+        }
+        const std::size_t end = flags.find_first_of(" \t|;+/", cursor);
+        const std::string_view token =
+            flags.substr(cursor, end == std::string_view::npos ? flags.size() - cursor : end - cursor);
+        if (token == wanted) {
+            return true;
+        }
+        if (end == std::string_view::npos) {
+            return false;
+        }
+        cursor = end + 1U;
+    }
+    return false;
+}
+
 } // namespace
 
 std::optional<NavMesh> NavMesh::LoadDescriptor(const std::filesystem::path& path, std::string* error) {
@@ -89,7 +112,6 @@ std::optional<NavMesh> NavMesh::LoadDescriptor(const std::filesystem::path& path
     }
 
     NavMesh mesh;
-    std::unordered_map<std::string, std::size_t> regionById;
     std::unordered_map<std::string, std::size_t> linkById;
     std::string line;
     std::size_t lineNumber = 0;
@@ -110,7 +132,7 @@ std::optional<NavMesh> NavMesh::LoadDescriptor(const std::filesystem::path& path
         if (fields.size() == 9U) {
             NavMeshRegion region{};
             region.id = std::string(fields[0]);
-            if (region.id.empty() || regionById.contains(region.id)) {
+            if (region.id.empty() || mesh.regionById_.contains(region.id)) {
                 return fail("region id is empty or duplicated");
             }
             if (!ParseFloat(fields[1], region.minimum.x)
@@ -130,7 +152,7 @@ std::optional<NavMesh> NavMesh::LoadDescriptor(const std::filesystem::path& path
             if (region.flags.empty()) {
                 return fail("region flags cannot be empty");
             }
-            regionById.emplace(region.id, mesh.regions_.size());
+            mesh.regionById_.emplace(region.id, mesh.regions_.size());
             mesh.regions_.push_back(std::move(region));
             continue;
         }
@@ -154,10 +176,24 @@ std::optional<NavMesh> NavMesh::LoadDescriptor(const std::filesystem::path& path
         return fail("descriptor contains no navigation regions");
     }
     for (const NavMeshLink& link : mesh.links_) {
-        if (!regionById.contains(link.fromRegion) || !regionById.contains(link.toRegion)) {
+        if (!mesh.regionById_.contains(link.fromRegion) || !mesh.regionById_.contains(link.toRegion)) {
             return fail("link '" + link.id + "' references an unknown region");
         }
     }
+    mesh.adjacency_.assign(mesh.regions_.size(), {});
+    for (const NavMeshLink& link : mesh.links_) {
+        const std::size_t from = mesh.regionById_.at(link.fromRegion);
+        const std::size_t to = mesh.regionById_.at(link.toRegion);
+        mesh.adjacency_[from].push_back(to);
+        if (link.bidirectional) {
+            mesh.adjacency_[to].push_back(from);
+        }
+    }
+    mesh.minimumAreaCost_ = std::max(
+        0.001f,
+        std::min_element(mesh.regions_.begin(), mesh.regions_.end(), [](const NavMeshRegion& a, const NavMeshRegion& b) {
+            return a.areaCost < b.areaCost;
+        })->areaCost);
     if (error != nullptr) {
         error->clear();
     }
@@ -201,13 +237,22 @@ NavMeshPath NavMesh::FindPath(
         return result;
     }
 
+    const auto regionAllowed = [&](const std::size_t index) {
+        const std::string_view flags = regions_[index].flags;
+        return HasFlagToken(flags, query.requiredFlag)
+            && (query.excludedFlag.empty() || !HasFlagToken(flags, query.excludedFlag));
+    };
     auto resolveEndpoint = [&](const ri::math::Vec3& point) -> std::optional<std::size_t> {
-        if (const std::optional<std::size_t> containing = FindContainingRegion(point); containing.has_value()) {
+        if (const std::optional<std::size_t> containing = FindContainingRegion(point);
+            containing.has_value() && regionAllowed(*containing)) {
             return containing;
         }
         std::optional<std::size_t> nearest;
         float nearestDistance = query.maxEndpointSnapDistance;
         for (std::size_t index = 0; index < regions_.size(); ++index) {
+            if (!regionAllowed(index)) {
+                continue;
+            }
             const float distance = DistanceToRegion(regions_[index], point);
             if (distance <= nearestDistance) {
                 nearest = index;
@@ -224,33 +269,14 @@ NavMeshPath NavMesh::FindPath(
         return result;
     }
 
-    std::unordered_map<std::string, std::size_t> regionById;
-    for (std::size_t index = 0; index < regions_.size(); ++index) {
-        regionById.emplace(regions_[index].id, index);
-    }
-    std::vector<std::vector<std::size_t>> adjacency(regions_.size());
-    for (const NavMeshLink& link : links_) {
-        const std::size_t from = regionById.at(link.fromRegion);
-        const std::size_t to = regionById.at(link.toRegion);
-        adjacency[from].push_back(to);
-        if (link.bidirectional) {
-            adjacency[to].push_back(from);
-        }
-    }
-
     struct OpenEntry {
         float score = 0.0f;
         std::size_t region = 0;
         bool operator>(const OpenEntry& other) const noexcept { return score > other.score; }
     };
-    const float minimumAreaCost = std::max(
-        0.001f,
-        std::min_element(regions_.begin(), regions_.end(), [](const NavMeshRegion& a, const NavMeshRegion& b) {
-            return a.areaCost < b.areaCost;
-        })->areaCost);
     const auto heuristic = [&](const std::size_t region) {
         return ri::math::Distance(RegionCenter(regions_[region]), RegionCenter(regions_[*goalRegion]))
-            * minimumAreaCost;
+            * minimumAreaCost_;
     };
 
     std::priority_queue<OpenEntry, std::vector<OpenEntry>, std::greater<>> open;
@@ -272,8 +298,8 @@ NavMeshPath NavMesh::FindPath(
         if (current == *goalRegion) {
             break;
         }
-        for (const std::size_t neighbor : adjacency[current]) {
-            if (closed[neighbor]) {
+        for (const std::size_t neighbor : adjacency_[current]) {
+            if (closed[neighbor] || !regionAllowed(neighbor)) {
                 continue;
             }
             const float edgeDistance =

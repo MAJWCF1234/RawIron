@@ -4776,6 +4776,7 @@ struct NativeAlbedoTextureCache {
     std::vector<VkDescriptorPool> textureDescriptorPools{};
     std::uint32_t descriptorSetsPerPool = 0;
     std::uint32_t allocatedDescriptorSetCount = 0;
+    std::size_t descriptorAllocationFailureCount = 0;
     VkDescriptorSetLayout textureSetLayout = VK_NULL_HANDLE;
     VkSampler linearSampler = VK_NULL_HANDLE;
     GpuAlbedoImage whiteImage{};
@@ -4786,6 +4787,7 @@ struct NativeAlbedoTextureCache {
     bool loggedDescriptorPoolFailure = false;
     std::unordered_map<std::string, GpuAlbedoImage> imagesByKey{};
     std::unordered_map<std::string, VkDescriptorSet> descriptorByKey{};
+    std::unordered_set<std::string> missingTextureKeys{};
     std::unordered_map<std::string, fs::path> siblingMapByKey{};
     fs::path proceduralCacheDir{};
     VulkanWarmupCache decodedWarmupCache{};
@@ -4806,10 +4808,12 @@ struct NativeAlbedoTextureCache {
         textureDescriptorPool = VK_NULL_HANDLE;
         descriptorSetsPerPool = 0;
         allocatedDescriptorSetCount = 0;
+        descriptorAllocationFailureCount = 0;
         for (auto& entry : imagesByKey) {
             DestroyGpuAlbedoImage(device, entry.second);
         }
         imagesByKey.clear();
+        missingTextureKeys.clear();
         DestroyGpuAlbedoImage(device, whiteImage);
         DestroyGpuAlbedoImage(device, blackImage);
         DestroyGpuAlbedoImage(device, flatNormalImage);
@@ -4839,6 +4843,24 @@ struct NativeAlbedoTextureCache {
     [[nodiscard]] const GpuAlbedoImage& ResolveFallbackBlack() const { return blackImage; }
     [[nodiscard]] const GpuAlbedoImage& ResolveFallbackFlatNormal() const { return flatNormalImage; }
     [[nodiscard]] const GpuAlbedoImage& ResolveFallbackOrm() const { return ormDefaultImage; }
+
+    void recordMissingTexture(const fs::path& path, const VkFormat format) {
+        if (!path.empty()) {
+            missingTextureKeys.emplace(
+                path.lexically_normal().generic_string() + "|fmt=" + std::to_string(static_cast<int>(format)));
+        }
+    }
+
+    [[nodiscard]] VulkanNativeSceneResourceStats resourceStats() const {
+        return {
+            .descriptorPoolCount = textureDescriptorPools.size(),
+            .allocatedDescriptorSetCount = allocatedDescriptorSetCount,
+            .cachedDescriptorCount = descriptorByKey.size(),
+            .uploadedTextureCount = imagesByKey.size(),
+            .missingTextureFallbackCount = missingTextureKeys.size(),
+            .descriptorAllocationFailureCount = descriptorAllocationFailureCount,
+        };
+    }
 
     [[nodiscard]] const GpuAlbedoImage* resolveImageForAbsolutePath(const fs::path& absolutePath,
                                                                     const VkFormat format) {
@@ -5117,6 +5139,7 @@ struct NativeAlbedoTextureCache {
             }
         }
         if (result != VK_SUCCESS) {
+            ++descriptorAllocationFailureCount;
             if (!loggedDescriptorPoolFailure) {
                 loggedDescriptorPoolFailure = true;
                 ri::core::LogInfo(
@@ -5297,6 +5320,12 @@ struct NativeAlbedoTextureCache {
                 ormLoaded = resolveGeneratedOrm(albedoPath, proceduralOrmOptions);
             }
         }
+        if (albedoLoaded == nullptr) recordMissingTexture(albedoPath, kColorTextureFormat);
+        if (normalLoaded == nullptr) recordMissingTexture(normalPath, kDataTextureFormat);
+        if (ormLoaded == nullptr) recordMissingTexture(ormPath, kDataTextureFormat);
+        if (emissiveLoaded == nullptr) recordMissingTexture(emissivePath, kColorTextureFormat);
+        if (opacityLoaded == nullptr) recordMissingTexture(opacityPath, kDataTextureFormat);
+        if (detailLoaded == nullptr) recordMissingTexture(detailPath, kColorTextureFormat);
         const GpuAlbedoImage& albedoImage = albedoLoaded != nullptr ? *albedoLoaded : ResolveFallbackWhite();
         const GpuAlbedoImage& normalImage = normalLoaded != nullptr ? *normalLoaded : ResolveFallbackFlatNormal();
         const GpuAlbedoImage& ormImage = ormLoaded != nullptr ? *ormLoaded : ResolveFallbackOrm();
@@ -5402,6 +5431,7 @@ struct NativeAlbedoTextureCache {
 
         const GpuAlbedoImage* loaded = resolveImageForAbsolutePath(absolutePath, format);
         if (loaded == nullptr) {
+            recordMissingTexture(absolutePath, format);
             descriptorByKey.emplace(key, whiteDescriptorSet);
             return whiteDescriptorSet;
         }
@@ -5441,6 +5471,10 @@ struct NativeAlbedoTextureCache {
             if (!absolutePaths[index].empty()) {
                 loaded[index] = resolveImageForAbsolutePath(
                     absolutePaths[index], index == 3 ? kColorTextureFormat : kDataTextureFormat);
+                if (loaded[index] == nullptr) {
+                    recordMissingTexture(
+                        absolutePaths[index], index == 3 ? kColorTextureFormat : kDataTextureFormat);
+                }
             }
         }
         const GpuAlbedoImage& fallback = ResolveFallbackWhite();
@@ -7861,6 +7895,9 @@ bool RunVulkanNativeSceneLoop(const int width,
         std::uint32_t currentFrame = 0U;
         std::uint64_t lastFrameSequence = 0;
         bool hasPresentedFrame = false;
+        bool resourceStatsReported = false;
+        bool resourceStatsCallbackFailed = false;
+        VulkanNativeSceneResourceStats lastResourceStats{};
         // Roughly ten seconds at the 16 ms retry cadence before declaring the swapchain dead.
         constexpr std::uint32_t kMaxConsecutiveOutOfDateFrames = 600U;
         std::uint32_t consecutiveOutOfDateFrames = 0U;
@@ -8485,6 +8522,20 @@ bool RunVulkanNativeSceneLoop(const int width,
                 if (const VkDescriptorSet loaded = textureCache.descriptorForNativePostBundle(nativePostTexturePaths);
                     loaded != VK_NULL_HANDLE) {
                     nativePostTextureSet = loaded;
+                }
+            }
+            if (options.onResourceStats && !resourceStatsCallbackFailed) {
+                const VulkanNativeSceneResourceStats currentResourceStats = textureCache.resourceStats();
+                if (!resourceStatsReported || currentResourceStats != lastResourceStats) {
+                    try {
+                        options.onResourceStats(currentResourceStats);
+                        lastResourceStats = currentResourceStats;
+                        resourceStatsReported = true;
+                    } catch (...) {
+                        resourceStatsCallbackFailed = true;
+                        ri::core::LogInfo(
+                            "Vulkan resource-stats callback failed; further notifications disabled.");
+                    }
                 }
             }
 

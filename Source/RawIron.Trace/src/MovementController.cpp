@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <vector>
 
 namespace ri::trace {
 namespace {
@@ -272,7 +273,7 @@ float ComputeAdvancedPlayerStamina(float stamina,
     return stamina;
 }
 
-MovementControllerResult SimulateMovementControllerStep(
+static MovementControllerResult SimulateMovementControllerSlice(
     const TraceScene& traceScene,
     const MovementControllerState& state,
     const MovementInput& input,
@@ -483,6 +484,48 @@ MovementControllerResult SimulateMovementControllerStep(
     result.state.jumpPressedLastFrame = input.jumpPressed;
     result.step.onGround = result.state.onGround;
     return result;
+}
+
+MovementControllerResult SimulateMovementControllerStep(
+    const TraceScene& traceScene,
+    const MovementControllerState& state,
+    const MovementInput& input,
+    const float deltaSeconds,
+    const MovementControllerOptions& options,
+    const KinematicVolumeModifiers& volumeModifiers) {
+    MovementControllerResult combined{};
+    combined.state = state;
+    combined.step.state = state.body;
+    if (!std::isfinite(deltaSeconds) || deltaSeconds <= 0.0f) {
+        return combined;
+    }
+
+    constexpr float kControllerSliceSeconds = 0.1f;
+    constexpr std::size_t kMaxControllerSlices = 64U;
+    float remaining = deltaSeconds;
+    std::vector<TraceHit> accumulatedHits;
+    std::optional<KinematicImpact> firstImpact;
+    while (remaining > 1e-6f && combined.sliceCount < kMaxControllerSlices) {
+        const float sliceSeconds = std::min(remaining, kControllerSliceSeconds);
+        MovementControllerResult slice = SimulateMovementControllerSlice(
+            traceScene, combined.state, input, sliceSeconds, options, volumeModifiers);
+        accumulatedHits.insert(
+            accumulatedHits.end(),
+            slice.step.hits.begin(),
+            slice.step.hits.end());
+        if (!firstImpact.has_value() && slice.step.impact.has_value()) {
+            firstImpact = slice.step.impact;
+        }
+        combined.state = slice.state;
+        combined.step = std::move(slice.step);
+        combined.consumedSeconds += sliceSeconds;
+        combined.sliceCount += 1U;
+        remaining -= sliceSeconds;
+    }
+    combined.step.hits = std::move(accumulatedHits);
+    combined.step.impact = std::move(firstImpact);
+    combined.hitSliceBudget = remaining > 1e-6f;
+    return combined;
 }
 
 } // namespace ri::trace

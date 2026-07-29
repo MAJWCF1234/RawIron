@@ -35,6 +35,26 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
+    const ri::world::NavMeshPath requiredMissing = navmesh->FindPath(
+        {-36.0f, 2.0f, 8.0f},
+        {30.0f, 4.0f, -30.0f},
+        {.requiredFlag = "swim"});
+    if (requiredMissing.found || requiredMissing.diagnostic.empty()) {
+        return EXIT_FAILURE;
+    }
+
+    // Exercise immutable cached topology repeatedly. Results must remain deterministic and
+    // query-specific filtering must never mutate the shared graph.
+    for (int queryIndex = 0; queryIndex < 256; ++queryIndex) {
+        const ri::world::NavMeshPath repeated = navmesh->FindPath(
+            {-36.0f, 2.0f, 8.0f},
+            {30.0f, 4.0f, -30.0f},
+            {.requiredFlag = "walk", .excludedFlag = "blocked"});
+        if (!repeated.found || repeated.regionIds != path.regionIds || repeated.waypoints.size() != path.waypoints.size()) {
+            return EXIT_FAILURE;
+        }
+    }
+
     std::string placeholderError;
     if (ri::world::NavMesh::LoadDescriptor(
             workspace / "Games/EditorUiSmoke/levels/assembly.navmesh", &placeholderError).has_value()

@@ -6,6 +6,15 @@
 namespace ri::runtime {
 namespace {
 
+[[nodiscard]] std::uint32_t SnapshotChecksum(const std::vector<std::uint8_t>& bytes) {
+    std::uint32_t hash = 2166136261U;
+    for (const std::uint8_t byte : bytes) {
+        hash ^= byte;
+        hash *= 16777619U;
+    }
+    return hash;
+}
+
 void WriteVarint(std::vector<std::uint8_t>& out, std::uint32_t value) {
     while (value >= 0x80U) {
         out.push_back(static_cast<std::uint8_t>((value & 0x7FU) | 0x80U));
@@ -40,10 +49,14 @@ std::optional<SnapshotDeltaPacket> BuildSnapshotDelta(const SnapshotBlob& baseli
     if (baseline.bytes.size() != target.bytes.size()) {
         return std::nullopt;
     }
+    if (target.bytes.size() > std::numeric_limits<std::uint32_t>::max()) {
+        return std::nullopt;
+    }
 
     SnapshotDeltaPacket packet{};
     packet.baseTick = baseline.tick;
     packet.targetTick = target.tick;
+    packet.payloadChecksum = SnapshotChecksum(target.bytes);
 
     const std::size_t size = baseline.bytes.size();
     std::size_t i = 0;
@@ -81,16 +94,21 @@ std::optional<SnapshotBlob> ApplySnapshotDelta(const SnapshotBlob& baseline, con
         if (!ReadVarint(delta.encodedOps, at, start) || !ReadVarint(delta.encodedOps, at, len)) {
             return std::nullopt;
         }
-        if (static_cast<std::size_t>(start) + static_cast<std::size_t>(len) > rebuilt.bytes.size()) {
+        const std::size_t startIndex = static_cast<std::size_t>(start);
+        const std::size_t runLength = static_cast<std::size_t>(len);
+        if (startIndex > rebuilt.bytes.size() || runLength > rebuilt.bytes.size() - startIndex) {
             return std::nullopt;
         }
-        if (at + static_cast<std::size_t>(len) > delta.encodedOps.size()) {
+        if (at > delta.encodedOps.size() || runLength > delta.encodedOps.size() - at) {
             return std::nullopt;
         }
         std::copy(delta.encodedOps.begin() + static_cast<std::ptrdiff_t>(at),
-                  delta.encodedOps.begin() + static_cast<std::ptrdiff_t>(at + len),
-                  rebuilt.bytes.begin() + static_cast<std::ptrdiff_t>(start));
-        at += len;
+                  delta.encodedOps.begin() + static_cast<std::ptrdiff_t>(at + runLength),
+                  rebuilt.bytes.begin() + static_cast<std::ptrdiff_t>(startIndex));
+        at += runLength;
+    }
+    if (SnapshotChecksum(rebuilt.bytes) != delta.payloadChecksum) {
+        return std::nullopt;
     }
     return rebuilt;
 }
@@ -124,6 +142,7 @@ SnapshotDeltaPacket SnapshotReplicator::BuildForPeer(const std::size_t peerId,
     if (!usedDelta) {
         packet.baseTick = current.tick;
         packet.targetTick = current.tick;
+        packet.payloadChecksum = SnapshotChecksum(current.bytes);
         packet.encodedOps = current.bytes;
         stats_.fullSnapshots += 1;
         stats_.bytesFull += current.bytes.size();
@@ -155,12 +174,18 @@ std::optional<SnapshotBlob> SnapshotReplicator::ApplyFromServer(const std::size_
     if (packet.baseTick == packet.targetTick) {
         rebuilt.tick = packet.targetTick;
         rebuilt.bytes = packet.encodedOps;
+        if (SnapshotChecksum(rebuilt.bytes) != packet.payloadChecksum) {
+            stats_.rejectedSnapshots += 1U;
+            return std::nullopt;
+        }
     } else {
         if (baseline == nullptr) {
+            stats_.rejectedSnapshots += 1U;
             return std::nullopt;
         }
         const auto applied = ApplySnapshotDelta(*baseline, packet);
         if (!applied.has_value()) {
+            stats_.rejectedSnapshots += 1U;
             return std::nullopt;
         }
         rebuilt = *applied;

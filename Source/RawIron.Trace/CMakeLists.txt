@@ -44,4 +44,10 @@ if (RAWIRON_BUILD_TESTS)
   )
   target_link_libraries(ObjectPhysicsDurationSmoke PRIVATE RawIron::Trace)
   add_test(NAME RawIron.Trace.ObjectPhysicsDurationSmoke COMMAND ObjectPhysicsDurationSmoke)
+
+  add_executable(MovementControllerDurationSmoke
+    ${CMAKE_SOURCE_DIR}/Tests/MovementControllerDurationSmoke.cpp
+  )
+  target_link_libraries(MovementControllerDurationSmoke PRIVATE RawIron::Trace)
+  add_test(NAME RawIron.Trace.MovementControllerDurationSmoke COMMAND MovementControllerDurationSmoke)
 endif()

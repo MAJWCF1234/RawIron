@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RawIron/Content/NativePluginHost.h"
 #include "RawIron/Content/PluginProjectData.h"
 
 #include <functional>
@@ -71,6 +72,7 @@ struct GamePluginBootstrap {
     bool startupBudgetExceeded = false;
     std::size_t startupHooksSkippedByBudget = 0;
     double startupElapsedMs = 0.0;
+    std::vector<NativePluginLoadResult> nativePluginLoads;
 };
 
 using PluginHookHandler = std::function<bool(PluginHookContext&, const PluginHookInvocation&)>;
@@ -91,6 +93,9 @@ void RegisterPluginHookHandler(std::string_view eventName,
                                PluginHookHandler handler);
 
 void ClearPluginHookHandlers();
+
+/// Removes a handler by event name. Returns false when no handler was registered.
+[[nodiscard]] bool UnregisterPluginHookHandler(std::string_view eventName);
 
 [[nodiscard]] bool IsPluginHookHandlerRegistered(std::string_view eventName);
 
@@ -119,6 +124,8 @@ struct GamePluginRuntimeSession {
     double startupElapsedMs = 0.0;
     int frameCounter = 0;
     PluginRuntimeEventSink eventSink;
+    std::shared_ptr<NativePluginHost> nativePluginHost;
+    std::vector<NativePluginLoadResult> nativePluginLoads;
 
     void Bootstrap();
     [[nodiscard]] std::size_t TickRuntime(double elapsedSeconds);

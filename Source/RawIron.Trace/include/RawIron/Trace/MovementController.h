@@ -123,6 +123,12 @@ struct MovementControllerState {
 struct MovementControllerResult {
     MovementControllerState state{};
     KinematicStepResult step{};
+    /// Number of bounded controller slices evaluated for this request.
+    std::size_t sliceCount = 0;
+    /// Time actually advanced by the controller.
+    float consumedSeconds = 0.0f;
+    /// True when an extreme duration exceeded the controller's safety work budget.
+    bool hitSliceBudget = false;
 };
 
 void AdvancePlayerStamina(float& stamina,

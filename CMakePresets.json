@@ -48,6 +48,26 @@
       }
     },
     {
+      "name": "dev-msvc-network",
+      "inherits": "dev-msvc",
+      "displayName": "Development (MSVC, ENet network lane)",
+      "binaryDir": "${sourceDir}/build/dev-msvc-network",
+      "cacheVariables": {
+        "RAWIRON_USE_ENET": "ON",
+        "RAWIRON_BUILD_PLAYER": "OFF",
+        "RAWIRON_BUILD_PREVIEW": "OFF",
+        "RAWIRON_BUILD_EDITOR": "OFF",
+        "RAWIRON_BUILD_FORGE": "OFF",
+        "RAWIRON_BUILD_PARTICLE_SHOWCASE": "OFF",
+        "RAWIRON_BUILD_LIMINAL_GAME": "OFF",
+        "RAWIRON_BUILD_FOREST_RUINS_GAME": "OFF",
+        "RAWIRON_BUILD_MULTIPLAYER_SANDBOX_GAME": "OFF",
+        "RAWIRON_BUILD_CUBE_TEST_GAME": "OFF",
+        "RAWIRON_BUILD_VISUAL_SHELL": "OFF",
+        "RAWIRON_BUILD_TOOLS": "OFF"
+      }
+    },
+    {
       "name": "dev-clang",
       "inherits": "dev-base",
       "displayName": "Development (Clang)",
@@ -89,6 +109,11 @@
     {
       "name": "build-dev-msvc-sanitized",
       "configurePreset": "dev-msvc-sanitized",
+      "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "build-dev-msvc-network",
+      "configurePreset": "dev-msvc-network",
       "configuration": "RelWithDebInfo"
     },
     {
