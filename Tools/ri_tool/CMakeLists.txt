@@ -354,6 +354,17 @@ if (RAWIRON_BUILD_TESTS)
   )
 
   add_test(
+    NAME RawIron.Tool.AssetPackageMountCheck
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--asset-package-mount-check;logickit;--root;${PROJECT_SOURCE_DIR}"
+      "-DEXPECTED_STRINGS=RawIron package mount check:;Root: logickit *;Live mounts:;logickit@0.1.0 -> Packages/logickit"
+      "-DFORBIDDEN_STRINGS=failed;exception;Issue:"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
     NAME RawIron.Tool.RigToolchainReport
     COMMAND ${CMAKE_COMMAND}
       "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"

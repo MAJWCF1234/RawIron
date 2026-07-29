@@ -1,0 +1,382 @@
+#include "RawIron/Content/PackageMountRegistry.h"
+
+#include <algorithm>
+#include <limits>
+#include <map>
+#include <set>
+#include <system_error>
+
+namespace ri::content {
+namespace {
+
+namespace fs = std::filesystem;
+
+[[nodiscard]] bool IsSafeRelativePath(const std::string_view rawPath) {
+    if (rawPath.empty()) {
+        return false;
+    }
+    const fs::path path(rawPath);
+    if (path.is_absolute()) {
+        return false;
+    }
+    for (const fs::path& component : path) {
+        if (component.empty() || component == "." || component == "..") {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool IsPathWithin(const fs::path& root, const fs::path& candidate) {
+    auto rootIt = root.begin();
+    auto candidateIt = candidate.begin();
+    for (; rootIt != root.end(); ++rootIt, ++candidateIt) {
+        if (candidateIt == candidate.end() || *rootIt != *candidateIt) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] std::string NormalizeVirtualPath(const fs::path& path) {
+    std::string normalized = path.lexically_normal().generic_string();
+    while (normalized.starts_with("./")) {
+        normalized.erase(0U, 2U);
+    }
+    while (!normalized.empty() && normalized.back() == '/') {
+        normalized.pop_back();
+    }
+    return normalized;
+}
+
+[[nodiscard]] std::string EffectiveMountPoint(const AssetPackageManifest& manifest) {
+    if (!manifest.mountPoint.empty()) {
+        return NormalizeVirtualPath(fs::path(manifest.mountPoint));
+    }
+    return "Packages/" + manifest.packageId;
+}
+
+[[nodiscard]] std::optional<fs::path> ResolveContainedFile(
+    const fs::path& packageRoot,
+    const std::string_view relativePath) {
+    if (!IsSafeRelativePath(relativePath)) {
+        return std::nullopt;
+    }
+    std::error_code rootError;
+    std::error_code fileError;
+    const fs::path canonicalRoot = fs::weakly_canonical(packageRoot, rootError);
+    const fs::path canonicalFile =
+        fs::weakly_canonical(packageRoot / fs::path(relativePath), fileError);
+    if (rootError || fileError || !IsPathWithin(canonicalRoot, canonicalFile)
+        || !fs::is_regular_file(canonicalFile)) {
+        return std::nullopt;
+    }
+    return canonicalFile;
+}
+
+} // namespace
+
+PackageActivationResult PackageMountRegistry::Activate(
+    const std::span<const InstalledAssetPackage> catalog,
+    const std::span<const PackageRequest> roots,
+    const PackageResolverOptions& options) {
+    PackageActivationResult result{};
+
+    std::vector<bool> excluded(catalog.size(), false);
+    std::vector<std::optional<AssetPackageValidationReport>> validationCache(catalog.size());
+    std::map<std::string, std::vector<std::string>, std::less<>> invalidIssues;
+    PackageResolutionResult resolution{};
+    std::vector<std::size_t> resolvedInstalledIndices;
+    for (;;) {
+        std::vector<AssetPackageManifest> candidateManifests;
+        std::vector<std::size_t> candidateToInstalled;
+        candidateManifests.reserve(catalog.size());
+        candidateToInstalled.reserve(catalog.size());
+        for (std::size_t index = 0; index < catalog.size(); ++index) {
+            if (!excluded[index]) {
+                candidateManifests.push_back(catalog[index].manifest);
+                candidateToInstalled.push_back(index);
+            }
+        }
+
+        resolution = ResolvePackages(candidateManifests, roots, options);
+        if (!resolution.resolved) {
+            result.issues = resolution.issues;
+            for (const auto& [id, issues] : invalidIssues) {
+                result.issues.push_back("Package '" + id + "' failed validation:");
+                for (const std::string& issue : issues) {
+                    result.issues.push_back("  " + issue);
+                }
+            }
+            return result;
+        }
+
+        bool rejectedCandidate = false;
+        resolvedInstalledIndices.clear();
+        for (const ResolvedPackage& resolved : resolution.loadOrder) {
+            const std::size_t installedIndex = candidateToInstalled.at(resolved.catalogIndex);
+            if (!validationCache[installedIndex].has_value()) {
+                validationCache[installedIndex] = ValidateAssetPackageManifest(
+                    catalog[installedIndex].manifest,
+                    catalog[installedIndex].packageRoot);
+            }
+            const AssetPackageValidationReport& validation = *validationCache[installedIndex];
+            if (!validation.valid) {
+                excluded[installedIndex] = true;
+                invalidIssues[catalog[installedIndex].manifest.packageId] = validation.issues;
+                rejectedCandidate = true;
+            } else {
+                resolvedInstalledIndices.push_back(installedIndex);
+            }
+        }
+        if (!rejectedCandidate) {
+            break;
+        }
+    }
+
+    struct Candidate {
+        const InstalledAssetPackage* package = nullptr;
+        const AssetPackageValidationReport* validation = nullptr;
+        std::string mountPoint{};
+        std::vector<std::pair<std::string, fs::path>> assets{};
+        std::optional<fs::path> runtimeEntry{};
+    };
+    std::vector<Candidate> candidates;
+    candidates.reserve(resolvedInstalledIndices.size());
+    for (const std::size_t installedIndex : resolvedInstalledIndices) {
+        const InstalledAssetPackage& package = catalog[installedIndex];
+        candidates.push_back({
+            &package,
+            &*validationCache[installedIndex],
+            EffectiveMountPoint(package.manifest),
+        });
+    }
+
+    std::scoped_lock lock(mutex_);
+    std::set<std::string, std::less<>> requestedMountPoints;
+    for (const Candidate& candidate : candidates) {
+        const AssetPackageManifest& manifest = candidate.package->manifest;
+        const auto existing = mounted_.find(manifest.packageId);
+        if (existing != mounted_.end()) {
+            std::error_code existingError;
+            std::error_code candidateError;
+            const fs::path existingRoot =
+                fs::weakly_canonical(existing->second.package.packageRoot, existingError);
+            const fs::path candidateRoot =
+                fs::weakly_canonical(candidate.package->packageRoot, candidateError);
+            if (existing->second.package.manifest.packageVersion != manifest.packageVersion
+                || existingError || candidateError || existingRoot != candidateRoot) {
+                result.issues.push_back(
+                    "Package '" + manifest.packageId + "' is already mounted from a different version or root.");
+                return result;
+            }
+            if (existing->second.referenceCount == std::numeric_limits<std::size_t>::max()) {
+                result.issues.push_back(
+                    "Package '" + manifest.packageId + "' reference count is exhausted.");
+                return result;
+            }
+            continue;
+        }
+        if (!requestedMountPoints.insert(candidate.mountPoint).second) {
+            result.issues.push_back(
+                "Multiple packages in the activation graph request mount point '" + candidate.mountPoint + "'.");
+            return result;
+        }
+        const auto collision = std::find_if(mounted_.begin(), mounted_.end(), [&](const auto& active) {
+            return active.second.mountPoint == candidate.mountPoint
+                && active.first != manifest.packageId;
+        });
+        if (collision != mounted_.end()) {
+            result.issues.push_back(
+                "Mount point '" + candidate.mountPoint + "' is already owned by package '"
+                + collision->first + "'.");
+            return result;
+        }
+    }
+
+    for (Candidate& candidate : candidates) {
+        if (mounted_.contains(candidate.package->manifest.packageId)) {
+            continue;
+        }
+        candidate.assets.reserve(candidate.package->manifest.assets.size());
+        for (const AssetPackageEntry& asset : candidate.package->manifest.assets) {
+            const std::optional<fs::path> physical =
+                ResolveContainedFile(candidate.package->packageRoot, asset.path);
+            if (!physical.has_value()) {
+                result.issues.push_back(
+                    "Package '" + candidate.package->manifest.packageId
+                    + "' changed after validation; asset '" + asset.id + "' is unavailable.");
+                return result;
+            }
+            candidate.assets.emplace_back(asset.id, *physical);
+        }
+        if (candidate.package->manifest.runtime.executionMode != "data") {
+            candidate.runtimeEntry = ResolveContainedFile(
+                candidate.package->packageRoot,
+                candidate.package->manifest.runtime.entryPoint);
+            if (!candidate.runtimeEntry.has_value()) {
+                result.issues.push_back(
+                    "Package '" + candidate.package->manifest.packageId
+                    + "' changed after validation; its runtime entry point is unavailable.");
+                return result;
+            }
+        }
+    }
+
+    std::uint64_t activationId = nextActivationId_++;
+    while (activationId == 0U || activations_.contains(activationId)) {
+        activationId = nextActivationId_++;
+    }
+    std::vector<std::string> activationPackages;
+    activationPackages.reserve(candidates.size());
+    for (const Candidate& candidate : candidates) {
+        const AssetPackageManifest& manifest = candidate.package->manifest;
+        const auto existing = mounted_.find(manifest.packageId);
+        if (existing != mounted_.end()) {
+            ++existing->second.referenceCount;
+            result.retained.push_back(manifest.packageId);
+        } else {
+            MountedRecord record{};
+            record.package = *candidate.package;
+            record.package.validation = *candidate.validation;
+            record.mountPoint = candidate.mountPoint;
+            record.referenceCount = 1U;
+            record.mountOrdinal = nextMountOrdinal_++;
+            record.runtimeEntry = candidate.runtimeEntry;
+            for (const auto& [assetId, physicalPath] : candidate.assets) {
+                record.assetsById.emplace(assetId, physicalPath);
+            }
+            for (std::size_t index = 0U; index < manifest.assets.size(); ++index) {
+                const AssetPackageEntry& asset = manifest.assets[index];
+                virtualAssets_.emplace(
+                    NormalizeVirtualPath(fs::path(record.mountPoint) / fs::path(asset.path)),
+                    VirtualAssetRecord{
+                        .packageId = manifest.packageId,
+                        .physicalPath = candidate.assets[index].second,
+                    });
+            }
+            mounted_.emplace(manifest.packageId, std::move(record));
+            result.newlyMounted.push_back(manifest.packageId);
+        }
+        activationPackages.push_back(manifest.packageId);
+    }
+    activations_.emplace(activationId, std::move(activationPackages));
+    result.activated = true;
+    result.activationId = activationId;
+    return result;
+}
+
+bool PackageMountRegistry::Deactivate(const std::uint64_t activationId) {
+    std::scoped_lock lock(mutex_);
+    const auto activation = activations_.find(activationId);
+    if (activation == activations_.end()) {
+        return false;
+    }
+    for (auto packageIt = activation->second.rbegin(); packageIt != activation->second.rend(); ++packageIt) {
+        const auto mounted = mounted_.find(*packageIt);
+        if (mounted == mounted_.end()) {
+            continue;
+        }
+        if (mounted->second.referenceCount > 1U) {
+            --mounted->second.referenceCount;
+        } else {
+            for (const AssetPackageEntry& asset : mounted->second.package.manifest.assets) {
+                virtualAssets_.erase(NormalizeVirtualPath(
+                    fs::path(mounted->second.mountPoint) / fs::path(asset.path)));
+            }
+            mounted_.erase(mounted);
+        }
+    }
+    activations_.erase(activation);
+    return true;
+}
+
+void PackageMountRegistry::DeactivateAll() {
+    std::scoped_lock lock(mutex_);
+    activations_.clear();
+    mounted_.clear();
+    virtualAssets_.clear();
+}
+
+bool PackageMountRegistry::IsMounted(const std::string_view packageId) const {
+    std::scoped_lock lock(mutex_);
+    return mounted_.contains(std::string(packageId));
+}
+
+std::size_t PackageMountRegistry::ActiveActivationCount() const {
+    std::scoped_lock lock(mutex_);
+    return activations_.size();
+}
+
+std::vector<MountedPackageInfo> PackageMountRegistry::MountedPackages() const {
+    std::scoped_lock lock(mutex_);
+    std::vector<std::pair<std::uint64_t, MountedPackageInfo>> ordered;
+    ordered.reserve(mounted_.size());
+    for (const auto& [id, record] : mounted_) {
+        ordered.push_back({
+            record.mountOrdinal,
+            {
+                .packageId = id,
+                .packageVersion = record.package.manifest.packageVersion,
+                .packageKind = record.package.manifest.packageKind,
+                .mountPoint = record.mountPoint,
+                .packageRoot = record.package.packageRoot,
+                .referenceCount = record.referenceCount,
+            },
+        });
+    }
+    std::sort(ordered.begin(), ordered.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.first < rhs.first;
+    });
+    std::vector<MountedPackageInfo> result;
+    result.reserve(ordered.size());
+    for (auto& [ordinal, info] : ordered) {
+        (void)ordinal;
+        result.push_back(std::move(info));
+    }
+    return result;
+}
+
+std::optional<fs::path> PackageMountRegistry::ResolveAsset(
+    const std::string_view packageId,
+    const std::string_view assetId) const {
+    std::scoped_lock lock(mutex_);
+    const auto mounted = mounted_.find(std::string(packageId));
+    if (mounted == mounted_.end()) {
+        return std::nullopt;
+    }
+    const auto asset = mounted->second.assetsById.find(std::string(assetId));
+    if (asset == mounted->second.assetsById.end()) {
+        return std::nullopt;
+    }
+    return asset->second;
+}
+
+std::optional<fs::path> PackageMountRegistry::ResolveVirtualPath(
+    const std::string_view virtualPath) const {
+    if (!IsSafeRelativePath(virtualPath)) {
+        return std::nullopt;
+    }
+    const std::string normalized = NormalizeVirtualPath(fs::path(virtualPath));
+    std::scoped_lock lock(mutex_);
+    const auto virtualAsset = virtualAssets_.find(normalized);
+    if (virtualAsset == virtualAssets_.end()) {
+        return std::nullopt;
+    }
+    if (!mounted_.contains(virtualAsset->second.packageId)) {
+        return std::nullopt;
+    }
+    return virtualAsset->second.physicalPath;
+}
+
+std::optional<fs::path> PackageMountRegistry::ResolveRuntimeEntry(
+    const std::string_view packageId) const {
+    std::scoped_lock lock(mutex_);
+    const auto mounted = mounted_.find(std::string(packageId));
+    if (mounted == mounted_.end() || !mounted->second.runtimeEntry.has_value()) {
+        return std::nullopt;
+    }
+    return mounted->second.runtimeEntry;
+}
+
+} // namespace ri::content

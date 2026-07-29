@@ -26,10 +26,23 @@ versions deterministically, backtracks when the newest candidate makes the graph
 unsatisfiable, rejects cycles and conflicts, enforces platform and engine API constraints,
 checks permissions, and emits dependencies before dependents.
 
+`PackageMountRegistry` turns that resolved graph into an atomic live mount set. Each
+activation retains every dependency it uses. Releasing an activation walks its graph in
+reverse order and unloads packages only when their reference count reaches zero, so two
+worlds or avatars can safely share one system package. Version/root mismatches and virtual
+mount-point collisions are rejected before registry state changes.
+
+Runtime lookup is intentionally narrow: callers can resolve declared asset IDs, declared
+virtual asset paths, or a validated executable entry point. Arbitrary files inside a
+package are not exposed through the mount API. Asset IDs and virtual paths are indexed
+when the package mounts, so steady-state lookup does not scan manifests or touch the
+filesystem.
+
 Inspect a graph from the command line:
 
 ```text
 ri_tool --asset-package-resolve <package-id> --project <root>
+ri_tool --asset-package-mount-check <package-id> --project <root>
 ```
 
 Useful options include `--package-version`, `--engine-api`, `--platform`,

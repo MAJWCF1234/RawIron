@@ -5,6 +5,7 @@
 #include "RawIron/Content/PluginRuntime.h"
 #include "RawIron/Content/AssetDocument.h"
 #include "RawIron/Content/AssetPackageManifest.h"
+#include "RawIron/Content/PackageMountRegistry.h"
 #include "RawIron/Content/PackageResolver.h"
 #include "RawIron/Core/Detail/JsonScan.h"
 #include "RawIron/Core/Log.h"
@@ -1161,22 +1162,20 @@ std::vector<std::string> SplitPackageOptionList(const std::string_view value) {
     return tokens;
 }
 
-void ResolveAssetPackageGraph(
+std::vector<ri::content::InstalledAssetPackage> DiscoverWorkspacePackageCatalog(
     const WorkspaceLayout& workspace,
-    const ri::core::CommandLine& commandLine) {
-    const std::optional<std::string> rootId = commandLine.GetValue("--asset-package-resolve");
-    if (!rootId.has_value() || rootId->empty()) {
-        throw std::runtime_error("Missing --asset-package-resolve <package-id>.");
-    }
-    const fs::path projectRoot = ResolveProjectRootOption(workspace, commandLine);
+    const fs::path& projectRoot) {
     std::vector<fs::path> manifestPaths =
         ri::content::FindAssetPackageManifestPaths(projectRoot);
     const std::vector<fs::path> workspacePackagePaths =
         ri::content::FindAssetPackageManifestPaths(workspace.root / "Assets");
-    manifestPaths.insert(manifestPaths.end(), workspacePackagePaths.begin(), workspacePackagePaths.end());
+    manifestPaths.insert(
+        manifestPaths.end(),
+        workspacePackagePaths.begin(),
+        workspacePackagePaths.end());
 
     std::set<std::string, std::less<>> loadedIdentities;
-    std::vector<ri::content::AssetPackageManifest> catalog;
+    std::vector<ri::content::InstalledAssetPackage> catalog;
     for (const fs::path& manifestPath : manifestPaths) {
         const std::optional<ri::content::AssetPackageManifest> manifest =
             ri::content::LoadAssetPackageManifest(manifestPath);
@@ -1185,11 +1184,20 @@ void ResolveAssetPackageGraph(
             continue;
         }
         const std::string identity = manifest->packageId + "@" + manifest->packageVersion;
-        if (loadedIdentities.insert(identity).second) {
-            catalog.push_back(*manifest);
+        if (!loadedIdentities.insert(identity).second) {
+            continue;
         }
+        ri::content::InstalledAssetPackage package{};
+        package.manifestPath = manifestPath;
+        package.packageRoot = manifestPath.parent_path();
+        package.manifest = *manifest;
+        catalog.push_back(std::move(package));
     }
+    return catalog;
+}
 
+ri::content::PackageResolverOptions PackageOptionsFromCommandLine(
+    const ri::core::CommandLine& commandLine) {
     ri::content::PackageResolverOptions options{};
     options.engineApiVersion = commandLine.GetValue("--engine-api").value_or("1.0.0");
 #if defined(_WIN32)
@@ -1207,13 +1215,31 @@ void ResolveAssetPackageGraph(
     }
     options.enforcePermissions = !commandLine.HasFlag("--ignore-package-permissions");
     options.includeOptionalDependencies = commandLine.HasFlag("--include-optional-packages");
+    return options;
+}
+
+void ResolveAssetPackageGraph(
+    const WorkspaceLayout& workspace,
+    const ri::core::CommandLine& commandLine) {
+    const std::optional<std::string> rootId = commandLine.GetValue("--asset-package-resolve");
+    if (!rootId.has_value() || rootId->empty()) {
+        throw std::runtime_error("Missing --asset-package-resolve <package-id>.");
+    }
+    const fs::path projectRoot = ResolveProjectRootOption(workspace, commandLine);
+    const std::vector<ri::content::InstalledAssetPackage> installedCatalog =
+        DiscoverWorkspacePackageCatalog(workspace, projectRoot);
+    std::vector<ri::content::AssetPackageManifest> catalog;
+    catalog.reserve(installedCatalog.size());
+    for (const ri::content::InstalledAssetPackage& package : installedCatalog) {
+        catalog.push_back(package.manifest);
+    }
 
     const std::vector<ri::content::PackageRequest> roots{{
         .packageId = *rootId,
         .versionRequirement = commandLine.GetValue("--package-version").value_or("*"),
     }};
     const ri::content::PackageResolutionResult resolution =
-        ri::content::ResolvePackages(catalog, roots, options);
+        ri::content::ResolvePackages(catalog, roots, PackageOptionsFromCommandLine(commandLine));
     ri::core::LogInfo("RawIron package resolution:");
     ri::core::LogInfo("  Root: " + *rootId + " " + roots.front().versionRequirement);
     ri::core::LogInfo("  Catalog packages: " + std::to_string(catalog.size()));
@@ -1229,6 +1255,49 @@ void ResolveAssetPackageGraph(
         ri::core::LogInfo(
             "    " + std::to_string(index + 1U) + ". "
             + package.packageId + "@" + package.packageVersion);
+    }
+}
+
+void CheckAssetPackageMount(
+    const WorkspaceLayout& workspace,
+    const ri::core::CommandLine& commandLine) {
+    const std::optional<std::string> rootId =
+        commandLine.GetValue("--asset-package-mount-check");
+    if (!rootId.has_value() || rootId->empty()) {
+        throw std::runtime_error("Missing --asset-package-mount-check <package-id>.");
+    }
+    const fs::path projectRoot = ResolveProjectRootOption(workspace, commandLine);
+    const std::vector<ri::content::InstalledAssetPackage> catalog =
+        DiscoverWorkspacePackageCatalog(workspace, projectRoot);
+    const std::vector<ri::content::PackageRequest> roots{{
+        .packageId = *rootId,
+        .versionRequirement = commandLine.GetValue("--package-version").value_or("*"),
+    }};
+    ri::content::PackageMountRegistry registry;
+    const ri::content::PackageActivationResult activation = registry.Activate(
+        catalog,
+        roots,
+        PackageOptionsFromCommandLine(commandLine));
+
+    ri::core::LogInfo("RawIron package mount check:");
+    ri::core::LogInfo("  Root: " + *rootId + " " + roots.front().versionRequirement);
+    ri::core::LogInfo("  Catalog packages: " + std::to_string(catalog.size()));
+    if (!activation.activated) {
+        for (const std::string& issue : activation.issues) {
+            ri::core::LogInfo("  Issue: " + issue);
+        }
+        throw std::runtime_error("RawIron package mount check failed.");
+    }
+    ri::core::LogInfo("  Activation: " + std::to_string(activation.activationId));
+    ri::core::LogInfo("  Live mounts:");
+    const std::vector<ri::content::MountedPackageInfo> mounts = registry.MountedPackages();
+    for (std::size_t index = 0U; index < mounts.size(); ++index) {
+        const ri::content::MountedPackageInfo& mount = mounts[index];
+        ri::core::LogInfo(
+            "    " + std::to_string(index + 1U) + ". "
+            + mount.packageId + "@" + mount.packageVersion
+            + " -> " + mount.mountPoint
+            + " [" + mount.packageRoot.string() + "]");
     }
 }
 
@@ -1832,6 +1901,7 @@ void PrintToolHelp() {
     ri::core::LogInfo("  --formats | --asset-standardize <path> | --asset-standardize-dir <dir>");
     ri::core::LogInfo("  --asset-package-build | --asset-package-validate | --asset-package-import | --asset-package-install");
     ri::core::LogInfo("  --asset-package-resolve <id> [--package-version <range>] [--project <root>]");
+    ri::core::LogInfo("  --asset-package-mount-check <id> [--package-version <range>] [--project <root>]");
     ri::core::LogInfo("  --rig-toolchain-report | --rig-create-humanoid <id> | --rig-validate <path>");
     ri::core::LogInfo("Rendering and diagnostics:");
     ri::core::LogInfo("  --scenekit-targets | --scenekit-checks | --scenekit-example <slug>");
@@ -1844,7 +1914,7 @@ bool CommandRequested(const ri::core::CommandLine& commandLine, const std::strin
 }
 
 void ValidateSinglePrimaryCommand(const ri::core::CommandLine& commandLine) {
-    static constexpr std::array<std::string_view, 32> commands = {{
+    static constexpr std::array<std::string_view, 33> commands = {{
         "--workspace",
         "--list-projects",
         "--ensure-workspace",
@@ -1868,6 +1938,7 @@ void ValidateSinglePrimaryCommand(const ri::core::CommandLine& commandLine) {
         "--asset-package-import",
         "--asset-package-install",
         "--asset-package-resolve",
+        "--asset-package-mount-check",
         "--scenekit-targets",
         "--postprocess-presets",
         "--scenekit-checks",
@@ -2425,6 +2496,11 @@ int main(int argc, char** argv) {
 
         if (CommandRequested(commandLine, "--asset-package-resolve")) {
             ResolveAssetPackageGraph(workspace, commandLine);
+            return 0;
+        }
+
+        if (CommandRequested(commandLine, "--asset-package-mount-check")) {
+            CheckAssetPackageMount(workspace, commandLine);
             return 0;
         }
 

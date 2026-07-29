@@ -146,7 +146,7 @@ struct PackageFileMetrics {
     }
     for (const fs::path& part : path) {
         const std::string token = part.string();
-        if (token == ".." || token.empty()) {
+        if (token == "." || token == ".." || token.empty()) {
             return false;
         }
     }
@@ -403,7 +403,7 @@ AssetPackageValidationReport ValidateAssetPackageManifest(const AssetPackageMani
         report.issues.push_back("package engineApiRequirement is not a supported semantic-version requirement.");
     }
     if (!manifest.mountPoint.empty() && !IsSafePackageRelativePath(manifest.mountPoint)) {
-        report.issues.push_back("package mountPoint must be package/project-relative and cannot contain '..'.");
+        report.issues.push_back("package mountPoint must be package/project-relative and cannot contain '.' or '..'.");
     }
     if (manifest.generatedAtUtc.empty()) {
         report.issues.push_back("package generatedAtUtc must be non-empty.");
@@ -500,7 +500,7 @@ AssetPackageValidationReport ValidateAssetPackageManifest(const AssetPackageMani
             continue;
         }
         if (!IsSafePackageRelativePath(asset.path)) {
-            report.issues.push_back("asset " + label + " path must be package-relative and cannot contain '..'.");
+            report.issues.push_back("asset " + label + " path must be package-relative and cannot contain '.' or '..'.");
             continue;
         }
         if (!seenPaths.insert(asset.path).second) {
@@ -508,7 +508,7 @@ AssetPackageValidationReport ValidateAssetPackageManifest(const AssetPackageMani
         }
         if (!asset.installPath.empty()) {
             if (!IsSafePackageRelativePath(asset.installPath)) {
-                report.issues.push_back("asset " + label + " installPath must be project-relative and cannot contain '..'.");
+                report.issues.push_back("asset " + label + " installPath must be project-relative and cannot contain '.' or '..'.");
             } else if (!seenInstallPaths.insert(asset.installPath).second) {
                 report.issues.push_back("asset " + label + " duplicates another asset installPath.");
             }
