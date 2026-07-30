@@ -53,6 +53,9 @@ void BootstrapGamePluginRuntime(GamePluginRuntimeHost& host, const std::filesyst
     for (const ri::content::PluginValidationIssue& issue : host.session.projectData.issues) {
         ri::core::LogInfo("Plugin validation: " + issue.message);
     }
+    for (const std::string& issue : host.session.packageMountReport.issues) {
+        ri::core::LogInfo("Package mount: " + issue);
+    }
     for (const ri::content::PluginHookResult& result : host.session.startupResults) {
         if (result.handled) {
             ri::core::LogInfo("Plugin startup [" + result.pluginId + "] " + result.eventName + ": " + result.message);
@@ -139,6 +142,11 @@ void MaybeLogPluginDiagnostics(GamePluginRuntimeHost& host,
 
 std::string SummarizeGamePluginDiagnostics(const GamePluginRuntimeHost& host) {
     std::string summary = ri::content::SummarizePluginProjectData(host.session.projectData);
+    summary += " packages=" + std::to_string(
+        host.session.packageMountRegistry ? host.session.packageMountRegistry->MountedPackages().size() : 0U);
+    if (!host.session.packageMountReport.requiredPackagesMounted) {
+        summary += " packageMount=degraded";
+    }
     summary += " frames=" + std::to_string(host.session.frameCounter);
     summary += " recent=" + std::to_string(host.recentEvents.size());
     if (host.renderBoostActive) {

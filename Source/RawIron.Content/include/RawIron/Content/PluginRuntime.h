@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RawIron/Content/NativePluginHost.h"
+#include "RawIron/Content/GamePackageRequirements.h"
 #include "RawIron/Content/PluginProjectData.h"
 
 #include <functional>
@@ -124,6 +125,8 @@ struct GamePluginRuntimeSession {
     double startupElapsedMs = 0.0;
     int frameCounter = 0;
     PluginRuntimeEventSink eventSink;
+    std::shared_ptr<PackageMountRegistry> packageMountRegistry;
+    GamePackageMountReport packageMountReport;
     std::shared_ptr<NativePluginHost> nativePluginHost;
     std::vector<NativePluginLoadResult> nativePluginLoads;
 

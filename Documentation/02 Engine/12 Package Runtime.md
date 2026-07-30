@@ -48,6 +48,32 @@ ri_tool --asset-package-mount-check <package-id> --project <root>
 Useful options include `--package-version`, `--engine-api`, `--platform`,
 `--capabilities`, `--grant-permissions`, and `--include-optional-packages`.
 
+## Game package requirements
+
+Games declare their package roots in `assets/dependencies.json`. The game runtime mounts
+all required roots as one transaction before it starts plugin hooks; optional roots are
+attempted independently and leave a diagnostic if unavailable. Game-local `Packages/`
+entries take precedence over a matching shared workspace package while developing.
+
+```json
+{
+  "engineApiVersion": "1.0.0",
+  "capabilities": ["game.runtime"],
+  "permissions": ["world.spawn"],
+  "packages": [
+    { "id": "studio.base", "version": "^1.0.0" },
+    { "id": "studio.photo-mode", "version": "^1.0.0", "optional": true }
+  ]
+}
+```
+
+An absent `dependencies.json`, or one without `packages`, remains a valid legacy game
+configuration. Validate a game's mount graph without launching it with:
+
+```text
+ri_tool --game-package-mount-check --game <id>
+```
+
 ## Security boundary
 
 Capabilities describe what a package supplies or needs. Permissions describe privileged

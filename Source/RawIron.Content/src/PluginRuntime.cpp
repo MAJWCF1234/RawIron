@@ -471,11 +471,16 @@ GamePluginBootstrap BootstrapGamePlugins(const std::filesystem::path& gameRoot) 
 }
 
 void GamePluginRuntimeSession::Bootstrap() {
+    if (packageMountRegistry) {
+        ReleaseDeclaredGamePackages(*packageMountRegistry, packageMountReport);
+    }
     if (nativePluginHost) {
         nativePluginHost->UnloadAll();
     }
     projectData = LoadPluginProjectData(gameRoot);
     RegisterBuiltinPluginHookHandlers();
+    packageMountRegistry = std::make_shared<PackageMountRegistry>();
+    packageMountReport = MountDeclaredGamePackages(*packageMountRegistry, gameRoot);
     nativePluginHost = std::make_shared<NativePluginHost>();
     nativePluginLoads = LoadNativeProjectPlugins(projectData, *nativePluginHost);
     PluginHookContext context{

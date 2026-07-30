@@ -1,5 +1,6 @@
 #include "RawIron/Core/CommandLine.h"
 #include "RawIron/Content/GameManifest.h"
+#include "RawIron/Content/GamePackageRequirements.h"
 #include "RawIron/Content/ExtensionDescriptor.h"
 #include "RawIron/Content/PluginProjectData.h"
 #include "RawIron/Content/PluginRuntime.h"
@@ -1674,6 +1675,41 @@ std::optional<ProjectCommandContext> ResolveProjectCommandContext(const ri::core
     };
 }
 
+void CheckGamePackageMounts(
+    const WorkspaceLayout& workspace,
+    const ri::core::CommandLine& commandLine) {
+    std::string error;
+    const std::optional<ProjectCommandContext> context =
+        ResolveProjectCommandContext(commandLine, workspace, error);
+    if (!context.has_value()) {
+        throw std::runtime_error(error);
+    }
+
+    ri::content::PackageMountRegistry registry;
+    const ri::content::GamePackageMountReport report =
+        ri::content::MountDeclaredGamePackages(registry, context->manifest.rootPath);
+    ri::core::LogInfo("RawIron game package mount check:");
+    ri::core::LogInfo("  Game: " + context->manifest.id);
+    ri::core::LogInfo("  Declared packages: " + std::to_string(report.requirements.packages.size()));
+    ri::core::LogInfo(
+        "  Required packages: "
+        + std::string(report.requiredPackagesMounted ? "mounted" : "failed"));
+    for (const std::string& issue : report.issues) {
+        ri::core::LogInfo("  Issue: " + issue);
+    }
+    if (!report.requiredPackagesMounted) {
+        throw std::runtime_error("RawIron game package mount check failed.");
+    }
+    const std::vector<ri::content::MountedPackageInfo> mounts = registry.MountedPackages();
+    ri::core::LogInfo("  Live mounts: " + std::to_string(mounts.size()));
+    for (const ri::content::MountedPackageInfo& mount : mounts) {
+        ri::core::LogInfo(
+            "    " + mount.packageId + "@" + mount.packageVersion
+            + " -> " + mount.mountPoint);
+    }
+    ri::content::ReleaseDeclaredGamePackages(registry, report);
+}
+
 void DescribeRawIronProject(const ProjectCommandContext& context) {
     const std::vector<ri::editor::WorkspaceResourceEntry> resources =
         ri::editor::CollectWorkspaceGameResources(context.manifest.rootPath);
@@ -1902,6 +1938,7 @@ void PrintToolHelp() {
     ri::core::LogInfo("  --asset-package-build | --asset-package-validate | --asset-package-import | --asset-package-install");
     ri::core::LogInfo("  --asset-package-resolve <id> [--package-version <range>] [--project <root>]");
     ri::core::LogInfo("  --asset-package-mount-check <id> [--package-version <range>] [--project <root>]");
+    ri::core::LogInfo("  --game-package-mount-check --game <id> | --game-root <path>");
     ri::core::LogInfo("  --rig-toolchain-report | --rig-create-humanoid <id> | --rig-validate <path>");
     ri::core::LogInfo("Rendering and diagnostics:");
     ri::core::LogInfo("  --scenekit-targets | --scenekit-checks | --scenekit-example <slug>");
@@ -1914,7 +1951,7 @@ bool CommandRequested(const ri::core::CommandLine& commandLine, const std::strin
 }
 
 void ValidateSinglePrimaryCommand(const ri::core::CommandLine& commandLine) {
-    static constexpr std::array<std::string_view, 33> commands = {{
+    static constexpr std::array<std::string_view, 34> commands = {{
         "--workspace",
         "--list-projects",
         "--ensure-workspace",
@@ -1939,6 +1976,7 @@ void ValidateSinglePrimaryCommand(const ri::core::CommandLine& commandLine) {
         "--asset-package-install",
         "--asset-package-resolve",
         "--asset-package-mount-check",
+        "--game-package-mount-check",
         "--scenekit-targets",
         "--postprocess-presets",
         "--scenekit-checks",
@@ -2501,6 +2539,11 @@ int main(int argc, char** argv) {
 
         if (CommandRequested(commandLine, "--asset-package-mount-check")) {
             CheckAssetPackageMount(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--game-package-mount-check")) {
+            CheckGamePackageMounts(workspace, commandLine);
             return 0;
         }
 

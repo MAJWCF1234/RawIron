@@ -6,6 +6,7 @@ add_library(RawIron.Content
   src/EngineAssets.cpp
   src/ExtensionDescriptor.cpp
   src/GameManifest.cpp
+  src/GamePackageRequirements.cpp
   src/GameRuntimeSupport.cpp
   src/NativePluginHost.cpp
   src/PackageMountRegistry.cpp
@@ -79,6 +80,10 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(PackageMountRegistrySmoke ${CMAKE_SOURCE_DIR}/Tests/PackageMountRegistrySmoke.cpp)
   target_link_libraries(PackageMountRegistrySmoke PRIVATE RawIron::Content)
   add_test(NAME RawIron.Content.PackageMountRegistrySmoke COMMAND PackageMountRegistrySmoke)
+
+  add_executable(GamePackageRequirementsSmoke ${CMAKE_SOURCE_DIR}/Tests/GamePackageRequirementsSmoke.cpp)
+  target_link_libraries(GamePackageRequirementsSmoke PRIVATE RawIron::Content)
+  add_test(NAME RawIron.Content.GamePackageRequirementsSmoke COMMAND GamePackageRequirementsSmoke)
 
   add_library(NativePluginFixture MODULE ${CMAKE_SOURCE_DIR}/Tests/NativePluginFixture.cpp)
   target_include_directories(NativePluginFixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

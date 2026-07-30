@@ -23,6 +23,7 @@ Games are expected to carry, at minimum:
 - `config/*.cfg`, `*.policy`, and related config baselines
 - `levels/assembly.*` authored level and runtime support files
 - `assets/*` manifests, palettes, materials, shaders, banks, and fonts
+- `assets/dependencies.json` optional game package roots, runtime capabilities, and granted permissions
 - `data/*` schema, registry, lookup, telemetry, save, and achievement data
 - `plugins/*` manifest, load order, registry, and hooks
 - `ai/*` behavior, blackboard, factions, perception, and squad tactics

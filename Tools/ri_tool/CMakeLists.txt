@@ -365,6 +365,17 @@ if (RAWIRON_BUILD_TESTS)
   )
 
   add_test(
+    NAME RawIron.Tool.GamePackageMountCheck
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DCOMMAND_ARGS=--game-package-mount-check;--game;cube-test;--root;${PROJECT_SOURCE_DIR}"
+      "-DEXPECTED_STRINGS=RawIron game package mount check:;Game: cube-test;Required packages: mounted;Live mounts: 0"
+      "-DFORBIDDEN_STRINGS=failed;exception;Issue:"
+      "${rawiron_tool_runtime_dll_arg}"
+      -P "${rawiron_verify_command_output}"
+  )
+
+  add_test(
     NAME RawIron.Tool.RigToolchainReport
     COMMAND ${CMAKE_COMMAND}
       "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
