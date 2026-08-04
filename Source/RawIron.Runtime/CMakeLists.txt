@@ -2,7 +2,10 @@ add_library(RawIron.Runtime
   src/BotClients.cpp
   src/DemoStream.cpp
   src/EntityIoTelemetry.cpp
+  src/EosRendezvousProvider.cpp
   src/ExperiencePresets.cpp
+  src/HostChrome.cpp
+  src/HostInputService.cpp
   src/LagCompensation.cpp
   src/LatencyTools.cpp
   src/LevelSchedulerBundle.cpp
@@ -44,19 +47,40 @@ if (RAWIRON_USE_ENET)
 endif()
 
 if (RAWIRON_USE_EOS)
-  target_compile_definitions(RawIron.Runtime PUBLIC RAWIRON_HAS_EOS=1)
-  if (EXISTS "${EOS_SDK_ROOT}/Include")
-    target_include_directories(RawIron.Runtime PUBLIC "${EOS_SDK_ROOT}/Include")
+  if (WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(rawiron_eos_lib "${EOS_SDK_ROOT}/Lib/EOSSDK-Win64-Shipping.lib")
+    set(rawiron_eos_dll "${EOS_SDK_ROOT}/Bin/EOSSDK-Win64-Shipping.dll")
+  else()
+    set(rawiron_eos_lib "")
+    set(rawiron_eos_dll "")
   endif()
-  if (WIN32)
-    if (CMAKE_SIZEOF_VOID_P EQUAL 8)
-      set(rawiron_eos_bin_dir "${EOS_SDK_ROOT}/Bin/Win64")
-    else()
-      set(rawiron_eos_bin_dir "${EOS_SDK_ROOT}/Bin/Win32")
-    endif()
+  set(rawiron_eos_bin_dir "${EOS_SDK_ROOT}/Bin")
+
+  # RAWIRON_HAS_EOS compiles the real SDK integration, so it may only be defined when the headers
+  # and the import library are both present. Defining it off the RAWIRON_USE_EOS switch alone turns
+  # "SDK not installed yet" into a compile/link failure instead of the documented stub fallback.
+  set(rawiron_eos_available FALSE)
+  if (EXISTS "${EOS_SDK_ROOT}/Include/eos_sdk.h" AND EXISTS "${rawiron_eos_lib}")
+    set(rawiron_eos_available TRUE)
+  endif()
+
+  if (rawiron_eos_available)
+    target_compile_definitions(RawIron.Runtime PUBLIC RAWIRON_HAS_EOS=1)
+    target_include_directories(RawIron.Runtime PUBLIC "${EOS_SDK_ROOT}/Include")
     if (EXISTS "${rawiron_eos_bin_dir}")
       target_link_directories(RawIron.Runtime PUBLIC "${rawiron_eos_bin_dir}")
     endif()
+    target_link_libraries(RawIron.Runtime PUBLIC "${rawiron_eos_lib}")
+    message(STATUS "RawIron: linking EOS SDK ${rawiron_eos_lib}")
+    if (EXISTS "${rawiron_eos_dll}")
+      # Make the runtime DLL discoverable next to built tools/games when they link Runtime.
+      set(RAWIRON_EOS_DLL "${rawiron_eos_dll}" CACHE FILEPATH "EOS runtime DLL to copy beside dependents" FORCE)
+    endif()
+  else()
+    message(WARNING
+      "RawIron: RAWIRON_USE_EOS=ON but a usable EOS SDK was not found under ${EOS_SDK_ROOT} "
+      "(need Include/eos_sdk.h and Lib/EOSSDK-Win64-Shipping.lib). Building the EOS rendezvous "
+      "stub instead; runtime falls back to the DirectToken provider.")
   endif()
 endif()
 
@@ -78,4 +102,34 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(SnapshotReplicationSmoke ${CMAKE_SOURCE_DIR}/Tests/SnapshotReplicationSmoke.cpp)
   target_link_libraries(SnapshotReplicationSmoke PRIVATE RawIron::Runtime)
   add_test(NAME RawIron.Runtime.SnapshotReplicationSmoke COMMAND SnapshotReplicationSmoke)
+
+  add_executable(NetHardeningSmoke ${CMAKE_SOURCE_DIR}/Tests/NetHardeningSmoke.cpp)
+  target_link_libraries(NetHardeningSmoke PRIVATE RawIron::Runtime)
+  add_test(NAME RawIron.Runtime.NetHardeningSmoke COMMAND NetHardeningSmoke)
+
+  add_executable(NetPacketResourceBoundarySmoke
+    ${CMAKE_SOURCE_DIR}/Tests/NetPacketResourceBoundarySmoke.cpp)
+  target_link_libraries(NetPacketResourceBoundarySmoke PRIVATE RawIron::Runtime)
+  if (RAWIRON_USE_ENET AND DEFINED enet_SOURCE_DIR)
+    target_include_directories(NetPacketResourceBoundarySmoke PRIVATE "${enet_SOURCE_DIR}/include")
+  endif()
+  add_test(NAME RawIron.Runtime.NetPacketResourceBoundarySmoke COMMAND NetPacketResourceBoundarySmoke)
+
+  add_executable(RuntimeCoreLifecycleSmoke ${CMAKE_SOURCE_DIR}/Tests/RuntimeCoreLifecycleSmoke.cpp)
+  target_link_libraries(RuntimeCoreLifecycleSmoke PRIVATE RawIron::Runtime)
+  add_test(NAME RawIron.Runtime.CoreLifecycleSmoke COMMAND RuntimeCoreLifecycleSmoke)
+
+  # Runtime tests pull in the EOS rendezvous provider, so they need the same DLL
+  # staging the apps get; otherwise they fail to load with 0xC0000135 on any
+  # machine that actually has the EOS SDK installed.
+  foreach(rawiron_runtime_test
+      RuntimeNetcodeSmoke
+      DemoStreamSmoke
+      RuntimeEventBusSafetySmoke
+      SnapshotReplicationSmoke
+      NetHardeningSmoke
+      NetPacketResourceBoundarySmoke
+      RuntimeCoreLifecycleSmoke)
+    rawiron_stage_runtime_dlls(${rawiron_runtime_test})
+  endforeach()
 endif()

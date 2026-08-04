@@ -242,6 +242,7 @@ std::shared_ptr<ManagedSound> AudioManager::PlayOneShotSafe(const OneShotAudioEv
     }
     state.activeCount += 1;
     state.lastEmitMs = currentTimeMs_;
+    oneShotDispatchKeyBySound_[sound->GetId()] = key;
     return sound;
 }
 
@@ -382,7 +383,13 @@ void AudioManager::SyncLoopedAudioBuses(std::string_view phase, std::vector<Loop
         const bool replace = runtime.sound == nullptr
             || intent.priority >= runtime.priority
             || runtime.loopPath == intent.loopPath;
-        if (replace && runtime.loopPath != intent.loopPath) {
+        if (!replace) {
+            // A higher-priority loop owns this channel. Leaving its state alone keeps the
+            // rejected intent from overwriting loopPath, which would otherwise make the
+            // channel claim a loop it is not actually playing.
+            continue;
+        }
+        if (runtime.loopPath != intent.loopPath) {
             if (runtime.sound != nullptr) {
                 runtime.sound->Stop();
                 runtime.sound->Unload();
@@ -395,7 +402,9 @@ void AudioManager::SyncLoopedAudioBuses(std::string_view phase, std::vector<Loop
         }
         runtime.phase = intent.phase.empty() ? std::string(phase) : intent.phase;
         runtime.loopPath = intent.loopPath;
-        runtime.priority = std::max(runtime.priority, intent.priority);
+        // Track the owning intent's priority exactly. Ratcheting with max() kept a
+        // departed loop's priority forever and locked out later lower-priority intents.
+        runtime.priority = intent.priority;
         const double duck = loopedBusDuck_.contains(channel) ? loopedBusDuck_.at(channel) : 1.0;
         runtime.targetVolume = ClampAudioVolume(intent.volume * duck);
         const double fadeMs = std::max(1.0, std::isfinite(intent.fadeMs) ? intent.fadeMs : 150.0);
@@ -523,10 +532,23 @@ void AudioManager::ScheduleEcho(std::string_view filePath,
 }
 
 void AudioManager::UnregisterSound(ManagedSound::SoundId soundId) {
+    ReleaseOneShotDispatch(soundId);
     managedSounds_.erase(soundId);
     if (activeVoiceId_.has_value() && *activeVoiceId_ == soundId) {
         activeVoiceId_.reset();
     }
+}
+
+void AudioManager::ReleaseOneShotDispatch(const ManagedSound::SoundId soundId) {
+    const auto tracked = oneShotDispatchKeyBySound_.find(soundId);
+    if (tracked == oneShotDispatchKeyBySound_.end()) {
+        return;
+    }
+    if (const auto state = oneShotDispatch_.find(tracked->second);
+        state != oneShotDispatch_.end() && state->second.activeCount > 0U) {
+        state->second.activeCount -= 1U;
+    }
+    oneShotDispatchKeyBySound_.erase(tracked);
 }
 
 void AudioManager::HandlePlaybackFinished(ManagedSound::SoundId soundId, bool trackAsVoice) {
@@ -536,13 +558,8 @@ void AudioManager::HandlePlaybackFinished(ManagedSound::SoundId soundId, bool tr
     }
 
     found->second->ReleaseOnPlaybackFinished();
-    const std::string path = found->second->GetPath();
     managedSounds_.erase(found);
-    for (auto& [key, state] : oneShotDispatch_) {
-        if (key.find(path) != std::string::npos && state.activeCount > 0U) {
-            state.activeCount -= 1U;
-        }
-    }
+    ReleaseOneShotDispatch(soundId);
     PruneOneShotDispatchState(currentTimeMs_);
 
     if (trackAsVoice && activeVoiceId_.has_value() && *activeVoiceId_ == soundId) {

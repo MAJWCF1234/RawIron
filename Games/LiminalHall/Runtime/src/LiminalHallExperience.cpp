@@ -1,5 +1,10 @@
 #include "RawIron/Games/LiminalHall/LiminalHallWorld.h"
 #include "RawIron/Games/GameRuntimeCore.h"
+#include "RawIron/Audio/AmbientLoopBank.h"
+#include "RawIron/Audio/AudioTuning.h"
+#include "RawIron/Content/GameAudioTuning.h"
+#include "RawIron/Content/GameCameraTuning.h"
+#include "RawIron/Content/GameScriptBundle.h"
 #include "RawIron/Games/GameConfigContracts.h"
 #include "RawIron/Games/GamePluginRuntimeBridge.h"
 #include "RawIron/Games/GameTextOverlayHost.h"
@@ -16,6 +21,8 @@
 #include "RawIron/Audio/AudioManager.h"
 #include "RawIron/Core/CommandLine.h"
 #include "RawIron/Core/Log.h"
+#include "RawIron/Runtime/HostChrome.h"
+#include "RawIron/Runtime/HostInputService.h"
 #include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Render/ScenePreviewRenderingScript.h"
@@ -26,11 +33,17 @@
 #include "RawIron/Scene/SceneStructuralTraceFeed.h"
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Spatial/Aabb.h"
+#include "RawIron/Trace/FirstPersonCameraFeel.h"
+#include "RawIron/Trace/KeyboardMovementInput.h"
 #include "RawIron/Trace/MovementController.h"
 #include "RawIron/Trace/TraceScene.h"
+#include "RawIron/Ui/UiFlowController.h"
 #include "RawIron/Ui/UiFlowSession.h"
 #include "RawIron/Ui/UiJsonIO.h"
+#include "RawIron/Ui/UiOverlayWin32.h"
 #include "RawIron/Ui/UiPaths.h"
+#include "RawIron/Ui/UiPresentation.h"
+#include "RawIron/Ui/UiText.h"
 #include "RawIron/World/CheckpointPersistence.h"
 #include "RawIron/World/TextOverlayEvents.h"
 
@@ -528,17 +541,18 @@ struct RuntimeState {
     ri::render::software::ScenePreviewCache previewCache{};
     ri::render::software::SoftwareImage scenePreviewScratch{};
     float mouseSensitivityDegreesPerPixel = 0.12f;
-    float cameraBaseHeight = 1.62f;
-    float bobAmplitude = 0.014f;
-    float bobFrequencyHz = 1.6f;
-    float bobSprintScale = 1.75f;
-    float fovBaseDegrees = 78.0f;
-    float fovSprintAddDegrees = 4.0f;
-    float fovLerpPerSecond = 9.0f;
+    ri::trace::FirstPersonCameraFeel cameraFeel{
+        .bobAmplitude = 0.014f,
+        .bobFrequencyHz = 1.6f,
+        .bobSprintScale = 1.75f,
+        .fovBaseDegrees = 78.0f,
+        .fovSprintAddDegrees = 4.0f,
+        .fovLerpPerSecond = 9.0f,
+        .cameraBaseHeight = 1.62f,
+    };
     float currentFovDegrees = 78.0f;
     NativeRenderTuning nativeRenderTuning{};
     std::chrono::steady_clock::time_point lastTick = std::chrono::steady_clock::now();
-    bool jumpHeldLastFrame = false;
     bool useHeldLastFrame = false;
     bool wasOnGroundLastFrame = true;
     int bhopChainCount = 0;
@@ -553,7 +567,11 @@ struct RuntimeState {
     ri::world::RuntimeDiagnosticsLayer diagnosticsLayer{};
     std::filesystem::path gameRoot{};
     std::shared_ptr<ri::audio::AudioManager> audioManager{};
-    std::unordered_map<std::string, std::shared_ptr<ri::audio::ManagedSound>> ambientLoopByContributionId{};
+    /// scripts/audio.riscript contract. Master gain is pushed to the mixer once at load; the
+    /// environment blend scales how strongly authored audio volumes are applied each frame.
+    double audioMasterGain = 1.0;
+    double audioEnvironmentBlend = 1.0;
+    ri::audio::AmbientLoopBank ambientLoops{};
     bool logicPressurePlateTriggered = false;
     bool logicDoorOpen = false;
     bool logicPortalSpawned = false;
@@ -586,11 +604,10 @@ struct RuntimeState {
     bool runtimeUiHeadless = false;
     bool runtimeUiFlowActive = false;
     bool runtimeUiHotkeysEnabled = true;
-    std::size_t runtimeUiSelectedOption = 0U;
+    /// Click / wheel seen by the game window itself, used only as a fallback for when the engine
+    /// overlay could not be created (it normally gathers pointer input on its own).
     bool runtimeUiClickAdvancePending = false;
     bool runtimeUiWheelAdvancePending = false;
-    bool runtimeUiAdvanceTimerConsumed = false;
-    float runtimeUiScreenElapsedSeconds = 0.0f;
     std::string runtimeUiLastPublishedScreenKey{};
     std::string runtimeUiLastSelectionLabel{};
     RuntimeUiFlowKind runtimeUiBootFlow = RuntimeUiFlowKind::MainMenu;
@@ -600,8 +617,12 @@ struct RuntimeState {
     ri::ui::UiFlowSession runtimeUiSession{};
     ri::ui::UiFlowSession runtimeVnSession{};
     ri::ui::UiFlowSession runtimePauseSession{};
-    HWND menuOverlayHwnd = nullptr;
-    std::vector<RECT> menuOptionHitRects{};
+    /// Engine-owned interaction + presentation for whichever manifest flow is active.
+    ri::ui::UiFlowController runtimeUiController{};
+    ri::ui::UiOverlayWindowWin32 menuOverlay{};
+    /// Mounted HostInput service — games query, engine owns Update.
+    ri::runtime::HostInputService* hostInput = nullptr;
+    ri::trace::KeyboardMovementEdges movementEdges{};
     std::array<bool, 256> keyWasDown{};
     bool keyEdgesInitialized = false;
     ri::games::GamePluginRuntimeHost pluginHost{};
@@ -645,19 +666,6 @@ void TickPluginRuntimeHooks(RuntimeState& state, const float dt) {
     ri::games::DrawGameTextOverlay(state.hwnd, state.textOverlay);
 }
 
-struct RuntimeUiOption {
-    std::string label{};
-    ri::ui::UiAction action{};
-};
-
-struct RuntimeUiVisibleScreen {
-    const ri::ui::UiManifest* manifest = nullptr;
-    ri::ui::UiFlowSession* session = nullptr;
-    const ri::ui::UiScreen* screen = nullptr;
-    RuntimeUiFlowKind kind = RuntimeUiFlowKind::None;
-    std::vector<RuntimeUiOption> options{};
-};
-
 struct RuntimeInputEdges {
     std::array<bool, 256> pressed{};
 
@@ -673,9 +681,15 @@ struct RuntimeInputEdges {
         VK_ESCAPE, 'L', VK_F1, VK_F2, VK_SPACE, VK_RETURN, VK_TAB, VK_BACK,
         '1', '2', '3', '4', '5', '6', '7', '8', '9',
     };
+    // Reads are focus-gated via the mounted HostInput service: unfocused frames latch every key as
+    // up, so returning to the game with a key still held cannot manufacture a press edge.
+    static thread_local ri::core::KeyboardFocusGate nullFocus{};
+    const ri::core::KeyboardFocusGate& focus =
+        state.hostInput != nullptr ? state.hostInput->Focus() : nullFocus;
+    const bool emitEdges = state.keyEdgesInitialized && !focus.JustRegainedFocus();
     for (const int virtualKey : kEdgeTrackedKeys) {
-        const bool down = (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
-        if (state.keyEdgesInitialized) {
+        const bool down = focus.IsKeyDown(virtualKey);
+        if (emitEdges) {
             edges.pressed[static_cast<std::size_t>(virtualKey)] =
                 down && !state.keyWasDown[static_cast<std::size_t>(virtualKey)];
         }
@@ -746,112 +760,73 @@ struct RuntimeInputEdges {
     return RuntimeUiFlowKind::None;
 }
 
-[[nodiscard]] RuntimeUiVisibleScreen ResolveRuntimeUiVisibleScreen(RuntimeState& state) {
-    RuntimeUiVisibleScreen visible{};
-    const RuntimeUiFlowKind kind = ActiveRuntimeUiFlowKind(state);
-    visible.kind = kind;
-    switch (kind) {
+/// Which manifest session the active flow drives, or nullptr when no flow owns the screen.
+[[nodiscard]] ri::ui::UiFlowSession* ActiveRuntimeUiSession(RuntimeState& state) {
+    switch (ActiveRuntimeUiFlowKind(state)) {
     case RuntimeUiFlowKind::MainMenu:
-        visible.manifest = &state.runtimeUiManifest;
-        visible.session = &state.runtimeUiSession;
-        break;
+        return &state.runtimeUiSession;
     case RuntimeUiFlowKind::VisualNovel:
-        visible.manifest = &state.runtimeVnManifest;
-        visible.session = &state.runtimeVnSession;
-        break;
+        return &state.runtimeVnSession;
     case RuntimeUiFlowKind::PauseMenu:
-        visible.manifest = &state.runtimePauseManifest;
-        visible.session = &state.runtimePauseSession;
-        break;
+        return &state.runtimePauseSession;
     case RuntimeUiFlowKind::None:
     default:
-        return visible;
+        return nullptr;
     }
-    if (visible.session == nullptr) {
-        return visible;
-    }
-    visible.screen = visible.session->CurrentScreen();
-    if (visible.screen == nullptr) {
-        return visible;
-    }
-
-    for (const ri::ui::UiBlock& block : visible.screen->blocks) {
-        if (!visible.session->IsBlockVisible(block)) {
-            continue;
-        }
-        if (block.kind == ri::ui::UiBlockKind::Button) {
-            visible.options.push_back(RuntimeUiOption{.label = block.label, .action = block.action});
-            continue;
-        }
-        if (block.kind == ri::ui::UiBlockKind::Choices) {
-            for (const ri::ui::UiChoiceItem& choice : block.choices) {
-                if (!visible.session->IsChoiceVisible(choice)) {
-                    continue;
-                }
-                visible.options.push_back(RuntimeUiOption{.label = choice.label, .action = choice.action});
-            }
-        }
-    }
-    return visible;
 }
 
-void SetRuntimeUiSelection(RuntimeState& state, const RuntimeUiVisibleScreen& visible, std::size_t selectionIndex) {
-    if (visible.options.empty()) {
-        state.runtimeUiSelectedOption = 0U;
-        state.runtimeUiLastSelectionLabel.clear();
-        return;
-    }
-    const std::size_t clampedIndex = std::min(selectionIndex, visible.options.size() - 1U);
-    state.runtimeUiSelectedOption = clampedIndex;
-    const std::string& label = visible.options[clampedIndex].label;
-    if (label == state.runtimeUiLastSelectionLabel) {
+void AnnounceRuntimeUiSelection(RuntimeState& state) {
+    const std::string_view label = state.runtimeUiController.SelectedOptionLabel();
+    if (label.empty() || label == state.runtimeUiLastSelectionLabel) {
         return;
     }
     state.runtimeUiLastSelectionLabel = label;
-    ri::core::LogInfo("Runtime UI: selected option " + std::to_string(clampedIndex + 1U) + " = " + label);
-    if (state.menuOverlayHwnd != nullptr) {
-        InvalidateRect(state.menuOverlayHwnd, nullptr, FALSE);
-    }
+    ri::core::LogInfo(
+        "Runtime UI: selected option " + std::to_string(state.runtimeUiController.SelectedOption() + 1U)
+        + " = " + std::string(label));
     if (state.runtimeEvents != nullptr) {
         ri::world::text_overlay_events::EmitMessage(
             *state.runtimeEvents,
-            "Selected: " + label,
+            "Selected: " + std::string(label),
             1600.0);
     }
 }
 
-void PublishRuntimeUiScreen(RuntimeState& state, const RuntimeUiVisibleScreen& visible, const bool force = false) {
-    if (visible.screen == nullptr || visible.session == nullptr) {
+/// Mirrors the presented screen into the log and the in-world text overlay (subtitles, objectives,
+/// VN backlog). Drawing is the engine overlay's job; this is the game's narrative side-channel.
+void PublishRuntimeUiScreen(RuntimeState& state,
+                            ri::ui::UiFlowSession& session,
+                            const ri::ui::UiPresentedScreen& presented,
+                            const bool force = false) {
+    if (presented.screen == nullptr) {
         return;
     }
-    const std::string screenKey = RuntimeUiFlowLabel(visible.kind) + ":" + visible.screen->id;
+    const ri::ui::UiScreen& screen = *presented.screen;
+    const RuntimeUiFlowKind kind = ActiveRuntimeUiFlowKind(state);
+    const std::string screenKey = RuntimeUiFlowLabel(kind) + ":" + screen.id;
     if (!force && screenKey == state.runtimeUiLastPublishedScreenKey) {
         return;
     }
-    if (screenKey != state.runtimeUiLastPublishedScreenKey) {
-        state.runtimeUiScreenElapsedSeconds = 0.0f;
-        state.runtimeUiAdvanceTimerConsumed = false;
-        state.runtimeUiClickAdvancePending = false;
-        state.runtimeUiWheelAdvancePending = false;
-    }
     state.runtimeUiLastPublishedScreenKey = screenKey;
     state.runtimeUiLastSelectionLabel.clear();
-    ri::core::LogSection(std::string("Runtime UI ") + RuntimeUiFlowLabel(visible.kind));
-    ri::core::LogInfo("Screen: " + visible.screen->title + " [" + visible.screen->id + "]");
+    const auto resolve = [&session](std::string_view raw) { return ri::ui::ResolveStoreText(session, raw); };
+    ri::core::LogSection(std::string("Runtime UI ") + RuntimeUiFlowLabel(kind));
+    ri::core::LogInfo("Screen: " + presented.title + " [" + screen.id + "]");
 
-    for (std::size_t blockIndex = 0; blockIndex < visible.screen->blocks.size(); ++blockIndex) {
-        const ri::ui::UiBlock& block = visible.screen->blocks[blockIndex];
-        if (!visible.session->IsBlockVisible(block)) {
+    for (std::size_t blockIndex = 0; blockIndex < screen.blocks.size(); ++blockIndex) {
+        const ri::ui::UiBlock& block = screen.blocks[blockIndex];
+        if (!session.IsBlockVisible(block)) {
             continue;
         }
         const std::string fingerprint = screenKey + ":" + std::to_string(blockIndex);
+        const std::string text = resolve(block.text);
         switch (block.kind) {
         case ri::ui::UiBlockKind::Heading:
-            ri::core::LogInfo("Heading: " + block.text);
+            ri::core::LogInfo("Heading: " + text);
             if (state.runtimeEvents != nullptr) {
                 ri::world::text_overlay_events::EmitObjectiveChanged(
                     *state.runtimeEvents,
-                    block.text,
+                    text,
                     false,
                     false,
                     "Tab: next option | Enter: confirm | Backspace: back");
@@ -859,20 +834,21 @@ void PublishRuntimeUiScreen(RuntimeState& state, const RuntimeUiVisibleScreen& v
             break;
         case ri::ui::UiBlockKind::Paragraph:
         case ri::ui::UiBlockKind::Label:
-            if (!block.text.empty()) {
-                ri::core::LogInfo("Text: " + block.text);
+            if (!text.empty()) {
+                ri::core::LogInfo("Text: " + text);
                 if (state.runtimeEvents != nullptr) {
-                    ri::world::text_overlay_events::EmitMessage(*state.runtimeEvents, block.text, 2600.0);
+                    ri::world::text_overlay_events::EmitMessage(*state.runtimeEvents, text, 2600.0);
                 }
             }
             break;
-        case ri::ui::UiBlockKind::Say:
-            ri::core::LogInfo((block.speaker.empty() ? std::string("Say") : block.speaker) + ": " + block.text);
-            visible.session->MaybeAppendHistory(
+        case ri::ui::UiBlockKind::Say: {
+            const std::string speaker = resolve(block.speaker);
+            ri::core::LogInfo((speaker.empty() ? std::string("Say") : speaker) + ": " + text);
+            session.MaybeAppendHistory(
                 fingerprint,
                 ri::ui::UiHistoryLine{
-                    .speaker = block.speaker,
-                    .text = block.text,
+                    .speaker = speaker,
+                    .text = text,
                     .narration = false,
                     .chapterMarker = false,
                     .voiceCue = block.voiceHint,
@@ -880,46 +856,47 @@ void PublishRuntimeUiScreen(RuntimeState& state, const RuntimeUiVisibleScreen& v
             if (state.runtimeEvents != nullptr) {
                 ri::world::text_overlay_events::EmitSubtitle(
                     *state.runtimeEvents,
-                    block.speaker.empty() ? block.text : (block.speaker + ": " + block.text),
+                    speaker.empty() ? text : (speaker + ": " + text),
                     4200.0);
                 if (!block.voiceHint.empty()) {
                     ri::world::text_overlay_events::EmitVoiceLine(
                         *state.runtimeEvents,
                         block.voiceHint,
-                        block.text,
-                        block.speaker,
+                        text,
+                        speaker,
                         1.0,
                         4200.0);
                 }
             }
             break;
+        }
         case ri::ui::UiBlockKind::Narration:
-            ri::core::LogInfo("Narration: " + block.text);
-            visible.session->MaybeAppendHistory(
+            ri::core::LogInfo("Narration: " + text);
+            session.MaybeAppendHistory(
                 fingerprint,
                 ri::ui::UiHistoryLine{
                     .speaker = {},
-                    .text = block.text,
+                    .text = text,
                     .narration = true,
                     .chapterMarker = false,
                     .voiceCue = {},
                 });
             if (state.runtimeEvents != nullptr) {
-                ri::world::text_overlay_events::EmitSubtitle(*state.runtimeEvents, block.text, 3800.0);
+                ri::world::text_overlay_events::EmitSubtitle(*state.runtimeEvents, text, 3800.0);
             }
             break;
         case ri::ui::UiBlockKind::HistoryNote:
-            visible.session->MaybeAppendHistory(
+            session.MaybeAppendHistory(
                 fingerprint,
                 ri::ui::UiHistoryLine{
                     .speaker = {},
-                    .text = block.text,
+                    .text = text,
                     .narration = true,
                     .chapterMarker = true,
                     .voiceCue = {},
                 });
             if (!block.historyBacklogOnly) {
-                ri::core::LogInfo("History: " + block.text);
+                ri::core::LogInfo("History: " + text);
             }
             break;
         default:
@@ -927,26 +904,27 @@ void PublishRuntimeUiScreen(RuntimeState& state, const RuntimeUiVisibleScreen& v
         }
     }
 
-    if (!visible.options.empty()) {
-        for (std::size_t optionIndex = 0; optionIndex < visible.options.size(); ++optionIndex) {
-            ri::core::LogInfo("Option " + std::to_string(optionIndex + 1U) + ": " + visible.options[optionIndex].label);
+    if (!presented.options.empty()) {
+        for (std::size_t optionIndex = 0; optionIndex < presented.options.size(); ++optionIndex) {
+            ri::core::LogInfo(
+                "Option " + std::to_string(optionIndex + 1U) + ": " + presented.options[optionIndex].label);
         }
-    } else if (visible.screen->advanceAction.kind != ri::ui::UiActionKind::None) {
+    } else if (presented.advanceAvailable) {
         std::vector<std::string> triggers{};
-        if (visible.screen->advanceOnSpace) {
+        if (screen.advanceOnSpace) {
             triggers.emplace_back("Space");
         }
-        if (visible.screen->advanceOnEnter) {
+        if (screen.advanceOnEnter) {
             triggers.emplace_back("Enter");
         }
-        if (visible.screen->advanceOnClick) {
+        if (screen.advanceOnClick) {
             triggers.emplace_back("Click");
         }
-        if (visible.screen->advanceOnMouseWheel) {
+        if (screen.advanceOnMouseWheel) {
             triggers.emplace_back("Mouse wheel");
         }
-        if (visible.screen->advanceAfterSeconds > 0.0f) {
-            triggers.emplace_back("Timer " + std::to_string(visible.screen->advanceAfterSeconds) + "s");
+        if (screen.advanceAfterSeconds > 0.0f) {
+            triggers.emplace_back("Timer " + std::to_string(screen.advanceAfterSeconds) + "s");
         }
         std::string summary = triggers.empty() ? std::string("<no input triggers>") : triggers.front();
         for (std::size_t i = 1; i < triggers.size(); ++i) {
@@ -955,7 +933,7 @@ void PublishRuntimeUiScreen(RuntimeState& state, const RuntimeUiVisibleScreen& v
         ri::core::LogInfo("Advance: " + summary);
     }
 
-    SetRuntimeUiSelection(state, visible, state.runtimeUiSelectedOption);
+    AnnounceRuntimeUiSelection(state);
 }
 
 void ResetRuntimeUiSession(RuntimeState& state, const RuntimeUiFlowKind kind) {
@@ -981,13 +959,10 @@ void DeactivateRuntimeUiFlow(RuntimeState& state, const char* reason) {
     state.runtimeUiMenuRequested = false;
     state.runtimeUiVnRequested = false;
     state.runtimeUiPauseRequested = false;
-    state.runtimeUiSelectedOption = 0U;
     state.runtimeUiLastPublishedScreenKey.clear();
     state.runtimeUiLastSelectionLabel.clear();
     state.runtimeUiClickAdvancePending = false;
     state.runtimeUiWheelAdvancePending = false;
-    state.runtimeUiAdvanceTimerConsumed = false;
-    state.runtimeUiScreenElapsedSeconds = 0.0f;
     state.captureMouse = state.gameplayMouseCapture;
     if (previous != RuntimeUiFlowKind::None) {
         ri::core::LogInfo(std::string("Runtime UI: leaving ") + RuntimeUiFlowLabel(previous)
@@ -1034,17 +1009,22 @@ bool ActivateRuntimeUiFlow(RuntimeState& state, const RuntimeUiFlowKind kind, co
         return false;
     }
     state.runtimeUiFlowActive = true;
-    state.runtimeUiSelectedOption = 0U;
     state.runtimeUiLastPublishedScreenKey.clear();
     state.runtimeUiLastSelectionLabel.clear();
     state.runtimeUiClickAdvancePending = false;
     state.runtimeUiWheelAdvancePending = false;
-    state.runtimeUiAdvanceTimerConsumed = false;
-    state.runtimeUiScreenElapsedSeconds = 0.0f;
     state.captureMouse = false;
     ri::core::LogInfo(std::string("Runtime UI: entering ") + RuntimeUiFlowLabel(kind)
                       + (reason != nullptr && *reason != '\0' ? std::string(" (") + reason + ")" : std::string{}));
-    PublishRuntimeUiScreen(state, ResolveRuntimeUiVisibleScreen(state), true);
+
+    state.runtimeUiController.Reset();
+    ri::ui::UiFlowSession* session = ActiveRuntimeUiSession(state);
+    if (session != nullptr) {
+        // Prime the presentation with a no-op update so the overlay and the log see the entry screen.
+        (void)state.runtimeUiController.Update(*session, ri::ui::UiFlowInput{}, {});
+        PublishRuntimeUiScreen(state, *session, state.runtimeUiController.Presented(), true);
+        state.menuOverlay.Bind(session, &state.runtimeUiController);
+    }
     SyncMenuOverlay(state);
     return true;
 }
@@ -1076,78 +1056,58 @@ bool HandleRuntimeUiEmit(RuntimeState& state, std::string_view actionId) {
     return true;
 }
 
-bool ApplyRuntimeUiAction(RuntimeState& state, const ri::ui::UiAction& action) {
-    RuntimeUiVisibleScreen visible = ResolveRuntimeUiVisibleScreen(state);
-    if (visible.session == nullptr) {
-        return false;
-    }
-    const bool applied = visible.session->ApplyAction(action, [&state](std::string_view actionId) {
-        (void)HandleRuntimeUiEmit(state, actionId);
-    });
-    if (applied) {
-        state.runtimeUiSelectedOption = 0U;
-        PublishRuntimeUiScreen(state, ResolveRuntimeUiVisibleScreen(state), true);
-    }
-    return applied;
-}
-
 void TickRuntimeUiFlow(RuntimeState& state, const float dt, const RuntimeInputEdges& inputEdges) {
-    RuntimeUiVisibleScreen visible = ResolveRuntimeUiVisibleScreen(state);
-    if (visible.screen == nullptr || visible.session == nullptr) {
+    ri::ui::UiFlowSession* session = ActiveRuntimeUiSession(state);
+    if (session == nullptr) {
         DeactivateRuntimeUiFlow(state, "missing screen");
         return;
     }
+    state.menuOverlay.Bind(session, &state.runtimeUiController);
 
-    PublishRuntimeUiScreen(state, visible, false);
-    state.runtimeUiScreenElapsedSeconds += dt;
-    const bool spacePressed = inputEdges.IsPressed(VK_SPACE);
-    const bool enterPressed = inputEdges.IsPressed(VK_RETURN);
-    const bool clickPressed = state.runtimeUiClickAdvancePending;
-    const bool wheelMoved = state.runtimeUiWheelAdvancePending;
+    const ri::ui::UiOverlayPointerInput pointer = state.menuOverlay.DrainPointerInput();
+    ri::ui::UiFlowInput input{};
+    input.deltaSeconds = dt;
+    input.advanceSpace = inputEdges.IsPressed(VK_SPACE);
+    input.advanceEnter = inputEdges.IsPressed(VK_RETURN);
+    input.advanceClick = pointer.clickedEmptySpace || state.runtimeUiClickAdvancePending;
+    input.advanceWheel = pointer.wheelMoved || state.runtimeUiWheelAdvancePending;
+    const bool shiftHeld = state.hostInput != nullptr && state.hostInput->IsKeyDown(VK_SHIFT);
+    input.selectNext = inputEdges.IsPressed(VK_TAB) && !shiftHeld;
+    input.selectPrevious = inputEdges.IsPressed(VK_TAB) && shiftHeld;
+    input.back = inputEdges.IsPressed(VK_BACK);
+    input.activatedOptionIndex = pointer.activatedOptionIndex;
+    input.hoveredOptionIndex = pointer.hoveredOptionIndex;
+    for (int digit = 1; digit <= 9; ++digit) {
+        if (inputEdges.IsPressed('0' + digit)) {
+            input.digitPressed = digit;
+            break;
+        }
+    }
     state.runtimeUiClickAdvancePending = false;
     state.runtimeUiWheelAdvancePending = false;
 
-    if (inputEdges.IsPressed(VK_TAB) && !visible.options.empty()) {
-        SetRuntimeUiSelection(state, visible, (state.runtimeUiSelectedOption + 1U) % visible.options.size());
+    const ri::ui::UiFlowUpdateResult result = state.runtimeUiController.Update(
+        *session, input, [&state](std::string_view actionId) { (void)HandleRuntimeUiEmit(state, actionId); });
+
+    if (result.screenMissing) {
+        DeactivateRuntimeUiFlow(state, "missing screen");
+        return;
     }
-    if (inputEdges.IsPressed(VK_BACK)) {
-        if (!ApplyRuntimeUiAction(state, ri::ui::UiAction{.kind = ri::ui::UiActionKind::Back})) {
-            DeactivateRuntimeUiFlow(state, "back");
-        }
+    if (result.exitRequested) {
+        DeactivateRuntimeUiFlow(state, "back");
+        return;
+    }
+    // An `emit` handler may have closed or switched the flow while the action was applied.
+    if (!state.runtimeUiFlowActive || ActiveRuntimeUiSession(state) != session) {
         return;
     }
 
-    for (int digit = 1; digit <= 9; ++digit) {
-        if (!inputEdges.IsPressed('0' + digit)) {
-            continue;
-        }
-        const std::size_t optionIndex = static_cast<std::size_t>(digit - 1);
-        if (optionIndex < visible.options.size()) {
-            SetRuntimeUiSelection(state, visible, optionIndex);
-            (void)ApplyRuntimeUiAction(state, visible.options[optionIndex].action);
-        }
-        return;
+    PublishRuntimeUiScreen(state, *session, state.runtimeUiController.Presented(), result.screenChanged);
+    if (result.selectionChanged) {
+        AnnounceRuntimeUiSelection(state);
     }
-
-    if (!visible.options.empty()) {
-        if (spacePressed || enterPressed || clickPressed) {
-            (void)ApplyRuntimeUiAction(state, visible.options[state.runtimeUiSelectedOption].action);
-        }
-        return;
-    }
-    if (visible.screen->advanceAction.kind != ri::ui::UiActionKind::None) {
-        bool advance = (visible.screen->advanceOnSpace && spacePressed)
-            || (visible.screen->advanceOnEnter && enterPressed)
-            || (visible.screen->advanceOnClick && clickPressed)
-            || (visible.screen->advanceOnMouseWheel && wheelMoved);
-        if (!advance && !state.runtimeUiAdvanceTimerConsumed && visible.screen->advanceAfterSeconds > 0.0f
-            && state.runtimeUiScreenElapsedSeconds >= visible.screen->advanceAfterSeconds) {
-            state.runtimeUiAdvanceTimerConsumed = true;
-            advance = true;
-        }
-        if (advance) {
-            (void)ApplyRuntimeUiAction(state, visible.screen->advanceAction);
-        }
+    if (result.needsRepaint) {
+        state.menuOverlay.RequestRepaint();
     }
     SyncMenuOverlay(state);
 }
@@ -1305,54 +1265,30 @@ void ApplyEnvironmentAuthoringVolumes(RuntimeState& state, const float dt) {
     if (state.audioManager != nullptr) {
         const ri::world::AudioEnvironmentState authoredAudio =
             state.environmentService.GetActiveAudioEnvironmentStateAt(feet);
-        ri::audio::AudioEnvironmentProfileInput profile{};
-        profile.label = authoredAudio.label;
-        profile.activeVolumes = authoredAudio.activeVolumes;
-        profile.reverbMix = authoredAudio.reverbMix;
-        profile.echoDelayMs = authoredAudio.echoDelayMs;
-        profile.echoFeedback = authoredAudio.echoFeedback;
-        profile.dampening = authoredAudio.dampening;
-        profile.volumeScale = std::clamp(
-            static_cast<double>(authoredAudio.volumeScale) * (0.8 + (ambientMix.combinedDesiredVolume * 0.2)),
-            0.1,
-            2.0);
-        profile.playbackRate = std::clamp(static_cast<double>(authoredAudio.playbackRate), 0.5, 1.5);
+        const ri::audio::AudioEnvironmentProfileInput profile = ri::audio::BlendAudioEnvironmentProfile(
+            authoredAudio.label,
+            authoredAudio.activeVolumes,
+            authoredAudio.reverbMix,
+            authoredAudio.echoDelayMs,
+            authoredAudio.echoFeedback,
+            authoredAudio.dampening,
+            authoredAudio.volumeScale,
+            authoredAudio.playbackRate,
+            state.audioEnvironmentBlend,
+            0.8 + (ambientMix.combinedDesiredVolume * 0.2));
         (void)state.audioManager->SetEnvironmentProfile(profile);
 
-        std::unordered_map<std::string, bool> keepIds{};
-        const std::size_t ambientVoiceLimit = 2U;
-        for (std::size_t index = 0; index < ambientMix.contributions.size() && index < ambientVoiceLimit; ++index) {
-            const ri::world::AmbientAudioContribution& contribution = ambientMix.contributions[index];
-            if (contribution.audioPath.empty()) {
-                continue;
-            }
-            keepIds[contribution.id] = true;
-            auto found = state.ambientLoopByContributionId.find(contribution.id);
-            if (found == state.ambientLoopByContributionId.end() || found->second == nullptr) {
-                std::filesystem::path clipPath = state.gameRoot / contribution.audioPath;
-                std::shared_ptr<ri::audio::ManagedSound> loop =
-                    state.audioManager->CreateLoopingSound(clipPath.string(), contribution.desiredVolume);
-                if (loop != nullptr) {
-                    loop->Play();
-                }
-                state.ambientLoopByContributionId[contribution.id] = std::move(loop);
-                found = state.ambientLoopByContributionId.find(contribution.id);
-            }
-            if (found != state.ambientLoopByContributionId.end() && found->second != nullptr) {
-                found->second->SetVolume(contribution.desiredVolume);
-                found->second->SetPlaybackRate(1.0 + (contribution.normalizedFalloff * 0.03));
-            }
+        std::vector<ri::audio::AmbientLoopIntent> ambientIntents{};
+        ambientIntents.reserve(ambientMix.contributions.size());
+        for (const ri::world::AmbientAudioContribution& contribution : ambientMix.contributions) {
+            ambientIntents.push_back(ri::audio::AmbientLoopIntent{
+                .id = contribution.id,
+                .audioPath = contribution.audioPath,
+                .desiredVolume = contribution.desiredVolume,
+                .normalizedFalloff = contribution.normalizedFalloff,
+            });
         }
-        for (auto it = state.ambientLoopByContributionId.begin(); it != state.ambientLoopByContributionId.end();) {
-            if (keepIds.contains(it->first)) {
-                ++it;
-                continue;
-            }
-            if (it->second != nullptr) {
-                state.audioManager->StopManagedSound(it->second, true);
-            }
-            it = state.ambientLoopByContributionId.erase(it);
-        }
+        state.ambientLoops.Sync(*state.audioManager, state.gameRoot, ambientIntents);
         state.audioManager->Tick(static_cast<double>(dt) * 1000.0);
     }
     state.environmentTelemetryAccumSeconds += dt;
@@ -1495,248 +1431,21 @@ void CollectSkiesImageFiles(const fs::path& directory, const int maxDepth, const
     return canonicalError ? pick.lexically_normal() : canonicalPick;
 }
 
-constexpr wchar_t kMenuOverlayWindowClassName[] = L"RawIronLiminalMenuOverlay";
-
-bool gMenuOverlayClassRegistered = false;
-
-LRESULT CALLBACK MenuOverlayWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
-
-void EnsureMenuOverlayWindowClassRegistered() {
-    if (gMenuOverlayClassRegistered) {
-        return;
-    }
-    WNDCLASSEXW windowClass{};
-    windowClass.cbSize = sizeof(windowClass);
-    windowClass.style = CS_HREDRAW | CS_VREDRAW;
-    windowClass.lpfnWndProc = MenuOverlayWndProc;
-    windowClass.hInstance = GetModuleHandleW(nullptr);
-    windowClass.hCursor = LoadCursorW(nullptr, reinterpret_cast<LPCWSTR>(IDC_ARROW));
-    windowClass.hbrBackground = reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
-    windowClass.lpszClassName = kMenuOverlayWindowClassName;
-    RegisterClassExW(&windowClass);
-    gMenuOverlayClassRegistered = true;
-}
-
-void PaintMenuOverlay(HWND overlayHwnd, RuntimeState& state) {
-    PAINTSTRUCT paintStruct{};
-    HDC deviceContext = BeginPaint(overlayHwnd, &paintStruct);
-    if (deviceContext == nullptr) {
-        return;
-    }
-
-    RECT clientRect{};
-    GetClientRect(overlayHwnd, &clientRect);
-    const int clientWidth = clientRect.right - clientRect.left;
-    const int clientHeight = clientRect.bottom - clientRect.top;
-
-    HBRUSH backdropBrush = CreateSolidBrush(RGB(6, 8, 16));
-    FillRect(deviceContext, &clientRect, backdropBrush);
-    DeleteObject(backdropBrush);
-
-    RuntimeUiVisibleScreen visible = ResolveRuntimeUiVisibleScreen(state);
-    state.menuOptionHitRects.clear();
-
-    const int panelWidth = std::clamp(clientWidth - 160, 420, 720);
-    const int optionRowHeight = 44;
-    const int optionCount = static_cast<int>(visible.options.size());
-    const int panelHeight = std::clamp(220 + (optionCount * optionRowHeight), 320, clientHeight - 120);
-    const int panelLeft = (clientWidth - panelWidth) / 2;
-    const int panelTop = (clientHeight - panelHeight) / 2;
-    RECT panelRect{panelLeft, panelTop, panelLeft + panelWidth, panelTop + panelHeight};
-
-    HBRUSH panelBrush = CreateSolidBrush(RGB(18, 22, 34));
-    FillRect(deviceContext, &panelRect, panelBrush);
-    DeleteObject(panelBrush);
-
-    FrameRect(deviceContext, &panelRect, static_cast<HBRUSH>(GetStockObject(GRAY_BRUSH)));
-
-    SetBkMode(deviceContext, TRANSPARENT);
-    SetTextColor(deviceContext, RGB(230, 235, 245));
-
-    HFONT titleFont = CreateFontW(
-        42, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-    HFONT bodyFont = CreateFontW(
-        20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-    HFONT optionFont = CreateFontW(
-        24, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-
-    const std::wstring titleText = visible.screen != nullptr && !visible.screen->title.empty()
-        ? std::wstring(visible.screen->title.begin(), visible.screen->title.end())
-        : std::wstring(L"Liminal Hall");
-
-    SelectObject(deviceContext, titleFont);
-    RECT titleRect{panelLeft + 24, panelTop + 24, panelLeft + panelWidth - 24, panelTop + 90};
-    DrawTextW(deviceContext, titleText.c_str(), static_cast<int>(titleText.size()), &titleRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-    SelectObject(deviceContext, bodyFont);
-    int textY = panelTop + 96;
-    if (visible.screen != nullptr && visible.session != nullptr) {
-        for (const ri::ui::UiBlock& block : visible.screen->blocks) {
-            if (!visible.session->IsBlockVisible(block)) {
-                continue;
-            }
-            if (block.kind != ri::ui::UiBlockKind::Paragraph && block.kind != ri::ui::UiBlockKind::Label
-                && block.kind != ri::ui::UiBlockKind::Heading) {
-                continue;
-            }
-            if (block.text.empty()) {
-                continue;
-            }
-            const std::wstring bodyText(block.text.begin(), block.text.end());
-            RECT bodyRect{panelLeft + 32, textY, panelLeft + panelWidth - 32, textY + 48};
-            DrawTextW(deviceContext, bodyText.c_str(), static_cast<int>(bodyText.size()), &bodyRect, DT_CENTER | DT_WORDBREAK);
-            textY += 52;
-        }
-    }
-
-    SelectObject(deviceContext, optionFont);
-    int optionY = panelTop + panelHeight - 24 - (optionCount * optionRowHeight);
-    optionY = std::max(optionY, textY + 12);
-    for (std::size_t optionIndex = 0; optionIndex < visible.options.size(); ++optionIndex) {
-        RECT optionRect{panelLeft + 40, optionY, panelLeft + panelWidth - 40, optionY + optionRowHeight - 6};
-        state.menuOptionHitRects.push_back(optionRect);
-        const bool selected = optionIndex == state.runtimeUiSelectedOption;
-        if (selected) {
-            HBRUSH selectedBrush = CreateSolidBrush(RGB(36, 58, 96));
-            FillRect(deviceContext, &optionRect, selectedBrush);
-            DeleteObject(selectedBrush);
-            FrameRect(deviceContext, &optionRect, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
-        }
-        const std::wstring optionLabel(visible.options[optionIndex].label.begin(), visible.options[optionIndex].label.end());
-        const std::wstring numberedLabel = std::to_wstring(optionIndex + 1U) + L". " + optionLabel;
-        DrawTextW(
-            deviceContext,
-            numberedLabel.c_str(),
-            static_cast<int>(numberedLabel.size()),
-            &optionRect,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-        optionY += optionRowHeight;
-    }
-
-    SelectObject(deviceContext, bodyFont);
-    SetTextColor(deviceContext, RGB(160, 168, 184));
-    RECT hintRect{panelLeft + 24, panelTop + panelHeight - 28, panelLeft + panelWidth - 24, panelTop + panelHeight - 8};
-    const wchar_t* hintText = L"Click, Enter, or 1-9  |  Tab: next  |  Esc: back";
-    DrawTextW(deviceContext, hintText, -1, &hintRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-    DeleteObject(titleFont);
-    DeleteObject(bodyFont);
-    DeleteObject(optionFont);
-    EndPaint(overlayHwnd, &paintStruct);
-}
-
-LRESULT CALLBACK MenuOverlayWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    auto* state = reinterpret_cast<RuntimeState*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    switch (message) {
-    case WM_ERASEBKGND:
-        return 1;
-    case WM_PAINT:
-        if (state != nullptr) {
-            PaintMenuOverlay(hwnd, *state);
-        }
-        return 0;
-    case WM_LBUTTONDOWN: {
-        if (state == nullptr) {
-            break;
-        }
-        const int clickX = static_cast<int>(static_cast<short>(LOWORD(lParam)));
-        const int clickY = static_cast<int>(static_cast<short>(HIWORD(lParam)));
-        RuntimeUiVisibleScreen visible = ResolveRuntimeUiVisibleScreen(*state);
-        for (std::size_t optionIndex = 0; optionIndex < state->menuOptionHitRects.size(); ++optionIndex) {
-            const RECT& hitRect = state->menuOptionHitRects[optionIndex];
-            if (clickX < hitRect.left || clickX >= hitRect.right || clickY < hitRect.top || clickY >= hitRect.bottom) {
-                continue;
-            }
-            if (optionIndex >= visible.options.size()) {
-                break;
-            }
-            SetRuntimeUiSelection(*state, visible, optionIndex);
-            (void)ApplyRuntimeUiAction(*state, visible.options[optionIndex].action);
-            InvalidateRect(hwnd, nullptr, TRUE);
-            return 0;
-        }
-        return 0;
-    }
-    case WM_MOUSEWHEEL:
-        if (state != nullptr) {
-            state->runtimeUiWheelAdvancePending = true;
-        }
-        return 0;
-    default:
-        break;
-    }
-    return DefWindowProcW(hwnd, message, wParam, lParam);
-}
-
-void EnsureMenuOverlayWindow(RuntimeState& state) {
-    EnsureMenuOverlayWindowClassRegistered();
-    if (state.menuOverlayHwnd != nullptr) {
-        return;
-    }
-    state.menuOverlayHwnd = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-        kMenuOverlayWindowClassName,
-        L"RawIron Menu Overlay",
-        WS_POPUP,
-        0,
-        0,
-        100,
-        100,
-        nullptr,
-        nullptr,
-        GetModuleHandleW(nullptr),
-        nullptr);
-    if (state.menuOverlayHwnd == nullptr) {
-        return;
-    }
-    SetWindowLongPtrW(state.menuOverlayHwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&state));
-}
-
 void HideMenuOverlay(RuntimeState& state) {
-    if (state.menuOverlayHwnd != nullptr) {
-        ShowWindow(state.menuOverlayHwnd, SW_HIDE);
-    }
-    state.menuOptionHitRects.clear();
+    state.menuOverlay.Hide();
 }
 
 void DestroyMenuOverlay(RuntimeState& state) {
-    if (state.menuOverlayHwnd != nullptr) {
-        DestroyWindow(state.menuOverlayHwnd);
-        state.menuOverlayHwnd = nullptr;
-    }
-    state.menuOptionHitRects.clear();
+    state.menuOverlay.Destroy();
 }
 
+/// Keeps the engine-owned overlay pinned over the game window while a manifest flow is active.
 void SyncMenuOverlay(RuntimeState& state) {
     if (!state.runtimeUiFlowActive || state.hwnd == nullptr || state.runtimeUiHeadless) {
-        HideMenuOverlay(state);
+        state.menuOverlay.Hide();
         return;
     }
-    EnsureMenuOverlayWindow(state);
-    if (state.menuOverlayHwnd == nullptr) {
-        return;
-    }
-
-    RECT clientRect{};
-    if (!GetClientRect(state.hwnd, &clientRect)) {
-        return;
-    }
-    POINT topLeft{clientRect.left, clientRect.top};
-    ClientToScreen(state.hwnd, &topLeft);
-    const int width = clientRect.right - clientRect.left;
-    const int height = clientRect.bottom - clientRect.top;
-    SetWindowPos(
-        state.menuOverlayHwnd,
-        HWND_TOPMOST,
-        topLeft.x,
-        topLeft.y,
-        width,
-        height,
-        SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    InvalidateRect(state.menuOverlayHwnd, nullptr, FALSE);
+    (void)state.menuOverlay.SyncToHost(state.hwnd);
 }
 
 void RegisterRawMouseForWindow(HWND hwnd) {
@@ -1889,36 +1598,11 @@ void UpdateMouseLook(RuntimeState& state) {
 }
 
 ri::trace::MovementInput ReadMovementInput(RuntimeState& state) {
-    auto axis = [](int positiveKey, int negativeKey) -> float {
-        const bool positive = (GetAsyncKeyState(positiveKey) & 0x8000) != 0;
-        const bool negative = (GetAsyncKeyState(negativeKey) & 0x8000) != 0;
-        if (positive == negative) {
-            return 0.0f;
-        }
-        return positive ? 1.0f : -1.0f;
-    };
-
-    const float yawRadians = ri::math::DegreesToRadians(state.yawDegrees);
-    const ri::math::Vec3 forward{
-        std::sin(yawRadians),
-        0.0f,
-        std::cos(yawRadians),
-    };
-    const ri::math::Vec3 right = ri::math::Normalize(ri::math::Cross(ri::math::Vec3{0.0f, 1.0f, 0.0f}, forward));
-
-    const bool jumpHeldNow = (GetAsyncKeyState(VK_SPACE) & 0x8000) != 0;
-    const bool jumpPressedEdge = jumpHeldNow && !state.jumpHeldLastFrame;
-    state.jumpHeldLastFrame = jumpHeldNow;
-
-    return ri::trace::MovementInput{
-        .moveForward = axis('W', 'S'),
-        .moveRight = axis('D', 'A'),
-        .viewForwardWorld = forward,
-        .viewRightWorld = right,
-        .sprintHeld = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0,
-        .jumpPressed = jumpPressedEdge,
-        .applyShortJumpGravity = !jumpHeldNow,
-    };
+    if (state.hostInput == nullptr) {
+        return {};
+    }
+    return ri::trace::BuildKeyboardMovementInput(
+        state.hostInput->Focus(), state.yawDegrees, state.movementEdges);
 }
 
 void RespawnPlayerAtSpawn(RuntimeState& state) {
@@ -1995,15 +1679,19 @@ void SimulateAndApplyView(RuntimeState& state,
         state.movement.body.velocity.z,
     };
     const float planarSpeed = ri::math::Length(planarVelocity);
-    const float sprintSpeedRef = std::max(0.01f, state.movementOptions.maxSprintGroundSpeed);
-    const float movementNorm = std::clamp(planarSpeed / sprintSpeedRef, 0.0f, 1.0f);
-    const float bobScale = (input.sprintHeld ? state.bobSprintScale : 1.0f) * movementNorm;
-    const float bobPhase = static_cast<float>((state.elapsedSeconds * state.bobFrequencyHz) * 6.283185307179586);
-    const float bobVertical = std::sin(bobPhase) * state.bobAmplitude * bobScale;
-    const float cameraHeight = state.cameraBaseHeight + bobVertical;
-    const ri::math::Vec3 eye{feet.x, feet.y + cameraHeight, feet.z};
+    const ri::trace::FirstPersonViewSample view = ri::trace::SampleFirstPersonView(
+        state.cameraFeel,
+        state.elapsedSeconds,
+        planarSpeed,
+        state.movementOptions.maxSprintGroundSpeed,
+        input.sprintHeld,
+        state.currentFovDegrees,
+        dt,
+        state.showcaseFovPulseDegrees);
+    const ri::math::Vec3 eye{feet.x, feet.y + view.eyeHeightAboveFeet, feet.z};
 
-    const bool useHeldNow = (GetAsyncKeyState('E') & 0x8000) != 0;
+    const bool useHeldNow =
+        state.hostInput != nullptr && state.hostInput->IsKeyDownSettled('E');
     const bool usePressedEdge = useHeldNow && !state.useHeldLastFrame;
     state.useHeldLastFrame = useHeldNow;
     if (usePressedEdge) {
@@ -2038,11 +1726,7 @@ void SimulateAndApplyView(RuntimeState& state,
     cameraNode.localTransform.position = ri::math::Vec3{};
     cameraNode.localTransform.rotationDegrees = ri::math::Vec3{state.pitchDegrees, 0.0f, 0.0f};
     if (cameraNode.camera != ri::scene::kInvalidHandle) {
-        const float targetFov =
-            state.fovBaseDegrees + (input.sprintHeld ? state.fovSprintAddDegrees : 0.0f) + state.showcaseFovPulseDegrees;
-        const float blendAlpha = std::clamp(dt * state.fovLerpPerSecond, 0.0f, 1.0f);
-        state.currentFovDegrees = state.currentFovDegrees + ((targetFov - state.currentFovDegrees) * blendAlpha);
-        state.world.scene.GetCamera(cameraNode.camera).fieldOfViewDegrees = state.currentFovDegrees;
+        state.world.scene.GetCamera(cameraNode.camera).fieldOfViewDegrees = view.fovDegrees;
     }
 
     AnimateWorld(state.world, animationSeconds);
@@ -2395,6 +2079,15 @@ void TickLogicDemo(RuntimeState& state, const float dt) {
 }
 
 void TickStandaloneFrame(RuntimeState& state) {
+    if (state.hostInput != nullptr) {
+        state.hostInput->Sync(state.hwnd, state.menuOverlay.WindowHandle());
+    }
+    const ri::runtime::HostChromeActions chrome =
+        state.hostInput != nullptr
+            ? ri::runtime::PollHostChrome(
+                  *state.hostInput,
+                  ri::runtime::HostChromePolicy{.diagnosticsKey = 'L', .quitOnEscape = false})
+            : ri::runtime::HostChromeActions{};
     const RuntimeInputEdges inputEdges = CaptureRuntimeInputEdges(state);
     if (inputEdges.IsPressed(VK_ESCAPE)) {
         if (state.runtimeUiFlowActive) {
@@ -2413,9 +2106,7 @@ void TickStandaloneFrame(RuntimeState& state) {
         }
         return;
     }
-    const bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-    const bool shiftHeld = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-    if (inputEdges.IsPressed('L') && ctrlHeld && shiftHeld) {
+    if (chrome.diagnosticsToggled) {
         state.diagnosticsVisible = !state.diagnosticsVisible;
         SetRuntimeDiagnosticsVisible(state, state.diagnosticsVisible);
         SetLogicLayerVisible(state, state.diagnosticsVisible);
@@ -2492,8 +2183,8 @@ void TickStandaloneFrame(RuntimeState& state) {
             std::clamp(lightingColor.y * (0.40f + phase * 0.60f), 0.0f, 1.0f),
             std::clamp(lightingColor.z * (0.55f + phase * 0.75f), 0.0f, 1.0f),
         };
-        state.bobAmplitude = std::clamp(0.014f * animationScale * (1.0f + phase * 0.6f), 0.0f, 0.25f);
-        state.bobFrequencyHz = std::clamp(1.7f * animationScale + (phase * 0.7f), 0.1f, 6.0f);
+        state.cameraFeel.bobAmplitude = std::clamp(0.014f * animationScale * (1.0f + phase * 0.6f), 0.0f, 0.25f);
+        state.cameraFeel.bobFrequencyHz = std::clamp(1.7f * animationScale + (phase * 0.7f), 0.1f, 6.0f);
         input.sprintHeld = true;
         if (state.showcaseElapsedSeconds >= state.showcaseDurationSeconds) {
             state.showcaseActive = false;
@@ -2558,6 +2249,7 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
                 return true;
             }
             frame.scene = &state.world.scene;
+            frame.suppressUnchangedFrames = false;
             frame.cameraNode = state.world.playerCameraNode;
             frame.textureRoot = textureRootForVulkan;
             frame.skyEquirectTextureRelative = state.nativeSkyEquirectRelative;
@@ -2615,46 +2307,26 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         "Vulkan swapchain " + std::to_string(options.width) + "x" + std::to_string(options.height)
         + " (native textured GPU path, mesh buffers cached on GPU)");
 
-    const ri::content::ScriptScalarMap gameplay =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/gameplay.riscript"));
-    const ri::content::ScriptScalarMap rendering =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/rendering.riscript"));
-    const ri::content::ScriptScalarMap ui =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/ui.riscript"));
-    const ri::content::ScriptScalarMap audio =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/audio.riscript"));
-    const ri::content::ScriptScalarMap streaming =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/streaming.riscript"));
-    const ri::content::ScriptScalarMap localization =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/localization.riscript"));
-    const ri::content::ScriptScalarMap physics =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/physics.riscript"));
-    const ri::content::ScriptScalarMap postprocess =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/postprocess.riscript"));
-    const ri::content::ScriptScalarMap init =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/init.riscript"));
-    const ri::content::ScriptScalarMap gameCfg =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/game.cfg"));
-    const ri::content::ScriptScalarMap network =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/network.riscript"));
-    const ri::content::ScriptScalarMap persistence =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/persistence.riscript"));
-    const ri::content::ScriptScalarMap ai =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/ai.riscript"));
-    const ri::content::ScriptScalarMap plugins =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/plugins.riscript"));
-    const ri::content::ScriptScalarMap animation =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/animation.riscript"));
-    const ri::content::ScriptScalarMap vfx =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/vfx.riscript"));
-    const ri::content::ScriptScalarMap networkCfg =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/network.cfg"));
-    const ri::content::ScriptScalarMap buildProfile =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/build.profile"));
-    const ri::content::ScriptScalarMap securityPolicy =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/security.policy"));
-    const ri::content::ScriptScalarMap pluginsPolicy =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/plugins.policy"));
+    const ri::content::GameScriptBundle scripts = ri::content::LoadGameScriptBundle(manifest.rootPath);
+    const ri::content::ScriptScalarMap& gameplay = scripts.gameplay;
+    const ri::content::ScriptScalarMap& rendering = scripts.rendering;
+    const ri::content::ScriptScalarMap& ui = scripts.ui;
+    const ri::content::ScriptScalarMap& streaming = scripts.streaming;
+    const ri::content::ScriptScalarMap& localization = scripts.localization;
+    const ri::content::ScriptScalarMap& physics = scripts.physics;
+    const ri::content::ScriptScalarMap& postprocess = scripts.postprocess;
+    const ri::content::ScriptScalarMap& init = scripts.init;
+    const ri::content::ScriptScalarMap& gameCfg = scripts.gameCfg;
+    const ri::content::ScriptScalarMap& network = scripts.network;
+    const ri::content::ScriptScalarMap& persistence = scripts.persistence;
+    const ri::content::ScriptScalarMap& ai = scripts.ai;
+    const ri::content::ScriptScalarMap& plugins = scripts.plugins;
+    const ri::content::ScriptScalarMap& animation = scripts.animation;
+    const ri::content::ScriptScalarMap& vfx = scripts.vfx;
+    const ri::content::ScriptScalarMap& networkCfg = scripts.networkCfg;
+    const ri::content::ScriptScalarMap& buildProfile = scripts.buildProfile;
+    const ri::content::ScriptScalarMap& securityPolicy = scripts.securityPolicy;
+    const ri::content::ScriptScalarMap& pluginsPolicy = scripts.pluginsPolicy;
     std::string contractError;
     if (!ri::games::EnforceGameConfigContracts(
             manifest.rootPath,
@@ -2664,15 +2336,6 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         return false;
     }
     const LiminalDemoExtensions demoExtensions = LoadLiminalDemoExtensions(manifest);
-    if (gameplay.empty()) {
-        ri::core::LogInfo("Gameplay tuning script not found or empty; using defaults.");
-    }
-    if (rendering.empty()) {
-        ri::core::LogInfo("Rendering tuning script not found or empty; using defaults.");
-    }
-    if (ui.empty()) {
-        ri::core::LogInfo("UI tuning script not found or empty; using defaults.");
-    }
     (void)LoadRuntimeUiManifest(
         ri::ui::PrimaryUiManifestPath(manifest.rootPath),
         "main menu",
@@ -2691,57 +2354,6 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     }
     if (options.runtimeUiHotkeysEnabledOverride.has_value()) {
         state.runtimeUiHotkeysEnabled = *options.runtimeUiHotkeysEnabledOverride;
-    }
-    if (audio.empty()) {
-        ri::core::LogInfo("Audio tuning script not found or empty; using defaults.");
-    }
-    if (streaming.empty()) {
-        ri::core::LogInfo("Streaming tuning script not found or empty; using defaults.");
-    }
-    if (localization.empty()) {
-        ri::core::LogInfo("Localization tuning script not found or empty; using defaults.");
-    }
-    if (physics.empty()) {
-        ri::core::LogInfo("Physics tuning script not found or empty; using defaults.");
-    }
-    if (postprocess.empty()) {
-        ri::core::LogInfo("Postprocess tuning script not found or empty; using defaults.");
-    }
-    if (init.empty()) {
-        ri::core::LogInfo("Init tuning script not found or empty; using defaults.");
-    }
-    if (gameCfg.empty()) {
-        ri::core::LogInfo("Game cfg not found or empty; using defaults.");
-    }
-    if (network.empty()) {
-        ri::core::LogInfo("Network tuning script not found or empty; using defaults.");
-    }
-    if (persistence.empty()) {
-        ri::core::LogInfo("Persistence tuning script not found or empty; using defaults.");
-    }
-    if (ai.empty()) {
-        ri::core::LogInfo("AI tuning script not found or empty; using defaults.");
-    }
-    if (plugins.empty()) {
-        ri::core::LogInfo("Plugins tuning script not found or empty; using defaults.");
-    }
-    if (animation.empty()) {
-        ri::core::LogInfo("Animation tuning script not found or empty; using defaults.");
-    }
-    if (vfx.empty()) {
-        ri::core::LogInfo("VFX tuning script not found or empty; using defaults.");
-    }
-    if (networkCfg.empty()) {
-        ri::core::LogInfo("Network cfg not found or empty; using defaults.");
-    }
-    if (buildProfile.empty()) {
-        ri::core::LogInfo("Build profile not found or empty; using defaults.");
-    }
-    if (securityPolicy.empty()) {
-        ri::core::LogInfo("Security policy not found or empty; using defaults.");
-    }
-    if (pluginsPolicy.empty()) {
-        ri::core::LogInfo("Plugins policy not found or empty; using defaults.");
     }
 
     state.world = BuildWorld(manifest.name.empty() ? "LiminalHall" : manifest.name, manifest.rootPath);
@@ -2793,11 +2405,25 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         + std::to_string(ri::content::ScriptScalarOrIntClamped(gameCfg, "runtime_profile", 1, 0, 16))
         + " editorProfile="
         + std::to_string(ri::content::ScriptScalarOrIntClamped(gameCfg, "editor_profile", 1, 0, 16)));
+    const ri::content::GameAudioTuningScalars audioTuning =
+        ri::content::LoadGameAudioTuningScalars(manifest.rootPath);
+    state.audioEnvironmentBlend = static_cast<double>(audioTuning.environmentBlend);
+    if (state.audioManager != nullptr) {
+        std::string clampMessage;
+        state.audioMasterGain = ri::audio::ApplyAudioMasterGain(
+            *state.audioManager, static_cast<double>(audioTuning.masterGain), &clampMessage);
+        if (!clampMessage.empty()) {
+            ri::core::LogInfo("Audio tuning: " + clampMessage);
+        }
+    } else {
+        state.audioMasterGain = std::min(1.0, static_cast<double>(audioTuning.masterGain));
+    }
+    if (!audioTuning.loaded) {
+        ri::core::LogInfo("Audio tuning script not found or empty; using defaults.");
+    }
     ri::core::LogInfo(
-        "Audio tuning: masterGain="
-        + std::to_string(ri::content::ScriptScalarOrClamped(audio, "audio_master_gain", 1.0f, 0.0f, 4.0f))
-        + " envBlend="
-        + std::to_string(ri::content::ScriptScalarOrClamped(audio, "audio_environment_blend", 1.0f, 0.0f, 2.0f)));
+        "Audio tuning: masterGain=" + std::to_string(state.audioMasterGain)
+        + " envBlend=" + std::to_string(state.audioEnvironmentBlend));
     ri::core::LogInfo(
         "Streaming tuning: budgetScale="
         + std::to_string(ri::content::ScriptScalarOrClamped(streaming, "streaming_budget_scale", 1.0f, 0.1f, 8.0f))
@@ -2990,7 +2616,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     state.movementOptions.maxAirSpeed =
         std::clamp(state.movementOptions.maxAirSpeed * movementSpeedScale, 2.0f, 16.0f);
     const float animationBobScale = ri::content::ScriptScalarOrClamped(animation, "animation_bob_scale", 1.0f, 0.5f, 2.0f);
-    state.bobAmplitude = std::clamp(state.bobAmplitude * animationBobScale, 0.0f, 0.25f);
+    state.cameraFeel.bobAmplitude = std::clamp(state.cameraFeel.bobAmplitude * animationBobScale, 0.0f, 0.25f);
     const float vfxFogScale = ri::content::ScriptScalarOrClamped(vfx, "vfx_fog_scale", 1.0f, 0.5f, 1.8f);
     state.nativeRenderTuning.fogDensity = std::clamp(state.nativeRenderTuning.fogDensity * vfxFogScale, 0.0f, 0.05f);
     const bool pluginRenderBoostPreview = ri::games::ResolvePluginRenderBoost(
@@ -2998,7 +2624,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         pluginsPolicy,
         demoExtensions.pluginCount);
     if (demoExtensions.cinematicsRowCount > 0) {
-        state.fovLerpPerSecond = std::clamp(state.fovLerpPerSecond + 1.5f, 0.5f, 40.0f);
+        state.cameraFeel.fovLerpPerSecond = std::clamp(state.cameraFeel.fovLerpPerSecond + 1.5f, 0.5f, 40.0f);
     }
     state.movementOptions.refineStructuralTraceHit =
         ri::scene::MakeStructuralMeshTraceRefiner(state.world.scene);
@@ -3078,33 +2704,29 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
             rendering, "native_fog_density", state.nativeRenderTuning.fogDensity, 0.0f, 0.05f),
         0.0f,
         0.05f);
-    state.cameraBaseHeight =
-        ri::content::ScriptScalarOrClamped(gameplay, "camera_height", state.cameraBaseHeight, 0.8f, 2.2f);
-    state.bobAmplitude =
-        ri::content::ScriptScalarOrClamped(gameplay, "head_bob_amplitude", state.bobAmplitude, 0.0f, 0.2f);
-    state.bobFrequencyHz =
-        ri::content::ScriptScalarOrClamped(gameplay, "head_bob_frequency", state.bobFrequencyHz, 0.1f, 6.0f);
-    state.bobSprintScale =
-        ri::content::ScriptScalarOrClamped(gameplay, "head_bob_sprint_scale", state.bobSprintScale, 1.0f, 3.0f);
-    state.fovBaseDegrees = ri::content::ScriptScalarOrClamped(
-        postprocess,
-        "fov_base",
-        ri::content::ScriptScalarOrClamped(rendering, "fov_base", state.fovBaseDegrees, 45.0f, 120.0f),
-        45.0f,
-        120.0f);
-    state.fovSprintAddDegrees = ri::content::ScriptScalarOrClamped(
-        postprocess,
-        "fov_sprint_add",
-        ri::content::ScriptScalarOrClamped(rendering, "fov_sprint_add", state.fovSprintAddDegrees, 0.0f, 25.0f),
-        0.0f,
-        25.0f);
-    state.fovLerpPerSecond = ri::content::ScriptScalarOrClamped(
-        postprocess,
-        "fov_lerp_per_second",
-        ri::content::ScriptScalarOrClamped(rendering, "fov_lerp_per_second", state.fovLerpPerSecond, 0.5f, 40.0f),
-        0.5f,
-        40.0f);
-    state.currentFovDegrees = state.fovBaseDegrees;
+    {
+        ri::content::GameCameraTuningScalars cameraDefaults{
+            .bobAmplitude = state.cameraFeel.bobAmplitude,
+            .bobFrequencyHz = state.cameraFeel.bobFrequencyHz,
+            .bobSprintScale = state.cameraFeel.bobSprintScale,
+            .fovBaseDegrees = state.cameraFeel.fovBaseDegrees,
+            .fovSprintAddDegrees = state.cameraFeel.fovSprintAddDegrees,
+            .fovLerpPerSecond = state.cameraFeel.fovLerpPerSecond,
+            .cameraBaseHeight = state.cameraFeel.cameraBaseHeight,
+        };
+        const ri::content::GameCameraTuningScalars cameraTuning =
+            ri::content::LoadGameCameraTuningScalars(gameplay, rendering, postprocess, cameraDefaults);
+        state.cameraFeel = ri::trace::FirstPersonCameraFeel{
+            .bobAmplitude = cameraTuning.bobAmplitude,
+            .bobFrequencyHz = cameraTuning.bobFrequencyHz,
+            .bobSprintScale = cameraTuning.bobSprintScale,
+            .fovBaseDegrees = cameraTuning.fovBaseDegrees,
+            .fovSprintAddDegrees = cameraTuning.fovSprintAddDegrees,
+            .fovLerpPerSecond = cameraTuning.fovLerpPerSecond,
+            .cameraBaseHeight = cameraTuning.cameraBaseHeight,
+        };
+        state.currentFovDegrees = state.cameraFeel.fovBaseDegrees;
+    }
     const float scriptedSensitivity = ri::content::ScriptScalarOr(gameplay, "mouse_sensitivity", 0.12f);
     state.mouseSensitivityDegreesPerPixel = std::clamp(scriptedSensitivity, 0.01f, 2.0f);
     if (options.mouseSensitivityDegreesPerPixel.has_value()) {
@@ -3135,9 +2757,9 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         " wallUp=" + std::to_string(state.movementOptions.wallJumpVerticalSpeed) +
         " wallAway=" + std::to_string(state.movementOptions.wallJumpAwaySpeed));
     ri::core::LogInfo(
-        "View tuning fovBase=" + std::to_string(state.fovBaseDegrees) +
-        " fovSprintAdd=" + std::to_string(state.fovSprintAddDegrees) +
-        " bobAmp=" + std::to_string(state.bobAmplitude));
+        "View tuning fovBase=" + std::to_string(state.cameraFeel.fovBaseDegrees) +
+        " fovSprintAdd=" + std::to_string(state.cameraFeel.fovSprintAddDegrees) +
+        " bobAmp=" + std::to_string(state.cameraFeel.bobAmplitude));
     ri::core::LogInfo(
         "Showcase influences aiSprintScale=" + std::to_string(aiSprintScale) +
         " animationBobScale=" + std::to_string(animationBobScale) +
@@ -3247,6 +2869,7 @@ bool RunStandalone(const StandaloneOptions& options, std::string* error) {
         if (!ri::games::StartupGameRuntimeCore(runtime, launchCommandLine, error)) {
             return false;
         }
+        state.hostInput = ri::runtime::TryGetHostInputService(runtime.Context());
         ri::games::BindRuntimeEventBus(runtime, state.runtimeEvents);
         state.pluginHost.runtimeEvents = state.runtimeEvents;
         ri::games::WireGamePluginEventBus(state.pluginHost);
@@ -3331,7 +2954,7 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
                 if (options.autoplay) {
                     const HeadlessAutoplayPlan plan = BuildHeadlessAutoplayPlan(state);
                     const ri::math::Vec3 feet = FeetFromBounds(state.movement.body.bounds);
-                    const ri::math::Vec3 eye{feet.x, feet.y + state.cameraBaseHeight, feet.z};
+                    const ri::math::Vec3 eye{feet.x, feet.y + state.cameraFeel.cameraBaseHeight, feet.z};
                     const ri::math::Vec3 lookVector = plan.lookTarget - eye;
                     state.yawDegrees = ApproachDegrees(state.yawDegrees, YawFromDirection(lookVector), headlessDt * 84.0f);
                     state.pitchDegrees = std::clamp(
@@ -3356,6 +2979,7 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
         if (!ri::games::StartupGameRuntimeCore(runtime, launchCommandLine, error)) {
             return false;
         }
+        state.hostInput = ri::runtime::TryGetHostInputService(runtime.Context());
         ri::games::BindRuntimeEventBus(runtime, state.runtimeEvents);
         state.pluginHost.runtimeEvents = state.runtimeEvents;
         ri::games::WireGamePluginEventBus(state.pluginHost);

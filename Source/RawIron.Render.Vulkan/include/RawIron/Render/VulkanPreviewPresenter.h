@@ -74,7 +74,8 @@ struct VulkanPreviewWindowOptions {
     void* messageUserData = nullptr;
     using Win32MessageHook = void (*)(void* user, void* hwnd, unsigned int message, std::uint64_t wParam, std::int64_t lParam);
     Win32MessageHook onWin32Message = nullptr;
-    /// Written once the client HWND exists (same as swapchain surface target).
+    /// Written once the client HWND exists (same as swapchain surface target), then cleared when
+    /// the loop returns. Engine-created HWNDs are destroyed before this pointer is cleared.
     void* outClientHwnd = nullptr;
     /// Optional existing Win32 HWND to use as the Vulkan surface target instead of creating one.
     void* clientHwnd = nullptr;
@@ -114,8 +115,12 @@ struct VulkanNativeSceneFrame {
     const ri::scene::Scene* scene = nullptr;
     /// Stable identity for GPU mesh/texture caches when `scene` is an immutable per-frame snapshot.
     const void* sceneCacheIdentity = nullptr;
-    /// Monotonic snapshot id; unchanged ids mean the editor has not published a new frame payload.
+    /// Snapshot id used when unchanged-frame suppression is enabled. Exact repeats of the last
+    /// successfully presented id may be skipped; ordering, decreases, and integer wrap are not special.
     std::uint64_t frameSequence = 0;
+    /// Static/editor snapshot producers keep this enabled and advance frameSequence on publication.
+    /// Dynamic games, animation previews, and simulations must disable it to render every callback.
+    bool suppressUnchangedFrames = true;
     int cameraNode = -1;
     /// Lightweight editor camera update. This avoids cloning a large immutable scene snapshot
     /// for orbit/pan-only frames while keeping view, sky, and lighting camera data current.
@@ -194,6 +199,9 @@ bool BuildSceneKitPreviewVulkanBridge(const ri::scene::SceneKitPreview& preview,
                                       SceneKitPreviewRenderBridgeStats* outStats = nullptr,
                                       std::string* error = nullptr);
 
+/// Runs the native scene loop. Once initialization reaches frame processing, callback, scene-build,
+/// acquire, submission, and presentation failures unwind through the normal device-resource teardown
+/// path before returning false. Initialization failures are reported through `error` as before.
 bool RunVulkanNativeSceneLoop(int width,
                               int height,
                               const VulkanNativeSceneFrameCallback& buildFrame,

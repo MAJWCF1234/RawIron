@@ -14,9 +14,12 @@
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
+#include "RawIron/Runtime/HostChrome.h"
+#include "RawIron/Runtime/HostInputService.h"
 #include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Scene/SceneUtils.h"
 #include "RawIron/Spatial/Aabb.h"
+#include "RawIron/Trace/KeyboardMovementInput.h"
 #include "RawIron/Trace/MovementController.h"
 
 #include <algorithm>
@@ -148,11 +151,13 @@ struct PlayState {
     float lastDeltaSeconds = 1.0f / 60.0f;
     float mouseSensitivity = 0.12f;
     float cameraHeight = 1.62f;
-    bool jumpHeldLastFrame = false;
     ri::math::Vec3 spawnFeet{0.0f, 0.20f, -7.4f};
     ri::trace::TraceScene traceScene{};
     ri::trace::MovementControllerState movement{};
     ri::trace::MovementControllerOptions movementOptions{};
+    ri::trace::KeyboardMovementEdges movementEdges{};
+    /// Mounted HostInput service — games query, engine owns Update.
+    ri::runtime::HostInputService* hostInput = nullptr;
     int renderQualityTier = 2;
     float renderExposure = 1.02f;
     float renderContrast = 1.08f;
@@ -166,12 +171,6 @@ struct PlayState {
     ri::math::Vec3 ambientLight{0.34f, 0.36f, 0.34f};
     ri::games::GamePluginRuntimeHost pluginHost{};
 };
-
-float KeyAxis(const int positive, const int negative) {
-    const float plus = (GetAsyncKeyState(positive) & 0x8000) != 0 ? 1.0f : 0.0f;
-    const float minus = (GetAsyncKeyState(negative) & 0x8000) != 0 ? 1.0f : 0.0f;
-    return plus - minus;
-}
 
 ri::spatial::Aabb BuildPlayerBounds(const ri::math::Vec3& feet) {
     return ri::spatial::Aabb{
@@ -207,28 +206,25 @@ void TickPlayState(PlayState& state) {
     state.lastDeltaSeconds = deltaSeconds;
     state.elapsedSeconds += deltaSeconds;
 
-    if ((GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0 && state.hwnd != nullptr) {
+    if (state.hostInput == nullptr) {
+        return;
+    }
+    state.hostInput->Sync(state.hwnd);
+    const ri::runtime::HostChromeActions chrome = ri::runtime::PollHostChrome(*state.hostInput);
+    if (chrome.quitRequested && state.hwnd != nullptr) {
         PostMessageW(state.hwnd, WM_CLOSE, 0, 0);
     }
+    const ri::core::KeyboardFocusGate& focus = state.hostInput->Focus();
 
-    state.yawDegrees += KeyAxis(VK_RIGHT, VK_LEFT) * 92.0f * deltaSeconds;
-    state.pitchDegrees = std::clamp(state.pitchDegrees + KeyAxis(VK_DOWN, VK_UP) * 72.0f * deltaSeconds, -80.0f, 78.0f);
+    state.yawDegrees +=
+        ri::trace::KeyboardAxis(focus, VK_RIGHT, VK_LEFT) * 92.0f * deltaSeconds;
+    state.pitchDegrees = std::clamp(
+        state.pitchDegrees + ri::trace::KeyboardAxis(focus, VK_DOWN, VK_UP) * 72.0f * deltaSeconds,
+        -80.0f,
+        78.0f);
 
-    const float yawRadians = ri::math::DegreesToRadians(state.yawDegrees);
-    const ri::math::Vec3 forward{std::sin(yawRadians), 0.0f, std::cos(yawRadians)};
-    const ri::math::Vec3 right = ri::math::Normalize(
-        ri::math::Cross(ri::math::Vec3{0.0f, 1.0f, 0.0f}, forward));
-    const bool jumpHeld = (GetAsyncKeyState(VK_SPACE) & 0x8000) != 0;
-    const ri::trace::MovementInput movementInput{
-        .moveForward = KeyAxis('W', 'S'),
-        .moveRight = KeyAxis('D', 'A'),
-        .viewForwardWorld = forward,
-        .viewRightWorld = right,
-        .sprintHeld = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0,
-        .jumpPressed = jumpHeld && !state.jumpHeldLastFrame,
-        .applyShortJumpGravity = !jumpHeld,
-    };
-    state.jumpHeldLastFrame = jumpHeld;
+    const ri::trace::MovementInput movementInput =
+        ri::trace::BuildKeyboardMovementInput(focus, state.yawDegrees, state.movementEdges);
     state.movement = ri::trace::SimulateMovementControllerStep(
                          state.traceScene,
                          state.movement,
@@ -399,6 +395,7 @@ bool RunNativeLoop(const StandaloneOptions& options,
     if (!ri::games::StartupGameRuntimeCore(runtime, commandLine, error)) {
         return false;
     }
+    state.hostInput = ri::runtime::TryGetHostInputService(runtime.Context());
 
     int frameCount = 0;
     ri::render::ShaderPresentationConfig shaderPresentation{};
@@ -443,6 +440,7 @@ bool RunNativeLoop(const StandaloneOptions& options,
             }
 
             frame.scene = &state.world.scene;
+            frame.suppressUnchangedFrames = false;
             frame.cameraNode = state.world.playerCameraNode;
             frame.textureRoot = textureRoot;
             frame.animationTimeSeconds = state.elapsedSeconds;

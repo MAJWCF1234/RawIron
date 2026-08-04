@@ -46,6 +46,8 @@ The root `CMakeLists.txt` exposes `RAWIRON_BUILD_*` switches for apps, games, to
 ## Ownership rules
 
 - Lifecycle, services, and frame stepping belong to `RuntimeCore`.
+- Engine capabilities (HostInput, audio apply, UI presenters, movement builders, netcode) live in `Source/`. Games and demos **mount** or **resolve** them; they do not reimplement them.
+- Games are not differentiated by forking engine code. They differ through configuration languages and authored content: `scripts/*.riscript`, `config/*`, `ui/*.ui.json`, levels, assets, and plugin/package declarations.
 - Shared tuning contracts are enforced in engine/shared game code before gameplay boot continues.
-- Games provide authored values, authored levels, authored plugin declarations, and game modules.
+- Truly custom capabilities arrive as packages/plugins the project brings itself — not as one-off copies of engine systems inside `Games/` or demo apps.
 - Releases ship the workspace as a workspace, not as a source-only SDK.

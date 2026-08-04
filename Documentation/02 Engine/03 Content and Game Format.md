@@ -42,9 +42,19 @@ Available enforcement modes:
 
 The default runtime posture is `Balanced`, which still blocks missing core surfaces and reports schema problems without forcing every iteration to hard-fail.
 
+## Audio tuning contract
+
+`scripts/audio.riscript` carries two required scalars. Loading and apply are engine-owned:
+
+- `ri::content::LoadGameAudioTuningScalars(gameRoot)` loads the file
+- `ri::audio::ApplyAudioMasterGain` pushes master gain (attenuation-only `[0,1]`; values above `1.0` clamp with a message)
+- `ri::audio::BlendAudioEnvironmentProfile` applies `audio_environment_blend` (`0` dry, `1` authored, `2` exaggerated)
+
+Games that mount an `AudioManager` call those helpers; they do not re-parse or re-clamp the contract themselves. Games without an audio manager still need the file present to satisfy the format contract.
+
 ## Why this matters
 
-This keeps projects consistent across games and prevents runtime tuning from drifting into hardcoded per-game behavior that bypasses the engine.
+Every game mounts the same engine features. What makes a project feel different is its authored configuration and content — riscript scalars, cfg policies, UI manifests, levels, assets — or a custom package it brings. That keeps projects consistent and stops runtime tuning from drifting into hardcoded per-game forks of engine systems.
 
 ## Reference
 

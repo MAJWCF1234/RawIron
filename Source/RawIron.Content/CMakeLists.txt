@@ -5,9 +5,12 @@ add_library(RawIron.Content
   src/DeclarativeModelDefinition.cpp
   src/EngineAssets.cpp
   src/ExtensionDescriptor.cpp
+  src/GameAudioTuning.cpp
+  src/GameCameraTuning.cpp
   src/GameManifest.cpp
   src/GamePackageRequirements.cpp
   src/GameRuntimeSupport.cpp
+  src/GameScriptBundle.cpp
   src/NativePluginHost.cpp
   src/PackageMountRegistry.cpp
   src/PackageResolver.cpp
@@ -76,6 +79,10 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(PackageResolverSmoke ${CMAKE_SOURCE_DIR}/Tests/PackageResolverSmoke.cpp)
   target_link_libraries(PackageResolverSmoke PRIVATE RawIron::Content)
   add_test(NAME RawIron.Content.PackageResolverSmoke COMMAND PackageResolverSmoke)
+
+  add_executable(PackageInstallPathSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/PackageInstallPathSafetySmoke.cpp)
+  target_link_libraries(PackageInstallPathSafetySmoke PRIVATE RawIron::Content)
+  add_test(NAME RawIron.Content.PackageInstallPathSafetySmoke COMMAND PackageInstallPathSafetySmoke)
 
   add_executable(PackageMountRegistrySmoke ${CMAKE_SOURCE_DIR}/Tests/PackageMountRegistrySmoke.cpp)
   target_link_libraries(PackageMountRegistrySmoke PRIVATE RawIron::Content)

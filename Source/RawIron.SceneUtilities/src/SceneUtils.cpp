@@ -161,7 +161,12 @@ std::optional<int> FindAncestorByName(const Scene& scene, int nodeHandle, std::s
     }
 
     int current = scene.GetNode(nodeHandle).parent;
-    while (current != kInvalidHandle) {
+    // Corrupt or hand-authored hierarchies can hold out-of-range parents (GetNode
+    // throws) or form a cycle (infinite loop), so bound the walk by node count and
+    // validate every handle.
+    std::size_t steps = 0U;
+    const std::size_t maxSteps = scene.NodeCount();
+    while (current != kInvalidHandle && IsValidNodeHandle(scene, current) && steps++ <= maxSteps) {
         const Node& node = scene.GetNode(current);
         if (node.name == name) {
             return current;

@@ -17,6 +17,7 @@ namespace {
 
 constexpr std::uint64_t kSemanticPartitionFnvOffset = 14695981039346656037ull;
 constexpr std::uint64_t kSemanticPartitionFnvPrime = 1099511628211ull;
+constexpr std::memory_order kMetricMemoryOrder = std::memory_order_relaxed;
 
 void HashByte(std::uint64_t& hash, const unsigned char value) {
     hash ^= static_cast<std::uint64_t>(value);
@@ -202,6 +203,43 @@ void IncrementQueryPurposeCounts(SemanticStructuralPartitionQueryPurposeCounts& 
 
 } // namespace
 
+SemanticStructuralPartition::QueryStats::QueryStats(const QueryStats& other) noexcept {
+    *this = other;
+}
+
+SemanticStructuralPartition::QueryStats& SemanticStructuralPartition::QueryStats::operator=(
+    const QueryStats& other) noexcept {
+    boxQueries.store(other.boxQueries.load(kMetricMemoryOrder), kMetricMemoryOrder);
+    rayQueries.store(other.rayQueries.load(kMetricMemoryOrder), kMetricMemoryOrder);
+    boxCandidatesScanned.store(other.boxCandidatesScanned.load(kMetricMemoryOrder), kMetricMemoryOrder);
+    rayCandidatesScanned.store(other.rayCandidatesScanned.load(kMetricMemoryOrder), kMetricMemoryOrder);
+    boxCandidatesMatched.store(other.boxCandidatesMatched.load(kMetricMemoryOrder), kMetricMemoryOrder);
+    rayCandidatesMatched.store(other.rayCandidatesMatched.load(kMetricMemoryOrder), kMetricMemoryOrder);
+    regionScopedBoxQueries.store(other.regionScopedBoxQueries.load(kMetricMemoryOrder), kMetricMemoryOrder);
+    regionScopedRayQueries.store(other.regionScopedRayQueries.load(kMetricMemoryOrder), kMetricMemoryOrder);
+    return *this;
+}
+
+SemanticStructuralPartition::QueryStats::QueryStats(QueryStats&& other) noexcept {
+    *this = other;
+}
+
+SemanticStructuralPartition::QueryStats& SemanticStructuralPartition::QueryStats::operator=(
+    QueryStats&& other) noexcept {
+    return *this = other;
+}
+
+void SemanticStructuralPartition::QueryStats::Reset() noexcept {
+    boxQueries.store(0, kMetricMemoryOrder);
+    rayQueries.store(0, kMetricMemoryOrder);
+    boxCandidatesScanned.store(0, kMetricMemoryOrder);
+    rayCandidatesScanned.store(0, kMetricMemoryOrder);
+    boxCandidatesMatched.store(0, kMetricMemoryOrder);
+    rayCandidatesMatched.store(0, kMetricMemoryOrder);
+    regionScopedBoxQueries.store(0, kMetricMemoryOrder);
+    regionScopedRayQueries.store(0, kMetricMemoryOrder);
+}
+
 void SemanticStructuralPartition::Rebuild(std::vector<SemanticStructuralPartitionEntry> entries,
                                           ri::spatial::SpatialIndexOptions indexOptions) {
     entries_ = std::move(entries);
@@ -316,10 +354,10 @@ void SemanticStructuralPartition::CollectRayCandidates(
 std::vector<SemanticStructuralPartitionHit> SemanticStructuralPartition::QueryBox(
     const ri::spatial::Aabb& box,
     const SemanticStructuralPartitionQuery& query) const {
-    ++queryStats_.boxQueries;
+    queryStats_.boxQueries.fetch_add(1, kMetricMemoryOrder);
     std::vector<std::size_t> candidates;
     if (!query.region.empty()) {
-        ++queryStats_.regionScopedBoxQueries;
+        queryStats_.regionScopedBoxQueries.fetch_add(1, kMetricMemoryOrder);
         if (const RegionSubpartition* subpartition = FindSubpartition(query.region);
             subpartition != nullptr) {
             CollectBoxCandidates(*subpartition, box, candidates);
@@ -329,7 +367,7 @@ std::vector<SemanticStructuralPartitionHit> SemanticStructuralPartition::QueryBo
             CollectBoxCandidates(subpartition, box, candidates);
         }
     }
-    queryStats_.boxCandidatesScanned += candidates.size();
+    queryStats_.boxCandidatesScanned.fetch_add(candidates.size(), kMetricMemoryOrder);
 
     std::vector<SemanticStructuralPartitionHit> hits;
     hits.reserve(candidates.size());
@@ -340,7 +378,7 @@ std::vector<SemanticStructuralPartitionHit> SemanticStructuralPartition::QueryBo
         }
         hits.push_back(SemanticStructuralPartitionHit{.entry = &entry});
     }
-    queryStats_.boxCandidatesMatched += hits.size();
+    queryStats_.boxCandidatesMatched.fetch_add(hits.size(), kMetricMemoryOrder);
     return hits;
 }
 
@@ -349,10 +387,10 @@ std::vector<SemanticStructuralPartitionHit> SemanticStructuralPartition::QueryRa
     const ri::math::Vec3& direction,
     const float far,
     const SemanticStructuralPartitionQuery& query) const {
-    ++queryStats_.rayQueries;
+    queryStats_.rayQueries.fetch_add(1, kMetricMemoryOrder);
     std::vector<ri::spatial::SpatialRayCandidate> candidates;
     if (!query.region.empty()) {
-        ++queryStats_.regionScopedRayQueries;
+        queryStats_.regionScopedRayQueries.fetch_add(1, kMetricMemoryOrder);
         if (const RegionSubpartition* subpartition = FindSubpartition(query.region);
             subpartition != nullptr) {
             CollectRayCandidates(*subpartition, origin, direction, far, candidates);
@@ -362,7 +400,7 @@ std::vector<SemanticStructuralPartitionHit> SemanticStructuralPartition::QueryRa
             CollectRayCandidates(subpartition, origin, direction, far, candidates);
         }
     }
-    queryStats_.rayCandidatesScanned += candidates.size();
+    queryStats_.rayCandidatesScanned.fetch_add(candidates.size(), kMetricMemoryOrder);
 
     std::vector<SemanticStructuralPartitionHit> hits;
     hits.reserve(candidates.size());
@@ -376,7 +414,7 @@ std::vector<SemanticStructuralPartitionHit> SemanticStructuralPartition::QueryRa
             .distance = candidate.distance,
         });
     }
-    queryStats_.rayCandidatesMatched += hits.size();
+    queryStats_.rayCandidatesMatched.fetch_add(hits.size(), kMetricMemoryOrder);
     std::sort(hits.begin(), hits.end(), [](const SemanticStructuralPartitionHit& lhs,
                                            const SemanticStructuralPartitionHit& rhs) {
         if (lhs.distance != rhs.distance) {
@@ -395,10 +433,10 @@ std::optional<SemanticStructuralPartitionHit> SemanticStructuralPartition::Query
     const ri::math::Vec3& direction,
     const float far,
     const SemanticStructuralPartitionQuery& query) const {
-    ++queryStats_.rayQueries;
+    queryStats_.rayQueries.fetch_add(1, kMetricMemoryOrder);
     std::vector<ri::spatial::SpatialRayCandidate> candidates;
     if (!query.region.empty()) {
-        ++queryStats_.regionScopedRayQueries;
+        queryStats_.regionScopedRayQueries.fetch_add(1, kMetricMemoryOrder);
         if (const RegionSubpartition* subpartition = FindSubpartition(query.region);
             subpartition != nullptr) {
             CollectRayCandidates(*subpartition, origin, direction, far, candidates);
@@ -408,7 +446,7 @@ std::optional<SemanticStructuralPartitionHit> SemanticStructuralPartition::Query
             CollectRayCandidates(subpartition, origin, direction, far, candidates);
         }
     }
-    queryStats_.rayCandidatesScanned += candidates.size();
+    queryStats_.rayCandidatesScanned.fetch_add(candidates.size(), kMetricMemoryOrder);
 
     std::optional<SemanticStructuralPartitionHit> best;
     std::size_t matched = 0;
@@ -430,7 +468,7 @@ std::optional<SemanticStructuralPartitionHit> SemanticStructuralPartition::Query
             };
         }
     }
-    queryStats_.rayCandidatesMatched += matched;
+    queryStats_.rayCandidatesMatched.fetch_add(matched, kMetricMemoryOrder);
     return best;
 }
 
@@ -480,14 +518,14 @@ std::size_t SemanticStructuralPartition::RegionBucketCount() const noexcept {
 
 SemanticStructuralPartitionMetrics SemanticStructuralPartition::Metrics() const noexcept {
     SemanticStructuralPartitionMetrics metrics = metrics_;
-    metrics.boxQueries = queryStats_.boxQueries;
-    metrics.rayQueries = queryStats_.rayQueries;
-    metrics.boxCandidatesScanned = queryStats_.boxCandidatesScanned;
-    metrics.rayCandidatesScanned = queryStats_.rayCandidatesScanned;
-    metrics.boxCandidatesMatched = queryStats_.boxCandidatesMatched;
-    metrics.rayCandidatesMatched = queryStats_.rayCandidatesMatched;
-    metrics.regionScopedBoxQueries = queryStats_.regionScopedBoxQueries;
-    metrics.regionScopedRayQueries = queryStats_.regionScopedRayQueries;
+    metrics.boxQueries = queryStats_.boxQueries.load(kMetricMemoryOrder);
+    metrics.rayQueries = queryStats_.rayQueries.load(kMetricMemoryOrder);
+    metrics.boxCandidatesScanned = queryStats_.boxCandidatesScanned.load(kMetricMemoryOrder);
+    metrics.rayCandidatesScanned = queryStats_.rayCandidatesScanned.load(kMetricMemoryOrder);
+    metrics.boxCandidatesMatched = queryStats_.boxCandidatesMatched.load(kMetricMemoryOrder);
+    metrics.rayCandidatesMatched = queryStats_.rayCandidatesMatched.load(kMetricMemoryOrder);
+    metrics.regionScopedBoxQueries = queryStats_.regionScopedBoxQueries.load(kMetricMemoryOrder);
+    metrics.regionScopedRayQueries = queryStats_.regionScopedRayQueries.load(kMetricMemoryOrder);
     metrics.subpartitionCount = subpartitions_.size();
     metrics.lastRebuildSubpartitionsReused = lastRebuildSubpartitionsReused_;
     metrics.lastRebuildSubpartitionsRebuilt = lastRebuildSubpartitionsRebuilt_;
@@ -495,7 +533,7 @@ SemanticStructuralPartitionMetrics SemanticStructuralPartition::Metrics() const 
 }
 
 void SemanticStructuralPartition::ResetMetrics() noexcept {
-    queryStats_ = {};
+    queryStats_.Reset();
     for (RegionSubpartition& subpartition : subpartitions_) {
         subpartition.index.ResetMetrics();
     }

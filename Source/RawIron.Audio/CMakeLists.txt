@@ -1,8 +1,10 @@
 option(RAWIRON_AUDIO_MINIAUDIO "Build native miniaudio device backend (WASAPI/CoreAudio/ALSA/Pulse)" ON)
 
 set(RAWIRON_AUDIO_SOURCES
+  src/AmbientLoopBank.cpp
   src/AudioEnvironment.cpp
   src/AudioManager.cpp
+  src/AudioTuning.cpp
 )
 
 if (RAWIRON_AUDIO_MINIAUDIO)

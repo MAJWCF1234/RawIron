@@ -21,9 +21,17 @@ A LocalAppData-based preset (`dev-msvc-localappdata`) exists for environments wh
 
 ## Tests
 
-- `RAWIRON_BUILD_TESTS=ON` enables optional lightweight CTest registration where defined
-- `RawIron.UiMenu --headless` is the baseline no-window smoke path
-- game projects also carry `tests/*.riscript` surfaces for gameplay, rendering, network, and UI validation
+- Supported development presets enable `RAWIRON_BUILD_TESTS=ON`; a raw CMake configuration may still opt out explicitly.
+- Build the configured workspace, then run the complete registered suite:
+
+```powershell
+ctest --test-dir build/dev-msvc -C RelWithDebInfo --output-on-failure
+```
+
+- `RawIron.UiMenu --headless` remains a useful no-window app smoke, but it is not a substitute for the engine/content/runtime tests.
+- CI builds the complete Windows workspace, runs every registered test, verifies the ENet-backed networking lane, and runs a focused AddressSanitizer lane.
+- GPU presentation, rendered-image quality, device-loss behavior, and interactive editor UX require explicit hardware/visual lanes; headless success does not claim them.
+- Game projects also carry `tests/*.riscript` and script surfaces for gameplay, rendering, network, and UI validation.
 
 ## Multiplayer runs
 

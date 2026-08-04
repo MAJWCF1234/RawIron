@@ -4,6 +4,34 @@
 
 namespace ri::ui {
 
+struct UiPanelBounds {
+    int left = 0;
+    int top = 0;
+    int width = 0;
+    int height = 0;
+};
+
+/// Centers a content panel inside a client area, never exceeding it and never producing a negative
+/// origin. `desiredWidth` / `desiredHeight` are treated as preferences, not guarantees: callers may
+/// pass a preferred size larger than the window (tiny or minimized windows) and still get usable
+/// bounds. Passing a preferred minimum straight to `std::clamp` is undefined behaviour once the
+/// window shrinks below that minimum, which is why presenters must route through this helper.
+[[nodiscard]] inline UiPanelBounds ComputeCenteredPanelBounds(int clientWidth,
+                                                              int clientHeight,
+                                                              int desiredWidth,
+                                                              int desiredHeight) noexcept {
+    clientWidth = std::max(0, clientWidth);
+    clientHeight = std::max(0, clientHeight);
+    const int width = std::min(std::max(0, desiredWidth), clientWidth);
+    const int height = std::min(std::max(0, desiredHeight), clientHeight);
+    return {
+        .left = (clientWidth - width) / 2,
+        .top = (clientHeight - height) / 2,
+        .width = width,
+        .height = height,
+    };
+}
+
 struct UiImageUvRect {
     float u0 = 0.0f;
     float v0 = 0.0f;

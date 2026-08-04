@@ -5,6 +5,7 @@ add_executable(RawIron.ParticleShowcase
 target_link_libraries(RawIron.ParticleShowcase
   PRIVATE
     RawIron::Core
+    RawIron::Runtime
     RawIron::SceneUtilities
     RawIron::RenderVulkan
     RawIron::Audio

@@ -102,7 +102,11 @@ public:
     [[nodiscard]] const EditorLogicWirePickState& WirePickState() const { return wirePickState_; }
 
     [[nodiscard]] bool Save(const std::filesystem::path& path, const ri::scene::Scene& scene) const;
-    [[nodiscard]] bool Load(const std::filesystem::path& path, ri::scene::Scene& scene, int worldRoot);
+    [[nodiscard]] std::string Serialize(const ri::scene::Scene& scene) const;
+    [[nodiscard]] bool Load(const std::filesystem::path& path,
+                            ri::scene::Scene& scene,
+                            int worldRoot,
+                            std::string* errorMessage = nullptr);
 
     [[nodiscard]] const std::vector<EditorLogicPlacedNode>& PlacedNodes() const { return placedNodes_; }
     [[nodiscard]] const std::vector<EditorLogicWireRecord>& Wires() const { return wires_; }

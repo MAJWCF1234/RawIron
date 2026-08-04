@@ -46,7 +46,9 @@ add_library(RawIron.Render.Vulkan
   src/VulkanCommandBufferRecorder.cpp
   src/VulkanCommandList.cpp
   src/VulkanCommandRecorder.cpp
+  src/VulkanDeviceFeaturePolicy.cpp
   src/VulkanFrameSubmission.cpp
+  src/VulkanFrameScheduling.cpp
   src/VulkanFrameTuning.cpp
   src/VulkanIntentStaging.cpp
   src/VulkanPipelineStateCache.cpp
@@ -94,6 +96,12 @@ endif()
 target_compile_features(RawIron.Render.Vulkan PUBLIC cxx_std_20)
 
 if(RAWIRON_BUILD_TESTS)
+  if(WIN32)
+    # Deliberately not registered with CTest: this is a real-GPU diagnostic target used
+    # by validation-layer lanes and local renderer reviews.
+    add_executable(VulkanNativeValidationProbe ${CMAKE_SOURCE_DIR}/Tests/VulkanNativeValidationProbe.cpp)
+    target_link_libraries(VulkanNativeValidationProbe PRIVATE RawIron::RenderVulkan)
+  endif()
   add_executable(VulkanHybridPostProcessSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanHybridPostProcessSafetySmoke.cpp)
   target_link_libraries(VulkanHybridPostProcessSafetySmoke PRIVATE RawIron::RenderVulkan)
   add_test(NAME RawIron.Render.Vulkan.HybridPostProcessSafetySmoke COMMAND VulkanHybridPostProcessSafetySmoke)
@@ -103,6 +111,12 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(VulkanFrameTuningSmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanFrameTuningSmoke.cpp)
   target_link_libraries(VulkanFrameTuningSmoke PRIVATE RawIron::RenderVulkan)
   add_test(NAME RawIron.Render.Vulkan.FrameTuningSmoke COMMAND VulkanFrameTuningSmoke)
+  add_executable(VulkanFrameSchedulingSmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanFrameSchedulingSmoke.cpp)
+  target_link_libraries(VulkanFrameSchedulingSmoke PRIVATE RawIron::RenderVulkan)
+  add_test(NAME RawIron.Render.Vulkan.FrameSchedulingSmoke COMMAND VulkanFrameSchedulingSmoke)
+  add_executable(VulkanDeviceFeaturePolicySmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanDeviceFeaturePolicySmoke.cpp)
+  target_link_libraries(VulkanDeviceFeaturePolicySmoke PRIVATE RawIron::RenderVulkan)
+  add_test(NAME RawIron.Render.Vulkan.DeviceFeaturePolicySmoke COMMAND VulkanDeviceFeaturePolicySmoke)
   add_executable(VulkanWarmupCacheSmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanWarmupCacheSmoke.cpp)
   target_link_libraries(VulkanWarmupCacheSmoke PRIVATE RawIron::RenderVulkan)
   add_test(NAME RawIron.Render.Vulkan.WarmupCacheSmoke COMMAND VulkanWarmupCacheSmoke)

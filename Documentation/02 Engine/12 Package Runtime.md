@@ -81,6 +81,43 @@ operations the host may grant. Resolution rejects ungranted permissions, but it 
 an execution sandbox by itself. Native packages still require the native plugin host;
 WASM and Lua execution hosts remain separate runtime work.
 
+Manifest file, mount, runtime-entry, and project `installPath` values use portable
+forward-slash-relative syntax. Validation rejects absolute/rooted paths, Windows drive
+and device forms, backslashes, `.`/`..`, empty components, reserved device names, and
+other cross-platform ambiguous components. Project installation canonicalizes every
+asset and receipt destination and verifies existing symlink/reparse components remain
+inside the canonical project root before the first project write. Planned destinations
+are collision-checked with ordinal Unicode case-insensitive comparison on Windows and a
+portable ASCII case-insensitive policy elsewhere. Existing multi-link files are rejected
+so overwrite cannot mutate a hard-link alias outside the project. Paths are checked again
+immediately before each copy.
+
+Archive extraction is an explicit boundary before manifest parsing. `ri_tool` parses
+ZIP central and local records itself and only accepts classic, single-disk stored or
+DEFLATE entries. It rejects ZIP64, encryption, masked headers, links/reparse entries,
+special Unix file types, unsupported flags/methods, inconsistent headers/descriptors,
+overlapping regions, duplicate/platform-colliding names, file/directory prefix
+collisions, and every path form rejected by the package-relative path contract. Nothing
+is extracted until every entry has passed metadata and containment preflight.
+
+The fixed extraction ceilings are 512 MiB of archive input, 16384 entries, 256 MiB
+expanded bytes per file, 1 GiB total expanded bytes, and a 200:1 per-file compression
+ratio. Output is counted and CRC-checked after stored streaming or bounded DEFLATE decode;
+metadata alone is not treated as proof of the produced size. Extraction uses an
+exclusive system-temporary root and exclusive final-file creation, rechecks containment
+and link/reparse components before writes, and owns recursive cleanup on both success and
+failure. PowerShell `Expand-Archive` is no longer used. Windows package creation still
+uses `Compress-Archive`; extraction is native and does not fetch a backend at runtime.
+
+Current format limits are intentional: no ZIP64, split, encrypted, linked, sparse, or
+non-stored/non-DEFLATE package entries. One bounded DEFLATE file is held in memory while
+decoding. The pinned stb decoder verifies actual output size and CRC but does not expose
+its final compressed-input cursor, so harmless bytes following a valid DEFLATE end marker
+inside an entry cannot yet be distinguished from fully consumed input. Publisher
+authentication and transactional multi-file project installation remain separate trust
+layers. Windows adversarial extraction is covered in CI; POSIX code paths compile by
+design but require their platform CI lane for runtime proof.
+
 The current `fnv1a64:` value is a deterministic integrity checksum over canonical LF text.
 It detects package corruption and makes Windows/Git line-ending conversion stable. It is
 not a cryptographic publisher signature. Trust stores, public-key signing, revocation,

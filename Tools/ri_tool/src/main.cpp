@@ -23,6 +23,7 @@
 #include "RawIron/Scene/RigAuthoring.h"
 #include "EditorProjectScaffolding.h"
 #include "EditorWorkspace.h"
+#include "SecureRipakArchive.h"
 
 #include <algorithm>
 #include <array>
@@ -861,29 +862,6 @@ fs::path UniquePackageTempDirectory(const std::string_view prefix, const fs::pat
         (std::string(prefix) + "_" + SanitizeAssetId(packagePath.stem().string()) + "_" + std::to_string(tick));
 }
 
-fs::path ExtractRipakArchiveToTemp(const fs::path& archivePath) {
-    const fs::path absoluteArchive = fs::weakly_canonical(archivePath);
-    const fs::path extractRoot = UniquePackageTempDirectory("extract", absoluteArchive);
-    const fs::path zipScratch = extractRoot.parent_path() / (extractRoot.filename().string() + ".zip");
-    fs::create_directories(extractRoot.parent_path());
-
-    std::error_code ec{};
-    fs::copy_file(absoluteArchive, zipScratch, fs::copy_options::overwrite_existing, ec);
-    if (ec) {
-        throw std::runtime_error("Failed to stage .ripak archive for extraction: " + ec.message());
-    }
-
-    const std::string script =
-        "if (Test-Path -LiteralPath " + QuotePowerShellLiteral(extractRoot) + ") { Remove-Item -LiteralPath "
-        + QuotePowerShellLiteral(extractRoot) + " -Recurse -Force }; "
-        + "New-Item -ItemType Directory -Force -Path " + QuotePowerShellLiteral(extractRoot) + " | Out-Null; "
-        + "Expand-Archive -LiteralPath " + QuotePowerShellLiteral(zipScratch)
-        + " -DestinationPath " + QuotePowerShellLiteral(extractRoot) + " -Force; "
-        + "Remove-Item -LiteralPath " + QuotePowerShellLiteral(zipScratch) + " -Force";
-    RunPowerShellArchiveCommand(script, "extract");
-    return extractRoot;
-}
-
 void WriteRipakArchiveFromDirectory(const fs::path& packageDirectory, const fs::path& archivePath) {
     const fs::path absolutePackageDirectory = fs::weakly_canonical(packageDirectory);
     const fs::path absoluteArchivePath = fs::absolute(archivePath).lexically_normal();
@@ -1025,9 +1003,12 @@ void ValidateAssetPackage(const ri::core::CommandLine& commandLine) {
     if (!packageArg.has_value() || packageArg->empty()) {
         throw std::runtime_error("Missing --asset-package-validate <package-dir-or-manifest>.");
     }
-    const fs::path packageRoot = IsRipakArchivePath(fs::path(*packageArg))
-        ? ExtractRipakArchiveToTemp(fs::path(*packageArg))
-        : fs::path(*packageArg);
+    std::optional<ri::tooling::SecureRipakExtraction> extraction;
+    fs::path packageRoot = fs::path(*packageArg);
+    if (IsRipakArchivePath(packageRoot)) {
+        extraction.emplace(ri::tooling::SecureRipakExtraction::Extract(packageRoot));
+        packageRoot = extraction->Root();
+    }
     const fs::path manifestPath = ResolvePackageManifestPath(packageRoot);
     const std::optional<ri::content::AssetPackageManifest> manifest =
         ri::content::LoadAssetPackageManifest(manifestPath);
@@ -1302,10 +1283,7 @@ void CheckAssetPackageMount(
     }
 }
 
-std::optional<ri::content::InstalledAssetPackage> LoadValidatedPackageForInstall(const fs::path& packageArg) {
-    const fs::path packageRoot = IsRipakArchivePath(packageArg)
-        ? ExtractRipakArchiveToTemp(packageArg)
-        : packageArg;
+std::optional<ri::content::InstalledAssetPackage> LoadValidatedPackageForInstall(const fs::path& packageRoot) {
     const fs::path manifestPath = ResolvePackageManifestPath(packageRoot);
     const std::optional<ri::content::AssetPackageManifest> manifest =
         ri::content::LoadAssetPackageManifest(manifestPath);
@@ -1327,6 +1305,55 @@ void CopyFileChecked(const fs::path& source, const fs::path& destination) {
     fs::copy_file(source, destination, fs::copy_options::overwrite_existing, ec);
     if (ec) {
         throw std::runtime_error("Failed to copy " + source.string() + " to " + destination.string() + ": " + ec.message());
+    }
+}
+
+struct PackageInstallCopyPlan {
+    fs::path source{};
+    std::string relativeDestination{};
+    fs::path resolvedDestination{};
+    std::string label{};
+};
+
+ri::content::PackageInstallPathResolution ResolvePackageInstallPathOrThrow(
+    const fs::path& projectRoot,
+    const std::string_view relativeDestination,
+    const std::string_view label) {
+    ri::content::PackageInstallPathResolution resolution =
+        ri::content::ResolvePackageInstallPath(projectRoot, relativeDestination);
+    if (!resolution.safe) {
+        throw std::runtime_error(
+            "Unsafe RawIron package destination for " + std::string(label) + " ('"
+            + std::string(relativeDestination) + "'): " + resolution.issue);
+    }
+    return resolution;
+}
+
+void CopyPackageInstallFileChecked(
+    const fs::path& projectRoot,
+    const PackageInstallCopyPlan& plan) {
+    const ri::content::PackageInstallPathResolution beforeDirectories =
+        ResolvePackageInstallPathOrThrow(projectRoot, plan.relativeDestination, plan.label);
+    if (beforeDirectories.destination != plan.resolvedDestination) {
+        throw std::runtime_error(
+            "RawIron package destination changed after preflight for " + plan.label + "; install aborted.");
+    }
+
+    EnsureParentDirectoryExists(beforeDirectories.destination);
+
+    const ri::content::PackageInstallPathResolution beforeCopy =
+        ResolvePackageInstallPathOrThrow(projectRoot, plan.relativeDestination, plan.label);
+    if (beforeCopy.destination != plan.resolvedDestination) {
+        throw std::runtime_error(
+            "RawIron package destination changed while preparing " + plan.label + "; install aborted.");
+    }
+
+    std::error_code ec{};
+    fs::copy_file(plan.source, beforeCopy.destination, fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        throw std::runtime_error(
+            "Failed to copy " + plan.source.string() + " to " + beforeCopy.destination.string()
+            + ": " + ec.message());
     }
 }
 
@@ -1352,8 +1379,14 @@ void ImportAssetPackage(const WorkspaceLayout& workspace, const ri::core::Comman
     if (!packageArg.has_value() || packageArg->empty()) {
         throw std::runtime_error("Missing --asset-package-import <package-dir-or-manifest>.");
     }
+    std::optional<ri::tooling::SecureRipakExtraction> extraction;
+    fs::path packageRoot = fs::path(*packageArg);
+    if (IsRipakArchivePath(packageRoot)) {
+        extraction.emplace(ri::tooling::SecureRipakExtraction::Extract(packageRoot));
+        packageRoot = extraction->Root();
+    }
     std::optional<ri::content::InstalledAssetPackage> package =
-        LoadValidatedPackageForInstall(fs::path(*packageArg));
+        LoadValidatedPackageForInstall(packageRoot);
     if (!package.has_value()) {
         throw std::runtime_error("Failed to load RawIron package: " + *packageArg);
     }
@@ -1391,8 +1424,14 @@ void InstallAssetPackage(const WorkspaceLayout& workspace, const ri::core::Comma
     if (!packageArg.has_value() || packageArg->empty()) {
         throw std::runtime_error("Missing --asset-package-install <package-dir-or-manifest>.");
     }
+    std::optional<ri::tooling::SecureRipakExtraction> extraction;
+    fs::path packageRoot = fs::path(*packageArg);
+    if (IsRipakArchivePath(packageRoot)) {
+        extraction.emplace(ri::tooling::SecureRipakExtraction::Extract(packageRoot));
+        packageRoot = extraction->Root();
+    }
     std::optional<ri::content::InstalledAssetPackage> package =
-        LoadValidatedPackageForInstall(fs::path(*packageArg));
+        LoadValidatedPackageForInstall(packageRoot);
     if (!package.has_value()) {
         throw std::runtime_error("Failed to load RawIron package: " + *packageArg);
     }
@@ -1407,25 +1446,54 @@ void InstallAssetPackage(const WorkspaceLayout& workspace, const ri::core::Comma
     }
 
     const fs::path projectRoot = ResolveProjectRootOption(workspace, commandLine);
-    int copiedCount = 0;
+    std::vector<PackageInstallCopyPlan> copyPlan;
+    copyPlan.reserve(package->manifest.assets.size() + 1U);
+    std::set<fs::path, ri::content::PackageInstallDestinationLess> resolvedDestinations;
     for (const ri::content::AssetPackageEntry& asset : package->manifest.assets) {
-        const fs::path source = package->packageRoot / fs::path(asset.path);
-        const fs::path relativeDestination = asset.installPath.empty()
-            ? DefaultProjectInstallPath(package->manifest, asset)
-            : fs::path(asset.installPath);
-        CopyFileChecked(source, projectRoot / relativeDestination);
-        ++copiedCount;
+        const std::string relativeDestination = asset.installPath.empty()
+            ? DefaultProjectInstallPath(package->manifest, asset).generic_string()
+            : asset.installPath;
+        const std::string label = "asset " + asset.id;
+        const ri::content::PackageInstallPathResolution resolved =
+            ResolvePackageInstallPathOrThrow(projectRoot, relativeDestination, label);
+        if (!resolvedDestinations.insert(resolved.destination).second) {
+            throw std::runtime_error(
+                "RawIron package assets resolve to the same project destination: "
+                + resolved.destination.string());
+        }
+        copyPlan.push_back({
+            .source = package->packageRoot / fs::path(asset.path),
+            .relativeDestination = relativeDestination,
+            .resolvedDestination = resolved.destination,
+            .label = label,
+        });
     }
 
-    const fs::path receiptPath = projectRoot / "assets" / "package_receipts" /
-        (package->manifest.packageId + ".ri_package.json");
-    CopyFileChecked(package->manifestPath, receiptPath);
+    const std::string receiptRelativePath =
+        (fs::path("assets") / "package_receipts"
+         / (package->manifest.packageId + ".ri_package.json")).generic_string();
+    const ri::content::PackageInstallPathResolution resolvedReceipt =
+        ResolvePackageInstallPathOrThrow(projectRoot, receiptRelativePath, "package receipt");
+    if (!resolvedDestinations.insert(resolvedReceipt.destination).second) {
+        throw std::runtime_error("RawIron package asset destination collides with its install receipt.");
+    }
+    copyPlan.push_back({
+        .source = package->manifestPath,
+        .relativeDestination = receiptRelativePath,
+        .resolvedDestination = resolvedReceipt.destination,
+        .label = "package receipt",
+    });
+
+    // Every manifest-derived destination is validated before the first project mutation.
+    for (const PackageInstallCopyPlan& copy : copyPlan) {
+        CopyPackageInstallFileChecked(projectRoot, copy);
+    }
 
     ri::core::LogInfo("RawIron package installed into project.");
     ri::core::LogInfo("  Project root: " + projectRoot.string());
     ri::core::LogInfo("  Package: " + package->manifest.packageId);
-    ri::core::LogInfo("  Installed assets: " + std::to_string(copiedCount));
-    ri::core::LogInfo("  Receipt: " + receiptPath.string());
+    ri::core::LogInfo("  Installed assets: " + std::to_string(package->manifest.assets.size()));
+    ri::core::LogInfo("  Receipt: " + resolvedReceipt.destination.string());
 }
 
 int ParsePositiveIntOption(const ri::core::CommandLine& commandLine,

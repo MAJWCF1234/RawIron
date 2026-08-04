@@ -1047,13 +1047,8 @@ bool EditorLogicLayer::PulseMostRecentNode(Scene& scene, const std::size_t input
     return true;
 }
 
-bool EditorLogicLayer::Save(const fs::path& path, const Scene& scene) const {
-    std::error_code ec{};
-    fs::create_directories(path.parent_path(), ec);
-    std::ofstream stream(path, std::ios::out | std::ios::trunc);
-    if (!stream.is_open()) {
-        return false;
-    }
+std::string EditorLogicLayer::Serialize(const Scene& scene) const {
+    std::ostringstream stream;
     stream << "# RawIron logic authoring v1\n";
     stream << "creator_visible=" << (creatorLayerVisible_ ? "1" : "0") << "\n";
     stream << "player_hidden=" << (playerPreviewHidden_ ? "1" : "0") << "\n";
@@ -1074,17 +1069,89 @@ bool EditorLogicLayer::Save(const fs::path& path, const Scene& scene) const {
         stream << "wire," << wire.wireId << "," << wire.sourceLogicId << "," << wire.outputName << ","
                << wire.targetLogicId << "," << wire.inputName << "\n";
     }
-    return stream.good();
+    return stream.str();
 }
 
-bool EditorLogicLayer::Load(const fs::path& path, Scene& scene, const int worldRoot) {
-    std::ifstream stream(path);
+bool EditorLogicLayer::Save(const fs::path& path, const Scene& scene) const {
+    std::error_code ec{};
+    fs::create_directories(path.parent_path(), ec);
+    if (ec) {
+        return false;
+    }
+    std::ofstream stream(path, std::ios::out | std::ios::trunc);
     if (!stream.is_open()) {
         return false;
     }
-    Reset();
+    const std::string serialized = Serialize(scene);
+    stream.write(serialized.data(), static_cast<std::streamsize>(serialized.size()));
+    stream.flush();
+    return stream.good();
+}
+
+bool EditorLogicLayer::Load(const fs::path& path,
+                            Scene& scene,
+                            const int worldRoot,
+                            std::string* errorMessage) {
+    constexpr std::uintmax_t kMaxLogicAuthoringBytes = 64U * 1024U * 1024U;
+    std::error_code sizeError;
+    const std::uintmax_t fileSize = fs::file_size(path, sizeError);
+    if (sizeError || fileSize > kMaxLogicAuthoringBytes) {
+        if (errorMessage != nullptr) {
+            *errorMessage = sizeError ? "logic authoring file could not be inspected"
+                                      : "logic authoring file exceeds safety limit";
+        }
+        return false;
+    }
+    std::ifstream input(path, std::ios::binary);
+    if (!input.is_open()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "logic authoring file missing";
+        }
+        return false;
+    }
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    if (input.bad() || static_cast<std::uintmax_t>(buffer.tellp()) != fileSize) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "logic authoring file read was incomplete";
+        }
+        return false;
+    }
+    std::istringstream stream(buffer.str());
+    std::string magic;
+    if (!std::getline(stream, magic)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "logic authoring file is empty";
+        }
+        return false;
+    }
+    if (!magic.empty() && magic.back() == '\r') {
+        magic.pop_back();
+    }
+    if (magic != "# RawIron logic authoring v1") {
+        if (errorMessage != nullptr) {
+            *errorMessage = "logic authoring file has an unsupported header";
+        }
+        return false;
+    }
+
+    // Parse fully into staging state before mutating this layer or the scene.
+    struct PendingNode {
+        std::string logicNodeId;
+        std::string kitId;
+        ri::math::Vec3 position{};
+        bool executable = true;
+    };
+    bool stagedCreatorVisible = true;
+    bool stagedPlayerHidden = false;
+    std::vector<EditorLogicWireRecord> stagedWires;
+    std::vector<PendingNode> stagedNodes;
+
     std::string line;
     while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
         if (line.empty() || line[0] == '#') {
             continue;
         }
@@ -1092,53 +1159,131 @@ bool EditorLogicLayer::Load(const fs::path& path, Scene& scene, const int worldR
             const std::string key = line.substr(0, eq);
             const std::string value = line.substr(eq + 1);
             if (key == "creator_visible") {
-                creatorLayerVisible_ = value == "1";
+                if (value != "0" && value != "1") {
+                    if (errorMessage != nullptr) {
+                        *errorMessage = "logic creator_visible flag is malformed";
+                    }
+                    return false;
+                }
+                stagedCreatorVisible = value == "1";
                 continue;
             }
             if (key == "player_hidden") {
-                playerPreviewHidden_ = value == "1";
+                if (value != "0" && value != "1") {
+                    if (errorMessage != nullptr) {
+                        *errorMessage = "logic player_hidden flag is malformed";
+                    }
+                    return false;
+                }
+                stagedPlayerHidden = value == "1";
                 continue;
             }
-        }
-        std::stringstream parser(line);
-        std::string kind;
-        std::getline(parser, kind, ',');
-        if (kind == "wire") {
-            EditorLogicWireRecord wire{};
-            std::getline(parser, wire.wireId, ',');
-            std::getline(parser, wire.sourceLogicId, ',');
-            std::getline(parser, wire.outputName, ',');
-            std::getline(parser, wire.targetLogicId, ',');
-            std::getline(parser, wire.inputName, ',');
-            if (!wire.sourceLogicId.empty() && !wire.targetLogicId.empty()) {
-                wires_.push_back(std::move(wire));
+            if (errorMessage != nullptr) {
+                *errorMessage = "unknown logic authoring setting '" + key + "'";
             }
+            return false;
+        }
+        const std::vector<std::string> tokens = SplitCsvLine(line);
+        if (tokens.empty()) {
+            continue;
+        }
+        const std::string& kind = tokens[0];
+        if (kind == "wire") {
+            if (tokens.size() != 6U || tokens[1].empty() || tokens[2].empty() || tokens[3].empty()
+                || tokens[4].empty() || tokens[5].empty()) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "malformed logic wire record";
+                }
+                return false;
+            }
+            EditorLogicWireRecord wire{};
+            wire.wireId = tokens[1];
+            wire.sourceLogicId = tokens[2];
+            wire.outputName = tokens[3];
+            wire.targetLogicId = tokens[4];
+            wire.inputName = tokens[5];
+            stagedWires.push_back(std::move(wire));
             continue;
         }
         if (kind == "node") {
-            std::string logicNodeId;
-            std::string kitId;
-            float px = 0.0f;
-            float py = 0.0f;
-            float pz = 0.0f;
-            std::string executableFlag;
-            std::getline(parser, logicNodeId, ',');
-            std::getline(parser, kitId, ',');
-            parser >> px;
-            parser.ignore(1);
-            parser >> py;
-            parser.ignore(1);
-            parser >> pz;
-            parser.ignore(1);
-            std::getline(parser, executableFlag, ',');
-            if (!logicNodeId.empty() && !kitId.empty()) {
-                (void)PlaceKitNode(scene, worldRoot, kitId, ri::math::Vec3{px, py, pz}, false, logicNodeId);
-                if (!placedNodes_.empty()) {
-                    placedNodes_.back().executable = executableFlag == "1";
+            if (tokens.size() != 7U || tokens[1].empty() || tokens[2].empty()
+                || (tokens[6] != "0" && tokens[6] != "1")) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "malformed logic node record";
                 }
-                lastPlacedLogicNodeId_ = logicNodeId;
+                return false;
             }
+            ri::math::Vec3 position{};
+            try {
+                position = ri::math::Vec3{std::stof(tokens[3]), std::stof(tokens[4]), std::stof(tokens[5])};
+            } catch (...) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "logic node position is malformed";
+                }
+                return false;
+            }
+            if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z)) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "logic node position is non-finite";
+                }
+                return false;
+            }
+            stagedNodes.push_back(PendingNode{
+                .logicNodeId = tokens[1],
+                .kitId = tokens[2],
+                .position = position,
+                .executable = tokens[6] == "1",
+            });
+            continue;
         }
+        if (kind == "trigger") {
+            if (tokens.size() != 5U || tokens[1].empty()) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "malformed logic trigger record";
+                }
+                return false;
+            }
+            try {
+                const float x = std::stof(tokens[2]);
+                const float y = std::stof(tokens[3]);
+                const float z = std::stof(tokens[4]);
+                if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+                    throw std::out_of_range("non-finite trigger");
+                }
+            } catch (...) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "logic trigger position is malformed";
+                }
+                return false;
+            }
+            continue;
+        }
+        if (errorMessage != nullptr) {
+            *errorMessage = "unknown logic authoring record '" + kind + "'";
+        }
+        return false;
+    }
+
+    // Apply only after the full file validated. Placement still mutates `scene`; callers that
+    // need all-or-nothing scene mutation (bundle load) should pass a candidate scene.
+    Reset();
+    creatorLayerVisible_ = stagedCreatorVisible;
+    playerPreviewHidden_ = stagedPlayerHidden;
+    wires_ = std::move(stagedWires);
+    for (const PendingNode& pending : stagedNodes) {
+        const EditorLogicPlaceResult placed =
+            PlaceKitNode(scene, worldRoot, pending.kitId, pending.position, false, pending.logicNodeId);
+        if (!placed.placed) {
+            Reset();
+            if (errorMessage != nullptr) {
+                *errorMessage = placed.message.empty() ? "logic node could not be instantiated" : placed.message;
+            }
+            return false;
+        }
+        if (!placedNodes_.empty()) {
+            placedNodes_.back().executable = pending.executable;
+        }
+        lastPlacedLogicNodeId_ = pending.logicNodeId;
     }
     RebuildAllWireVisuals(scene);
     (void)Recompile(scene);

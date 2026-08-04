@@ -267,6 +267,7 @@ private:
                       const std::optional<AudioEnvironmentProfile>& profile);
     void UnregisterSound(ManagedSound::SoundId soundId);
     void HandlePlaybackFinished(ManagedSound::SoundId soundId, bool trackAsVoice);
+    void ReleaseOneShotDispatch(ManagedSound::SoundId soundId);
     void PruneOneShotDispatchState(double nowMs);
 
     std::shared_ptr<AudioBackend> backend_;
@@ -295,6 +296,9 @@ private:
         double lastEmitMs = -1.0;
     };
     std::unordered_map<std::string, OneShotDispatchState> oneShotDispatch_;
+    /// Exact dispatch key each live one-shot was counted against. Required because the
+    /// key may be an event id that bears no relation to the sound's file path.
+    std::unordered_map<ManagedSound::SoundId, std::string> oneShotDispatchKeyBySound_;
     std::size_t oneShotDroppedBySafety_ = 0;
     std::size_t loopsCreated_ = 0;
     std::size_t oneShotsPlayed_ = 0;

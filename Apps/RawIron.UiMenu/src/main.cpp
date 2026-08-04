@@ -14,6 +14,7 @@
 #include "RawIron/Ui/UiJsonIO.h"
 #include "RawIron/Ui/UiLayout.h"
 #include "RawIron/Ui/UiPaths.h"
+#include "RawIron/Ui/UiText.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_dx11.h>
@@ -232,30 +233,7 @@ void CleanupDeviceD3D() {
 
 /// Ren'Py-style `"{variable}"` interpolation using the JSON manifest string store (`variables`, `setVar`, etc.).
 [[nodiscard]] std::string SubstituteStoreVars(const ri::ui::UiFlowSession& session, std::string_view input) {
-    std::string out;
-    out.reserve(input.size() + 24U);
-    for (std::size_t i = 0; i < input.size();) {
-        if (input[i] == '$' && i + 1U < input.size() && input[i + 1U] == '{') {
-            std::size_t j = i + 2U;
-            while (j < input.size()) {
-                const unsigned char ch = static_cast<unsigned char>(input[j]);
-                if (std::isalnum(ch) != 0 || input[j] == '_') {
-                    ++j;
-                    continue;
-                }
-                break;
-            }
-            if (j < input.size() && input[j] == '}') {
-                const std::string_view id = input.substr(i + 2U, j - (i + 2U));
-                out.append(session.GetVariableValueView(id));
-                i = j + 1U;
-                continue;
-            }
-        }
-        out.push_back(input[i]);
-        ++i;
-    }
-    return out;
+    return ri::ui::ResolveStoreText(session, input);
 }
 
 [[nodiscard]] fs::path ResolveWorkspaceAssetPath(const ri::ui::UiFlowSession& session,

@@ -1,5 +1,10 @@
 #include "RawIron/Games/ForestRuins/ForestRuinsRuntime.h"
 #include "RawIron/Games/GameRuntimeCore.h"
+#include "RawIron/Audio/AmbientLoopBank.h"
+#include "RawIron/Audio/AudioTuning.h"
+#include "RawIron/Content/GameAudioTuning.h"
+#include "RawIron/Content/GameCameraTuning.h"
+#include "RawIron/Content/GameScriptBundle.h"
 #include "RawIron/Games/GameConfigContracts.h"
 #include "RawIron/Games/GamePluginRuntimeBridge.h"
 #include "RawIron/Games/RuntimeDiagnosticsStandaloneDraw.h"
@@ -11,6 +16,8 @@
 #include "RawIron/Audio/AudioBackendMiniaudio.h"
 #include "RawIron/Audio/AudioManager.h"
 #include "RawIron/Core/Log.h"
+#include "RawIron/Runtime/HostChrome.h"
+#include "RawIron/Runtime/HostInputService.h"
 #include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Render/SoftwarePreview.h"
@@ -21,6 +28,8 @@
 #include "RawIron/Scene/SceneStructuralTraceFeed.h"
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Spatial/Aabb.h"
+#include "RawIron/Trace/FirstPersonCameraFeel.h"
+#include "RawIron/Trace/KeyboardMovementInput.h"
 #include "RawIron/Trace/MovementController.h"
 #include "RawIron/World/CheckpointPersistence.h"
 #include "RawIron/World/RuntimeState.h"
@@ -255,17 +264,21 @@ struct RuntimeState {
     ri::render::software::ScenePreviewCache previewCache{};
     ri::render::software::SoftwareImage scenePreviewScratch{};
     float mouseSensitivityDegreesPerPixel = 0.12f;
-    float cameraBaseHeight = 1.62f;
-    float bobAmplitude = 0.014f;
-    float bobFrequencyHz = 1.6f;
-    float bobSprintScale = 1.75f;
-    float fovBaseDegrees = 78.0f;
-    float fovSprintAddDegrees = 4.0f;
-    float fovLerpPerSecond = 9.0f;
+    ri::trace::FirstPersonCameraFeel cameraFeel{
+        .bobAmplitude = 0.014f,
+        .bobFrequencyHz = 1.6f,
+        .bobSprintScale = 1.75f,
+        .fovBaseDegrees = 78.0f,
+        .fovSprintAddDegrees = 4.0f,
+        .fovLerpPerSecond = 9.0f,
+        .cameraBaseHeight = 1.62f,
+    };
     float currentFovDegrees = 78.0f;
     NativeRenderTuning nativeRenderTuning{};
     std::chrono::steady_clock::time_point lastTick = std::chrono::steady_clock::now();
-    bool jumpHeldLastFrame = false;
+    /// Mounted HostInput service — games query, engine owns Update.
+    ri::runtime::HostInputService* hostInput = nullptr;
+    ri::trace::KeyboardMovementEdges movementEdges{};
     bool useHeldLastFrame = false;
     double environmentTelemetryAccumSeconds = 0.0;
     std::filesystem::path nativeSkyEquirectRelative{};
@@ -277,7 +290,11 @@ struct RuntimeState {
     ri::world::RuntimeDiagnosticsLayer diagnosticsLayer{};
     std::filesystem::path gameRoot{};
     std::shared_ptr<ri::audio::AudioManager> audioManager{};
-    std::unordered_map<std::string, std::shared_ptr<ri::audio::ManagedSound>> ambientLoopByContributionId{};
+    /// scripts/audio.riscript contract. Master gain is pushed to the mixer once at load; the
+    /// environment blend scales how strongly authored audio volumes are applied each frame.
+    double audioMasterGain = 1.0;
+    double audioEnvironmentBlend = 1.0;
+    ri::audio::AmbientLoopBank ambientLoops{};
     ri::math::Vec3 spawnPosition{};
     float playerMaxHealth = 100.0f;
     float playerHealth = 100.0f;
@@ -380,54 +397,30 @@ void ApplyEnvironmentAuthoringVolumes(RuntimeState& state, const float dt) {
     if (state.audioManager != nullptr) {
         const ri::world::AudioEnvironmentState authoredAudio =
             state.environmentService.GetActiveAudioEnvironmentStateAt(feet);
-        ri::audio::AudioEnvironmentProfileInput profile{};
-        profile.label = authoredAudio.label;
-        profile.activeVolumes = authoredAudio.activeVolumes;
-        profile.reverbMix = authoredAudio.reverbMix;
-        profile.echoDelayMs = authoredAudio.echoDelayMs;
-        profile.echoFeedback = authoredAudio.echoFeedback;
-        profile.dampening = authoredAudio.dampening;
-        profile.volumeScale = std::clamp(
-            static_cast<double>(authoredAudio.volumeScale) * (0.8 + (ambientMix.combinedDesiredVolume * 0.2)),
-            0.1,
-            2.0);
-        profile.playbackRate = std::clamp(static_cast<double>(authoredAudio.playbackRate), 0.5, 1.5);
+        const ri::audio::AudioEnvironmentProfileInput profile = ri::audio::BlendAudioEnvironmentProfile(
+            authoredAudio.label,
+            authoredAudio.activeVolumes,
+            authoredAudio.reverbMix,
+            authoredAudio.echoDelayMs,
+            authoredAudio.echoFeedback,
+            authoredAudio.dampening,
+            authoredAudio.volumeScale,
+            authoredAudio.playbackRate,
+            state.audioEnvironmentBlend,
+            0.8 + (ambientMix.combinedDesiredVolume * 0.2));
         (void)state.audioManager->SetEnvironmentProfile(profile);
 
-        std::unordered_map<std::string, bool> keepIds{};
-        const std::size_t ambientVoiceLimit = 2U;
-        for (std::size_t index = 0; index < ambientMix.contributions.size() && index < ambientVoiceLimit; ++index) {
-            const ri::world::AmbientAudioContribution& contribution = ambientMix.contributions[index];
-            if (contribution.audioPath.empty()) {
-                continue;
-            }
-            keepIds[contribution.id] = true;
-            auto found = state.ambientLoopByContributionId.find(contribution.id);
-            if (found == state.ambientLoopByContributionId.end() || found->second == nullptr) {
-                std::filesystem::path clipPath = state.gameRoot / contribution.audioPath;
-                std::shared_ptr<ri::audio::ManagedSound> loop =
-                    state.audioManager->CreateLoopingSound(clipPath.string(), contribution.desiredVolume);
-                if (loop != nullptr) {
-                    loop->Play();
-                }
-                state.ambientLoopByContributionId[contribution.id] = std::move(loop);
-                found = state.ambientLoopByContributionId.find(contribution.id);
-            }
-            if (found != state.ambientLoopByContributionId.end() && found->second != nullptr) {
-                found->second->SetVolume(contribution.desiredVolume);
-                found->second->SetPlaybackRate(1.0 + (contribution.normalizedFalloff * 0.03));
-            }
+        std::vector<ri::audio::AmbientLoopIntent> ambientIntents{};
+        ambientIntents.reserve(ambientMix.contributions.size());
+        for (const ri::world::AmbientAudioContribution& contribution : ambientMix.contributions) {
+            ambientIntents.push_back(ri::audio::AmbientLoopIntent{
+                .id = contribution.id,
+                .audioPath = contribution.audioPath,
+                .desiredVolume = contribution.desiredVolume,
+                .normalizedFalloff = contribution.normalizedFalloff,
+            });
         }
-        for (auto it = state.ambientLoopByContributionId.begin(); it != state.ambientLoopByContributionId.end();) {
-            if (keepIds.contains(it->first)) {
-                ++it;
-                continue;
-            }
-            if (it->second != nullptr) {
-                state.audioManager->StopManagedSound(it->second, true);
-            }
-            it = state.ambientLoopByContributionId.erase(it);
-        }
+        state.ambientLoops.Sync(*state.audioManager, state.gameRoot, ambientIntents);
         state.audioManager->Tick(static_cast<double>(dt) * 1000.0);
     }
     state.environmentTelemetryAccumSeconds += dt;
@@ -692,36 +685,11 @@ void UpdateMouseLook(RuntimeState& state) {
 }
 
 ri::trace::MovementInput ReadMovementInput(RuntimeState& state) {
-    auto axis = [](int positiveKey, int negativeKey) -> float {
-        const bool positive = (GetAsyncKeyState(positiveKey) & 0x8000) != 0;
-        const bool negative = (GetAsyncKeyState(negativeKey) & 0x8000) != 0;
-        if (positive == negative) {
-            return 0.0f;
-        }
-        return positive ? 1.0f : -1.0f;
-    };
-
-    const float yawRadians = ri::math::DegreesToRadians(state.yawDegrees);
-    const ri::math::Vec3 forward{
-        std::sin(yawRadians),
-        0.0f,
-        std::cos(yawRadians),
-    };
-    const ri::math::Vec3 right = ri::math::Normalize(ri::math::Cross(ri::math::Vec3{0.0f, 1.0f, 0.0f}, forward));
-
-    const bool jumpHeldNow = (GetAsyncKeyState(VK_SPACE) & 0x8000) != 0;
-    const bool jumpPressedEdge = jumpHeldNow && !state.jumpHeldLastFrame;
-    state.jumpHeldLastFrame = jumpHeldNow;
-
-    return ri::trace::MovementInput{
-        .moveForward = axis('W', 'S'),
-        .moveRight = axis('D', 'A'),
-        .viewForwardWorld = forward,
-        .viewRightWorld = right,
-        .sprintHeld = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0,
-        .jumpPressed = jumpPressedEdge,
-        .applyShortJumpGravity = !jumpHeldNow,
-    };
+    if (state.hostInput == nullptr) {
+        return {};
+    }
+    return ri::trace::BuildKeyboardMovementInput(
+        state.hostInput->Focus(), state.yawDegrees, state.movementEdges);
 }
 
 void SimulateAndApplyView(RuntimeState& state,
@@ -742,15 +710,18 @@ void SimulateAndApplyView(RuntimeState& state,
         state.movement.body.velocity.z,
     };
     const float planarSpeed = ri::math::Length(planarVelocity);
-    const float sprintSpeedRef = std::max(0.01f, state.movementOptions.maxSprintGroundSpeed);
-    const float movementNorm = std::clamp(planarSpeed / sprintSpeedRef, 0.0f, 1.0f);
-    const float bobScale = (input.sprintHeld ? state.bobSprintScale : 1.0f) * movementNorm;
-    const float bobPhase = static_cast<float>((state.elapsedSeconds * state.bobFrequencyHz) * 6.283185307179586);
-    const float bobVertical = std::sin(bobPhase) * state.bobAmplitude * bobScale;
-    const float cameraHeight = state.cameraBaseHeight + bobVertical;
-    const ri::math::Vec3 eye{feet.x, feet.y + cameraHeight, feet.z};
+    const ri::trace::FirstPersonViewSample view = ri::trace::SampleFirstPersonView(
+        state.cameraFeel,
+        state.elapsedSeconds,
+        planarSpeed,
+        state.movementOptions.maxSprintGroundSpeed,
+        input.sprintHeld,
+        state.currentFovDegrees,
+        dt);
+    const ri::math::Vec3 eye{feet.x, feet.y + view.eyeHeightAboveFeet, feet.z};
 
-    const bool useHeldNow = (GetAsyncKeyState('E') & 0x8000) != 0;
+    const bool useHeldNow =
+        state.hostInput != nullptr && state.hostInput->IsKeyDownSettled('E');
     const bool usePressedEdge = useHeldNow && !state.useHeldLastFrame;
     state.useHeldLastFrame = useHeldNow;
     if (usePressedEdge) {
@@ -777,10 +748,7 @@ void SimulateAndApplyView(RuntimeState& state,
     cameraNode.localTransform.position = ri::math::Vec3{};
     cameraNode.localTransform.rotationDegrees = ri::math::Vec3{state.pitchDegrees, 0.0f, 0.0f};
     if (cameraNode.camera != ri::scene::kInvalidHandle) {
-        const float targetFov = state.fovBaseDegrees + (input.sprintHeld ? state.fovSprintAddDegrees : 0.0f);
-        const float blendAlpha = std::clamp(dt * state.fovLerpPerSecond, 0.0f, 1.0f);
-        state.currentFovDegrees = state.currentFovDegrees + ((targetFov - state.currentFovDegrees) * blendAlpha);
-        state.world.scene.GetCamera(cameraNode.camera).fieldOfViewDegrees = state.currentFovDegrees;
+        state.world.scene.GetCamera(cameraNode.camera).fieldOfViewDegrees = view.fovDegrees;
     }
 
     AnimateForestRuinsWorld(state.world, animationSeconds);
@@ -867,13 +835,16 @@ void SetRuntimeDiagnosticsVisible(RuntimeState& state, const bool visible) {
 }
 
 void TickStandaloneFrame(RuntimeState& state) {
-    if ((GetAsyncKeyState(VK_ESCAPE) & 0x0001) != 0 && state.hwnd != nullptr) {
+    if (state.hostInput == nullptr) {
+        return;
+    }
+    state.hostInput->Sync(state.hwnd);
+    const ri::runtime::HostChromeActions chrome = ri::runtime::PollHostChrome(*state.hostInput);
+    if (chrome.quitRequested && state.hwnd != nullptr) {
         PostMessageW(state.hwnd, WM_CLOSE, 0, 0);
         return;
     }
-    const bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-    const bool shiftHeld = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-    if (((GetAsyncKeyState('U') & 0x0001) != 0) && ctrlHeld && shiftHeld) {
+    if (chrome.diagnosticsToggled) {
         state.diagnosticsVisible = !state.diagnosticsVisible;
         SetRuntimeDiagnosticsVisible(state, state.diagnosticsVisible);
         ri::core::LogInfo(std::string("Runtime diagnostics: ")
@@ -950,6 +921,7 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
                 return true;
             }
             frame.scene = &state.world.scene;
+            frame.suppressUnchangedFrames = false;
             frame.cameraNode = state.world.playerCameraNode;
             frame.textureRoot = textureRootForVulkan;
             frame.skyEquirectTextureRelative = state.nativeSkyEquirectRelative;
@@ -1004,42 +976,24 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         "Vulkan swapchain " + std::to_string(options.width) + "x" + std::to_string(options.height)
         + " (native textured GPU path, mesh buffers cached on GPU)");
 
-    const ri::content::ScriptScalarMap gameplay =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/gameplay.riscript"));
-    const ri::content::ScriptScalarMap rendering =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/rendering.riscript"));
-    const ri::content::ScriptScalarMap ui =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/ui.riscript"));
-    const ri::content::ScriptScalarMap audio =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/audio.riscript"));
-    const ri::content::ScriptScalarMap streaming =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/streaming.riscript"));
-    const ri::content::ScriptScalarMap localization =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/localization.riscript"));
-    const ri::content::ScriptScalarMap physics =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/physics.riscript"));
-    const ri::content::ScriptScalarMap postprocess =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/postprocess.riscript"));
-    const ri::content::ScriptScalarMap init =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/init.riscript"));
-    const ri::content::ScriptScalarMap gameCfg =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/game.cfg"));
-    const ri::content::ScriptScalarMap network =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/network.riscript"));
-    const ri::content::ScriptScalarMap persistence =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/persistence.riscript"));
-    const ri::content::ScriptScalarMap ai =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/ai.riscript"));
-    const ri::content::ScriptScalarMap plugins =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/plugins.riscript"));
-    const ri::content::ScriptScalarMap networkCfg =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/network.cfg"));
-    const ri::content::ScriptScalarMap buildProfile =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/build.profile"));
-    const ri::content::ScriptScalarMap securityPolicy =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/security.policy"));
-    const ri::content::ScriptScalarMap pluginsPolicy =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/plugins.policy"));
+    const ri::content::GameScriptBundle scripts = ri::content::LoadGameScriptBundle(manifest.rootPath);
+    const ri::content::ScriptScalarMap& gameplay = scripts.gameplay;
+    const ri::content::ScriptScalarMap& rendering = scripts.rendering;
+    const ri::content::ScriptScalarMap& ui = scripts.ui;
+    const ri::content::ScriptScalarMap& streaming = scripts.streaming;
+    const ri::content::ScriptScalarMap& localization = scripts.localization;
+    const ri::content::ScriptScalarMap& physics = scripts.physics;
+    const ri::content::ScriptScalarMap& postprocess = scripts.postprocess;
+    const ri::content::ScriptScalarMap& init = scripts.init;
+    const ri::content::ScriptScalarMap& gameCfg = scripts.gameCfg;
+    const ri::content::ScriptScalarMap& network = scripts.network;
+    const ri::content::ScriptScalarMap& persistence = scripts.persistence;
+    const ri::content::ScriptScalarMap& ai = scripts.ai;
+    const ri::content::ScriptScalarMap& plugins = scripts.plugins;
+    const ri::content::ScriptScalarMap& networkCfg = scripts.networkCfg;
+    const ri::content::ScriptScalarMap& buildProfile = scripts.buildProfile;
+    const ri::content::ScriptScalarMap& securityPolicy = scripts.securityPolicy;
+    const ri::content::ScriptScalarMap& pluginsPolicy = scripts.pluginsPolicy;
     std::string contractError;
     if (!ri::games::EnforceGameConfigContracts(
             manifest.rootPath,
@@ -1047,54 +1001,6 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
             &contractError)) {
         ri::core::LogInfo(contractError);
         return false;
-    }
-    if (gameplay.empty()) {
-        ri::core::LogInfo("Gameplay tuning script not found or empty; using defaults.");
-    }
-    if (rendering.empty()) {
-        ri::core::LogInfo("Rendering tuning script not found or empty; using defaults.");
-    }
-    if (ui.empty()) {
-        ri::core::LogInfo("UI tuning script not found or empty; using defaults.");
-    }
-    if (audio.empty()) {
-        ri::core::LogInfo("Audio tuning script not found or empty; using defaults.");
-    }
-    if (streaming.empty()) {
-        ri::core::LogInfo("Streaming tuning script not found or empty; using defaults.");
-    }
-    if (localization.empty()) {
-        ri::core::LogInfo("Localization tuning script not found or empty; using defaults.");
-    }
-    if (physics.empty()) {
-        ri::core::LogInfo("Physics tuning script not found or empty; using defaults.");
-    }
-    if (postprocess.empty()) {
-        ri::core::LogInfo("Postprocess tuning script not found or empty; using defaults.");
-    }
-    if (init.empty()) {
-        ri::core::LogInfo("Init tuning script not found or empty; using defaults.");
-    }
-    if (gameCfg.empty()) {
-        ri::core::LogInfo("Game cfg not found or empty; using defaults.");
-    }
-    if (network.empty()) {
-        ri::core::LogInfo("Network tuning script not found or empty; using defaults.");
-    }
-    if (persistence.empty()) {
-        ri::core::LogInfo("Persistence tuning script not found or empty; using defaults.");
-    }
-    if (ai.empty()) {
-        ri::core::LogInfo("AI tuning script not found or empty; using defaults.");
-    }
-    if (networkCfg.empty()) {
-        ri::core::LogInfo("Network cfg not found or empty; using defaults.");
-    }
-    if (buildProfile.empty()) {
-        ri::core::LogInfo("Build profile not found or empty; using defaults.");
-    }
-    if (securityPolicy.empty()) {
-        ri::core::LogInfo("Security policy not found or empty; using defaults.");
     }
 
     state.world = BuildForestRuinsWorld(manifest.name.empty() ? "ForestRuins" : manifest.name, manifest.rootPath);
@@ -1144,11 +1050,25 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         + std::to_string(ri::content::ScriptScalarOrIntClamped(gameCfg, "runtime_profile", 1, 0, 16))
         + " editorProfile="
         + std::to_string(ri::content::ScriptScalarOrIntClamped(gameCfg, "editor_profile", 1, 0, 16)));
+    const ri::content::GameAudioTuningScalars audioTuning =
+        ri::content::LoadGameAudioTuningScalars(manifest.rootPath);
+    state.audioEnvironmentBlend = static_cast<double>(audioTuning.environmentBlend);
+    if (state.audioManager != nullptr) {
+        std::string clampMessage;
+        state.audioMasterGain = ri::audio::ApplyAudioMasterGain(
+            *state.audioManager, static_cast<double>(audioTuning.masterGain), &clampMessage);
+        if (!clampMessage.empty()) {
+            ri::core::LogInfo("Audio tuning: " + clampMessage);
+        }
+    } else {
+        state.audioMasterGain = std::min(1.0, static_cast<double>(audioTuning.masterGain));
+    }
+    if (!audioTuning.loaded) {
+        ri::core::LogInfo("Audio tuning script not found or empty; using defaults.");
+    }
     ri::core::LogInfo(
-        "Audio tuning: masterGain="
-        + std::to_string(ri::content::ScriptScalarOrClamped(audio, "audio_master_gain", 1.0f, 0.0f, 4.0f))
-        + " envBlend="
-        + std::to_string(ri::content::ScriptScalarOrClamped(audio, "audio_environment_blend", 1.0f, 0.0f, 2.0f)));
+        "Audio tuning: masterGain=" + std::to_string(state.audioMasterGain)
+        + " envBlend=" + std::to_string(state.audioEnvironmentBlend));
     ri::core::LogInfo(
         "Streaming tuning: budgetScale="
         + std::to_string(ri::content::ScriptScalarOrClamped(streaming, "streaming_budget_scale", 1.0f, 0.1f, 8.0f))
@@ -1244,7 +1164,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     const ri::math::Vec3 defaultSpawnEye = state.world.scene.GetNode(state.world.playerRig).localTransform.position;
     ri::math::Vec3 spawnFeet{
         defaultSpawnEye.x,
-        defaultSpawnEye.y - state.cameraBaseHeight,
+        defaultSpawnEye.y - state.cameraFeel.cameraBaseHeight,
         defaultSpawnEye.z,
     };
     spawnFeet = ri::math::Vec3{
@@ -1373,33 +1293,29 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
             rendering, "native_fog_density", state.nativeRenderTuning.fogDensity, 0.0f, 0.05f),
         0.0f,
         0.05f);
-    state.cameraBaseHeight =
-        ri::content::ScriptScalarOrClamped(gameplay, "camera_height", state.cameraBaseHeight, 0.8f, 2.2f);
-    state.bobAmplitude =
-        ri::content::ScriptScalarOrClamped(gameplay, "head_bob_amplitude", state.bobAmplitude, 0.0f, 0.2f);
-    state.bobFrequencyHz =
-        ri::content::ScriptScalarOrClamped(gameplay, "head_bob_frequency", state.bobFrequencyHz, 0.1f, 6.0f);
-    state.bobSprintScale =
-        ri::content::ScriptScalarOrClamped(gameplay, "head_bob_sprint_scale", state.bobSprintScale, 1.0f, 3.0f);
-    state.fovBaseDegrees = ri::content::ScriptScalarOrClamped(
-        postprocess,
-        "fov_base",
-        ri::content::ScriptScalarOrClamped(rendering, "fov_base", state.fovBaseDegrees, 45.0f, 120.0f),
-        45.0f,
-        120.0f);
-    state.fovSprintAddDegrees = ri::content::ScriptScalarOrClamped(
-        postprocess,
-        "fov_sprint_add",
-        ri::content::ScriptScalarOrClamped(rendering, "fov_sprint_add", state.fovSprintAddDegrees, 0.0f, 25.0f),
-        0.0f,
-        25.0f);
-    state.fovLerpPerSecond = ri::content::ScriptScalarOrClamped(
-        postprocess,
-        "fov_lerp_per_second",
-        ri::content::ScriptScalarOrClamped(rendering, "fov_lerp_per_second", state.fovLerpPerSecond, 0.5f, 40.0f),
-        0.5f,
-        40.0f);
-    state.currentFovDegrees = state.fovBaseDegrees;
+    {
+        ri::content::GameCameraTuningScalars cameraDefaults{
+            .bobAmplitude = state.cameraFeel.bobAmplitude,
+            .bobFrequencyHz = state.cameraFeel.bobFrequencyHz,
+            .bobSprintScale = state.cameraFeel.bobSprintScale,
+            .fovBaseDegrees = state.cameraFeel.fovBaseDegrees,
+            .fovSprintAddDegrees = state.cameraFeel.fovSprintAddDegrees,
+            .fovLerpPerSecond = state.cameraFeel.fovLerpPerSecond,
+            .cameraBaseHeight = state.cameraFeel.cameraBaseHeight,
+        };
+        const ri::content::GameCameraTuningScalars cameraTuning =
+            ri::content::LoadGameCameraTuningScalars(gameplay, rendering, postprocess, cameraDefaults);
+        state.cameraFeel = ri::trace::FirstPersonCameraFeel{
+            .bobAmplitude = cameraTuning.bobAmplitude,
+            .bobFrequencyHz = cameraTuning.bobFrequencyHz,
+            .bobSprintScale = cameraTuning.bobSprintScale,
+            .fovBaseDegrees = cameraTuning.fovBaseDegrees,
+            .fovSprintAddDegrees = cameraTuning.fovSprintAddDegrees,
+            .fovLerpPerSecond = cameraTuning.fovLerpPerSecond,
+            .cameraBaseHeight = cameraTuning.cameraBaseHeight,
+        };
+        state.currentFovDegrees = state.cameraFeel.fovBaseDegrees;
+    }
     const float scriptedSensitivity = ri::content::ScriptScalarOr(gameplay, "mouse_sensitivity", 0.12f);
     state.mouseSensitivityDegreesPerPixel = std::clamp(scriptedSensitivity, 0.01f, 2.0f);
     if (options.mouseSensitivityDegreesPerPixel.has_value()) {
@@ -1414,9 +1330,9 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         " sprint=" + std::to_string(state.movementOptions.maxSprintGroundSpeed) +
         " accel=" + std::to_string(state.movementOptions.groundAcceleration));
     ri::core::LogInfo(
-        "View tuning fovBase=" + std::to_string(state.fovBaseDegrees) +
-        " fovSprintAdd=" + std::to_string(state.fovSprintAddDegrees) +
-        " bobAmp=" + std::to_string(state.bobAmplitude));
+        "View tuning fovBase=" + std::to_string(state.cameraFeel.fovBaseDegrees) +
+        " fovSprintAdd=" + std::to_string(state.cameraFeel.fovSprintAddDegrees) +
+        " bobAmp=" + std::to_string(state.cameraFeel.bobAmplitude));
     ri::core::LogInfo(
         std::string("Native Vulkan quality: ") + RenderQualityName(options.renderQuality) +
         " tier=" + std::to_string(state.nativeRenderTuning.qualityTier) +
@@ -1508,6 +1424,7 @@ bool RunStandalone(const StandaloneOptions& options, std::string* error) {
         if (!ri::games::StartupGameRuntimeCore(runtime, error)) {
             return false;
         }
+        state.hostInput = ri::runtime::TryGetHostInputService(runtime.Context());
         ri::games::BindRuntimeEventBus(runtime, state.runtimeEvents);
         state.pluginHost.runtimeEvents = state.runtimeEvents;
         ri::games::WireGamePluginEventBus(state.pluginHost);
@@ -1581,6 +1498,7 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
         if (!ri::games::StartupGameRuntimeCore(runtime, error)) {
             return false;
         }
+        state.hostInput = ri::runtime::TryGetHostInputService(runtime.Context());
         ri::games::BindRuntimeEventBus(runtime, state.runtimeEvents);
         state.pluginHost.runtimeEvents = state.runtimeEvents;
         ri::games::WireGamePluginEventBus(state.pluginHost);
@@ -1601,7 +1519,7 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
             if (options.autoplay) {
                 const HeadlessAutoplayPlan plan = BuildHeadlessAutoplayPlan(state);
                 const ri::math::Vec3 feet = FeetFromBounds(state.movement.body.bounds);
-                const ri::math::Vec3 eye{feet.x, feet.y + state.cameraBaseHeight, feet.z};
+                const ri::math::Vec3 eye{feet.x, feet.y + state.cameraFeel.cameraBaseHeight, feet.z};
                 const ri::math::Vec3 lookVector = plan.lookTarget - eye;
                 state.yawDegrees = ApproachDegrees(state.yawDegrees, YawFromDirection(lookVector), dt * 84.0f);
                 state.pitchDegrees = std::clamp(

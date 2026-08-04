@@ -1,5 +1,7 @@
 #include "RawIron/Render/VulkanPreviewPresenter.h"
 #include "RawIron/Render/HybridPresentationTargets.h"
+#include "RawIron/Render/VulkanDeviceFeaturePolicy.h"
+#include "RawIron/Render/VulkanFrameScheduling.h"
 #include "RawIron/Render/VulkanScenePreviewBridge.h"
 
 #if defined(_WIN32)
@@ -35,6 +37,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -46,6 +49,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #ifndef RAWIRON_VULKAN_NATIVE_PREVIEW_ENABLED
@@ -819,15 +823,40 @@ void StoreMat4ColumnMajorGlsl(const ri::math::Mat4& matrix, std::array<float, 16
 
 struct WindowState {
     HWND hwnd = nullptr;
+    HWND* ownedWindowSlot = nullptr;
     bool running = true;
     void* messageUserData = nullptr;
     VulkanPreviewWindowOptions::Win32MessageHook onWin32Message = nullptr;
+    std::exception_ptr messageCallbackException{};
+};
+
+struct ScopedOutputWindow {
+    HWND* output = nullptr;
+
+    explicit ScopedOutputWindow(void* outputAddress)
+        : output(static_cast<HWND*>(outputAddress)) {}
+
+    ScopedOutputWindow(const ScopedOutputWindow&) = delete;
+    ScopedOutputWindow& operator=(const ScopedOutputWindow&) = delete;
+
+    ~ScopedOutputWindow() {
+        if (output != nullptr) {
+            *output = nullptr;
+        }
+    }
+
+    void Publish(HWND hwnd) const {
+        if (output != nullptr) {
+            *output = hwnd;
+        }
+    }
 };
 
 struct ScopedWindowClass {
     HINSTANCE instance = nullptr;
     const wchar_t* className = L"RawIronVulkanNativeScenePreviewWindow";
     ATOM atom = 0;
+    HWND ownedWindow = nullptr;
 
     explicit ScopedWindowClass(WNDPROC windowProc) {
         instance = GetModuleHandleW(nullptr);
@@ -843,11 +872,25 @@ struct ScopedWindowClass {
     }
 
     ~ScopedWindowClass() {
+        if (ownedWindow != nullptr) {
+            // The WindowState lives outside this guard and is destroyed later. Clear the callback
+            // pointer before synchronous WM_DESTROY processing so no teardown message can escape
+            // through a host hook while Vulkan is already gone.
+            const HWND window = std::exchange(ownedWindow, nullptr);
+            SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+            DestroyWindow(window);
+        }
         if (atom != 0) {
             UnregisterClassW(className, instance);
         }
     }
 };
+
+void RethrowWindowCallbackException(const WindowState& state) {
+    if (state.messageCallbackException) {
+        std::rethrow_exception(state.messageCallbackException);
+    }
+}
 
 struct DeviceSelection {
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
@@ -996,15 +1039,27 @@ LRESULT CALLBACK NativePreviewWindowProc(HWND hwnd, UINT message, WPARAM wParam,
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
         if (state != nullptr) {
             state->hwnd = hwnd;
+            if (state->ownedWindowSlot != nullptr) {
+                *state->ownedWindowSlot = hwnd;
+            }
         }
     }
 
-    if (message != WM_NCCREATE && state != nullptr && state->onWin32Message != nullptr) {
-        state->onWin32Message(state->messageUserData,
-                              hwnd,
-                              static_cast<unsigned int>(message),
-                              static_cast<std::uint64_t>(wParam),
-                              static_cast<std::int64_t>(lParam));
+    if (message != WM_NCCREATE && state != nullptr && state->onWin32Message != nullptr
+        && !state->messageCallbackException) {
+        try {
+            state->onWin32Message(state->messageUserData,
+                                  hwnd,
+                                  static_cast<unsigned int>(message),
+                                  static_cast<std::uint64_t>(wParam),
+                                  static_cast<std::int64_t>(lParam));
+        } catch (...) {
+            // Exceptions must never cross the Win32 WndProc ABI boundary. Record the original
+            // exception without formatting/allocation here; the render loop rethrows it inside
+            // its ordinary error boundary and then performs full Vulkan teardown.
+            state->messageCallbackException = std::current_exception();
+            state->running = false;
+        }
     }
 
     switch (message) {
@@ -1018,8 +1073,16 @@ LRESULT CALLBACK NativePreviewWindowProc(HWND hwnd, UINT message, WPARAM wParam,
         if (state != nullptr) {
             state->running = false;
         }
-        PostQuitMessage(0);
         return 0;
+    case WM_NCDESTROY:
+        if (state != nullptr) {
+            if (state->ownedWindowSlot != nullptr && *state->ownedWindowSlot == hwnd) {
+                *state->ownedWindowSlot = nullptr;
+            }
+            state->hwnd = nullptr;
+        }
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        return DefWindowProcW(hwnd, message, wParam, lParam);
     default:
         return DefWindowProcW(hwnd, message, wParam, lParam);
     }
@@ -5734,6 +5797,18 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                                 &cameraDescriptorSet,
                                 0,
                                 nullptr);
+        // The shadow fragment shader declares material set=1 even when an ordinary opaque
+        // draw does not sample it. Bind a compatible fallback before the first draw, then
+        // alpha-cutout draws below may override it with their authored material set.
+        VkDescriptorSet shadowMaterialDescriptorSet = textureCache.whiteDescriptorSet;
+        vkCmdBindDescriptorSets(commandBuffer,
+                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                shadowPipelineLayout,
+                                1,
+                                1,
+                                &shadowMaterialDescriptorSet,
+                                0,
+                                nullptr);
         for (const std::size_t drawIndex : sortedDrawIndices) {
             const NativeSceneDraw& draw = sceneData.draws[drawIndex];
             if (draw.transparent || draw.additiveBlend) {
@@ -6116,6 +6191,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         WindowState windowState{};
         windowState.messageUserData = options.messageUserData;
         windowState.onWin32Message = options.onWin32Message;
+        ScopedOutputWindow outputWindow(options.outClientHwnd);
 
         const HWND existingClientHwnd = static_cast<HWND>(options.clientHwnd);
         const bool usingExistingClient = existingClientHwnd != nullptr;
@@ -6126,6 +6202,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         HWND hwnd = existingClientHwnd;
         if (!usingExistingClient) {
             ownedWindowClass = std::make_unique<ScopedWindowClass>(&NativePreviewWindowProc);
+            windowState.ownedWindowSlot = &ownedWindowClass->ownedWindow;
             const DWORD visibilityStyle = options.showWindow ? WS_VISIBLE : 0U;
             const DWORD windowStyle = embedded
                 ? (WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | visibilityStyle)
@@ -6150,11 +6227,13 @@ bool RunVulkanNativeSceneLoop(const int width,
             if (hwnd == nullptr) {
                 throw std::runtime_error("CreateWindowExW failed for Vulkan native scene preview window.");
             }
+            RethrowWindowCallbackException(windowState);
+            if (windowState.hwnd != hwnd || ownedWindowClass->ownedWindow != hwnd) {
+                throw std::runtime_error("Vulkan native scene preview window was destroyed during creation.");
+            }
         }
         windowState.hwnd = hwnd;
-        if (options.outClientHwnd != nullptr) {
-            *static_cast<HWND*>(options.outClientHwnd) = hwnd;
-        }
+        outputWindow.Publish(hwnd);
         if (!usingExistingClient && options.onClientHwndCreated) {
             options.onClientHwndCreated(hwnd);
         }
@@ -6207,26 +6286,36 @@ bool RunVulkanNativeSceneLoop(const int width,
             });
         }
 
+        VkPhysicalDeviceProperties physicalDeviceProperties{};
+        vkGetPhysicalDeviceProperties(selection.physicalDevice, &physicalDeviceProperties);
+        VkPhysicalDeviceFeatures supportedDeviceFeatures{};
+        vkGetPhysicalDeviceFeatures(selection.physicalDevice, &supportedDeviceFeatures);
+        const VulkanNativeDeviceFeaturePolicy deviceFeaturePolicy = ResolveVulkanNativeDeviceFeaturePolicy(
+            supportedDeviceFeatures.samplerAnisotropy == VK_TRUE,
+            supportedDeviceFeatures.independentBlend == VK_TRUE,
+            physicalDeviceProperties.limits.maxSamplerAnisotropy);
+        VkPhysicalDeviceFeatures enabledDeviceFeatures{};
+        enabledDeviceFeatures.samplerAnisotropy = deviceFeaturePolicy.samplerAnisotropy ? VK_TRUE : VK_FALSE;
+        enabledDeviceFeatures.independentBlend = deviceFeaturePolicy.independentBlend ? VK_TRUE : VK_FALSE;
+
         const char* deviceExtensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-        // Match VulkanPreviewPresenter: omit pEnabledFeatures (implicit default features only). We still clamp
-        // maxAnisotropy from device limits for sampler creation; avoid requesting features here so layers /
-        // odd drivers cannot reject vkCreateDevice with VK_ERROR_FEATURE_NOT_PRESENT.
         const VkDeviceCreateInfo deviceInfo{
             .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
             .queueCreateInfoCount = static_cast<std::uint32_t>(queueInfos.size()),
             .pQueueCreateInfos = queueInfos.data(),
             .enabledExtensionCount = 1,
             .ppEnabledExtensionNames = deviceExtensions,
+            .pEnabledFeatures = &enabledDeviceFeatures,
         };
 
         VkDevice device = VK_NULL_HANDLE;
         ExpectVk(vkCreateDevice(selection.physicalDevice, &deviceInfo, nullptr, &device), "vkCreateDevice");
 
-        VkPhysicalDeviceProperties physicalDeviceProperties{};
-        vkGetPhysicalDeviceProperties(selection.physicalDevice, &physicalDeviceProperties);
         ri::core::LogInfo(std::string("Vulkan device: ") + physicalDeviceProperties.deviceName);
-        const float maxSamplerAnisotropy =
-            std::min(16.0f, std::max(1.0f, physicalDeviceProperties.limits.maxSamplerAnisotropy));
+        ri::core::LogInfo(
+            std::string("Vulkan optional features: samplerAnisotropy=")
+            + (deviceFeaturePolicy.samplerAnisotropy ? "enabled" : "fallback")
+            + " independentBlend=" + (deviceFeaturePolicy.independentBlend ? "enabled" : "fallback"));
 
         VulkanPipelineCacheIdentity pipelineCacheIdentity{
             .vendorId = physicalDeviceProperties.vendorID,
@@ -7076,6 +7165,42 @@ bool RunVulkanNativeSceneLoop(const int width,
             .vertexAttributeDescriptionCount = static_cast<std::uint32_t>(vertexAttributes.size()),
             .pVertexAttributeDescriptions = vertexAttributes.data(),
         };
+        const std::array<VkVertexInputAttributeDescription, 1> skyVertexAttributes = {{
+            VkVertexInputAttributeDescription{
+                .location = 0,
+                .binding = 0,
+                .format = VK_FORMAT_R32G32B32_SFLOAT,
+                .offset = static_cast<std::uint32_t>(offsetof(NativeSceneVertex, position)),
+            },
+        }};
+        const VkPipelineVertexInputStateCreateInfo skyVertexInputInfo{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+            .vertexBindingDescriptionCount = 1,
+            .pVertexBindingDescriptions = &vertexBinding,
+            .vertexAttributeDescriptionCount = static_cast<std::uint32_t>(skyVertexAttributes.size()),
+            .pVertexAttributeDescriptions = skyVertexAttributes.data(),
+        };
+        const std::array<VkVertexInputAttributeDescription, 2> shadowVertexAttributes = {{
+            VkVertexInputAttributeDescription{
+                .location = 0,
+                .binding = 0,
+                .format = VK_FORMAT_R32G32B32_SFLOAT,
+                .offset = static_cast<std::uint32_t>(offsetof(NativeSceneVertex, position)),
+            },
+            VkVertexInputAttributeDescription{
+                .location = 2,
+                .binding = 0,
+                .format = VK_FORMAT_R32G32_SFLOAT,
+                .offset = static_cast<std::uint32_t>(offsetof(NativeSceneVertex, uv)),
+            },
+        }};
+        const VkPipelineVertexInputStateCreateInfo shadowVertexInputInfo{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+            .vertexBindingDescriptionCount = 1,
+            .pVertexBindingDescriptions = &vertexBinding,
+            .vertexAttributeDescriptionCount = static_cast<std::uint32_t>(shadowVertexAttributes.size()),
+            .pVertexAttributeDescriptions = shadowVertexAttributes.data(),
+        };
         const VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
             .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
@@ -7130,8 +7255,8 @@ bool RunVulkanNativeSceneLoop(const int width,
         };
         const std::array<VkPipelineColorBlendAttachmentState, 3> sceneBlendAttachmentsTransparent = {
             blendAttachmentTransparent,
-            gbufferBlendAttachment,
-            gbufferBlendAttachment,
+            deviceFeaturePolicy.independentBlend ? gbufferBlendAttachment : blendAttachmentTransparent,
+            deviceFeaturePolicy.independentBlend ? gbufferBlendAttachment : blendAttachmentTransparent,
         };
         const VkPipelineColorBlendStateCreateInfo colorBlendInfoOpaque{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -7200,8 +7325,8 @@ bool RunVulkanNativeSceneLoop(const int width,
         };
         const std::array<VkPipelineColorBlendAttachmentState, 3> sceneAdditiveBlendAttachments = {
             blendAttachmentAdditive,
-            gbufferNoWriteAttachment,
-            gbufferNoWriteAttachment,
+            deviceFeaturePolicy.independentBlend ? gbufferNoWriteAttachment : blendAttachmentAdditive,
+            deviceFeaturePolicy.independentBlend ? gbufferNoWriteAttachment : blendAttachmentAdditive,
         };
         const VkPipelineColorBlendStateCreateInfo colorBlendAdditiveInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -7248,8 +7373,8 @@ bool RunVulkanNativeSceneLoop(const int width,
         };
         const std::array<VkPipelineColorBlendAttachmentState, 3> skyBlendAttachments = {
             skyBlendAttachment,
-            gbufferNoWriteAttachment,
-            gbufferNoWriteAttachment,
+            deviceFeaturePolicy.independentBlend ? gbufferNoWriteAttachment : skyBlendAttachment,
+            deviceFeaturePolicy.independentBlend ? gbufferNoWriteAttachment : skyBlendAttachment,
         };
         const VkPipelineColorBlendStateCreateInfo skyColorBlendInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -7260,7 +7385,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
             .stageCount = static_cast<std::uint32_t>(skyShaderStages.size()),
             .pStages = skyShaderStages.data(),
-            .pVertexInputState = &vertexInputInfo,
+            .pVertexInputState = &skyVertexInputInfo,
             .pInputAssemblyState = &inputAssemblyInfo,
             .pViewportState = &viewportStateInfo,
             .pRasterizationState = &skyRasterizationInfo,
@@ -7428,7 +7553,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
             .stageCount = static_cast<std::uint32_t>(shadowShaderStages.size()),
             .pStages = shadowShaderStages.data(),
-            .pVertexInputState = &vertexInputInfo,
+            .pVertexInputState = &shadowVertexInputInfo,
             .pInputAssemblyState = &inputAssemblyInfo,
             .pViewportState = &viewportStateInfo,
             .pRasterizationState = &shadowRasterizationInfo,
@@ -7444,29 +7569,32 @@ bool RunVulkanNativeSceneLoop(const int width,
         ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &shadowPipelineInfo, nullptr, &shadowPipeline),
                  "vkCreateGraphicsPipelines(shadow)");
 
-        BufferResource uniformBuffer{};
-        VkDeviceSize uniformBufferCapacity = 0;
-        void* mappedUniformMemory = nullptr;
+        constexpr std::uint32_t kFramesInFlight = 2U;
+        std::array<BufferResource, kFramesInFlight> uniformBuffers{};
+        std::array<VkDeviceSize, kFramesInFlight> uniformBufferCapacities{};
+        std::array<void*, kFramesInFlight> mappedUniformMemories{};
         constexpr VkDeviceSize kSceneCameraUniformBytes = sizeof(CameraUniformStd140);
-        EnsureMappedBufferCapacity(selection.physicalDevice,
-                                   device,
-                                   VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                   kSceneCameraUniformBytes,
-                                   uniformBuffer,
-                                   uniformBufferCapacity,
-                                   mappedUniformMemory,
-                                   "vkMapMemory(uniform)");
+        for (std::uint32_t frameIndex = 0; frameIndex < kFramesInFlight; ++frameIndex) {
+            EnsureMappedBufferCapacity(selection.physicalDevice,
+                                       device,
+                                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                       kSceneCameraUniformBytes,
+                                       uniformBuffers[frameIndex],
+                                       uniformBufferCapacities[frameIndex],
+                                       mappedUniformMemories[frameIndex],
+                                       "vkMapMemory(uniform)");
+        }
 
         std::unordered_map<int, CachedGpuMesh> meshCache{};
         const void* cachedSceneIdentity = nullptr;
 
         const VkDescriptorPoolSize cameraPoolSize{
             .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .descriptorCount = 1,
+            .descriptorCount = kFramesInFlight,
         };
         const VkDescriptorPoolCreateInfo cameraPoolInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets = 1,
+            .maxSets = kFramesInFlight,
             .poolSizeCount = 1,
             .pPoolSizes = &cameraPoolSize,
         };
@@ -7476,46 +7604,61 @@ bool RunVulkanNativeSceneLoop(const int width,
         const VkDescriptorSetAllocateInfo cameraSetAllocateInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
             .descriptorPool = cameraDescriptorPool,
-            .descriptorSetCount = 1,
-            .pSetLayouts = &cameraSetLayout,
+            .descriptorSetCount = kFramesInFlight,
+            .pSetLayouts = nullptr,
         };
-        VkDescriptorSet cameraDescriptorSet = VK_NULL_HANDLE;
-        ExpectVk(vkAllocateDescriptorSets(device, &cameraSetAllocateInfo, &cameraDescriptorSet), "vkAllocateDescriptorSets(camera)");
+        std::array<VkDescriptorSetLayout, kFramesInFlight> cameraSetLayouts{};
+        cameraSetLayouts.fill(cameraSetLayout);
+        VkDescriptorSetAllocateInfo cameraSetsAllocateInfo = cameraSetAllocateInfo;
+        cameraSetsAllocateInfo.pSetLayouts = cameraSetLayouts.data();
+        std::array<VkDescriptorSet, kFramesInFlight> cameraDescriptorSets{};
+        ExpectVk(vkAllocateDescriptorSets(device, &cameraSetsAllocateInfo, cameraDescriptorSets.data()),
+                 "vkAllocateDescriptorSets(camera)");
 
-        const VkDescriptorBufferInfo descriptorBufferInfo{
-            .buffer = uniformBuffer.buffer,
-            .offset = 0,
-            .range = kSceneCameraUniformBytes,
-        };
-        const VkWriteDescriptorSet writeCamera{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = cameraDescriptorSet,
-            .dstBinding = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .pBufferInfo = &descriptorBufferInfo,
-        };
-        vkUpdateDescriptorSets(device, 1, &writeCamera, 0, nullptr);
+        std::array<VkDescriptorBufferInfo, kFramesInFlight> cameraDescriptorBufferInfos{};
+        std::array<VkWriteDescriptorSet, kFramesInFlight> writeCameras{};
+        for (std::uint32_t frameIndex = 0; frameIndex < kFramesInFlight; ++frameIndex) {
+            cameraDescriptorBufferInfos[frameIndex] = {
+                .buffer = uniformBuffers[frameIndex].buffer,
+                .offset = 0,
+                .range = kSceneCameraUniformBytes,
+            };
+            writeCameras[frameIndex] = {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = cameraDescriptorSets[frameIndex],
+                .dstBinding = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .pBufferInfo = &cameraDescriptorBufferInfos[frameIndex],
+            };
+        }
+        vkUpdateDescriptorSets(device,
+                               static_cast<std::uint32_t>(writeCameras.size()),
+                               writeCameras.data(),
+                               0,
+                               nullptr);
 
-        BufferResource skyUniformBuffer{};
-        VkDeviceSize skyUniformBufferCapacity = 0;
-        void* mappedSkyUniformMemory = nullptr;
-        EnsureMappedBufferCapacity(selection.physicalDevice,
-                                   device,
-                                   VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                   sizeof(SkyUniformStd140),
-                                   skyUniformBuffer,
-                                   skyUniformBufferCapacity,
-                                   mappedSkyUniformMemory,
-                                   "vkMapMemory(sky-uniform)");
+        std::array<BufferResource, kFramesInFlight> skyUniformBuffers{};
+        std::array<VkDeviceSize, kFramesInFlight> skyUniformBufferCapacities{};
+        std::array<void*, kFramesInFlight> mappedSkyUniformMemories{};
+        for (std::uint32_t frameIndex = 0; frameIndex < kFramesInFlight; ++frameIndex) {
+            EnsureMappedBufferCapacity(selection.physicalDevice,
+                                       device,
+                                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                       sizeof(SkyUniformStd140),
+                                       skyUniformBuffers[frameIndex],
+                                       skyUniformBufferCapacities[frameIndex],
+                                       mappedSkyUniformMemories[frameIndex],
+                                       "vkMapMemory(sky-uniform)");
+        }
 
         const VkDescriptorPoolSize skyCameraPoolSize{
             .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .descriptorCount = 1,
+            .descriptorCount = kFramesInFlight,
         };
         const VkDescriptorPoolCreateInfo skyCameraPoolInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets = 1,
+            .maxSets = kFramesInFlight,
             .poolSizeCount = 1,
             .pPoolSizes = &skyCameraPoolSize,
         };
@@ -7526,26 +7669,39 @@ bool RunVulkanNativeSceneLoop(const int width,
         const VkDescriptorSetAllocateInfo skySetAllocateInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
             .descriptorPool = skyDescriptorPool,
-            .descriptorSetCount = 1,
-            .pSetLayouts = &skyCameraSetLayout,
+            .descriptorSetCount = kFramesInFlight,
+            .pSetLayouts = nullptr,
         };
-        VkDescriptorSet skyDescriptorSet = VK_NULL_HANDLE;
-        ExpectVk(vkAllocateDescriptorSets(device, &skySetAllocateInfo, &skyDescriptorSet), "vkAllocateDescriptorSets(sky-camera)");
+        std::array<VkDescriptorSetLayout, kFramesInFlight> skySetLayouts{};
+        skySetLayouts.fill(skyCameraSetLayout);
+        VkDescriptorSetAllocateInfo skySetsAllocateInfo = skySetAllocateInfo;
+        skySetsAllocateInfo.pSetLayouts = skySetLayouts.data();
+        std::array<VkDescriptorSet, kFramesInFlight> skyDescriptorSets{};
+        ExpectVk(vkAllocateDescriptorSets(device, &skySetsAllocateInfo, skyDescriptorSets.data()),
+                 "vkAllocateDescriptorSets(sky-camera)");
 
-        const VkDescriptorBufferInfo skyDescriptorBufferInfo{
-            .buffer = skyUniformBuffer.buffer,
-            .offset = 0,
-            .range = sizeof(SkyUniformStd140),
-        };
-        const VkWriteDescriptorSet writeSkyCamera{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = skyDescriptorSet,
-            .dstBinding = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .pBufferInfo = &skyDescriptorBufferInfo,
-        };
-        vkUpdateDescriptorSets(device, 1, &writeSkyCamera, 0, nullptr);
+        std::array<VkDescriptorBufferInfo, kFramesInFlight> skyDescriptorBufferInfos{};
+        std::array<VkWriteDescriptorSet, kFramesInFlight> writeSkyCameras{};
+        for (std::uint32_t frameIndex = 0; frameIndex < kFramesInFlight; ++frameIndex) {
+            skyDescriptorBufferInfos[frameIndex] = {
+                .buffer = skyUniformBuffers[frameIndex].buffer,
+                .offset = 0,
+                .range = sizeof(SkyUniformStd140),
+            };
+            writeSkyCameras[frameIndex] = {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = skyDescriptorSets[frameIndex],
+                .dstBinding = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .pBufferInfo = &skyDescriptorBufferInfos[frameIndex],
+            };
+        }
+        vkUpdateDescriptorSets(device,
+                               static_cast<std::uint32_t>(writeSkyCameras.size()),
+                               writeSkyCameras.data(),
+                               0,
+                               nullptr);
 
         const VkCommandPoolCreateInfo commandPoolInfo{
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -7563,8 +7719,8 @@ bool RunVulkanNativeSceneLoop(const int width,
             .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
             .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
             .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .anisotropyEnable = maxSamplerAnisotropy > 1.0f ? VK_TRUE : VK_FALSE,
-            .maxAnisotropy = maxSamplerAnisotropy,
+            .anisotropyEnable = deviceFeaturePolicy.samplerAnisotropy ? VK_TRUE : VK_FALSE,
+            .maxAnisotropy = deviceFeaturePolicy.maxSamplerAnisotropy,
             .maxLod = VK_LOD_CLAMP_NONE,
         };
         VkSampler linearSampler = VK_NULL_HANDLE;
@@ -7870,7 +8026,6 @@ bool RunVulkanNativeSceneLoop(const int width,
         };
         ExpectVk(vkAllocateCommandBuffers(device, &commandBufferInfo, commandBuffers.data()), "vkAllocateCommandBuffers");
 
-        constexpr std::uint32_t kFramesInFlight = 2U;
         const VkSemaphoreCreateInfo semaphoreInfo{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         const VkFenceCreateInfo fenceInfo{
             .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
@@ -7901,19 +8056,26 @@ bool RunVulkanNativeSceneLoop(const int width,
         // Roughly ten seconds at the 16 ms retry cadence before declaring the swapchain dead.
         constexpr std::uint32_t kMaxConsecutiveOutOfDateFrames = 600U;
         std::uint32_t consecutiveOutOfDateFrames = 0U;
+        std::string frameLoopError;
 
         if (!usingExistingClient && options.showWindow) {
             ShowWindow(hwnd, SW_SHOW);
             UpdateWindow(hwnd);
         }
 
-        while (windowState.running) {
+        while (true) {
+            try {
+            RethrowWindowCallbackException(windowState);
+            if (!windowState.running) {
+                break;
+            }
             if (!usingExistingClient) {
                 MSG message{};
                 while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE) != 0) {
                     TranslateMessage(&message);
                     DispatchMessageW(&message);
                 }
+                RethrowWindowCallbackException(windowState);
                 if (!windowState.running) {
                     break;
                 }
@@ -7926,7 +8088,11 @@ bool RunVulkanNativeSceneLoop(const int width,
             if (!buildFrame(frame, &frameError)) {
                 throw std::runtime_error(frameError.empty() ? "Native Vulkan frame callback failed." : frameError);
             }
-            if (hasPresentedFrame && frame.frameSequence == lastFrameSequence) {
+            if (!ShouldRenderVulkanNativeSceneFrame(
+                    frame.frameSequence,
+                    frame.suppressUnchangedFrames,
+                    hasPresentedFrame,
+                    lastFrameSequence)) {
                 Sleep(33);
                 continue;
             }
@@ -7952,6 +8118,19 @@ bool RunVulkanNativeSceneLoop(const int width,
             const void* sceneIdentity =
                 frame.sceneCacheIdentity != nullptr ? frame.sceneCacheIdentity : sceneData.scene;
             if (cachedSceneIdentity != sceneIdentity) {
+                if (!meshCache.empty()) {
+                    // Mesh buffers are referenced by submissions from both frame slots. A
+                    // scene-identity transition invalidates the entire cache, so every slot
+                    // must have completed before any VkBuffer/VkDeviceMemory is destroyed.
+                    // All fences begin signalled and are reset only immediately before submit;
+                    // acquire-out-of-date therefore leaves the current slot safe to wait.
+                    ExpectVk(vkWaitForFences(device,
+                                             static_cast<std::uint32_t>(inFlightFences.size()),
+                                             inFlightFences.data(),
+                                             VK_TRUE,
+                                             UINT64_MAX),
+                             "vkWaitForFences(mesh-cache-invalidation)");
+                }
                 ClearGpuMeshCache(device, meshCache);
                 cachedSceneIdentity = sceneIdentity;
                 textureCache.warmForScene(
@@ -8459,7 +8638,12 @@ bool RunVulkanNativeSceneLoop(const int width,
             std::memcpy(cameraUniform.riKaleidoscopePack1,
                         sceneData.riKaleidoscopePack1.data(),
                         sizeof(cameraUniform.riKaleidoscopePack1));
-            std::memcpy(mappedUniformMemory, &cameraUniform, sizeof(CameraUniformStd140));
+            // Camera and sky uniforms are frame-slot-owned. Waiting this slot's fence
+            // prevents CPU writes from racing the GPU submission that last used it while
+            // still allowing the other slot to remain in flight.
+            ExpectVk(vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX),
+                     "vkWaitForFences");
+            std::memcpy(mappedUniformMemories[currentFrame], &cameraUniform, sizeof(CameraUniformStd140));
             SkyUniformStd140 skyUniform{};
             skyUniform.hasSkyTexture = sceneData.skyUseTextureFile;
             skyUniform.useAuthoredGradient = sceneData.skyUseAuthoredGradient;
@@ -8483,7 +8667,7 @@ bool RunVulkanNativeSceneLoop(const int width,
                 skyUniform.sunColor[2] = sceneData.directionalLightColorIntensity[2] / sunTintMax;
                 skyUniform.sunColor[3] = 1.0f;
             }
-            std::memcpy(mappedSkyUniformMemory, &skyUniform, sizeof(SkyUniformStd140));
+            std::memcpy(mappedSkyUniformMemories[currentFrame], &skyUniform, sizeof(SkyUniformStd140));
 
             VkDescriptorSet skyTextureSet = textureCache.whiteDescriptorSet;
             if (sceneData.skyUseTextureFile != 0) {
@@ -8540,7 +8724,6 @@ bool RunVulkanNativeSceneLoop(const int width,
             }
 
             VkFence& frameFence = inFlightFences[currentFrame];
-            ExpectVk(vkWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
 
             std::uint32_t imageIndex = 0;
             VkResult acquireResult = vkAcquireNextImageKHR(
@@ -8589,14 +8772,14 @@ bool RunVulkanNativeSceneLoop(const int width,
                                      extent,
                                      enableHybridHdr ? skyPipelineHdr : skyPipeline,
                                      skyPipelineLayout,
-                                     skyDescriptorSet,
+                                     skyDescriptorSets[currentFrame],
                                      skyTextureSet,
                                      skyMesh,
                                      enableHybridHdr ? pipelineHdrScene : pipeline,
                                      enableHybridHdr ? pipelineHdrSceneTransparent : pipelineTransparent,
                                      enableHybridHdr ? pipelineHdrSceneAdditive : pipelineAdditive,
                                      pipelineLayout,
-                                     cameraDescriptorSet,
+                                     cameraDescriptorSets[currentFrame],
                                      shadowDescriptorSet,
                                      textureCache,
                                      *sceneData.scene,
@@ -8645,6 +8828,15 @@ bool RunVulkanNativeSceneLoop(const int width,
             };
             const VkResult presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
             if (presentResult == VK_ERROR_OUT_OF_DATE_KHR) {
+                // The present never consumed renderFinished[imageIndex], so it is still
+                // signaled. Letting the next submission signal it again would be invalid,
+                // so drain the submission and replace the semaphore.
+                ExpectVk(vkWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX),
+                         "vkWaitForFences(present-out-of-date)");
+                vkDestroySemaphore(device, renderFinished[imageIndex], nullptr);
+                renderFinished[imageIndex] = VK_NULL_HANDLE;
+                ExpectVk(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinished[imageIndex]),
+                         "vkCreateSemaphore(renderFinished-recreate)");
                 Sleep(16);
                 currentFrame = (currentFrame + 1U) % kFramesInFlight;
                 continue;
@@ -8657,6 +8849,16 @@ bool RunVulkanNativeSceneLoop(const int width,
             lastFrameSequence = frame.frameSequence;
             hasPresentedFrame = true;
             currentFrame = (currentFrame + 1U) % kFramesInFlight;
+            } catch (const std::exception& exception) {
+                frameLoopError = exception.what();
+                if (frameLoopError.empty()) {
+                    frameLoopError = "Native Vulkan frame loop failed without a diagnostic.";
+                }
+                break;
+            } catch (...) {
+                frameLoopError = "Native Vulkan frame loop failed with an unknown exception.";
+                break;
+            }
         }
 
         vkDeviceWaitIdle(device);
@@ -8672,18 +8874,22 @@ bool RunVulkanNativeSceneLoop(const int width,
         vkDestroyDescriptorPool(device, cameraDescriptorPool, nullptr);
         vkDestroyDescriptorPool(device, shadowDescriptorPool, nullptr);
         vkDestroyDescriptorPool(device, skyDescriptorPool, nullptr);
-        if (mappedUniformMemory != nullptr) {
-            vkUnmapMemory(device, uniformBuffer.memory);
-        }
-        if (mappedSkyUniformMemory != nullptr) {
-            vkUnmapMemory(device, skyUniformBuffer.memory);
+        for (std::uint32_t frameIndex = 0; frameIndex < kFramesInFlight; ++frameIndex) {
+            if (mappedUniformMemories[frameIndex] != nullptr) {
+                vkUnmapMemory(device, uniformBuffers[frameIndex].memory);
+            }
+            if (mappedSkyUniformMemories[frameIndex] != nullptr) {
+                vkUnmapMemory(device, skyUniformBuffers[frameIndex].memory);
+            }
         }
         vkDestroySampler(device, shadowSampler, nullptr);
         ClearGpuMeshCache(device, meshCache);
         DestroyBuffer(device, skyMesh.vertexBuffer);
         DestroyBuffer(device, skyMesh.indexBuffer);
-        DestroyBuffer(device, uniformBuffer);
-        DestroyBuffer(device, skyUniformBuffer);
+        for (std::uint32_t frameIndex = 0; frameIndex < kFramesInFlight; ++frameIndex) {
+            DestroyBuffer(device, uniformBuffers[frameIndex]);
+            DestroyBuffer(device, skyUniformBuffers[frameIndex]);
+        }
         vkDestroyPipeline(device, shadowPipeline, nullptr);
         vkDestroyShaderModule(device, shadowFragShader, nullptr);
         vkDestroyShaderModule(device, shadowVertShader, nullptr);
@@ -8783,10 +8989,21 @@ bool RunVulkanNativeSceneLoop(const int width,
         vkDestroyDevice(device, nullptr);
         vkDestroySurfaceKHR(instance, surface, nullptr);
         vkDestroyInstance(instance, nullptr);
+        if (!frameLoopError.empty()) {
+            if (error != nullptr) {
+                *error = std::move(frameLoopError);
+            }
+            return false;
+        }
         return true;
     } catch (const std::exception& exception) {
         if (error != nullptr) {
             *error = exception.what();
+        }
+        return false;
+    } catch (...) {
+        if (error != nullptr) {
+            *error = "Native Vulkan scene loop failed with an unknown exception.";
         }
         return false;
     }
@@ -8810,6 +9027,7 @@ bool PresentSceneKitPreviewWindowNative(const ri::scene::SceneKitPreview& previe
     const VulkanNativeSceneFrameCallback buildFrame =
         [&preview, &options](VulkanNativeSceneFrame& frame, std::string*) {
             frame.scene = &preview.scene;
+            frame.suppressUnchangedFrames = false;
             frame.cameraNode = preview.orbitCamera.cameraNode;
             frame.photoMode = options.scenePhotoMode;
             frame.photoModeEnabled = ri::scene::PhotoModeFieldOfViewActive(options.scenePhotoMode);

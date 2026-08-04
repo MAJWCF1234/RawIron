@@ -34,6 +34,14 @@ Saved/TestScratch/
 /Saved/visual_checks/
 /cube_test_preview_*.bmp
 
+# Local EOS credentials (use ThirdParty/EOS/eos_config.example.json)
+/eos_config.json
+/config/eos_config.json
+/ThirdParty/EOS/eos_config.json
+
+# Local EOS SDK drop (optional; do not commit proprietary binaries unless allowed)
+/ThirdParty/EOS/SDK/
+
 # Local split-zip release drops (Scripts/Publish-FullWorkspaceSplitZip.ps1)
 /ReleaseArtifacts/
 

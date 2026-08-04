@@ -91,6 +91,7 @@ bool RunStandalone(const StandaloneOptions& options,
         net.p2pBindEndpoint.port = static_cast<std::uint16_t>(commandLine.GetIntOr("--p2p-port", 27115));
         net.connectEndpoint.host = commandLine.GetValue("--connect-host").value_or("127.0.0.1");
         net.connectEndpoint.port = static_cast<std::uint16_t>(commandLine.GetIntOr("--connect-port", 27015));
+        net.advertiseHost = commandLine.GetValue("--advertise-host").value_or("");
         net.rendezvousProvider = ParseRendezvous(options.rendezvous);
         net.issueJoinCodeOnStartup = options.issueJoinCode;
         if (options.joinCode.has_value()) {

@@ -2,15 +2,34 @@
 
 #include "RawIron/Core/CommandLine.h"
 #include "RawIron/Core/Log.h"
+#include "RawIron/Runtime/HostInputService.h"
 #include "RawIron/Runtime/LevelSchedulerRuntimeModule.h"
 #include "RawIron/Runtime/RuntimeId.h"
 
 #include <algorithm>
 #include <exception>
+#include <stdexcept>
 #include <utility>
 
 namespace ri::runtime {
 namespace {
+
+class ScopedLifecycleOperation final {
+public:
+    explicit ScopedLifecycleOperation(bool& flag) noexcept : flag_(flag) {
+        flag_ = true;
+    }
+
+    ~ScopedLifecycleOperation() {
+        flag_ = false;
+    }
+
+    ScopedLifecycleOperation(const ScopedLifecycleOperation&) = delete;
+    ScopedLifecycleOperation& operator=(const ScopedLifecycleOperation&) = delete;
+
+private:
+    bool& flag_;
+};
 
 [[nodiscard]] std::string PhaseField(RuntimePhase phase) {
     return RuntimePhaseName(phase);
@@ -91,7 +110,9 @@ void RuntimeContext::RequestStop(std::string reason) {
 }
 
 void RuntimeContext::Fail(std::string reason) {
-    failureReason_ = std::move(reason);
+    failureReason_ = reason.empty()
+        ? "Runtime failure requested without a diagnostic."
+        : std::move(reason);
     stopRequested_ = true;
 }
 
@@ -127,8 +148,66 @@ void RuntimeModule::OnRuntimeShutdown(RuntimeContext&) {}
 RuntimeCore::RuntimeCore(RuntimeIdentity identity, RuntimePaths paths)
     : context_(std::move(identity), std::move(paths)) {}
 
+RuntimeCore::~RuntimeCore() noexcept {
+    if (context_.phase_ == RuntimePhase::Uninitialized || context_.phase_ == RuntimePhase::Stopped) {
+        return;
+    }
+    try {
+        Shutdown();
+    } catch (...) {
+        // Module and event exceptions are isolated by Shutdown. This final boundary exists for
+        // allocation/system failures: destructors must never leak an exception into stack unwinding.
+        ri::core::LogInfo("Runtime: unexpected exception during destructor shutdown.");
+    }
+}
+
+RuntimeCore::RuntimeCore(RuntimeCore&& other)
+    : context_(RuntimeIdentity{}, RuntimePaths{}) {
+    if (!other.CanMove()) {
+        throw std::logic_error("RuntimeCore cannot be moved while active or inside a lifecycle callback.");
+    }
+    context_ = std::move(other.context_);
+    modules_ = std::move(other.modules_);
+    activeModules_ = std::move(other.activeModules_);
+    serviceBaseline_ = std::move(other.serviceBaseline_);
+    serviceBaselineCaptured_ = other.serviceBaselineCaptured_;
+    lifecycleOperationInProgress_ = false;
+
+    other.activeModules_.clear();
+    other.serviceBaseline_.Clear();
+    other.serviceBaselineCaptured_ = false;
+    other.context_.SetPhase(RuntimePhase::Stopped);
+    other.context_.ClearRunState();
+    other.lifecycleOperationInProgress_ = false;
+}
+
+RuntimeCore& RuntimeCore::operator=(RuntimeCore&& other) {
+    if (this == &other) {
+        return *this;
+    }
+    if (!CanMove() || !other.CanMove()) {
+        throw std::logic_error("RuntimeCore cannot be move-assigned while active or inside a lifecycle callback.");
+    }
+    context_ = std::move(other.context_);
+    modules_ = std::move(other.modules_);
+    activeModules_ = std::move(other.activeModules_);
+    serviceBaseline_ = std::move(other.serviceBaseline_);
+    serviceBaselineCaptured_ = other.serviceBaselineCaptured_;
+    lifecycleOperationInProgress_ = false;
+
+    other.activeModules_.clear();
+    other.serviceBaseline_.Clear();
+    other.serviceBaselineCaptured_ = false;
+    other.context_.SetPhase(RuntimePhase::Stopped);
+    other.context_.ClearRunState();
+    other.lifecycleOperationInProgress_ = false;
+    return *this;
+}
+
 void RuntimeCore::AddDefaultModules() {
     (void)TryAddModule(std::make_unique<LevelSchedulerRuntimeModule>());
+    // Standalone hosts Bind windows and query keys; headless stays inert with null handles.
+    (void)TryAddModule(MakeHostInputRuntimeModule());
 }
 
 RuntimeContext& RuntimeCore::Context() noexcept {
@@ -141,11 +220,17 @@ const RuntimeContext& RuntimeCore::Context() const noexcept {
 
 void RuntimeCore::AddModule(std::unique_ptr<RuntimeModule> module) {
     if (!TryAddModule(std::move(module))) {
-        ri::core::LogInfo("Runtime module registration failed (null, unnamed, or duplicate module).");
+        ri::core::LogInfo(
+            "Runtime module registration failed "
+            "(invalid lifecycle phase, null/unnamed module, or duplicate name).");
     }
 }
 
 bool RuntimeCore::TryAddModule(std::unique_ptr<RuntimeModule> module) {
+    if (lifecycleOperationInProgress_
+        || (context_.phase_ != RuntimePhase::Uninitialized && context_.phase_ != RuntimePhase::Stopped)) {
+        return false;
+    }
     if (module == nullptr || module->Name().empty()) {
         return false;
     }
@@ -178,6 +263,11 @@ std::size_t RuntimeCore::ModuleCount() const noexcept {
 }
 
 bool RuntimeCore::Startup(const ri::core::CommandLine& commandLine) {
+    if (lifecycleOperationInProgress_) {
+        ri::core::LogInfo("Runtime startup rejected during another lifecycle operation.");
+        return false;
+    }
+    ScopedLifecycleOperation operation(lifecycleOperationInProgress_);
     if (context_.phase_ != RuntimePhase::Uninitialized && context_.phase_ != RuntimePhase::Stopped) {
         context_.Fail("Runtime startup requested from invalid phase.");
         EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
@@ -185,7 +275,11 @@ bool RuntimeCore::Startup(const ri::core::CommandLine& commandLine) {
     }
 
     context_.ClearRunState();
+    CaptureServiceBaseline();
     EmitPhaseChanged(context_.phase_, RuntimePhase::Starting);
+    if (AbortStartupIfRequested("starting transition")) {
+        return false;
+    }
     ri::core::LogSection("Runtime Core");
     ri::core::LogInfo("Runtime: " + context_.identity_.displayName +
                       " (" + context_.identity_.id + ") mode=" + context_.identity_.mode);
@@ -197,6 +291,12 @@ bool RuntimeCore::Startup(const ri::core::CommandLine& commandLine) {
     }
 
     EmitPhaseChanged(RuntimePhase::Starting, RuntimePhase::Loading);
+    activeModules_.clear();
+    activeModules_.reserve(modules_.size());
+    if (AbortStartupIfRequested("loading transition")) {
+        return false;
+    }
+
     for (const std::unique_ptr<RuntimeModule>& module : modules_) {
         if (module == nullptr) {
             continue;
@@ -206,22 +306,38 @@ bool RuntimeCore::Startup(const ri::core::CommandLine& commandLine) {
             startupOk = module->OnRuntimeStartup(context_, commandLine);
         } catch (const std::exception& ex) {
             context_.Fail("Runtime module startup exception: " + std::string(module->Name()) + ": " + ex.what());
+            RollbackStartup(module.get());
             EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
             return false;
         } catch (...) {
             context_.Fail("Runtime module startup exception: " + std::string(module->Name()) + ": unknown");
+            RollbackStartup(module.get());
             EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
             return false;
         }
         if (!startupOk) {
-            context_.Fail("Runtime module startup failed: " + std::string(module->Name()));
+            if (context_.FailureReason().empty()) {
+                std::string reason = "Runtime module startup failed: " + std::string(module->Name());
+                if (!context_.StopReason().empty()) {
+                    reason += ": " + std::string(context_.StopReason());
+                }
+                context_.Fail(std::move(reason));
+            }
+            RollbackStartup(module.get());
             EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
             return false;
         }
+        if (AbortStartupIfRequested("module startup: " + std::string(module->Name()), module.get())) {
+            return false;
+        }
+        activeModules_.push_back(module.get());
     }
 
     EmitPhaseChanged(RuntimePhase::Loading, RuntimePhase::Running);
-    context_.events_.Emit("runtime.started", RuntimeEvent{
+    if (AbortStartupIfRequested("running transition")) {
+        return false;
+    }
+    EmitEvent("runtime.started", RuntimeEvent{
         .id = {},
         .type = {},
         .fields = {
@@ -231,19 +347,34 @@ bool RuntimeCore::Startup(const ri::core::CommandLine& commandLine) {
             {"modules", std::to_string(ModuleCount())},
         },
     });
+    if (AbortStartupIfRequested("runtime.started dispatch")) {
+        return false;
+    }
     return true;
 }
 
 bool RuntimeCore::Frame(const ri::core::FrameContext& frame) {
+    if (lifecycleOperationInProgress_) {
+        return false;
+    }
+    ScopedLifecycleOperation operation(lifecycleOperationInProgress_);
     if (context_.phase_ == RuntimePhase::Failed || context_.phase_ == RuntimePhase::Stopped) {
         return false;
     }
     if (context_.phase_ == RuntimePhase::Paused) {
-        return !context_.stopRequested_;
+        const bool shouldContinue = ContinueAfterCallback();
+        if (!shouldContinue) {
+            EmitStopRequestedEvent();
+        }
+        return shouldContinue;
     }
     if (context_.phase_ != RuntimePhase::Running) {
         context_.Fail("Runtime frame requested before running phase.");
         EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
+        return false;
+    }
+    if (!ContinueAfterCallback()) {
+        EmitStopRequestedEvent();
         return false;
     }
 
@@ -254,7 +385,7 @@ bool RuntimeCore::Frame(const ri::core::FrameContext& frame) {
         .realtimeSeconds = frame.realtimeSeconds,
         .realDeltaSeconds = frame.realDeltaSeconds,
     });
-    context_.events_.Emit("runtime.frame", RuntimeEvent{
+    EmitEvent("runtime.frame", RuntimeEvent{
         .id = {},
         .type = {},
         .fields = {
@@ -264,49 +395,51 @@ bool RuntimeCore::Frame(const ri::core::FrameContext& frame) {
         },
     });
 
-    for (const std::unique_ptr<RuntimeModule>& module : modules_) {
-        if (module == nullptr) {
-            continue;
-        }
-        bool keepRunning = false;
-        try {
-            keepRunning = module->OnRuntimeFrame(context_, frame);
-        } catch (const std::exception& ex) {
-            context_.Fail("Runtime module frame exception: " + std::string(module->Name()) + ": " + ex.what());
-            EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
-            break;
-        } catch (...) {
-            context_.Fail("Runtime module frame exception: " + std::string(module->Name()) + ": unknown");
-            EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
-            break;
-        }
-        if (!keepRunning) {
-            context_.RequestStop("Runtime module requested stop: " + std::string(module->Name()));
-            break;
-        }
-        if (context_.StopRequested()) {
-            break;
+    if (ContinueAfterCallback()) {
+        for (RuntimeModule* const module : activeModules_) {
+            if (module == nullptr) {
+                continue;
+            }
+            bool keepRunning = false;
+            try {
+                keepRunning = module->OnRuntimeFrame(context_, frame);
+            } catch (const std::exception& ex) {
+                context_.Fail(
+                    "Runtime module frame exception: " + std::string(module->Name()) + ": " + ex.what());
+                EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
+                break;
+            } catch (...) {
+                context_.Fail("Runtime module frame exception: " + std::string(module->Name()) + ": unknown");
+                EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
+                break;
+            }
+            if (!keepRunning) {
+                context_.RequestStop("Runtime module requested stop: " + std::string(module->Name()));
+                break;
+            }
+            if (!ContinueAfterCallback()) {
+                break;
+            }
         }
     }
 
-    if (context_.StopRequested()) {
-        context_.events_.Emit("runtime.stop_requested", RuntimeEvent{
-            .id = {},
-            .type = {},
-            .fields = {
-                {"id", context_.identity_.id},
-                {"reason", context_.stopReason_},
-            },
-        });
-    }
+    (void)ContinueAfterCallback();
+    EmitStopRequestedEvent();
     return !context_.StopRequested();
 }
 
 bool RuntimeCore::Pause(std::string reason) {
+    if (lifecycleOperationInProgress_) {
+        return false;
+    }
+    ScopedLifecycleOperation operation(lifecycleOperationInProgress_);
     if (context_.phase_ != RuntimePhase::Running) {
         return false;
     }
-    for (const std::unique_ptr<RuntimeModule>& module : modules_) {
+    if (!ContinueAfterCallback()) {
+        return false;
+    }
+    for (RuntimeModule* const module : activeModules_) {
         if (module != nullptr) {
             try {
                 module->OnRuntimePause(context_);
@@ -319,10 +452,16 @@ bool RuntimeCore::Pause(std::string reason) {
                 EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
                 return false;
             }
+            if (!ContinueAfterCallback()) {
+                return false;
+            }
         }
     }
     EmitPhaseChanged(RuntimePhase::Running, RuntimePhase::Paused);
-    context_.events_.Emit("runtime.paused", RuntimeEvent{
+    if (!ContinueAfterCallback()) {
+        return false;
+    }
+    EmitEvent("runtime.paused", RuntimeEvent{
         .id = {},
         .type = {},
         .fields = {
@@ -330,15 +469,22 @@ bool RuntimeCore::Pause(std::string reason) {
             {"reason", reason},
         },
     });
-    return true;
+    return ContinueAfterCallback();
 }
 
 bool RuntimeCore::Resume() {
+    if (lifecycleOperationInProgress_) {
+        return false;
+    }
+    ScopedLifecycleOperation operation(lifecycleOperationInProgress_);
     if (context_.phase_ != RuntimePhase::Paused) {
         return false;
     }
+    if (!ContinueAfterCallback()) {
+        return false;
+    }
     context_.ClearRunState();
-    for (const std::unique_ptr<RuntimeModule>& module : modules_) {
+    for (RuntimeModule* const module : activeModules_) {
         if (module != nullptr) {
             try {
                 module->OnRuntimeResume(context_);
@@ -351,20 +497,30 @@ bool RuntimeCore::Resume() {
                 EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
                 return false;
             }
+            if (!ContinueAfterCallback()) {
+                return false;
+            }
         }
     }
     EmitPhaseChanged(RuntimePhase::Paused, RuntimePhase::Running);
-    context_.events_.Emit("runtime.resumed", RuntimeEvent{
+    if (!ContinueAfterCallback()) {
+        return false;
+    }
+    EmitEvent("runtime.resumed", RuntimeEvent{
         .id = {},
         .type = {},
         .fields = {
             {"id", context_.identity_.id},
         },
     });
-    return true;
+    return ContinueAfterCallback();
 }
 
 void RuntimeCore::Shutdown() {
+    if (lifecycleOperationInProgress_) {
+        return;
+    }
+    ScopedLifecycleOperation operation(lifecycleOperationInProgress_);
     if (context_.phase_ == RuntimePhase::Stopped || context_.phase_ == RuntimePhase::Uninitialized) {
         EmitPhaseChanged(context_.phase_, RuntimePhase::Stopped);
         return;
@@ -372,20 +528,18 @@ void RuntimeCore::Shutdown() {
 
     const RuntimePhase previous = context_.phase_;
     EmitPhaseChanged(previous, RuntimePhase::Stopping);
-    for (auto it = modules_.rbegin(); it != modules_.rend(); ++it) {
-        if (*it != nullptr) {
-            try {
-                (*it)->OnRuntimeShutdown(context_);
-            } catch (const std::exception& ex) {
-                ri::core::LogInfo("Runtime module shutdown exception: " + std::string((*it)->Name()) + ": " + ex.what());
-                context_.Fail("Runtime module shutdown exception.");
-            } catch (...) {
-                ri::core::LogInfo("Runtime module shutdown exception: " + std::string((*it)->Name()) + ": unknown");
-                context_.Fail("Runtime module shutdown exception.");
+    while (!activeModules_.empty()) {
+        RuntimeModule* const module = activeModules_.back();
+        activeModules_.pop_back();
+        if (module != nullptr) {
+            std::string cleanupFailure = ShutdownModule(*module, "shutdown");
+            if (!cleanupFailure.empty()) {
+                RecordCleanupFailure(std::move(cleanupFailure));
             }
         }
     }
-    context_.events_.Emit("runtime.stopped", RuntimeEvent{
+    RestoreServiceBaseline();
+    EmitEvent("runtime.stopped", RuntimeEvent{
         .id = {},
         .type = {},
         .fields = {
@@ -399,12 +553,153 @@ void RuntimeCore::Shutdown() {
     EmitPhaseChanged(RuntimePhase::Stopping, RuntimePhase::Stopped);
 }
 
+bool RuntimeCore::AbortStartupIfRequested(const std::string_view stage,
+                                          RuntimeModule* const attemptedModule) {
+    if (!context_.StopRequested()) {
+        return false;
+    }
+    const bool failedBeforeCleanup = !context_.FailureReason().empty();
+    if (!failedBeforeCleanup) {
+        EmitPhaseChanged(context_.phase_, RuntimePhase::Stopping);
+    }
+    RollbackStartup(attemptedModule);
+    if (!context_.FailureReason().empty()) {
+        EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
+    } else {
+        EmitEvent("runtime.stopped", RuntimeEvent{
+            .id = {},
+            .type = {},
+            .fields = {
+                {"id", context_.identity_.id},
+                {"mode", context_.identity_.mode},
+                {"instance", context_.identity_.instanceId},
+                {"stopReason", context_.stopReason_},
+                {"failureReason", {}},
+                {"startupStage", std::string(stage)},
+            },
+        });
+        EmitPhaseChanged(RuntimePhase::Stopping, RuntimePhase::Stopped);
+    }
+    return true;
+}
+
+bool RuntimeCore::ContinueAfterCallback() {
+    if (!context_.StopRequested()) {
+        return true;
+    }
+    if (!context_.FailureReason().empty() && context_.phase_ != RuntimePhase::Failed) {
+        EmitPhaseChanged(context_.phase_, RuntimePhase::Failed);
+    }
+    return false;
+}
+
+bool RuntimeCore::CanMove() const noexcept {
+    const bool inactivePhase = context_.phase_ == RuntimePhase::Uninitialized
+        || context_.phase_ == RuntimePhase::Stopped;
+    return inactivePhase
+        && !lifecycleOperationInProgress_
+        && activeModules_.empty()
+        && !serviceBaselineCaptured_;
+}
+
+std::string RuntimeCore::ShutdownModule(RuntimeModule& module, const std::string_view operation) {
+    try {
+        module.OnRuntimeShutdown(context_);
+        return {};
+    } catch (const std::exception& ex) {
+        std::string message = "Runtime module " + std::string(operation) + " exception: "
+            + std::string(module.Name()) + ": " + ex.what();
+        ri::core::LogInfo(message);
+        return message;
+    } catch (...) {
+        std::string message = "Runtime module " + std::string(operation) + " exception: "
+            + std::string(module.Name()) + ": unknown";
+        ri::core::LogInfo(message);
+        return message;
+    }
+}
+
+void RuntimeCore::RollbackStartup(RuntimeModule* attemptedModule) {
+    if (attemptedModule != nullptr) {
+        std::string cleanupFailure = ShutdownModule(*attemptedModule, "startup rollback");
+        if (!cleanupFailure.empty()) {
+            RecordCleanupFailure(std::move(cleanupFailure));
+        }
+    }
+    while (!activeModules_.empty()) {
+        RuntimeModule* const module = activeModules_.back();
+        activeModules_.pop_back();
+        if (module != nullptr) {
+            std::string cleanupFailure = ShutdownModule(*module, "startup rollback");
+            if (!cleanupFailure.empty()) {
+                RecordCleanupFailure(std::move(cleanupFailure));
+            }
+        }
+    }
+    RestoreServiceBaseline();
+}
+
+void RuntimeCore::CaptureServiceBaseline() {
+    serviceBaseline_ = context_.services_;
+    serviceBaselineCaptured_ = true;
+}
+
+void RuntimeCore::RestoreServiceBaseline() {
+    if (!serviceBaselineCaptured_) {
+        return;
+    }
+    context_.services_ = std::move(serviceBaseline_);
+    serviceBaseline_.Clear();
+    serviceBaselineCaptured_ = false;
+}
+
+void RuntimeCore::RecordCleanupFailure(std::string message) {
+    if (message.empty()) {
+        return;
+    }
+    if (context_.failureReason_.empty()) {
+        context_.failureReason_ = std::move(message);
+    } else {
+        context_.failureReason_ += " | " + message;
+    }
+    context_.stopRequested_ = true;
+}
+
+void RuntimeCore::EmitEvent(const std::string_view type, RuntimeEvent event) {
+    try {
+        context_.events_.Emit(type, std::move(event));
+    } catch (const std::exception& ex) {
+        const std::string message = "Runtime event dispatch exception for " + std::string(type) + ": " + ex.what();
+        ri::core::LogInfo(message);
+        context_.Fail(message);
+    } catch (...) {
+        const std::string message = "Runtime event dispatch exception for " + std::string(type) + ": unknown";
+        ri::core::LogInfo(message);
+        context_.Fail(message);
+    }
+}
+
+void RuntimeCore::EmitStopRequestedEvent() {
+    if (!context_.StopRequested()) {
+        return;
+    }
+    EmitEvent("runtime.stop_requested", RuntimeEvent{
+        .id = {},
+        .type = {},
+        .fields = {
+            {"id", context_.identity_.id},
+            {"reason", context_.stopReason_.empty() ? context_.failureReason_ : context_.stopReason_},
+        },
+    });
+    (void)ContinueAfterCallback();
+}
+
 void RuntimeCore::EmitPhaseChanged(RuntimePhase from, RuntimePhase to) {
     if (from == to && context_.phase_ == to) {
         return;
     }
     context_.SetPhase(to);
-    context_.events_.Emit("runtime.phase", RuntimeEvent{
+    EmitEvent("runtime.phase", RuntimeEvent{
         .id = {},
         .type = {},
         .fields = {

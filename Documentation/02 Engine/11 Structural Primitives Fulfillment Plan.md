@@ -39,6 +39,15 @@ The first foundation is in place:
 - Metadata-only edits (roles, policies, channels) never force a spatial re-split because tree content signatures cover only ids and bounds.
 - The partition cache rebuilds in place, so cache-driven refreshes inherit subpartition reuse.
 - Partition metrics report matched-versus-scanned candidate counts for box and ray queries so semantic filter savings are measurable.
+- BSP and semantic-partition read-only queries can run concurrently after a rebuild. Query bookkeeping uses
+  relaxed diagnostic counters and no shared visit buffer; rebuild/destruction remain explicitly synchronized
+  writer operations because returned hits point into partition-owned entries.
+- Finite rays whose mathematical endpoint exceeds float range use a saturated broad-phase segment, preserving
+  reachable large-coordinate candidates instead of collapsing the segment to an empty AABB.
+- Ray directions use max-component-scaled, double-precision normalization before BSP traversal, so direction
+  magnitudes up to `FLT_MAX` remain equivalent to their unit vectors while the near-zero rejection remains.
+- BSP moves transfer the tree and diagnostics while leaving a query-safe, reusable empty source; public reads
+  also reject stale root/node indices defensively instead of indexing invalid storage.
 - Partition queries support role, region, operation, rebuild scope, M/P/Q/I channel, and query purpose.
 - Partition metrics expose entry counts, metadata signature uniqueness, query counts, candidate scans, role counts, operation counts, rebuild counts, channel counts, and query-purpose counts.
 - Scene subtree collider generation can respect structural collision policy, Q-mesh participation, and query purpose.
@@ -76,7 +85,7 @@ Use this flow for every remaining structural primitive increment:
 Focused structural suite:
 
 ```powershell
-ctest --test-dir build\dev-msvc -C RelWithDebInfo --output-on-failure -R "RawIron\.(Trace\.CompetitiveWeaponSimulatorSmoke|SceneUtilities\.(StructuralBrushMetadataSmoke|SemanticStructuralPartitionSmoke|SceneSubtreeCollidersSmoke|SceneStructuralTraceFeedSmoke)|MultiplayerSandbox\.StructuralTraceFeedSmoke)"
+ctest --test-dir build\dev-msvc -C RelWithDebInfo --output-on-failure -R "RawIron\.(Trace\.CompetitiveWeaponSimulatorSmoke|SceneUtilities\.(StructuralBrushMetadataSmoke|SemanticStructuralPartition(Smoke|ConcurrencySmoke)|SceneSubtreeCollidersSmoke|SceneStructuralTraceFeedSmoke)|MultiplayerSandbox\.StructuralTraceFeedSmoke)"
 ```
 
 Use a broader game-specific suite when editing Liminal Hall or other project data.
@@ -150,6 +159,8 @@ Structural primitive work is acceptable only when:
 - `Tests/StructuralBrushMetadataSmoke.cpp`: metadata and M/P/Q/I coverage.
 - `Tests/StructuralPrimitiveValidationSmoke.cpp`: normalized type dispatch and poisoned authoring-input coverage.
 - `Tests/SemanticStructuralPartitionSmoke.cpp`: partition filtering, metrics, cache, and picking coverage.
+- `Tests/SemanticStructuralPartitionConcurrencySmoke.cpp`: dense concurrent BSP/semantic queries, exact concurrent
+  metric totals, rebuild ownership, value semantics, and very-large-coordinate ray coverage.
 - `Tests/SceneSubtreeCollidersSmoke.cpp`: collider policy, Q-mesh, and tag coverage.
 - `Tests/SceneStructuralTraceFeedSmoke.cpp`: trace feed, trace scene, filter reason, and ratio coverage.
 - `Tests/MultiplayerSandboxStructuralTraceFeedSmoke.cpp`: real movement-consumer feed merge and metric coverage.

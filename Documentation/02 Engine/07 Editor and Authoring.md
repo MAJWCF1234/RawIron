@@ -68,3 +68,27 @@ The editor ensures `config/project.dev` exists for a game project and stores per
 ## Preview scene binding
 
 Each game manifest can declare `editorPreviewScene`, which lets the editor open into a project-appropriate scene view instead of a generic placeholder.
+
+## Transform snapshot persistence
+
+`SceneStateIO` writes the editor's bounded transform snapshot format. A save is
+counted before allocation or filesystem mutation, is limited to 16 MiB and
+100,000 nodes, writes an exclusively created same-directory temporary, flushes
+its contents, and only then commits the destination. Existing symlink/reparse
+destinations and non-regular files are rejected.
+
+On Windows, replacement of an existing snapshot supplies `ReplaceFileW` with a
+unique same-directory backup. Raw Iron inspects every failed replacement state:
+it confirms the original at the destination, restores an original moved to the
+backup, or returns `ManualRecoveryRequired` with exact retained backup and
+replacement paths. Callers must inspect `SceneStateIOResult::committed` even
+when `Succeeded()` is false because a committed save can still report backup
+cleanup failure. On POSIX, the implementation renames and then attempts to
+`fsync` the parent directory.
+
+This guarantee covers one transform snapshot, not the editor's authored,
+orbit, logic, or other sidecars as a single transaction. Windows cannot provide
+a generally supported parent-directory `fsync`; remote filesystems, controller
+caches, power-loss behavior, ACL/stream merging, and cross-process writers retain
+their platform-specific semantics. A manual-recovery result intentionally leaves
+artifacts in place and requires the caller or recovery UI to reconcile them.

@@ -2,6 +2,9 @@
 #include "RawIron/Audio/AudioManager.h"
 #include "RawIron/Core/CommandLine.h"
 #include "RawIron/Core/Log.h"
+#include "RawIron/Runtime/HostChrome.h"
+#include "RawIron/Runtime/HostInputService.h"
+#include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Render/ShaderConfig.h"
 #include "RawIron/Math/Vec3.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
@@ -240,6 +243,8 @@ struct ShowcaseRuntime {
     double musicVolumeLinear = 0.82;
     ri::scene::OrbitCameraState orbitBaseline{};
     bool orbitFrozen = false;
+    /// Mounted HostInput — demo queries, engine owns Update.
+    ri::runtime::HostInputService* hostInput = nullptr;
 };
 
 void BuildDevRoom(ShowcaseRuntime& run) {
@@ -843,7 +848,21 @@ int main(int argc, char** argv) {
         hybridHdr = false;
     }
 
+    ri::runtime::RuntimeCore engineRuntime(
+        ri::runtime::RuntimeIdentity{
+            .id = "particle-showcase",
+            .displayName = "RawIron Particle Showcase",
+            .mode = "demo",
+        },
+        ri::runtime::RuntimePaths{.workspaceRoot = workspace});
+    engineRuntime.AddDefaultModules();
+    if (!engineRuntime.Startup(commandLine)) {
+        ri::core::LogInfo("ParticleShowcase: RuntimeCore startup failed.");
+        return 1;
+    }
+
     auto runtime = std::make_shared<ShowcaseRuntime>();
+    runtime->hostInput = ri::runtime::TryGetHostInputService(engineRuntime.Context());
     BuildDevRoom(*runtime);
 
     const fs::path exeDir = fs::weakly_canonical(fs::path(argv[0])).parent_path();
@@ -920,47 +939,61 @@ int main(int argc, char** argv) {
     ri::core::LogInfo(std::string("ParticleShowcase: hybrid HDR ") + (hybridHdr ? "ON (default)" : "OFF (--no-hybrid-hdr)"));
 
     const auto wallStart = std::chrono::steady_clock::now();
+    int engineFrameIndex = 0;
 
     const ri::render::vulkan::VulkanNativeSceneFrameCallback buildFrame =
-        [runtime, wallStart, frameTextureRoot
+        [runtime, wallStart, frameTextureRoot, &engineRuntime, &engineFrameIndex
 #if defined(_WIN32)
          ,
          &showcaseHwnd
 #endif
     ](ri::render::vulkan::VulkanNativeSceneFrame& frame, std::string*) {
+            const auto nowForRuntime = std::chrono::steady_clock::now();
+            const double realtime =
+                std::chrono::duration<double>(nowForRuntime - wallStart).count();
+            (void)engineRuntime.Frame(ri::core::FrameContext{
+                .frameIndex = engineFrameIndex++,
+                .deltaSeconds = 1.0 / 60.0,
+                .elapsedSeconds = realtime,
+                .realtimeSeconds = realtime,
+            });
 #if defined(_WIN32)
-            if ((GetAsyncKeyState(VK_ESCAPE) & 0x0001) != 0) {
-                PostQuitMessage(0);
-            }
-            if ((GetAsyncKeyState(VK_SPACE) & 0x0001) != 0 && runtime->music != nullptr) {
-                if (runtime->music->IsPlaying()) {
-                    runtime->music->Pause();
-                } else {
-                    runtime->music->Play();
+            if (runtime->hostInput != nullptr) {
+                runtime->hostInput->Sync(showcaseHwnd);
+                const ri::runtime::HostChromeActions chrome = ri::runtime::PollHostChrome(*runtime->hostInput);
+                if (chrome.quitRequested) {
+                    PostQuitMessage(0);
                 }
-            }
-            if ((GetAsyncKeyState('M') & 0x0001) != 0 && runtime->audio != nullptr) {
-                runtime->audio->SetMuted(!runtime->audio->IsMuted());
-            }
-            if ((GetAsyncKeyState(VK_UP) & 0x0001) != 0 && runtime->music != nullptr) {
-                runtime->musicVolumeLinear = std::min(1.0, runtime->musicVolumeLinear + 0.05);
-                runtime->music->SetVolume(runtime->musicVolumeLinear);
-            }
-            if ((GetAsyncKeyState(VK_DOWN) & 0x0001) != 0 && runtime->music != nullptr) {
-                runtime->musicVolumeLinear = std::max(0.0, runtime->musicVolumeLinear - 0.05);
-                runtime->music->SetVolume(runtime->musicVolumeLinear);
-            }
-            if ((GetAsyncKeyState('O') & 0x0001) != 0) {
-                runtime->orbitFrozen = !runtime->orbitFrozen;
-            }
-            if ((GetAsyncKeyState('R') & 0x0001) != 0) {
-                runtime->orbitFrozen = false;
-                ri::scene::SetOrbitCameraState(runtime->scene, runtime->orbit, runtime->orbitBaseline);
-            }
-            if ((GetAsyncKeyState('H') & 0x0001) != 0) {
-                ri::core::LogInfo(
-                    "ParticleShowcase keys: Esc quit | Space pause/resume music | M mute | Up/Down volume | O orbit "
-                    "lock | R reset camera");
+                if (runtime->hostInput->ConsumeKeyPress(VK_SPACE) && runtime->music != nullptr) {
+                    if (runtime->music->IsPlaying()) {
+                        runtime->music->Pause();
+                    } else {
+                        runtime->music->Play();
+                    }
+                }
+                if (runtime->hostInput->ConsumeKeyPress('M') && runtime->audio != nullptr) {
+                    runtime->audio->SetMuted(!runtime->audio->IsMuted());
+                }
+                if (runtime->hostInput->ConsumeKeyPress(VK_UP) && runtime->music != nullptr) {
+                    runtime->musicVolumeLinear = std::min(1.0, runtime->musicVolumeLinear + 0.05);
+                    runtime->music->SetVolume(runtime->musicVolumeLinear);
+                }
+                if (runtime->hostInput->ConsumeKeyPress(VK_DOWN) && runtime->music != nullptr) {
+                    runtime->musicVolumeLinear = std::max(0.0, runtime->musicVolumeLinear - 0.05);
+                    runtime->music->SetVolume(runtime->musicVolumeLinear);
+                }
+                if (runtime->hostInput->ConsumeKeyPress('O')) {
+                    runtime->orbitFrozen = !runtime->orbitFrozen;
+                }
+                if (runtime->hostInput->ConsumeKeyPress('R')) {
+                    runtime->orbitFrozen = false;
+                    ri::scene::SetOrbitCameraState(runtime->scene, runtime->orbit, runtime->orbitBaseline);
+                }
+                if (runtime->hostInput->ConsumeKeyPress('H')) {
+                    ri::core::LogInfo(
+                        "ParticleShowcase keys: Esc quit | Space pause/resume music | M mute | Up/Down volume | O orbit "
+                        "lock | R reset camera");
+                }
             }
 #endif
             const auto now = std::chrono::steady_clock::now();
@@ -1052,6 +1085,7 @@ int main(int argc, char** argv) {
 #endif
 
             frame.scene = &runtime->scene;
+            frame.suppressUnchangedFrames = false;
             frame.cameraNode = runtime->orbit.cameraNode;
             frame.textureRoot = frameTextureRoot;
             frame.animationTimeSeconds =
@@ -1113,6 +1147,7 @@ int main(int argc, char** argv) {
 
     std::string error;
     const bool ok = ri::render::vulkan::RunVulkanNativeSceneLoop(width, height, buildFrame, windowOptions, &error);
+    engineRuntime.Shutdown();
     if (!ok && !error.empty()) {
         ri::core::LogInfo(error);
         return 1;

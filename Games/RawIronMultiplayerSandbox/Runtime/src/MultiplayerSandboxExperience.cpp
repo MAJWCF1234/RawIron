@@ -2,8 +2,10 @@
 #include "RawIron/Games/MultiplayerSandbox/MultiplayerSandboxWorld.h"
 
 #include "RawIron/Content/EngineAssets.h"
+#include "RawIron/Content/GameCameraTuning.h"
 #include "RawIron/Content/GameManifest.h"
 #include "RawIron/Content/GameRuntimeSupport.h"
+#include "RawIron/Content/GameScriptBundle.h"
 #include "RawIron/Content/ScriptScalars.h"
 #include "RawIron/Content/ShaderAsset.h"
 #include "RawIron/Core/Log.h"
@@ -18,10 +20,14 @@
 #include "RawIron/Render/ScenePreviewRenderingScript.h"
 #include "RawIron/World/RuntimeState.h"
 #include "RawIron/Runtime/BotClients.h"
+#include "RawIron/Runtime/HostChrome.h"
+#include "RawIron/Runtime/HostInputService.h"
 #include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Runtime/RuntimeNetcode.h"
 #include "RawIron/Scene/SceneStructuralTraceFeed.h"
 #include "RawIron/Spatial/Aabb.h"
+#include "RawIron/Trace/FirstPersonCameraFeel.h"
+#include "RawIron/Trace/KeyboardMovementInput.h"
 #include "RawIron/Trace/MovementController.h"
 
 #include <algorithm>
@@ -78,15 +84,19 @@ struct RuntimeState {
     ri::render::software::ScenePreviewOptions previewOptions{};
     NativeRenderTuning nativeRenderTuning{};
     std::chrono::steady_clock::time_point lastTick = std::chrono::steady_clock::now();
-    bool jumpHeldLastFrame = false;
+    /// Mounted HostInput service — games query, engine owns Update.
+    ri::runtime::HostInputService* hostInput = nullptr;
+    ri::trace::KeyboardMovementEdges movementEdges{};
     float mouseSensitivityDegreesPerPixel = 0.10f;
-    float cameraBaseHeight = 1.62f;
-    float bobAmplitude = 0.006f;
-    float bobFrequencyHz = 1.25f;
-    float bobSprintScale = 1.25f;
-    float fovBaseDegrees = 78.0f;
-    float fovSprintAddDegrees = 4.0f;
-    float fovLerpPerSecond = 10.0f;
+    ri::trace::FirstPersonCameraFeel cameraFeel{
+        .bobAmplitude = 0.006f,
+        .bobFrequencyHz = 1.25f,
+        .bobSprintScale = 1.25f,
+        .fovBaseDegrees = 78.0f,
+        .fovSprintAddDegrees = 4.0f,
+        .fovLerpPerSecond = 10.0f,
+        .cameraBaseHeight = 1.62f,
+    };
     float currentFovDegrees = 78.0f;
     fs::path nativeSkyEquirectRelative{};
     ri::render::ShaderPresentationConfig shaderPresentation{};
@@ -358,37 +368,16 @@ void UpdateMouseLook(RuntimeState& state) {
 }
 
 ri::trace::MovementInput ReadMovementInput(RuntimeState& state) {
-    auto axis = [](const int positiveKey, const int negativeKey) -> float {
-        const bool positive = (GetAsyncKeyState(positiveKey) & 0x8000) != 0;
-        const bool negative = (GetAsyncKeyState(negativeKey) & 0x8000) != 0;
-        if (positive == negative) {
-            return 0.0f;
-        }
-        return positive ? 1.0f : -1.0f;
-    };
-
-    const float yawRadians = ri::math::DegreesToRadians(state.yawDegrees);
-    const ri::math::Vec3 forward{std::sin(yawRadians), 0.0f, std::cos(yawRadians)};
-    const ri::math::Vec3 right = ri::math::Normalize(ri::math::Cross(ri::math::Vec3{0.0f, 1.0f, 0.0f}, forward));
-
-    const bool jumpHeldNow = (GetAsyncKeyState(VK_SPACE) & 0x8000) != 0;
-    const bool jumpPressedEdge = jumpHeldNow && !state.jumpHeldLastFrame;
-    state.jumpHeldLastFrame = jumpHeldNow;
-
-    return ri::trace::MovementInput{
-        .moveForward = axis('W', 'S'),
-        .moveRight = axis('D', 'A'),
-        .viewForwardWorld = forward,
-        .viewRightWorld = right,
-        .sprintHeld = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0,
-        .jumpPressed = jumpPressedEdge,
-        .applyShortJumpGravity = !jumpHeldNow,
-    };
+    if (state.hostInput == nullptr) {
+        return {};
+    }
+    return ri::trace::BuildKeyboardMovementInput(
+        state.hostInput->Focus(), state.yawDegrees, state.movementEdges);
 }
 
 void SyncInitialView(RuntimeState& state) {
     const ri::math::Vec3 feet = FeetFromBounds(state.movement.body.bounds);
-    const ri::math::Vec3 eye{feet.x, feet.y + state.cameraBaseHeight, feet.z};
+    const ri::math::Vec3 eye{feet.x, feet.y + state.cameraFeel.cameraBaseHeight, feet.z};
 
     ri::scene::Node& rig = state.world.scene.GetNode(state.world.playerRig);
     rig.localTransform.position = eye;
@@ -411,12 +400,15 @@ void SimulateAndApplyView(RuntimeState& state, const ri::trace::MovementInput& i
     const ri::math::Vec3 feet = FeetFromBounds(state.movement.body.bounds);
     const ri::math::Vec3 planarVelocity{state.movement.body.velocity.x, 0.0f, state.movement.body.velocity.z};
     const float planarSpeed = ri::math::Length(planarVelocity);
-    const float sprintSpeedRef = std::max(0.01f, state.movementOptions.maxSprintGroundSpeed);
-    const float movementNorm = std::clamp(planarSpeed / sprintSpeedRef, 0.0f, 1.0f);
-    const float bobScale = (input.sprintHeld ? state.bobSprintScale : 1.0f) * movementNorm;
-    const float bobPhase = static_cast<float>((state.elapsedSeconds * state.bobFrequencyHz) * 6.283185307179586);
-    const float cameraHeight = state.cameraBaseHeight + (std::sin(bobPhase) * state.bobAmplitude * bobScale);
-    const ri::math::Vec3 eye{feet.x, feet.y + cameraHeight, feet.z};
+    const ri::trace::FirstPersonViewSample view = ri::trace::SampleFirstPersonView(
+        state.cameraFeel,
+        state.elapsedSeconds,
+        planarSpeed,
+        state.movementOptions.maxSprintGroundSpeed,
+        input.sprintHeld,
+        state.currentFovDegrees,
+        dt);
+    const ri::math::Vec3 eye{feet.x, feet.y + view.eyeHeightAboveFeet, feet.z};
 
     ri::scene::Node& rig = state.world.scene.GetNode(state.world.playerRig);
     rig.localTransform.position = eye;
@@ -426,23 +418,23 @@ void SimulateAndApplyView(RuntimeState& state, const ri::trace::MovementInput& i
     cameraNode.localTransform.position = ri::math::Vec3{};
     cameraNode.localTransform.rotationDegrees = ri::math::Vec3{state.pitchDegrees, 0.0f, 0.0f};
     if (cameraNode.camera != ri::scene::kInvalidHandle) {
-        const float targetFov = state.fovBaseDegrees + (input.sprintHeld ? state.fovSprintAddDegrees : 0.0f);
-        const float blendAlpha = std::clamp(dt * state.fovLerpPerSecond, 0.0f, 1.0f);
-        state.currentFovDegrees += (targetFov - state.currentFovDegrees) * blendAlpha;
-        state.world.scene.GetCamera(cameraNode.camera).fieldOfViewDegrees = state.currentFovDegrees;
+        state.world.scene.GetCamera(cameraNode.camera).fieldOfViewDegrees = view.fovDegrees;
     }
 
     AnimateWorld(state.world, state.elapsedSeconds);
 }
 
 void TickStandaloneFrame(RuntimeState& state) {
-    if ((GetAsyncKeyState(VK_ESCAPE) & 0x0001) != 0 && state.hwnd != nullptr) {
+    if (state.hostInput == nullptr) {
+        return;
+    }
+    state.hostInput->Sync(state.hwnd);
+    const ri::runtime::HostChromeActions chrome = ri::runtime::PollHostChrome(*state.hostInput);
+    if (chrome.quitRequested && state.hwnd != nullptr) {
         PostMessageW(state.hwnd, WM_CLOSE, 0, 0);
         return;
     }
-    const bool ctrlHeld = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-    const bool shiftHeld = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-    if (((GetAsyncKeyState('U') & 0x0001) != 0) && ctrlHeld && shiftHeld) {
+    if (chrome.diagnosticsToggled) {
         state.diagnosticsVisible = !state.diagnosticsVisible;
         ri::core::LogInfo(std::string("Plugin diagnostics overlay: ")
                           + (state.diagnosticsVisible ? "visible (Ctrl+Shift+U)" : "hidden (Ctrl+Shift+U)"));
@@ -472,20 +464,14 @@ void TickStandaloneFrame(RuntimeState& state) {
 bool InitializeRuntimeState(const StandaloneOptions& options,
                             const ri::content::GameManifest& manifest,
                             RuntimeState& state) {
-    const ri::content::ScriptScalarMap gameplay =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/gameplay.riscript"));
-    const ri::content::ScriptScalarMap rendering =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/rendering.riscript"));
-    const ri::content::ScriptScalarMap physics =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/physics.riscript"));
-    const ri::content::ScriptScalarMap postprocess =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/postprocess.riscript"));
-    const ri::content::ScriptScalarMap ui =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/ui.riscript"));
-    const ri::content::ScriptScalarMap plugins =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/plugins.riscript"));
-    const ri::content::ScriptScalarMap pluginsPolicy =
-        ri::content::LoadScriptScalars(ri::content::ResolveGameAssetPath(manifest.rootPath, "config/plugins.policy"));
+    const ri::content::GameScriptBundle scripts = ri::content::LoadGameScriptBundle(manifest.rootPath);
+    const ri::content::ScriptScalarMap& gameplay = scripts.gameplay;
+    const ri::content::ScriptScalarMap& rendering = scripts.rendering;
+    const ri::content::ScriptScalarMap& physics = scripts.physics;
+    const ri::content::ScriptScalarMap& postprocess = scripts.postprocess;
+    const ri::content::ScriptScalarMap& ui = scripts.ui;
+    const ri::content::ScriptScalarMap& plugins = scripts.plugins;
+    const ri::content::ScriptScalarMap& pluginsPolicy = scripts.pluginsPolicy;
 
     std::string contractError;
     if (!ri::games::EnforceGameConfigContracts(
@@ -580,40 +566,38 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         ri::content::ScriptScalarOr(gameplay, "spawn_y", fallbackSpawn.y),
         ri::content::ScriptScalarOr(gameplay, "spawn_z", fallbackSpawn.z),
     };
-    state.cameraBaseHeight =
-        ri::content::ScriptScalarOrClamped(gameplay, "camera_height", state.cameraBaseHeight, 0.8f, 2.2f);
     state.yawDegrees = ri::content::ScriptScalarOrClamped(gameplay, "spawn_yaw", 68.0f, -180.0f, 180.0f);
     state.pitchDegrees = ri::content::ScriptScalarOrClamped(gameplay, "spawn_pitch", -12.0f, -84.0f, 84.0f);
     state.movement.body.bounds = BuildPlayerBounds(spawnFeet);
     state.movement.onGround = true;
 
-    state.bobAmplitude = ri::content::ScriptScalarOrClamped(gameplay, "head_bob_amplitude", state.bobAmplitude, 0.0f, 0.2f);
-    state.bobFrequencyHz = ri::content::ScriptScalarOrClamped(gameplay, "head_bob_frequency", state.bobFrequencyHz, 0.1f, 6.0f);
-    state.bobSprintScale =
-        ri::content::ScriptScalarOrClamped(gameplay, "head_bob_sprint_scale", state.bobSprintScale, 1.0f, 3.0f);
     state.mouseSensitivityDegreesPerPixel = std::clamp(
         ri::content::ScriptScalarOr(gameplay, "mouse_sensitivity", state.mouseSensitivityDegreesPerPixel),
         0.01f,
         2.0f);
-    state.fovBaseDegrees = ri::content::ScriptScalarOrClamped(
-        postprocess,
-        "fov_base",
-        ri::content::ScriptScalarOrClamped(rendering, "fov_base", state.fovBaseDegrees, 45.0f, 120.0f),
-        45.0f,
-        120.0f);
-    state.fovSprintAddDegrees = ri::content::ScriptScalarOrClamped(
-        postprocess,
-        "fov_sprint_add",
-        ri::content::ScriptScalarOrClamped(rendering, "fov_sprint_add", state.fovSprintAddDegrees, 0.0f, 25.0f),
-        0.0f,
-        25.0f);
-    state.fovLerpPerSecond = ri::content::ScriptScalarOrClamped(
-        postprocess,
-        "fov_lerp_per_second",
-        ri::content::ScriptScalarOrClamped(rendering, "fov_lerp_per_second", state.fovLerpPerSecond, 0.5f, 40.0f),
-        0.5f,
-        40.0f);
-    state.currentFovDegrees = state.fovBaseDegrees;
+    {
+        ri::content::GameCameraTuningScalars cameraDefaults{
+            .bobAmplitude = state.cameraFeel.bobAmplitude,
+            .bobFrequencyHz = state.cameraFeel.bobFrequencyHz,
+            .bobSprintScale = state.cameraFeel.bobSprintScale,
+            .fovBaseDegrees = state.cameraFeel.fovBaseDegrees,
+            .fovSprintAddDegrees = state.cameraFeel.fovSprintAddDegrees,
+            .fovLerpPerSecond = state.cameraFeel.fovLerpPerSecond,
+            .cameraBaseHeight = state.cameraFeel.cameraBaseHeight,
+        };
+        const ri::content::GameCameraTuningScalars cameraTuning =
+            ri::content::LoadGameCameraTuningScalars(gameplay, rendering, postprocess, cameraDefaults);
+        state.cameraFeel = ri::trace::FirstPersonCameraFeel{
+            .bobAmplitude = cameraTuning.bobAmplitude,
+            .bobFrequencyHz = cameraTuning.bobFrequencyHz,
+            .bobSprintScale = cameraTuning.bobSprintScale,
+            .fovBaseDegrees = cameraTuning.fovBaseDegrees,
+            .fovSprintAddDegrees = cameraTuning.fovSprintAddDegrees,
+            .fovLerpPerSecond = cameraTuning.fovLerpPerSecond,
+            .cameraBaseHeight = cameraTuning.cameraBaseHeight,
+        };
+        state.currentFovDegrees = state.cameraFeel.fovBaseDegrees;
+    }
     SyncInitialView(state);
 
     state.previewOptions.width = options.width;
@@ -770,6 +754,7 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
             }
 
             frame.scene = &state.world.scene;
+            frame.suppressUnchangedFrames = false;
             frame.cameraNode = state.world.playerCameraNode;
             frame.textureRoot = textureRootForVulkan;
             frame.skyEquirectTextureRelative = state.nativeSkyEquirectRelative;
@@ -837,6 +822,7 @@ void AttachSandboxNetModules(ri::runtime::RuntimeCore& runtime,
     net.p2pBindEndpoint.port = static_cast<std::uint16_t>(commandLine.GetIntOr("--p2p-port", 27115));
     net.connectEndpoint.host = commandLine.GetValue("--connect-host").value_or("127.0.0.1");
     net.connectEndpoint.port = static_cast<std::uint16_t>(commandLine.GetIntOr("--connect-port", 27015));
+    net.advertiseHost = commandLine.GetValue("--advertise-host").value_or("");
     net.rendezvousProvider = ParseRendezvous(options.rendezvous);
     net.issueJoinCodeOnStartup = options.issueJoinCode;
     if (options.joinCode.has_value()) {
@@ -959,8 +945,46 @@ bool RunStandalone3D(const StandaloneOptions& options,
             })) {
             ri::core::LogInfo("Runtime core: failed to attach sandbox game simulation tick module.");
         }
+
+        HWND connectingSplash = nullptr;
+        if (!commandLine.HasFlag("--offline") &&
+            (options.joinCode.has_value() || options.issueJoinCode ||
+             commandLine.GetValue("--net-mode").has_value())) {
+            connectingSplash = CreateWindowExW(
+                WS_EX_TOPMOST,
+                L"STATIC",
+                L"RawIron — connecting via EOS/ENet…\nPlease wait (app stays responsive).",
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                480,
+                140,
+                nullptr,
+                nullptr,
+                GetModuleHandleW(nullptr),
+                nullptr);
+            if (connectingSplash != nullptr) {
+                ShowWindow(connectingSplash, SW_SHOW);
+                UpdateWindow(connectingSplash);
+                MSG msg{};
+                while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            }
+            ri::core::LogInfo("Sandbox: networking startup (window kept responsive)…");
+        }
+
         if (!ri::games::StartupGameRuntimeCore(runtime, commandLine, error)) {
+            if (connectingSplash != nullptr) {
+                DestroyWindow(connectingSplash);
+            }
             return false;
+        }
+        state.hostInput = ri::runtime::TryGetHostInputService(runtime.Context());
+        if (connectingSplash != nullptr) {
+            DestroyWindow(connectingSplash);
+            connectingSplash = nullptr;
         }
 
         ri::core::LogSection("RawIron Multiplayer Sandbox Standalone");

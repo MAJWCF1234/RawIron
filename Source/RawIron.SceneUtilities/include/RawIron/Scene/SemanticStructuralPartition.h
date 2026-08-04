@@ -6,6 +6,7 @@
 #include "RawIron/Spatial/Aabb.h"
 #include "RawIron/Spatial/SpatialIndex.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -154,6 +155,12 @@ struct SemanticStructuralPartitionMetrics {
 /// resolve against that region's subpartition only; unscoped queries walk every subpartition. `Rebuild`
 /// keeps the spatial tree of any subpartition whose content (ids, bounds, order) is unchanged, so a single
 /// brush edit re-splits only the affected region's tree.
+///
+/// Read-only lookup and query methods, `Metrics`, and `ResetMetrics` may run concurrently after `Rebuild`
+/// returns. `Rebuild` and destruction remain externally synchronized writer operations and must not overlap
+/// any access; hits and lookup results contain pointers into the partition and are invalidated by `Rebuild`.
+/// Metrics are relaxed diagnostic counters, so snapshots taken during active queries are intentionally not a
+/// transactional view of every counter at one instant.
 class SemanticStructuralPartition {
 public:
     void Rebuild(std::vector<SemanticStructuralPartitionEntry> entries,
@@ -198,14 +205,21 @@ private:
     /// Query-side counters kept separate from content stats so `ResetMetrics` does not disturb
     /// entry/region/signature counts computed at rebuild time.
     struct QueryStats {
-        std::size_t boxQueries = 0;
-        std::size_t rayQueries = 0;
-        std::size_t boxCandidatesScanned = 0;
-        std::size_t rayCandidatesScanned = 0;
-        std::size_t boxCandidatesMatched = 0;
-        std::size_t rayCandidatesMatched = 0;
-        std::size_t regionScopedBoxQueries = 0;
-        std::size_t regionScopedRayQueries = 0;
+        std::atomic<std::size_t> boxQueries{0};
+        std::atomic<std::size_t> rayQueries{0};
+        std::atomic<std::size_t> boxCandidatesScanned{0};
+        std::atomic<std::size_t> rayCandidatesScanned{0};
+        std::atomic<std::size_t> boxCandidatesMatched{0};
+        std::atomic<std::size_t> rayCandidatesMatched{0};
+        std::atomic<std::size_t> regionScopedBoxQueries{0};
+        std::atomic<std::size_t> regionScopedRayQueries{0};
+
+        QueryStats() noexcept = default;
+        QueryStats(const QueryStats& other) noexcept;
+        QueryStats& operator=(const QueryStats& other) noexcept;
+        QueryStats(QueryStats&& other) noexcept;
+        QueryStats& operator=(QueryStats&& other) noexcept;
+        void Reset() noexcept;
     };
 
     [[nodiscard]] bool MatchesQuery(const SemanticStructuralPartitionEntry& entry,
@@ -237,6 +251,9 @@ private:
     mutable QueryStats queryStats_{};
 };
 
+/// Owner-side invalidation/rebuild cache. Unlike read-only access to a completed partition, cache mutation is
+/// not internally synchronized: `GetOrRebuild`, `Invalidate`, and scene edits require one external writer.
+/// References returned by `GetOrRebuild` remain valid only until that cache's next rebuild or destruction.
 class SemanticStructuralPartitionCache {
 public:
     [[nodiscard]] const SemanticStructuralPartition& GetOrRebuild(

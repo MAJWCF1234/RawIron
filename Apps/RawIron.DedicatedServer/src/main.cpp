@@ -41,6 +41,7 @@ public:
         net.mode = ri::runtime::NetMode::Dedicated;
         net.bindEndpoint.host = commandLine.GetValue("--host").value_or("0.0.0.0");
         net.bindEndpoint.port = static_cast<std::uint16_t>(commandLine.GetIntOr("--port", 27015));
+        net.advertiseHost = commandLine.GetValue("--advertise-host").value_or("");
         net.rendezvousProvider = ParseRendezvous(commandLine);
         net.issueJoinCodeOnStartup = commandLine.HasFlag("--issue-join-code");
         net.tickRate = commandLine.GetIntOr("--net-tick", 60);

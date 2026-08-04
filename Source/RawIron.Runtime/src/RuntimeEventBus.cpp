@@ -1,6 +1,9 @@
 #include "RawIron/Runtime/RuntimeEventBus.h"
 
+#include "RawIron/Core/Log.h"
+
 #include <algorithm>
+#include <exception>
 #include <string>
 #include <utility>
 
@@ -102,7 +105,15 @@ void RuntimeEventBus::Emit(std::string_view type, RuntimeEvent event) {
     const auto listeners = found->second;
     for (const ListenerEntry& entry : listeners) {
         if (entry.handler) {
-            entry.handler(event);
+            try {
+                entry.handler(event);
+            } catch (const std::exception& ex) {
+                ++listenerExceptions_;
+                ri::core::LogInfo("Runtime event listener exception for " + key + ": " + ex.what());
+            } catch (...) {
+                ++listenerExceptions_;
+                ri::core::LogInfo("Runtime event listener exception for " + key + ": unknown");
+            }
         }
     }
 }
@@ -125,6 +136,7 @@ void RuntimeEventBus::Clear() {
     listenersRemoved_ = 0;
     rejectedSubscriptions_ = 0;
     rejectedEmissions_ = 0;
+    listenerExceptions_ = 0;
     untrackedEventTypes_ = 0;
 }
 
@@ -135,6 +147,7 @@ RuntimeEventBusMetrics RuntimeEventBus::GetMetrics() const {
     metrics.listenersRemoved = listenersRemoved_;
     metrics.rejectedSubscriptions = rejectedSubscriptions_;
     metrics.rejectedEmissions = rejectedEmissions_;
+    metrics.listenerExceptions = listenerExceptions_;
     metrics.untrackedEventTypes = untrackedEventTypes_;
     for (const auto& [type, entries] : listeners_) {
         (void)type;

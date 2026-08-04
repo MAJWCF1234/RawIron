@@ -1,6 +1,7 @@
 #include "RawIron/Runtime/SnapshotReplication.h"
 
 #include <algorithm>
+#include <iterator>
 #include <limits>
 
 namespace ri::runtime {
@@ -196,6 +197,21 @@ std::optional<SnapshotBlob> SnapshotReplicator::ApplyFromServer(const std::size_
         history.pop_front();
     }
     return rebuilt;
+}
+
+void SnapshotReplicator::ForgetPeer(const std::size_t peerId) {
+    peerBaselines_.erase(peerId);
+}
+
+void SnapshotReplicator::RetainPeers(const std::span<const std::size_t> activePeers) {
+    for (auto it = peerBaselines_.begin(); it != peerBaselines_.end();) {
+        const bool active = std::find(activePeers.begin(), activePeers.end(), it->first) != activePeers.end();
+        it = active ? std::next(it) : peerBaselines_.erase(it);
+    }
+}
+
+std::size_t SnapshotReplicator::TrackedPeerCount() const noexcept {
+    return peerBaselines_.size();
 }
 
 const SnapshotReplicationStats& SnapshotReplicator::Stats() const noexcept {

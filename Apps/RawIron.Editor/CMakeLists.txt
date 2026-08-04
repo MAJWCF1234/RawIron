@@ -1,6 +1,7 @@
 add_executable(RawIron.Editor
   src/EditorAuthoringCatalog.cpp
   src/EditorLogicLayer.cpp
+  src/EditorScenePersistence.cpp
   src/EditorStructuralPicker.cpp
   src/EditorCreatorPalette.cpp
   src/EditorFilesInspector.cpp

@@ -130,6 +130,9 @@ public:
     virtual ~RuntimeModule() = default;
 
     [[nodiscard]] virtual std::string_view Name() const noexcept = 0;
+    /// Begins one module activation attempt. If this function is entered, RuntimeCore pairs it with
+    /// exactly one OnRuntimeShutdown call when the attempt fails or the active runtime shuts down.
+    /// Implementations may therefore release partially acquired resources from OnRuntimeShutdown.
     virtual bool OnRuntimeStartup(RuntimeContext& context, const ri::core::CommandLine& commandLine);
     virtual bool OnRuntimeFrame(RuntimeContext& context, const ri::core::FrameContext& frame);
     virtual void OnRuntimePause(RuntimeContext& context);
@@ -140,13 +143,23 @@ public:
 class RuntimeCore {
 public:
     RuntimeCore(RuntimeIdentity identity, RuntimePaths paths = {});
+    ~RuntimeCore() noexcept;
+
+    RuntimeCore(const RuntimeCore&) = delete;
+    RuntimeCore& operator=(const RuntimeCore&) = delete;
+    /// RuntimeCore is movable only while both source and destination are uninitialized or stopped.
+    /// Moving active/in-callback state would invalidate callback context and throws std::logic_error.
+    RuntimeCore(RuntimeCore&& other);
+    RuntimeCore& operator=(RuntimeCore&& other);
 
     [[nodiscard]] RuntimeContext& Context() noexcept;
     [[nodiscard]] const RuntimeContext& Context() const noexcept;
 
+    /// Registers a module while the runtime is uninitialized or stopped.
+    /// Registration is rejected once startup has begun so an unstarted module can never receive frames.
     void AddModule(std::unique_ptr<RuntimeModule> module);
     [[nodiscard]] bool TryAddModule(std::unique_ptr<RuntimeModule> module);
-    /// Registers built-in runtime modules (level schedulers, etc.).
+    /// Registers built-in runtime modules (level schedulers, HostInput, etc.).
     void AddDefaultModules();
     [[nodiscard]] bool HasModule(std::string_view moduleName) const;
     [[nodiscard]] std::vector<std::string> ModuleNames() const;
@@ -159,10 +172,31 @@ public:
     void Shutdown();
 
 private:
+    [[nodiscard]] bool AbortStartupIfRequested(std::string_view stage,
+                                               RuntimeModule* attemptedModule = nullptr);
+    [[nodiscard]] bool ContinueAfterCallback();
+    [[nodiscard]] bool CanMove() const noexcept;
+    [[nodiscard]] std::string ShutdownModule(RuntimeModule& module, std::string_view operation);
+    void RollbackStartup(RuntimeModule* attemptedModule);
+    void CaptureServiceBaseline();
+    void RestoreServiceBaseline();
+    void RecordCleanupFailure(std::string message);
+    void EmitEvent(std::string_view type, RuntimeEvent event);
+    void EmitStopRequestedEvent();
     void EmitPhaseChanged(RuntimePhase from, RuntimePhase to);
 
     RuntimeContext context_;
     std::vector<std::unique_ptr<RuntimeModule>> modules_;
+    /// Modules whose startup completed successfully, in startup order. Entries are removed before
+    /// invoking shutdown so cleanup remains exact-once even if a callback re-enters RuntimeCore.
+    std::vector<RuntimeModule*> activeModules_;
+    /// Host-injected services present before Startup. Module registrations are transactional: a failed
+    /// startup or shutdown restores this exact registry instead of deleting or retaining stale services.
+    RuntimeServices serviceBaseline_;
+    bool serviceBaselineCaptured_ = false;
+    /// Runtime callbacks and lifecycle events may call back into the owner. Only one public lifecycle
+    /// operation may run at a time; reentrant operations are rejected without mutating phase/state.
+    bool lifecycleOperationInProgress_ = false;
 };
 
 class RuntimeHostAdapter final : public ri::core::Host {

@@ -10,6 +10,7 @@ add_library(RawIron.Core
   src/InputLabelFormat.cpp
   src/InputPolling.cpp
   src/JsonScan.cpp
+  src/KeyboardFocus.cpp
   src/Log.cpp
   src/MainLoop.cpp
   src/RenderCommandStream.cpp
@@ -33,10 +34,22 @@ target_compile_definitions(RawIron.Core
     RAWIRON_ENABLE_STACKTRACE_DIAGNOSTICS=$<BOOL:${RAWIRON_ENABLE_STACKTRACE_DIAGNOSTICS}>
 )
 
+if (WIN32)
+  # KeyboardFocus queries foreground/window ownership and async key state.
+  target_link_libraries(RawIron.Core PRIVATE user32)
+endif()
+
 if (RAWIRON_BUILD_TESTS)
   add_executable(ImageComparisonSmoke ${CMAKE_SOURCE_DIR}/Tests/ImageComparisonSmoke.cpp)
   target_link_libraries(ImageComparisonSmoke PRIVATE RawIron::Core)
   add_test(NAME RawIron.Core.ImageComparisonSmoke COMMAND ImageComparisonSmoke)
+
+  add_executable(KeyboardFocusSmoke ${CMAKE_SOURCE_DIR}/Tests/KeyboardFocusSmoke.cpp)
+  target_link_libraries(KeyboardFocusSmoke PRIVATE RawIron::Core)
+  if (WIN32)
+    target_link_libraries(KeyboardFocusSmoke PRIVATE user32)
+  endif()
+  add_test(NAME RawIron.Core.KeyboardFocusSmoke COMMAND KeyboardFocusSmoke)
 endif()
 
 if (RAWIRON_ENABLE_STACKTRACE_DIAGNOSTICS)

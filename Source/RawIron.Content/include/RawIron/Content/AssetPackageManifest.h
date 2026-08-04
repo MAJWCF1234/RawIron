@@ -73,6 +73,14 @@ struct AssetPackageValidationReport {
     std::vector<std::string> issues{};
 };
 
+struct PackageInstallPathResolution {
+    bool safe = false;
+    /// Absolute, canonical destination. Empty when safe is false.
+    std::filesystem::path destination{};
+    /// User-facing reason for rejection. Empty when safe is true.
+    std::string issue{};
+};
+
 struct InstalledAssetPackage {
     std::filesystem::path manifestPath{};
     std::filesystem::path packageRoot{};
@@ -96,6 +104,29 @@ struct InstalledAssetPackage {
 
 [[nodiscard]] AssetPackageValidationReport ValidateAssetPackageManifest(const AssetPackageManifest& manifest,
                                                                         const std::filesystem::path& packageRoot);
+
+/// Resolves a manifest installPath beneath an existing project root without
+/// mutating the filesystem. Package paths use portable forward-slash syntax;
+/// absolute, drive-relative, device, traversal, ambiguous, and escaping
+/// symlink/reparse destinations are rejected.
+[[nodiscard]] PackageInstallPathResolution ResolvePackageInstallPath(
+    const std::filesystem::path& projectRoot,
+    std::string_view relativeInstallPath);
+
+/// Orders resolved install destinations using the collision policy below.
+struct PackageInstallDestinationLess {
+    [[nodiscard]] bool operator()(
+        const std::filesystem::path& left,
+        const std::filesystem::path& right) const;
+};
+
+/// Returns true when two resolved install destinations would name the same
+/// destination under the host filesystem's case rules. Windows uses ordinal
+/// Unicode case-insensitive comparison; other hosts additionally preserve the
+/// package format's portable ASCII case-insensitive collision policy.
+[[nodiscard]] bool PackageInstallDestinationsCollide(
+    const std::filesystem::path& left,
+    const std::filesystem::path& right);
 
 [[nodiscard]] std::vector<std::filesystem::path> FindAssetPackageManifestPaths(
     const std::filesystem::path& projectRoot);

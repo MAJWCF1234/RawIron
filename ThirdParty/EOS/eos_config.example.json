@@ -1,0 +1,9 @@
+{
+  "product_name": "RawIron",
+  "product_version": "1.0.0",
+  "product_id": "YOUR_EOS_PRODUCT_ID",
+  "sandbox_id": "YOUR_EOS_SANDBOX_ID",
+  "deployment_id": "YOUR_EOS_DEPLOYMENT_ID",
+  "client_id": "YOUR_EOS_CLIENT_ID",
+  "client_secret": "YOUR_EOS_CLIENT_SECRET"
+}

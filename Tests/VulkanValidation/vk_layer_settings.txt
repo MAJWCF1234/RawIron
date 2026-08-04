@@ -1,0 +1,10 @@
+# Raw Iron native-preview validation probe settings.
+# Point VK_LAYER_SETTINGS_PATH at this directory and force-enable
+# VK_LAYER_KHRONOS_validation for a real-GPU diagnostic run.
+khronos_validation.validate_core = true
+khronos_validation.validate_sync = true
+khronos_validation.thread_safety = true
+khronos_validation.check_shaders = true
+khronos_validation.debug_action = VK_DBG_LAYER_ACTION_LOG_MSG
+khronos_validation.log_filename = stdout
+khronos_validation.report_flags = error,warn,perf

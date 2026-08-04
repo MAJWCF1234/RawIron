@@ -40,6 +40,9 @@ struct AuthoritativeNetConfig {
     NetEndpoint bindEndpoint{};
     NetEndpoint connectEndpoint{};
     NetEndpoint p2pBindEndpoint{.host = "0.0.0.0", .port = 27115};
+    /// Optional override for join-code advertising (from `--advertise-host`).
+    /// When empty, unreachable bind hosts (0.0.0.0 / loopback) are replaced with a LAN IP.
+    std::string advertiseHost;
     LatencySimulationConfig latencySimulation{};
     std::size_t rewindFrames = 128;
     bool enableP2PPlane = false;
@@ -64,6 +67,10 @@ struct ServerNetTelemetry {
     std::uint64_t inboundPackets = 0;
     std::uint64_t outboundPackets = 0;
     std::uint64_t simulatedDrops = 0;
+    std::uint64_t oversizedInboundPacketsRejected = 0;
+    std::uint64_t inboundPacketsDroppedByQueueBudget = 0;
+    std::uint64_t inboundPacketsDroppedByPollBudget = 0;
+    std::uint64_t oversizedOutboundPacketsRejected = 0;
     std::uint32_t lastSnapshotTick = 0;
 };
 
@@ -84,7 +91,7 @@ public:
     [[nodiscard]] std::optional<std::string> ActiveJoinCode() const;
 
     /// Packet routing helper so games can keep authority and side-channel traffic cleanly separated.
-    bool SendPacket(std::size_t peerId, NetPacket packet, NetChannelKind kind);
+    bool SendPacket(std::size_t peerId, const NetPacket& packet, NetChannelKind kind);
     [[nodiscard]] std::optional<JoinCodeResolveResult> ResolveJoinCode(const std::string& code);
 
 private:

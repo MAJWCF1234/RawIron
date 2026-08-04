@@ -2,7 +2,15 @@ add_library(RawIron.UI
   src/UiFlowSession.cpp
   src/UiJsonIO.cpp
   src/UiCommandLine.cpp
+  src/UiPresentation.cpp
+  src/UiFlowController.cpp
 )
+
+# Reusable in-game menu / VN overlay presenter for Windows hosts.
+if (WIN32)
+  target_sources(RawIron.UI PRIVATE src/UiOverlayWin32.cpp)
+  target_link_libraries(RawIron.UI PUBLIC user32 gdi32)
+endif()
 
 add_library(RawIron::UI ALIAS RawIron.UI)
 

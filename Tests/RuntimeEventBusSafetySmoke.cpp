@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 
 #define CHECK(condition) \
@@ -45,6 +46,17 @@ int main() {
     CHECK(!bus.Off("event", firstId));
     CHECK(bus.GetMetrics().listenersRemoved == 1U);
 
+    std::size_t afterThrowCalls = 0U;
+    CHECK(bus.On("throwing", [](const RuntimeEvent&) {
+        throw std::runtime_error("deliberate listener failure");
+    }) != RuntimeEventBus::kInvalidListenerId);
+    CHECK(bus.On("throwing", [&](const RuntimeEvent&) {
+        ++afterThrowCalls;
+    }) != RuntimeEventBus::kInvalidListenerId);
+    bus.Emit("throwing");
+    CHECK(afterThrowCalls == 1U);
+    CHECK(bus.GetMetrics().listenerExceptions == 1U);
+
     RuntimeEvent scoped;
     scoped.fields["source_scope"] = "stale";
     bus.EmitScoped("scoped", "source", "target", std::move(scoped));
@@ -76,6 +88,7 @@ int main() {
     CHECK(cleared.activeListeners == 0U);
     CHECK(cleared.rejectedSubscriptions == 0U);
     CHECK(cleared.rejectedEmissions == 0U);
+    CHECK(cleared.listenerExceptions == 0U);
     CHECK(cleared.untrackedEventTypes == 0U);
     CHECK(cleared.emittedByType.empty());
     CHECK(bus.GetRecentSignalRoutes().empty());

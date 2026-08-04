@@ -2,10 +2,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <utility>
 
 namespace ri::runtime {
 namespace {
+
+/// Upper bound on compensating-drift replays for a single interval entry per tick.
+constexpr std::size_t kMaxCatchUpFiresPerTick = 8U;
 
 [[nodiscard]] bool IsFinitePositive(double value) noexcept {
     return std::isfinite(value) && value > 0.0;
@@ -124,15 +128,24 @@ void LevelScopedIntervalScheduler::Tick(const double nowSeconds, const double de
         }
 
         double nextFire = entry.nextFire;
+        // Compensating drift replays every missed period. After a debugger break or a
+        // long level load that is unbounded (60 Hz over an hour is ~216k callbacks), so
+        // catch-up is capped and the remainder is skipped forward.
+        std::size_t fires = 0U;
         while (nowSeconds + 1e-12 >= nextFire) {
             pending.push_back(PendingFire{
                 .id = entry.id,
                 .callback = entry.callback,
             });
-            if (entry.drift == DriftPolicy::Compensate) {
-                nextFire += entry.period;
-            } else {
+            if (entry.drift != DriftPolicy::Compensate) {
                 nextFire = nowSeconds + entry.period;
+                break;
+            }
+            nextFire += entry.period;
+            if (++fires >= kMaxCatchUpFiresPerTick) {
+                if (nowSeconds + 1e-12 >= nextFire) {
+                    nextFire = nowSeconds + entry.period;
+                }
                 break;
             }
         }

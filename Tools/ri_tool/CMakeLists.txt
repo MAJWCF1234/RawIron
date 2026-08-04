@@ -1,12 +1,14 @@
 add_executable(ri_tool
   ../../Apps/RawIron.Editor/src/EditorProjectScaffolding.cpp
   ../../Apps/RawIron.Editor/src/EditorWorkspace.cpp
+  src/SecureRipakArchive.cpp
   src/main.cpp
 )
 
 target_include_directories(ri_tool
   PRIVATE
     ${PROJECT_SOURCE_DIR}/Apps/RawIron.Editor/src
+    ${PROJECT_SOURCE_DIR}/Source/RawIron.Render.Software/third_party
 )
 
 target_link_libraries(ri_tool
@@ -538,5 +540,29 @@ if (RAWIRON_BUILD_TESTS)
       "-DFORBIDDEN_STRINGS=failed;exception"
       "${rawiron_tool_runtime_dll_arg}"
       -P "${rawiron_verify_command_output}"
+  )
+
+  add_executable(
+    PackageInstallTrustBoundarySmoke
+    ${PROJECT_SOURCE_DIR}/Tests/PackageInstallTrustBoundarySmoke.cpp
+  )
+  target_link_libraries(PackageInstallTrustBoundarySmoke PRIVATE RawIron::Content)
+  target_compile_features(PackageInstallTrustBoundarySmoke PRIVATE cxx_std_20)
+  add_dependencies(PackageInstallTrustBoundarySmoke ri_tool)
+  add_test(
+    NAME RawIron.Tool.PackageInstallTrustBoundarySmoke
+    COMMAND PackageInstallTrustBoundarySmoke $<TARGET_FILE:ri_tool>
+  )
+
+  add_executable(
+    RipakArchiveSecuritySmoke
+    ${PROJECT_SOURCE_DIR}/Tests/RipakArchiveSecuritySmoke.cpp
+  )
+  target_link_libraries(RipakArchiveSecuritySmoke PRIVATE RawIron::Content)
+  target_compile_features(RipakArchiveSecuritySmoke PRIVATE cxx_std_20)
+  add_dependencies(RipakArchiveSecuritySmoke ri_tool)
+  add_test(
+    NAME RawIron.Tool.RipakArchiveSecuritySmoke
+    COMMAND RipakArchiveSecuritySmoke $<TARGET_FILE:ri_tool>
   )
 endif()

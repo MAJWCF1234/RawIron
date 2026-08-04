@@ -97,6 +97,14 @@ if (RAWIRON_BUILD_TESTS)
   target_link_libraries(SemanticStructuralPartitionSmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.SemanticStructuralPartitionSmoke COMMAND SemanticStructuralPartitionSmoke)
 
+  add_executable(SemanticStructuralPartitionConcurrencySmoke
+    ${CMAKE_SOURCE_DIR}/Tests/SemanticStructuralPartitionConcurrencySmoke.cpp)
+  find_package(Threads REQUIRED)
+  target_link_libraries(SemanticStructuralPartitionConcurrencySmoke
+    PRIVATE RawIron::SceneUtilities Threads::Threads)
+  add_test(NAME RawIron.SceneUtilities.SemanticStructuralPartitionConcurrencySmoke
+    COMMAND SemanticStructuralPartitionConcurrencySmoke)
+
   add_executable(SceneSubtreeCollidersSmoke ${CMAKE_SOURCE_DIR}/Tests/SceneSubtreeCollidersSmoke.cpp)
   target_link_libraries(SceneSubtreeCollidersSmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.SceneSubtreeCollidersSmoke COMMAND SceneSubtreeCollidersSmoke)
@@ -116,6 +124,17 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(SceneEntityPhysicsSmoke ${CMAKE_SOURCE_DIR}/Tests/SceneEntityPhysicsSmoke.cpp)
   target_link_libraries(SceneEntityPhysicsSmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.SceneEntityPhysicsSmoke COMMAND SceneEntityPhysicsSmoke)
+
+  add_executable(SceneStateIOSmoke ${CMAKE_SOURCE_DIR}/Tests/SceneStateIOSmoke.cpp)
+  target_link_libraries(SceneStateIOSmoke PRIVATE RawIron::SceneUtilities Threads::Threads)
+  add_test(NAME RawIron.SceneUtilities.SceneStateIOSmoke COMMAND SceneStateIOSmoke)
+
+  add_executable(SceneStateIOCommitRecoverySmoke
+    ${CMAKE_SOURCE_DIR}/Tests/SceneStateIOCommitRecoverySmoke.cpp)
+  target_include_directories(SceneStateIOCommitRecoverySmoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_compile_features(SceneStateIOCommitRecoverySmoke PRIVATE cxx_std_20)
+  add_test(NAME RawIron.SceneUtilities.SceneStateIOCommitRecoverySmoke
+    COMMAND SceneStateIOCommitRecoverySmoke)
 
   add_executable(PrimitiveModelBakeSmoke ${CMAKE_SOURCE_DIR}/Tests/PrimitiveModelBakeSmoke.cpp)
   target_link_libraries(PrimitiveModelBakeSmoke PRIVATE RawIron::SceneUtilities)

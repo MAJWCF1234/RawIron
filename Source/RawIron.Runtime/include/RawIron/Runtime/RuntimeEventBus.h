@@ -34,12 +34,15 @@ struct RuntimeEventBusMetrics {
     std::size_t activeListeners = 0;
     std::size_t rejectedSubscriptions = 0;
     std::size_t rejectedEmissions = 0;
+    std::size_t listenerExceptions = 0;
     std::size_t untrackedEventTypes = 0;
     std::unordered_map<std::string, std::size_t> emittedByType;
 };
 
 /// Single-threaded in-process event fan-out. `Emit` copies the current listener list before
 /// invoking handlers, so registering or removing listeners from inside a handler is safe for that emit.
+/// A throwing handler is diagnosed and counted but does not prevent later listeners from observing
+/// the same event; exceptions never cross the event-bus boundary.
 class RuntimeEventBus {
 public:
     using ListenerId = std::uint64_t;
@@ -72,6 +75,7 @@ private:
     std::size_t listenersRemoved_ = 0;
     std::size_t rejectedSubscriptions_ = 0;
     std::size_t rejectedEmissions_ = 0;
+    std::size_t listenerExceptions_ = 0;
     std::size_t untrackedEventTypes_ = 0;
     std::unordered_map<std::string, std::size_t> emittedByType_;
     std::unordered_map<std::string, std::vector<ListenerEntry>> listeners_;

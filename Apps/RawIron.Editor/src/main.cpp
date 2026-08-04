@@ -35,6 +35,7 @@
 #include "EditorStructuralPicker.h"
 #include "EditorAuthoringCatalog.h"
 #include "EditorLogicLayer.h"
+#include "EditorScenePersistence.h"
 #include "EditorPluginManager.h"
 #include "RawIron/Content/PluginProjectData.h"
 #include "RawIron/Content/PluginRuntime.h"
@@ -313,404 +314,6 @@ fs::path ResolveEditorWorkspaceRoot(const fs::path& fallbackWorkspaceRoot,
 #endif
 
     return currentWorkspace;
-}
-
-struct EditorAuthoredNodeRecord {
-    std::string name;
-    std::string parentName;
-    ri::scene::Transform localTransform{};
-    bool hasMesh = false;
-    ri::scene::Mesh mesh{};
-    bool hasMaterial = false;
-    ri::scene::Material material{};
-};
-
-void WriteVec2(std::ostream& stream, const ri::math::Vec2& value) {
-    stream << value.x << " " << value.y;
-}
-
-void WriteVec3(std::ostream& stream, const ri::math::Vec3& value) {
-    stream << value.x << " " << value.y << " " << value.z;
-}
-
-bool ReadVec2(std::istream& stream, ri::math::Vec2& value) {
-    return static_cast<bool>(stream >> value.x >> value.y);
-}
-
-bool ReadVec3(std::istream& stream, ri::math::Vec3& value) {
-    return static_cast<bool>(stream >> value.x >> value.y >> value.z);
-}
-
-bool SaveEditorAuthoredSceneState(const ri::scene::Scene& scene,
-                                  const std::size_t authoredNodeStart,
-                                  const int editorTrashHandle,
-                                  const fs::path& outputPath) {
-    std::vector<EditorAuthoredNodeRecord> records;
-    const std::size_t nodeCount = scene.NodeCount();
-    std::unordered_map<std::string, int> existingNames;
-    for (std::size_t index = 0; index < std::min(authoredNodeStart, nodeCount); ++index) {
-        existingNames.emplace(scene.GetNode(static_cast<int>(index)).name, static_cast<int>(index));
-    }
-    for (std::size_t index = authoredNodeStart; index < nodeCount; ++index) {
-        const ri::scene::Node& node = scene.GetNode(static_cast<int>(index));
-        if (static_cast<int>(index) == editorTrashHandle || node.parent == editorTrashHandle) {
-            continue;
-        }
-        if (node.name.empty() || existingNames.contains(node.name)) {
-            return false;
-        }
-        existingNames.emplace(node.name, static_cast<int>(index));
-
-        EditorAuthoredNodeRecord record{};
-        record.name = node.name;
-        record.localTransform = node.localTransform;
-        if (node.parent != ri::scene::kInvalidHandle
-            && static_cast<std::size_t>(node.parent) < scene.NodeCount()) {
-            record.parentName = scene.GetNode(node.parent).name;
-        }
-        if (node.mesh != ri::scene::kInvalidHandle && static_cast<std::size_t>(node.mesh) < scene.MeshCount()) {
-            record.hasMesh = true;
-            record.mesh = scene.GetMesh(node.mesh);
-        }
-        if (node.material != ri::scene::kInvalidHandle
-            && static_cast<std::size_t>(node.material) < scene.MaterialCount()) {
-            record.hasMaterial = true;
-            record.material = scene.GetMaterial(node.material);
-        }
-        records.push_back(std::move(record));
-    }
-
-    fs::create_directories(outputPath.parent_path());
-    std::ofstream stream(outputPath, std::ios::trunc);
-    if (!stream.is_open()) {
-        return false;
-    }
-
-    stream << "RAWIRON_EDITOR_AUTHORED_SCENE_V1\n";
-    stream << "node_count " << records.size() << "\n";
-    for (const EditorAuthoredNodeRecord& record : records) {
-        stream << "node "
-               << std::quoted(record.name) << " "
-               << std::quoted(record.parentName) << " ";
-        WriteVec3(stream, record.localTransform.position);
-        stream << " ";
-        WriteVec3(stream, record.localTransform.rotationDegrees);
-        stream << " ";
-        WriteVec3(stream, record.localTransform.scale);
-        stream << " " << (record.hasMesh ? 1 : 0) << " " << (record.hasMaterial ? 1 : 0) << "\n";
-
-        if (record.hasMesh) {
-            stream << "mesh "
-                   << std::quoted(record.mesh.name) << " "
-                   << static_cast<int>(record.mesh.primitive) << " "
-                   << record.mesh.vertexCount << " "
-                   << record.mesh.indexCount << " "
-                   << record.mesh.positions.size() << " ";
-            for (const ri::math::Vec3& position : record.mesh.positions) {
-                WriteVec3(stream, position);
-                stream << " ";
-            }
-            stream << record.mesh.texCoords.size() << " ";
-            for (const ri::math::Vec2& texCoord : record.mesh.texCoords) {
-                WriteVec2(stream, texCoord);
-                stream << " ";
-            }
-            stream << record.mesh.indices.size();
-            for (const int index : record.mesh.indices) {
-                stream << " " << index;
-            }
-            stream << "\n";
-        }
-
-        if (record.hasMaterial) {
-            stream << "material "
-                   << std::quoted(record.material.name) << " "
-                   << static_cast<int>(record.material.shadingModel) << " ";
-            WriteVec3(stream, record.material.baseColor);
-            stream << " "
-                   << std::quoted(record.material.baseColorTexture) << " "
-                   << record.material.baseColorTextureFrames.size();
-            for (const std::string& frame : record.material.baseColorTextureFrames) {
-                stream << " " << std::quoted(frame);
-            }
-            stream << " " << record.material.baseColorTextureFramesPerSecond << " ";
-            WriteVec2(stream, record.material.textureTiling);
-            stream << " ";
-            WriteVec3(stream, record.material.emissiveColor);
-            stream << " "
-                   << record.material.metallic << " "
-                   << record.material.roughness << " "
-                   << record.material.opacity << " "
-                   << record.material.alphaCutoff << " "
-                   << (record.material.doubleSided ? 1 : 0) << " "
-                   << (record.material.transparent ? 1 : 0) << " "
-                   << std::quoted(record.material.normalTexture) << " "
-                   << std::quoted(record.material.ormTexture) << " "
-                   << std::quoted(record.material.roughnessTexture) << " "
-                   << std::quoted(record.material.metallicTexture) << " "
-                   << std::quoted(record.material.emissiveTexture) << " "
-                   << std::quoted(record.material.opacityTexture) << " "
-                   << std::quoted(record.material.occlusionTexture) << "\n";
-        }
-    }
-
-    return stream.good();
-}
-
-bool LoadEditorAuthoredSceneState(ri::scene::Scene& scene,
-                                  const fs::path& inputPath,
-                                  std::string* errorMessage) {
-    std::ifstream stream(inputPath);
-    if (!stream.is_open()) {
-        if (errorMessage != nullptr) {
-            *errorMessage = "authored scene sidecar missing";
-        }
-        return false;
-    }
-
-    std::string magic;
-    std::getline(stream, magic);
-    if (magic != "RAWIRON_EDITOR_AUTHORED_SCENE_V1") {
-        if (errorMessage != nullptr) {
-            *errorMessage = "invalid authored scene sidecar header";
-        }
-        return false;
-    }
-
-    std::string header;
-    std::size_t nodeCount = 0;
-    stream >> header >> nodeCount;
-    if (!stream.good() || header != "node_count") {
-        if (errorMessage != nullptr) {
-            *errorMessage = "invalid authored scene sidecar count";
-        }
-        return false;
-    }
-    constexpr std::size_t kMaxAuthoredNodes = 100000U;
-    constexpr std::size_t kMaxMeshElements = 10000000U;
-    constexpr std::size_t kMaxTextureFrames = 10000U;
-    if (nodeCount > kMaxAuthoredNodes) {
-        if (errorMessage != nullptr) {
-            *errorMessage = "authored scene sidecar node count exceeds safety limit";
-        }
-        return false;
-    }
-
-    // Parse into a copy so a truncated or corrupt sidecar cannot leave a
-    // half-imported hierarchy in the live editor scene.
-    ri::scene::Scene loadedScene = scene;
-    std::unordered_map<std::string, int> nodeByName;
-    for (std::size_t index = 0; index < loadedScene.NodeCount(); ++index) {
-        nodeByName.emplace(loadedScene.GetNode(static_cast<int>(index)).name, static_cast<int>(index));
-    }
-
-    std::size_t loaded = 0;
-    while (loaded < nodeCount && stream.good()) {
-        std::string token;
-        stream >> token;
-        if (!stream.good() || token != "node") {
-            break;
-        }
-
-        EditorAuthoredNodeRecord record{};
-        int hasMesh = 0;
-        int hasMaterial = 0;
-        stream >> std::quoted(record.name) >> std::quoted(record.parentName);
-        if (!ReadVec3(stream, record.localTransform.position)
-            || !ReadVec3(stream, record.localTransform.rotationDegrees)
-            || !ReadVec3(stream, record.localTransform.scale)
-            || !(stream >> hasMesh >> hasMaterial)) {
-            if (errorMessage != nullptr) {
-                *errorMessage = "malformed authored node record";
-            }
-            return false;
-        }
-        record.hasMesh = hasMesh != 0;
-        record.hasMaterial = hasMaterial != 0;
-
-        if (record.hasMesh) {
-            std::string meshToken;
-            std::size_t positionCount = 0;
-            std::size_t texCoordCount = 0;
-            std::size_t indexCount = 0;
-            int primitive = 0;
-            stream >> meshToken
-                   >> std::quoted(record.mesh.name)
-                   >> primitive
-                   >> record.mesh.vertexCount
-                   >> record.mesh.indexCount
-                   >> positionCount;
-            if (!stream.good() || meshToken != "mesh") {
-                if (errorMessage != nullptr) {
-                    *errorMessage = "malformed mesh record";
-                }
-                return false;
-            }
-            if (positionCount > kMaxMeshElements) {
-                if (errorMessage != nullptr) {
-                    *errorMessage = "mesh position count exceeds safety limit";
-                }
-                return false;
-            }
-            record.mesh.primitive = static_cast<ri::scene::PrimitiveType>(primitive);
-            record.mesh.positions.resize(positionCount);
-            for (ri::math::Vec3& position : record.mesh.positions) {
-                if (!ReadVec3(stream, position)) {
-                    if (errorMessage != nullptr) {
-                        *errorMessage = "malformed mesh positions";
-                    }
-                    return false;
-                }
-            }
-            stream >> texCoordCount;
-            if (!stream.good() || texCoordCount > kMaxMeshElements) {
-                if (errorMessage != nullptr) {
-                    *errorMessage = "mesh texcoord count exceeds safety limit";
-                }
-                return false;
-            }
-            record.mesh.texCoords.resize(texCoordCount);
-            for (ri::math::Vec2& texCoord : record.mesh.texCoords) {
-                if (!ReadVec2(stream, texCoord)) {
-                    if (errorMessage != nullptr) {
-                        *errorMessage = "malformed mesh texcoords";
-                    }
-                    return false;
-                }
-            }
-            stream >> indexCount;
-            if (!stream.good() || indexCount > kMaxMeshElements) {
-                if (errorMessage != nullptr) {
-                    *errorMessage = "mesh index count exceeds safety limit";
-                }
-                return false;
-            }
-            record.mesh.indices.resize(indexCount);
-            for (int& indexValue : record.mesh.indices) {
-                if (!(stream >> indexValue)) {
-                    if (errorMessage != nullptr) {
-                        *errorMessage = "malformed mesh indices";
-                    }
-                    return false;
-                }
-            }
-        }
-
-        if (record.hasMaterial) {
-            std::string materialToken;
-            std::size_t frameCount = 0;
-            int shadingModel = 0;
-            int doubleSided = 0;
-            int transparent = 0;
-            stream >> materialToken
-                   >> std::quoted(record.material.name)
-                   >> shadingModel;
-            if (!stream.good() || materialToken != "material") {
-                if (errorMessage != nullptr) {
-                    *errorMessage = "malformed material record";
-                }
-                return false;
-            }
-            record.material.shadingModel = static_cast<ri::scene::ShadingModel>(shadingModel);
-            if (!ReadVec3(stream, record.material.baseColor)
-                || !(stream >> std::quoted(record.material.baseColorTexture) >> frameCount)) {
-                if (errorMessage != nullptr) {
-                    *errorMessage = "malformed material header";
-                }
-                return false;
-            }
-            if (frameCount > kMaxTextureFrames) {
-                if (errorMessage != nullptr) {
-                    *errorMessage = "material texture frame count exceeds safety limit";
-                }
-                return false;
-            }
-            record.material.baseColorTextureFrames.resize(frameCount);
-            for (std::string& frame : record.material.baseColorTextureFrames) {
-                if (!(stream >> std::quoted(frame))) {
-                    if (errorMessage != nullptr) {
-                        *errorMessage = "malformed material frame list";
-                    }
-                    return false;
-                }
-            }
-            if (!(stream >> record.material.baseColorTextureFramesPerSecond)
-                || !ReadVec2(stream, record.material.textureTiling)
-                || !ReadVec3(stream, record.material.emissiveColor)
-                || !(stream >> record.material.metallic
-                     >> record.material.roughness
-                     >> record.material.opacity
-                     >> record.material.alphaCutoff
-                     >> doubleSided
-                     >> transparent
-                     >> std::quoted(record.material.normalTexture)
-                     >> std::quoted(record.material.ormTexture)
-                     >> std::quoted(record.material.roughnessTexture)
-                     >> std::quoted(record.material.metallicTexture)
-                     >> std::quoted(record.material.emissiveTexture)
-                     >> std::quoted(record.material.opacityTexture)
-                     >> std::quoted(record.material.occlusionTexture))) {
-                if (errorMessage != nullptr) {
-                    *errorMessage = "malformed material payload";
-                }
-                return false;
-            }
-            record.material.doubleSided = doubleSided != 0;
-            record.material.transparent = transparent != 0;
-        }
-
-        if (record.name.empty()) {
-            if (errorMessage != nullptr) {
-                *errorMessage = "authored node name is empty";
-            }
-            return false;
-        }
-        if (nodeByName.contains(record.name)) {
-            if (errorMessage != nullptr) {
-                *errorMessage = "duplicate authored node name '" + record.name + "'";
-            }
-            return false;
-        }
-
-        int parent = ri::scene::kInvalidHandle;
-        if (!record.parentName.empty()) {
-            const auto found = nodeByName.find(record.parentName);
-            if (found == nodeByName.end()) {
-                if (errorMessage != nullptr) {
-                    *errorMessage = "missing parent node '" + record.parentName + "'";
-                }
-                return false;
-            }
-            parent = found->second;
-        }
-
-        const int nodeHandle = loadedScene.CreateNode(record.name, parent);
-        ri::scene::Node& node = loadedScene.GetNode(nodeHandle);
-        node.localTransform = record.localTransform;
-        if (record.hasMaterial) {
-            const int materialHandle = loadedScene.AddMaterial(record.material);
-            if (record.hasMesh) {
-                const int meshHandle = loadedScene.AddMesh(record.mesh);
-                loadedScene.AttachMesh(nodeHandle, meshHandle, materialHandle);
-            }
-        } else if (record.hasMesh) {
-            const int meshHandle = loadedScene.AddMesh(record.mesh);
-            loadedScene.AttachMesh(nodeHandle, meshHandle);
-        }
-
-        nodeByName[record.name] = nodeHandle;
-        ++loaded;
-    }
-
-    if (loaded != nodeCount) {
-        if (errorMessage != nullptr) {
-            *errorMessage = "authored scene sidecar truncated";
-        }
-        return false;
-    }
-
-    scene = std::move(loadedScene);
-    return true;
 }
 
 EditorSceneConfig ResolveSceneConfig(const ri::core::CommandLine& commandLine) {
@@ -6904,101 +6507,102 @@ enum class UiWorkbenchTextEditTarget {
     [[nodiscard]] bool SavePersistentEditorScene(const fs::path& baseScenePath,
                                                  const fs::path& orbitPath,
                                                  std::string* errorMessage) {
-        const bool sceneSaved = ri::scene::SaveSceneNodeTransforms(starterScene_.scene, baseScenePath);
-        const bool authoredSaved = SaveEditorAuthoredSceneState(
-            starterScene_.scene,
-            authoredNodeStart_,
-            editorTrashFolderHandle_,
-            ResolveAuthoredSceneStatePath(baseScenePath));
-        const bool orbitSaved = SaveEditorOrbitStateToPath(orbitPath, editorOrbitState_);
-        const bool logicSaved = logicLayer_.Save(ResolveLogicAuthoringPath(baseScenePath), starterScene_.scene);
-        if (sceneSaved && authoredSaved && orbitSaved && logicSaved) {
+        (void)orbitPath; // Slot resolution derives orbit/logic/authored paths from the transform path.
+        const bool autosave = baseScenePath == ResolveAutosaveScenePath();
+        const ri::editor::EditorSceneBundleSlotPaths slot = autosave
+            ? ri::editor::ResolveAutosaveEditorSceneBundleSlot(ResolveSceneStatePath())
+            : ri::editor::ResolveCanonicalEditorSceneBundleSlot(baseScenePath);
+
+        ri::editor::EditorSceneBundleSaveInput input{};
+        input.scene = &starterScene_.scene;
+        input.baselineScene = &baselineStarterScene_;
+        input.authoredNodeStart = authoredNodeStart_;
+        input.editorTrashHandle = editorTrashFolderHandle_;
+        input.orbit = editorOrbitState_;
+        input.logicLayer = &logicLayer_;
+        input.workspaceRoot = sceneConfig_.workspaceRoot;
+        if (sceneConfig_.gameManifest.has_value()) {
+            input.gameRoot = sceneConfig_.gameManifest->rootPath;
+        }
+        input.worldRoot = starterScene_.handles.root;
+
+        const ri::editor::EditorSceneBundleSaveResult result =
+            ri::editor::SaveEditorSceneBundle(slot, input);
+        if (result.committed) {
+            if (result.durabilityWarning && errorMessage != nullptr && !result.diagnostic.empty()) {
+                *errorMessage = result.diagnostic;
+            }
             return true;
         }
         if (errorMessage != nullptr) {
-            std::string message;
-            if (!sceneSaved) {
-                message += "transform state";
-            }
-            if (!authoredSaved) {
-                if (!message.empty()) {
-                    message += ", ";
-                }
-                message += "authored scene";
-            }
-            if (!orbitSaved) {
-                if (!message.empty()) {
-                    message += ", ";
-                }
-                message += "orbit sidecar";
-            }
-            if (!logicSaved) {
-                if (!message.empty()) {
-                    message += ", ";
-                }
-                message += "logic authoring";
-            }
-            *errorMessage = "failed to save " + message;
+            *errorMessage = result.diagnostic.empty()
+                ? std::string("failed to save editor scene bundle")
+                : result.diagnostic;
         }
         return false;
     }
 
     [[nodiscard]] bool TryLoadPersistentEditorScene(const fs::path& baseScenePath,
                                                     const bool loadAutosaveVariant) {
-        starterScene_.scene = baselineStarterScene_;
-        RebindEditorTrashFolderAfterSceneReplace();
+        const ri::editor::EditorSceneBundleSlotPaths slot = loadAutosaveVariant
+            ? ri::editor::ResolveAutosaveEditorSceneBundleSlot(ResolveSceneStatePath())
+            : ri::editor::ResolveCanonicalEditorSceneBundleSlot(baseScenePath);
 
-        std::string authoredError;
-        const bool authoredLoaded =
-            LoadEditorAuthoredSceneState(starterScene_.scene,
-                                         ResolveAuthoredSceneStatePath(baseScenePath),
-                                         &authoredError);
-        const bool sceneLoaded = ri::scene::LoadSceneNodeTransforms(starterScene_.scene, baseScenePath);
-        const bool orbitLoaded = TryLoadEditorOrbitStateFromPath(
-            loadAutosaveVariant ? ResolveAutosaveOrbitPath() : EditorOrbitSidecarPath(baseScenePath),
-            editorOrbitState_);
-        if (orbitLoaded) {
-            ApplyEditorOrbitToScene();
+        if (!ri::editor::HasEditorSceneBundleState(slot)) {
+            lastIoStatus_ = loadAutosaveVariant
+                ? "No autosave state available to load."
+                : "Failed to load editor scene state.";
+            return false;
         }
+
+        ri::editor::EditorSceneBundleLoadInput input{};
+        input.baselineScene = &baselineStarterScene_;
+        input.baselineOrbit = starterScene_.handles.orbitCamera.orbit;
+        input.workspaceRoot = sceneConfig_.workspaceRoot;
+        if (sceneConfig_.gameManifest.has_value()) {
+            input.gameRoot = sceneConfig_.gameManifest->rootPath;
+        }
+        input.worldRoot = starterScene_.handles.root;
+
+        ri::editor::EditorSceneBundleLoadedState loaded{};
+        const ri::editor::EditorSceneBundleLoadResult result =
+            ri::editor::LoadEditorSceneBundle(slot, input, loaded);
+        if (!result.loaded) {
+            lastIoStatus_ = result.diagnostic.empty()
+                ? (loadAutosaveVariant ? "No autosave state available to load."
+                                       : "Failed to load editor scene state.")
+                : result.diagnostic;
+            return false;
+        }
+
+        starterScene_.scene = std::move(loaded.scene);
+        editorOrbitState_ = loaded.orbit;
+        ApplyEditorOrbitToScene();
         RebindEditorTrashFolderAfterSceneReplace();
 
-        logicLayer_.Reset();
+        logicLayer_ = std::move(loaded.logicLayer);
         ri::editor::BindAuthoringLogicCatalog(&logicLayer_);
         logicLayer_.EnsureKitLoaded(sceneConfig_.workspaceRoot);
         if (sceneConfig_.gameManifest.has_value()) {
             logicLayer_.EnsureGameColliderTrace(sceneConfig_.gameManifest->rootPath);
         }
-        (void)logicLayer_.Load(ResolveLogicAuthoringPath(baseScenePath), starterScene_.scene, starterScene_.handles.root);
         structuralThumbnailCache_.Clear();
 
-        if (sceneLoaded) {
-            RebuildFilteredHierarchyOrder();
-            autosavePending_ = false;
-            lastAutosaveSteady_ = std::chrono::steady_clock::now();
-            if (loadAutosaveVariant) {
-                lastIoStatus_ = orbitLoaded
-                    ? "Loaded autosave scene, authored nodes, and orbit."
-                    : "Loaded autosave scene + authored nodes (orbit autosave missing).";
-            } else {
-                lastIoStatus_ = orbitLoaded
-                    ? "Loaded scene transforms, authored nodes, and orbit camera."
-                    : "Loaded scene transforms + authored nodes (no orbit sidecar).";
-            }
-            return true;
-        }
-
-        starterScene_.scene = baselineStarterScene_;
-        RebindEditorTrashFolderAfterSceneReplace();
-        if (!authoredLoaded && !fs::exists(baseScenePath)) {
-            lastIoStatus_ = loadAutosaveVariant
-                ? "No autosave state available to load."
-                : "Failed to load editor scene state.";
-        } else if (!authoredLoaded) {
-            lastIoStatus_ = "Failed to load authored scene sidecar: " + authoredError + ".";
+        RebuildFilteredHierarchyOrder();
+        autosavePending_ = false;
+        lastAutosaveSteady_ = std::chrono::steady_clock::now();
+        if (!result.diagnostic.empty()) {
+            lastIoStatus_ = result.diagnostic;
+        } else if (loadAutosaveVariant) {
+            lastIoStatus_ = result.usedLegacyPaths
+                ? "Loaded autosave scene (legacy paths)."
+                : "Loaded autosave scene bundle.";
         } else {
-            lastIoStatus_ = "Failed to load editor transform state.";
+            lastIoStatus_ = result.usedLegacyPaths
+                ? "Loaded scene transforms, authored nodes, and orbit camera."
+                : "Loaded editor scene bundle.";
         }
-        return false;
+        return true;
     }
 
     [[nodiscard]] std::string NextTriggerVolumeBasename() const {
@@ -7684,13 +7288,6 @@ enum class UiWorkbenchTextEditTarget {
 
     void TrySaveTimestampedSceneSnapshot() {
         const fs::path basePath = ResolveSceneStatePath();
-        std::error_code ec{};
-        fs::create_directories(basePath.parent_path(), ec);
-        if (ec) {
-            lastIoStatus_ = "Snapshot failed: could not create save folder.";
-            return;
-        }
-
         const auto now = std::chrono::system_clock::now();
         const std::time_t tt = std::chrono::system_clock::to_time_t(now);
         std::tm localTm{};
@@ -7703,24 +7300,33 @@ enum class UiWorkbenchTextEditTarget {
         stamp << std::put_time(&localTm, "%Y%m%d_%H%M%S");
         const std::string token = stamp.str();
 
-        const fs::path snapshotPath =
-            basePath.parent_path() / ("scene_state_snapshot_" + token + ".ri_state");
-        const fs::path orbitSnapshotPath =
-            basePath.parent_path() / ("editor_orbit_snapshot_" + token + ".ri_cam");
-        const bool sceneSaved = ri::scene::SaveSceneNodeTransforms(starterScene_.scene, snapshotPath);
-        const bool authoredSaved = SaveEditorAuthoredSceneState(
-            starterScene_.scene,
-            authoredNodeStart_,
-            editorTrashFolderHandle_,
-            ResolveAuthoredSceneStatePath(snapshotPath));
-        const bool orbitSaved = SaveEditorOrbitStateToPath(orbitSnapshotPath, editorOrbitState_);
-        if (sceneSaved && authoredSaved && orbitSaved) {
-            lastIoStatus_ = "Snapshot saved: " + snapshotPath.filename().string();
-        } else if (sceneSaved && authoredSaved) {
-            lastIoStatus_ = "Snapshot saved, but orbit snapshot failed.";
-        } else {
-            lastIoStatus_ = "Snapshot failed while writing scene state.";
+        const ri::editor::EditorSceneBundleSlotPaths slot =
+            ri::editor::ResolveTimestampedEditorSceneBundleSlot(basePath, token);
+
+        ri::editor::EditorSceneBundleSaveInput input{};
+        input.scene = &starterScene_.scene;
+        input.baselineScene = &baselineStarterScene_;
+        input.authoredNodeStart = authoredNodeStart_;
+        input.editorTrashHandle = editorTrashFolderHandle_;
+        input.orbit = editorOrbitState_;
+        input.logicLayer = &logicLayer_;
+        input.workspaceRoot = sceneConfig_.workspaceRoot;
+        if (sceneConfig_.gameManifest.has_value()) {
+            input.gameRoot = sceneConfig_.gameManifest->rootPath;
         }
+        input.worldRoot = starterScene_.handles.root;
+
+        const ri::editor::EditorSceneBundleSaveResult result =
+            ri::editor::SaveEditorSceneBundle(slot, input);
+        if (result.committed) {
+            lastIoStatus_ = result.durabilityWarning && !result.diagnostic.empty()
+                ? result.diagnostic
+                : ("Snapshot saved: " + slot.label);
+            return;
+        }
+        lastIoStatus_ = result.diagnostic.empty()
+            ? "Snapshot failed while writing scene state."
+            : result.diagnostic;
     }
 
     [[nodiscard]] fs::path ResolveAutosaveScenePath() const {

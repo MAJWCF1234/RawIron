@@ -50,6 +50,16 @@ public:
     [[nodiscard]] std::optional<SnapshotBlob> ApplyFromServer(std::size_t peerId,
                                                               const SnapshotBlob& fallbackBaseline,
                                                               const SnapshotDeltaPacket& packet);
+
+    /// Drops baseline history for a peer that has disconnected.
+    void ForgetPeer(std::size_t peerId);
+
+    /// Drops baseline history for every peer not present in `activePeers`. Without this the
+    /// baseline map grows without bound across connect/disconnect churn, since peer ids are
+    /// never reused.
+    void RetainPeers(std::span<const std::size_t> activePeers);
+
+    [[nodiscard]] std::size_t TrackedPeerCount() const noexcept;
     [[nodiscard]] const SnapshotReplicationStats& Stats() const noexcept;
 
 private:

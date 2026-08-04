@@ -13,6 +13,13 @@
 #include <sstream>
 #include <system_error>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#endif
+
 namespace ri::content {
 namespace {
 
@@ -86,10 +93,6 @@ struct PackageFileMetrics {
     bool readable = false;
 };
 
-[[nodiscard]] bool UsesCanonicalTextBytes(const fs::path& path) {
-    return path.filename().string().ends_with(".ri_asset.json");
-}
-
 [[nodiscard]] PackageFileMetrics MeasurePackageFile(const fs::path& path) {
     std::ifstream input(path, std::ios::binary);
     PackageFileMetrics metrics{};
@@ -97,7 +100,8 @@ struct PackageFileMetrics {
         return metrics;
     }
     metrics.readable = true;
-    const bool normalizeNewlines = UsesCanonicalTextBytes(path);
+    const bool normalizeNewlines = path.extension() == ".json"
+        && path.stem().extension() == ".ri_asset";
     bool pendingCarriageReturn = false;
     const auto consume = [&](const unsigned char byte) {
         metrics.hash ^= byte;
@@ -136,21 +140,118 @@ struct PackageFileMetrics {
     return metrics;
 }
 
-[[nodiscard]] bool IsSafePackageRelativePath(const std::string& rawPath) {
+[[nodiscard]] std::string LowerAscii(std::string_view value) {
+    std::string lowered;
+    lowered.reserve(value.size());
+    for (const unsigned char ch : value) {
+        lowered.push_back(static_cast<char>(
+            ch >= 'A' && ch <= 'Z' ? ch + ('a' - 'A') : ch));
+    }
+    return lowered;
+}
+
+[[nodiscard]] bool IsReservedWindowsPathComponent(const std::string_view component) {
+    const std::string lowered = LowerAscii(component);
+    std::size_t stemSize = lowered.find('.');
+    if (stemSize == std::string::npos) {
+        stemSize = lowered.size();
+    }
+    while (stemSize > 0U && (lowered[stemSize - 1U] == ' ' || lowered[stemSize - 1U] == '.')) {
+        --stemSize;
+    }
+    const std::string_view stem(lowered.data(), stemSize);
+    if (stem == "con" || stem == "prn" || stem == "aux" || stem == "nul"
+        || stem == "clock$" || stem == "conin$" || stem == "conout$") {
+        return true;
+    }
+    const bool communicationDevice = stem.starts_with("com") || stem.starts_with("lpt");
+    const bool asciiDeviceNumber = stem.size() == 4U && stem[3] >= '1' && stem[3] <= '9';
+    const bool superscriptDeviceNumber = stem.size() == 5U
+        && (stem.substr(3U) == "\xc2\xb9" || stem.substr(3U) == "\xc2\xb2" || stem.substr(3U) == "\xc2\xb3");
+    if (communicationDevice && (asciiDeviceNumber || superscriptDeviceNumber)) {
+        return true;
+    }
+    return false;
+}
+
+[[nodiscard]] std::optional<std::string> UnsafePackageRelativePathReason(
+    const std::string_view rawPath) {
     if (rawPath.empty()) {
-        return false;
+        return "must be non-empty.";
     }
-    const fs::path path(rawPath);
-    if (path.is_absolute()) {
-        return false;
+    if (rawPath.size() > 4096U) {
+        return "is longer than the portable 4096-byte package path limit.";
     }
-    for (const fs::path& part : path) {
-        const std::string token = part.string();
-        if (token == "." || token == ".." || token.empty()) {
-            return false;
+    if (rawPath.front() == '/') {
+        return "must be relative and cannot begin with '/'.";
+    }
+    if (rawPath.find('\\') != std::string_view::npos) {
+        return "must use portable forward slashes and cannot contain '\\'.";
+    }
+
+    std::size_t cursor = 0U;
+    while (cursor <= rawPath.size()) {
+        const std::size_t separator = rawPath.find('/', cursor);
+        const std::size_t end = separator == std::string_view::npos ? rawPath.size() : separator;
+        const std::string_view component = rawPath.substr(cursor, end - cursor);
+        if (component.empty()) {
+            return "cannot contain empty components, repeated slashes, or a trailing slash.";
         }
+        if (component == "." || component == "..") {
+            return "cannot contain '.' or '..' components.";
+        }
+        if (component.size() > 255U) {
+            return "contains a component longer than the portable 255-byte limit.";
+        }
+        for (const unsigned char ch : component) {
+            if (ch < 0x20U || ch == 0x7fU) {
+                return "cannot contain NUL or ASCII control characters.";
+            }
+            if (ch == '<' || ch == '>' || ch == ':' || ch == '"'
+                || ch == '|' || ch == '?' || ch == '*') {
+                return "contains a character that is unsafe or ambiguous on Windows.";
+            }
+        }
+        if (component.back() == '.' || component.back() == ' ') {
+            return "contains a component ending in a dot or space, which is ambiguous on Windows.";
+        }
+        if (IsReservedWindowsPathComponent(component)) {
+            return "contains reserved Windows device component '" + std::string(component) + "'.";
+        }
+        if (separator == std::string_view::npos) {
+            break;
+        }
+        cursor = separator + 1U;
     }
-    return true;
+    return std::nullopt;
+}
+
+[[nodiscard]] fs::path PackagePathFromUtf8(const std::string_view pathText) {
+    std::u8string encodedPath;
+    encodedPath.reserve(pathText.size());
+    for (const unsigned char ch : pathText) {
+        encodedPath.push_back(static_cast<char8_t>(ch));
+    }
+    return fs::path(encodedPath);
+}
+
+[[nodiscard]] std::string PackagePathToUtf8(const fs::path& path) {
+    const std::u8string encoded = path.generic_u8string();
+    return std::string(
+        reinterpret_cast<const char*>(encoded.data()), encoded.size());
+}
+
+[[nodiscard]] bool PathComponentsEqual(const fs::path& left, const fs::path& right) {
+#if defined(_WIN32)
+    const std::wstring& leftNative = left.native();
+    const std::wstring& rightNative = right.native();
+    return CompareStringOrdinal(
+        leftNative.c_str(), static_cast<int>(leftNative.size()),
+        rightNative.c_str(), static_cast<int>(rightNative.size()),
+        TRUE) == CSTR_EQUAL;
+#else
+    return left == right;
+#endif
 }
 
 [[nodiscard]] bool IsPathWithin(
@@ -159,11 +260,55 @@ struct PackageFileMetrics {
     auto rootIt = canonicalRoot.begin();
     auto candidateIt = canonicalCandidate.begin();
     for (; rootIt != canonicalRoot.end(); ++rootIt, ++candidateIt) {
-        if (candidateIt == canonicalCandidate.end() || *rootIt != *candidateIt) {
+        if (candidateIt == canonicalCandidate.end() || !PathComponentsEqual(*rootIt, *candidateIt)) {
             return false;
         }
     }
     return true;
+}
+
+[[nodiscard]] int CompareInstallDestinationNames(
+    const fs::path& left,
+    const fs::path& right) {
+#if defined(_WIN32)
+    const std::wstring& leftNative = left.native();
+    const std::wstring& rightNative = right.native();
+    const int result = CompareStringOrdinal(
+        leftNative.c_str(), static_cast<int>(leftNative.size()),
+        rightNative.c_str(), static_cast<int>(rightNative.size()),
+        TRUE);
+    if (result == CSTR_LESS_THAN) {
+        return -1;
+    }
+    if (result == CSTR_GREATER_THAN) {
+        return 1;
+    }
+    // Equality and comparison failure are both treated conservatively as a collision.
+    return 0;
+#else
+    const std::u8string leftText = left.generic_u8string();
+    const std::u8string rightText = right.generic_u8string();
+    const auto foldAscii = [](const char8_t ch) {
+        return ch >= u8'A' && ch <= u8'Z'
+            ? static_cast<char8_t>(ch + (u8'a' - u8'A'))
+            : ch;
+    };
+    const std::size_t sharedSize = std::min(leftText.size(), rightText.size());
+    for (std::size_t index = 0U; index < sharedSize; ++index) {
+        const char8_t leftCharacter = foldAscii(leftText[index]);
+        const char8_t rightCharacter = foldAscii(rightText[index]);
+        if (leftCharacter < rightCharacter) {
+            return -1;
+        }
+        if (leftCharacter > rightCharacter) {
+            return 1;
+        }
+    }
+    if (leftText.size() < rightText.size()) {
+        return -1;
+    }
+    return leftText.size() > rightText.size() ? 1 : 0;
+#endif
 }
 
 [[nodiscard]] std::string AssetLabel(const AssetPackageEntry& asset) {
@@ -347,7 +492,7 @@ AssetPackageManifest BuildAssetPackageManifest(const fs::path& packageRoot,
             continue;
         }
         const fs::path path = entry.path();
-        if (path.filename().string().ends_with(".ri_asset.json")) {
+        if (PackagePathToUtf8(path.filename()).ends_with(".ri_asset.json")) {
             assetDocuments.push_back(path);
         }
     }
@@ -362,7 +507,7 @@ AssetPackageManifest BuildAssetPackageManifest(const fs::path& packageRoot,
         AssetPackageEntry entry{};
         entry.id = document->id;
         entry.type = document->type;
-        entry.path = relative.has_value() ? relative->generic_string() : documentPath.generic_string();
+        entry.path = PackagePathToUtf8(relative.value_or(documentPath));
         entry.installPath = {};
         entry.sourcePath = document->sourcePath;
         const PackageFileMetrics metrics = MeasurePackageFile(documentPath);
@@ -402,8 +547,10 @@ AssetPackageValidationReport ValidateAssetPackageManifest(const AssetPackageMani
     if (!IsValidPackageVersionRequirement(manifest.engineApiRequirement)) {
         report.issues.push_back("package engineApiRequirement is not a supported semantic-version requirement.");
     }
-    if (!manifest.mountPoint.empty() && !IsSafePackageRelativePath(manifest.mountPoint)) {
-        report.issues.push_back("package mountPoint must be package/project-relative and cannot contain '.' or '..'.");
+    if (!manifest.mountPoint.empty()) {
+        if (const std::optional<std::string> reason = UnsafePackageRelativePathReason(manifest.mountPoint)) {
+            report.issues.push_back("package mountPoint " + *reason);
+        }
     }
     if (manifest.generatedAtUtc.empty()) {
         report.issues.push_back("package generatedAtUtc must be non-empty.");
@@ -415,8 +562,9 @@ AssetPackageValidationReport ValidateAssetPackageManifest(const AssetPackageMani
             report.issues.push_back("data packages cannot declare a runtime entryPoint or ABI version.");
         }
     } else {
-        if (!IsSafePackageRelativePath(manifest.runtime.entryPoint)) {
-            report.issues.push_back("executable package runtime entryPoint must be a safe package-relative path.");
+        if (const std::optional<std::string> reason =
+                UnsafePackageRelativePathReason(manifest.runtime.entryPoint)) {
+            report.issues.push_back("executable package runtime entryPoint " + *reason);
         } else {
             const fs::path entryPointPath = packageRoot / fs::path(manifest.runtime.entryPoint);
             if (!fs::is_regular_file(entryPointPath)) {
@@ -441,7 +589,7 @@ AssetPackageValidationReport ValidateAssetPackageManifest(const AssetPackageMani
 
     std::set<std::string> seenIds;
     std::set<std::string> seenPaths;
-    std::set<std::string> seenInstallPaths;
+    std::set<fs::path, PackageInstallDestinationLess> seenInstallPaths;
     std::set<std::string> manifestPaths;
     std::set<std::string> seenDependencies;
     std::set<std::string> seenConflicts;
@@ -495,27 +643,47 @@ AssetPackageValidationReport ValidateAssetPackageManifest(const AssetPackageMani
         if (asset.type.empty()) {
             report.issues.push_back("asset " + label + " has empty type.");
         }
+        if (!asset.installPath.empty()) {
+            if (const std::optional<std::string> reason =
+                    UnsafePackageRelativePathReason(asset.installPath)) {
+                report.issues.push_back("asset " + label + " installPath " + *reason);
+            } else {
+                try {
+                    const fs::path candidateInstallPath = PackagePathFromUtf8(asset.installPath);
+                    if (!seenInstallPaths.insert(candidateInstallPath).second) {
+                        report.issues.push_back(
+                            "asset " + label
+                            + " duplicates another asset installPath under portable/platform case-insensitive comparison.");
+                    }
+                } catch (const fs::filesystem_error& exception) {
+                    report.issues.push_back(
+                        "asset " + label + " installPath cannot be represented by the host filesystem: "
+                        + std::string(exception.what()) + ".");
+                }
+            }
+        }
         if (asset.path.empty()) {
             report.issues.push_back("asset " + label + " has empty path.");
             continue;
         }
-        if (!IsSafePackageRelativePath(asset.path)) {
-            report.issues.push_back("asset " + label + " path must be package-relative and cannot contain '.' or '..'.");
+        if (const std::optional<std::string> reason = UnsafePackageRelativePathReason(asset.path)) {
+            report.issues.push_back("asset " + label + " path " + *reason);
             continue;
         }
         if (!seenPaths.insert(asset.path).second) {
             report.issues.push_back("asset " + label + " duplicates another asset path.");
         }
-        if (!asset.installPath.empty()) {
-            if (!IsSafePackageRelativePath(asset.installPath)) {
-                report.issues.push_back("asset " + label + " installPath must be project-relative and cannot contain '.' or '..'.");
-            } else if (!seenInstallPaths.insert(asset.installPath).second) {
-                report.issues.push_back("asset " + label + " duplicates another asset installPath.");
-            }
-        }
-        manifestPaths.insert(fs::path(asset.path).lexically_normal().generic_string());
+        manifestPaths.insert(asset.path);
 
-        const fs::path assetPath = packageRoot / fs::path(asset.path);
+        fs::path assetPath;
+        try {
+            assetPath = packageRoot / PackagePathFromUtf8(asset.path);
+        } catch (const fs::filesystem_error& exception) {
+            report.issues.push_back(
+                "asset " + label + " path cannot be represented by the host filesystem: "
+                + std::string(exception.what()) + ".");
+            continue;
+        }
         if (!fs::exists(assetPath)) {
             report.issues.push_back("asset " + label + " is missing file " + asset.path + ".");
             continue;
@@ -532,7 +700,7 @@ AssetPackageValidationReport ValidateAssetPackageManifest(const AssetPackageMani
             report.issues.push_back("asset " + label + " resolves outside the package root.");
             continue;
         }
-        if (!assetPath.filename().string().ends_with(".ri_asset.json")) {
+        if (!asset.path.ends_with(".ri_asset.json")) {
             report.issues.push_back("asset " + label + " path must point to a .ri_asset.json document.");
         }
         if (asset.sourcePath.empty()) {
@@ -571,14 +739,14 @@ AssetPackageValidationReport ValidateAssetPackageManifest(const AssetPackageMani
                 continue;
             }
             const fs::path path = entry.path();
-            if (!path.filename().string().ends_with(".ri_asset.json")) {
+            if (!PackagePathToUtf8(path.filename()).ends_with(".ri_asset.json")) {
                 continue;
             }
             const std::optional<fs::path> relative = TryRelativeToRoot(path, packageRoot);
             if (!relative.has_value()) {
                 continue;
             }
-            const std::string relativeText = relative->generic_string();
+            const std::string relativeText = PackagePathToUtf8(*relative);
             if (!manifestPaths.contains(relativeText)) {
                 report.issues.push_back("package contains unlisted asset document " + relativeText + ".");
             }
@@ -587,6 +755,140 @@ AssetPackageValidationReport ValidateAssetPackageManifest(const AssetPackageMani
 
     report.valid = report.issues.empty();
     return report;
+}
+
+PackageInstallPathResolution ResolvePackageInstallPath(
+    const fs::path& projectRoot,
+    const std::string_view relativeInstallPath) {
+    PackageInstallPathResolution resolution{};
+    if (const std::optional<std::string> reason =
+            UnsafePackageRelativePathReason(relativeInstallPath)) {
+        resolution.issue = "installPath " + *reason;
+        return resolution;
+    }
+    if (projectRoot.empty()) {
+        resolution.issue = "project root must be non-empty.";
+        return resolution;
+    }
+
+    std::error_code error;
+    const fs::file_status rootStatus = fs::status(projectRoot, error);
+    if (error || !fs::is_directory(rootStatus)) {
+        resolution.issue = error
+            ? "project root cannot be inspected: " + error.message() + "."
+            : "project root is not an existing directory.";
+        return resolution;
+    }
+    const fs::path canonicalRoot = fs::canonical(projectRoot, error);
+    if (error) {
+        resolution.issue = "project root cannot be canonicalized: " + error.message() + ".";
+        return resolution;
+    }
+
+    fs::path relativePath;
+    try {
+        relativePath = PackagePathFromUtf8(relativeInstallPath);
+    } catch (const fs::filesystem_error& exception) {
+        resolution.issue = "installPath cannot be represented by the host filesystem: "
+            + std::string(exception.what()) + ".";
+        return resolution;
+    }
+
+    const fs::path unresolvedCandidate = canonicalRoot / relativePath;
+    fs::path prefix = canonicalRoot;
+    for (const fs::path& component : relativePath) {
+        prefix /= component;
+        std::error_code statusError;
+        const fs::file_status prefixStatus = fs::symlink_status(prefix, statusError);
+        if (statusError == std::errc::no_such_file_or_directory
+            || statusError == std::errc::not_a_directory
+            || prefixStatus.type() == fs::file_type::not_found) {
+            break;
+        }
+        if (statusError) {
+            resolution.issue = "installPath component cannot be inspected: " + statusError.message() + ".";
+            return resolution;
+        }
+
+        bool isIndirection = fs::is_symlink(prefixStatus);
+#if defined(_WIN32)
+        const DWORD attributes = GetFileAttributesW(prefix.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES) {
+            const std::error_code attributesError(
+                static_cast<int>(GetLastError()), std::system_category());
+            resolution.issue = "installPath component attributes cannot be inspected: "
+                + attributesError.message() + ".";
+            return resolution;
+        }
+        isIndirection = isIndirection || (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U;
+#endif
+        if (!isIndirection) {
+            continue;
+        }
+
+        const fs::path resolvedPrefix = fs::canonical(prefix, statusError);
+        if (statusError) {
+            resolution.issue = "installPath contains a dangling or unreadable symlink/reparse component: "
+                + statusError.message() + ".";
+            return resolution;
+        }
+        if (!IsPathWithin(canonicalRoot, resolvedPrefix)) {
+            resolution.issue = "installPath escapes the project root through a symlink/reparse component.";
+            return resolution;
+        }
+    }
+
+    const fs::path canonicalCandidate = fs::weakly_canonical(unresolvedCandidate, error);
+    if (error) {
+        resolution.issue = "installPath destination cannot be canonicalized: " + error.message() + ".";
+        return resolution;
+    }
+    if (!IsPathWithin(canonicalRoot, canonicalCandidate)) {
+        resolution.issue = "installPath resolves outside the project root.";
+        return resolution;
+    }
+    if (IsPathWithin(canonicalCandidate, canonicalRoot)) {
+        resolution.issue = "installPath must resolve below, not to, the project root.";
+        return resolution;
+    }
+
+    const fs::file_status candidateStatus = fs::status(canonicalCandidate, error);
+    if (error && error != std::errc::no_such_file_or_directory) {
+        resolution.issue = "installPath destination cannot be inspected: " + error.message() + ".";
+        return resolution;
+    }
+    if (!error && fs::exists(candidateStatus)) {
+        if (!fs::is_regular_file(candidateStatus)) {
+            resolution.issue = "installPath destination already exists and is not a regular file.";
+            return resolution;
+        }
+        std::error_code linkError;
+        const std::uintmax_t linkCount = fs::hard_link_count(canonicalCandidate, linkError);
+        if (linkError) {
+            resolution.issue = "installPath destination hard-link state cannot be inspected: "
+                + linkError.message() + ".";
+            return resolution;
+        }
+        if (linkCount > 1U) {
+            resolution.issue =
+                "installPath destination has multiple hard-link aliases; refusing an overwrite that could mutate data outside the project.";
+            return resolution;
+        }
+    }
+
+    resolution.safe = true;
+    resolution.destination = canonicalCandidate;
+    return resolution;
+}
+
+bool PackageInstallDestinationLess::operator()(
+    const fs::path& left,
+    const fs::path& right) const {
+    return CompareInstallDestinationNames(left, right) < 0;
+}
+
+bool PackageInstallDestinationsCollide(const fs::path& left, const fs::path& right) {
+    return CompareInstallDestinationNames(left, right) == 0;
 }
 
 std::vector<fs::path> FindAssetPackageManifestPaths(const fs::path& projectRoot) {

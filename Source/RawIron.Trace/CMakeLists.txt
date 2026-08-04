@@ -4,6 +4,8 @@ add_library(RawIron.Trace
   src/CompetitiveModel.cpp
   src/EntityPhysics.cpp
   src/ImpactDecalPlacement.cpp
+  src/FirstPersonCameraFeel.cpp
+  src/KeyboardMovementInput.cpp
   src/KinematicPhysics.cpp
   src/LocomotionRuntimeBridge.cpp
   src/LocomotionTuning.cpp
