@@ -18,6 +18,11 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 namespace ri::world {
@@ -208,6 +213,62 @@ bool Vec3Finite(const ri::math::Vec3& value) noexcept {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 }
 
+/// Rejects directories and reparse points/symlinks so checkpoint I/O cannot follow a
+/// replaced destination into an attacker-controlled path (parity with SceneStateIO).
+[[nodiscard]] bool IsUnsafeCheckpointPath(const std::filesystem::path& path, std::string* error) {
+#if defined(_WIN32)
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        const DWORD lastError = GetLastError();
+        if (lastError == ERROR_FILE_NOT_FOUND || lastError == ERROR_PATH_NOT_FOUND) {
+            return false;
+        }
+        if (error != nullptr) {
+            *error = "Checkpoint path could not be inspected.";
+        }
+        return true;
+    }
+    if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U) {
+        if (error != nullptr) {
+            *error = "Checkpoint path must not be a symlink or reparse point.";
+        }
+        return true;
+    }
+    if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0U) {
+        if (error != nullptr) {
+            *error = "Checkpoint path must be a regular file.";
+        }
+        return true;
+    }
+    return false;
+#else
+    std::error_code statusError;
+    const std::filesystem::file_status status = std::filesystem::symlink_status(path, statusError);
+    if (statusError) {
+        if (statusError == std::errc::no_such_file_or_directory) {
+            return false;
+        }
+        if (error != nullptr) {
+            *error = "Checkpoint path could not be inspected: " + statusError.message();
+        }
+        return true;
+    }
+    if (std::filesystem::is_symlink(status)) {
+        if (error != nullptr) {
+            *error = "Checkpoint path must not be a symlink or reparse point.";
+        }
+        return true;
+    }
+    if (std::filesystem::is_directory(status)) {
+        if (error != nullptr) {
+            *error = "Checkpoint path must be a regular file.";
+        }
+        return true;
+    }
+    return false;
+#endif
+}
+
 std::uint64_t Fnv1a64(std::string_view value) noexcept {
     std::uint64_t hash = 14695981039346656037ULL;
     for (const unsigned char byte : value) {
@@ -350,6 +411,12 @@ bool FileCheckpointStore::Save(const RuntimeCheckpointSnapshot& snapshot, std::s
     }
 
     const std::filesystem::path targetPath = SlotPath(normalizedSlot);
+    if (std::string inspectError; IsUnsafeCheckpointPath(targetPath, &inspectError)) {
+        if (error != nullptr) {
+            *error = std::move(inspectError);
+        }
+        return false;
+    }
     const std::filesystem::path temporaryPath = TemporaryCheckpointPath(targetPath);
     std::ofstream output(temporaryPath, std::ios::binary | std::ios::trunc);
     if (!output.is_open()) {
@@ -409,25 +476,142 @@ std::optional<RuntimeCheckpointSnapshot> FileCheckpointStore::Load(std::string_v
             inputPath = legacyPath;
         }
     }
-    std::error_code sizeError;
-    const std::uintmax_t fileSize = std::filesystem::file_size(inputPath, sizeError);
-    if (sizeError) {
+    if (std::string inspectError; IsUnsafeCheckpointPath(inputPath, &inspectError)) {
+        return fail(std::move(inspectError));
+    }
+#if defined(_WIN32)
+    // Open the path itself (not a reparse target) so a symlink swap after the
+    // attribute probe cannot redirect the subsequent read.
+    const HANDLE fileHandle = CreateFileW(inputPath.c_str(),
+                                          GENERIC_READ,
+                                          FILE_SHARE_READ,
+                                          nullptr,
+                                          OPEN_EXISTING,
+                                          FILE_FLAG_OPEN_REPARSE_POINT,
+                                          nullptr);
+    if (fileHandle == INVALID_HANDLE_VALUE) {
         return fail("Checkpoint file is missing or unreadable.");
     }
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (!GetFileInformationByHandle(fileHandle, &info)
+        || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U
+        || (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U) {
+        CloseHandle(fileHandle);
+        return fail("Checkpoint path must not be a symlink or reparse point.");
+    }
+    const std::uintmax_t fileSize =
+        (static_cast<std::uintmax_t>(info.nFileSizeHigh) << 32U) | info.nFileSizeLow;
     if (fileSize > kMaxCheckpointFileBytes) {
+        CloseHandle(fileHandle);
         return fail("Checkpoint file exceeds the safety limit.");
     }
-
-    std::ifstream input(inputPath, std::ios::binary);
-    if (!input.is_open()) {
-        return fail("Failed to open checkpoint file for read.");
+    std::string fileBytes(static_cast<std::size_t>(fileSize), '\0');
+    DWORD bytesReadRaw = 0U;
+    if (fileSize > 0U
+        && (!ReadFile(fileHandle,
+                      fileBytes.data(),
+                      static_cast<DWORD>(fileBytes.size()),
+                      &bytesReadRaw,
+                      nullptr)
+            || bytesReadRaw != fileBytes.size())) {
+        CloseHandle(fileHandle);
+        return fail("Failed while reading checkpoint file.");
     }
+    char extraByte = '\0';
+    DWORD peeked = 0U;
+    if (ReadFile(fileHandle, &extraByte, 1U, &peeked, nullptr) && peeked > 0U) {
+        CloseHandle(fileHandle);
+        return fail("Checkpoint file exceeds the safety limit.");
+    }
+    CloseHandle(fileHandle);
+#else
+    // Bind with O_NOFOLLOW so a symlink swap after the attribute probe cannot
+    // redirect the subsequent read to an attacker-controlled target.
+    int flags = O_RDONLY;
+#if defined(O_CLOEXEC)
+    flags |= O_CLOEXEC;
+#endif
+#if defined(O_NOFOLLOW)
+    flags |= O_NOFOLLOW;
+#endif
+    const int fd = ::open(inputPath.c_str(), flags);
+    if (fd < 0) {
+        if (errno == ELOOP) {
+            return fail("Checkpoint path must not be a symlink or reparse point.");
+        }
+        return fail("Checkpoint file is missing or unreadable.");
+    }
+    struct stat status {};
+    if (::fstat(fd, &status) != 0) {
+        ::close(fd);
+        return fail("Checkpoint file is missing or unreadable.");
+    }
+    if (!S_ISREG(status.st_mode)) {
+        ::close(fd);
+        return fail("Checkpoint path must not be a symlink or reparse point.");
+    }
+    if (static_cast<std::uintmax_t>(status.st_size) > kMaxCheckpointFileBytes) {
+        ::close(fd);
+        return fail("Checkpoint file exceeds the safety limit.");
+    }
+    const std::uintmax_t fileSize = static_cast<std::uintmax_t>(status.st_size);
+    std::string fileBytes(static_cast<std::size_t>(fileSize), '\0');
+    std::size_t totalRead = 0U;
+    while (totalRead < fileBytes.size()) {
+        const ssize_t chunk = ::read(fd, fileBytes.data() + totalRead, fileBytes.size() - totalRead);
+        if (chunk < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            ::close(fd);
+            return fail("Failed while reading checkpoint file.");
+        }
+        if (chunk == 0) {
+            ::close(fd);
+            return fail("Failed while reading checkpoint file.");
+        }
+        totalRead += static_cast<std::size_t>(chunk);
+    }
+    char extraByte = '\0';
+    for (;;) {
+        const ssize_t peek = ::read(fd, &extraByte, 1);
+        if (peek < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            ::close(fd);
+            return fail("Failed while reading checkpoint file.");
+        }
+        if (peek > 0) {
+            ::close(fd);
+            return fail("Checkpoint file exceeds the safety limit.");
+        }
+        break;
+    }
+    ::close(fd);
+#endif
+    std::istringstream input(fileBytes);
 
     RuntimeCheckpointSnapshot snapshot{};
     snapshot.slot = normalizedSlot;
     std::string line;
+    std::uintmax_t bytesRead = 0U;
+    const auto consumeLine = [&](const std::string& consumed) -> bool {
+        // Count the terminating newline even for empty lines so the cumulative
+        // budget tracks on-disk bytes rather than content length alone.
+        const std::uintmax_t lineBudget = static_cast<std::uintmax_t>(consumed.size()) + 1U;
+        if (bytesRead > kMaxCheckpointFileBytes
+            || lineBudget > kMaxCheckpointFileBytes - bytesRead) {
+            return false;
+        }
+        bytesRead += lineBudget;
+        return true;
+    };
     if (!std::getline(input, line) || line.size() > kMaxCheckpointLineBytes || line.rfind("version=", 0) != 0) {
         return fail("Checkpoint header is missing or malformed.");
+    }
+    if (!consumeLine(line)) {
+        return fail("Checkpoint file exceeds the safety limit.");
     }
     int formatVersion = 0;
     {
@@ -454,6 +638,9 @@ std::optional<RuntimeCheckpointSnapshot> FileCheckpointStore::Load(std::string_v
         }
         if (line.size() > kMaxCheckpointLineBytes) {
             return fail("Checkpoint line exceeds the safety limit.");
+        }
+        if (!consumeLine(line)) {
+            return fail("Checkpoint file exceeds the safety limit.");
         }
         const std::size_t equalsIndex = line.find('=');
         if (equalsIndex == std::string::npos) {
@@ -535,10 +722,15 @@ std::optional<RuntimeCheckpointSnapshot> FileCheckpointStore::Load(std::string_v
             double number = 0.0;
             if (!ParseDouble(rawValue, number)) return fail("Checkpoint numeric value is malformed.");
             snapshot.state.values[*decodedKey] = number;
+            continue;
         }
+        return fail("Checkpoint contains an unknown record key '" + key + "'.");
     }
     if (input.bad()) {
         return fail("Failed while reading checkpoint file.");
+    }
+    if (!input.eof()) {
+        return fail("Checkpoint contains trailing unconsumed data.");
     }
     if (!seenScalarKeys.contains("slot") || !seenScalarKeys.contains("level")) {
         return fail("Checkpoint is missing required slot or level records.");
@@ -566,21 +758,57 @@ bool FileCheckpointStore::Clear(std::string_view slot, std::string* error) const
         if (error != nullptr) *error = "Checkpoint slot exceeds the maximum length.";
         return false;
     }
-    std::error_code removalError;
-    std::filesystem::remove(SlotPath(normalizedSlot), removalError);
-    if (removalError) {
-        if (error != nullptr) {
-            *error = "Failed to clear checkpoint file: " + removalError.message();
+    const auto clearPath = [error](const std::filesystem::path& path) -> bool {
+        std::error_code existsError;
+        const bool present = std::filesystem::exists(path, existsError);
+        if (existsError) {
+            if (error != nullptr) {
+                *error = "Checkpoint path could not be inspected: " + existsError.message();
+            }
+            return false;
         }
+        if (!present) {
+            return true;
+        }
+#if defined(_WIN32)
+        const DWORD attributes = GetFileAttributesW(path.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES) {
+            if (error != nullptr) *error = "Checkpoint path could not be inspected.";
+            return false;
+        }
+        // Reject directories; allow removing ordinary files or symlink/reparse *links*
+        // (DeleteFile/remove unlinks the reparse point, not its target).
+        if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0U
+            && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0U) {
+            if (error != nullptr) *error = "Checkpoint path must be a regular file.";
+            return false;
+        }
+#else
+        std::error_code statusError;
+        const std::filesystem::file_status status = std::filesystem::symlink_status(path, statusError);
+        if (statusError) {
+            if (error != nullptr) *error = "Checkpoint path could not be inspected: " + statusError.message();
+            return false;
+        }
+        if (std::filesystem::is_directory(status) && !std::filesystem::is_symlink(status)) {
+            if (error != nullptr) *error = "Checkpoint path must be a regular file.";
+            return false;
+        }
+#endif
+        std::error_code removalError;
+        std::filesystem::remove(path, removalError);
+        if (removalError) {
+            if (error != nullptr) *error = "Failed to clear checkpoint file: " + removalError.message();
+            return false;
+        }
+        return true;
+    };
+    if (!clearPath(SlotPath(normalizedSlot))) {
         return false;
     }
     const std::filesystem::path legacyPath = rootDirectory_ / (LegacySlotName(normalizedSlot) + ".checkpoint");
-    if (legacyPath != SlotPath(normalizedSlot)) {
-        std::filesystem::remove(legacyPath, removalError);
-        if (removalError) {
-            if (error != nullptr) *error = "Failed to clear legacy checkpoint file: " + removalError.message();
-            return false;
-        }
+    if (legacyPath != SlotPath(normalizedSlot) && !clearPath(legacyPath)) {
+        return false;
     }
     return true;
 }

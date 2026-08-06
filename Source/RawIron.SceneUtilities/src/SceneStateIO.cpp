@@ -906,39 +906,147 @@ public:
 }
 
 [[nodiscard]] SceneStateIOResult ReadBoundedFile(const fs::path& inputPath, std::string& bytes) {
-    std::error_code sizeError;
-    const std::uintmax_t fileSize = fs::file_size(inputPath, sizeError);
-    if (sizeError) {
-        return Failure(SceneStateIOError::InputInspectionFailed, sizeError);
+    DestinationInfo destination{};
+    SceneStateIOResult inspected = InspectDestination(inputPath, destination);
+    if (!inspected.Succeeded()) {
+        // Load rejects the same symlink/reparse destinations that save already rejects.
+        return inspected;
     }
-    if (fileSize > kMaxSceneStateFileBytes) {
-        return Failure(SceneStateIOError::InputTooLarge);
+    if (!destination.exists) {
+        return Failure(SceneStateIOError::InputInspectionFailed,
+                       std::make_error_code(std::errc::no_such_file_or_directory));
     }
 
-    std::ifstream input(inputPath, std::ios::binary);
-    if (!input.is_open()) {
-        return Failure(SceneStateIOError::InputReadFailed);
+#if defined(_WIN32)
+    // Open the path itself (not a reparse target) so a symlink swap after the
+    // attribute probe cannot redirect the subsequent read.
+    const HANDLE fileHandle = CreateFileW(inputPath.c_str(),
+                                          GENERIC_READ,
+                                          FILE_SHARE_READ,
+                                          nullptr,
+                                          OPEN_EXISTING,
+                                          FILE_FLAG_OPEN_REPARSE_POINT,
+                                          nullptr);
+    if (fileHandle == INVALID_HANDLE_VALUE) {
+        return Failure(SceneStateIOError::InputReadFailed, WindowsError(GetLastError()));
+    }
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (!GetFileInformationByHandle(fileHandle, &info)
+        || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U
+        || (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U) {
+        CloseHandle(fileHandle);
+        return Failure(SceneStateIOError::DestinationSymlinkUnsupported);
+    }
+    const std::uintmax_t fileSize =
+        (static_cast<std::uintmax_t>(info.nFileSizeHigh) << 32U) | info.nFileSizeLow;
+    if (fileSize > kMaxSceneStateFileBytes) {
+        CloseHandle(fileHandle);
+        return Failure(SceneStateIOError::InputTooLarge);
     }
     try {
         bytes.assign(static_cast<std::size_t>(fileSize), '\0');
     } catch (const std::bad_alloc&) {
+        CloseHandle(fileHandle);
         return Failure(SceneStateIOError::InputReadFailed,
                        std::make_error_code(std::errc::not_enough_memory));
     }
     if (fileSize > 0U) {
-        input.read(bytes.data(), static_cast<std::streamsize>(fileSize));
-        if (input.gcount() != static_cast<std::streamsize>(fileSize)) {
+        DWORD bytesRead = 0U;
+        if (!ReadFile(fileHandle,
+                      bytes.data(),
+                      static_cast<DWORD>(bytes.size()),
+                      &bytesRead,
+                      nullptr)
+            || bytesRead != bytes.size()) {
+            CloseHandle(fileHandle);
             return Failure(SceneStateIOError::InputReadFailed);
         }
     }
+    // Detect concurrent growth after the size probe (parity with POSIX peek).
     char extraByte = '\0';
-    if (input.get(extraByte)) {
+    DWORD peeked = 0U;
+    if (ReadFile(fileHandle, &extraByte, 1U, &peeked, nullptr) && peeked > 0U) {
+        CloseHandle(fileHandle);
         return Failure(SceneStateIOError::InputTooLarge);
     }
-    if (input.bad()) {
-        return Failure(SceneStateIOError::InputReadFailed);
-    }
+    CloseHandle(fileHandle);
     return {};
+#else
+    // Bind with O_NOFOLLOW so a symlink swap after InspectDestination cannot
+    // redirect the subsequent read to an attacker-controlled target.
+    int flags = O_RDONLY;
+#if defined(O_CLOEXEC)
+    flags |= O_CLOEXEC;
+#endif
+#if defined(O_NOFOLLOW)
+    flags |= O_NOFOLLOW;
+#endif
+    const int fd = ::open(inputPath.c_str(), flags);
+    if (fd < 0) {
+        if (errno == ELOOP) {
+            return Failure(SceneStateIOError::DestinationSymlinkUnsupported, PosixError());
+        }
+        return Failure(SceneStateIOError::InputReadFailed, PosixError());
+    }
+    struct stat status {};
+    if (::fstat(fd, &status) != 0) {
+        const int error = errno;
+        ::close(fd);
+        return Failure(SceneStateIOError::InputInspectionFailed, PosixError(error));
+    }
+    if (!S_ISREG(status.st_mode)) {
+        ::close(fd);
+        return Failure(SceneStateIOError::DestinationSymlinkUnsupported);
+    }
+    if (static_cast<std::uintmax_t>(status.st_size) > kMaxSceneStateFileBytes) {
+        ::close(fd);
+        return Failure(SceneStateIOError::InputTooLarge);
+    }
+    const std::uintmax_t fileSize = static_cast<std::uintmax_t>(status.st_size);
+    try {
+        bytes.assign(static_cast<std::size_t>(fileSize), '\0');
+    } catch (const std::bad_alloc&) {
+        ::close(fd);
+        return Failure(SceneStateIOError::InputReadFailed,
+                       std::make_error_code(std::errc::not_enough_memory));
+    }
+    std::size_t totalRead = 0U;
+    while (totalRead < bytes.size()) {
+        const ssize_t chunk = ::read(fd, bytes.data() + totalRead, bytes.size() - totalRead);
+        if (chunk < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            const int error = errno;
+            ::close(fd);
+            return Failure(SceneStateIOError::InputReadFailed, PosixError(error));
+        }
+        if (chunk == 0) {
+            ::close(fd);
+            return Failure(SceneStateIOError::InputReadFailed);
+        }
+        totalRead += static_cast<std::size_t>(chunk);
+    }
+    char extraByte = '\0';
+    for (;;) {
+        const ssize_t peek = ::read(fd, &extraByte, 1);
+        if (peek < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            const int error = errno;
+            ::close(fd);
+            return Failure(SceneStateIOError::InputReadFailed, PosixError(error));
+        }
+        if (peek > 0) {
+            ::close(fd);
+            return Failure(SceneStateIOError::InputTooLarge);
+        }
+        break;
+    }
+    ::close(fd);
+    return {};
+#endif
 }
 
 void RemoveTrailingCarriageReturn(std::string& line) {

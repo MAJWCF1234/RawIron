@@ -25,7 +25,19 @@ Assets/Source/**/*.csproj
 Assets/Source/**/*.sln
 .git.corrupt.*/
 
+# PsxPack binary payload (assemble via Tools/PsxPack/Assemble-PsxPack.ps1).
+# Docs/metadata stay trackable; large meshes/textures stay local unless you choose to commit them.
+/Games/WildernessRuins/assets/PsxPack/**
+!/Games/WildernessRuins/assets/PsxPack/README.md
+!/Games/WildernessRuins/assets/PsxPack/LICENSING.md
+!/Games/WildernessRuins/assets/PsxPack/CLASSIFICATION.md
+!/Games/WildernessRuins/assets/PsxPack/ASSEMBLY_MANIFEST.json
+!/Games/WildernessRuins/assets/PsxPack/PROVENANCE.jsonl
+!/Games/WildernessRuins/assets/PsxPack/licenses/
+!/Games/WildernessRuins/assets/PsxPack/licenses/INDEX.md
+
 # Local scratch captures (do not commit)
+/Saved/
 Saved/TestScratch/
 /Saved/Cache/
 /Saved/Editor/
@@ -33,6 +45,10 @@ Saved/TestScratch/
 /Saved/RenderDiagnostics/
 /Saved/visual_checks/
 /cube_test_preview_*.bmp
+/forward_test_*.txt
+/hybrid_test*.txt
+/ssp_*.exe
+/ssp_*.pdb
 
 # Local EOS credentials (use ThirdParty/EOS/eos_config.example.json)
 /eos_config.json

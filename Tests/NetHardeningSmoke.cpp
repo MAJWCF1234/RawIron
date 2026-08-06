@@ -68,6 +68,7 @@ bool PeerBaselinesAreReleased() {
     for (std::size_t peer = 0U; peer < 64U; ++peer) {
         bool usedDelta = false;
         (void)replicator.BuildForPeer(peer, blob, usedDelta);
+        replicator.RememberPeerBaseline(peer, blob);
     }
     if (replicator.TrackedPeerCount() != 64U) {
         return false;

@@ -8,6 +8,13 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace {
 
 std::string ReadText(const std::filesystem::path& path) {
@@ -152,6 +159,7 @@ int main() {
         {"unsupported version", [](std::string& text) { ReplaceFirst(text, "version=2", "version=99"); }},
         {"duplicate level", [](std::string& text) { text += "level=again\n"; }},
         {"malformed record", [](std::string& text) { text += "no-equals-here\n"; }},
+        {"unknown record", [](std::string& text) { text += "injected=1\n"; }},
         {"invalid percent", [](std::string& text) { ReplaceFirst(text, "level=corrupt-level", "level=%Q0"); }},
         {"unescaped reserved byte", [](std::string& text) { ReplaceFirst(text, "level=corrupt-level", "level=bad=value"); }},
         {"duplicate list item", [](std::string& text) {
@@ -182,10 +190,58 @@ int main() {
     }
     WriteText(corruptPath, std::string(16U * 1024U * 1024U + 1U, 'x'));
     if (store.Load("corrupt", &error).has_value() || error.empty()) return EXIT_FAILURE;
-    std::string excessiveRecords = "version=2\nslot=corrupt\nlevel=ok\n";
-    for (std::size_t index = 0; index <= 100000U; ++index) excessiveRecords += "x=1\n";
-    WriteText(corruptPath, excessiveRecords);
-    if (store.Load("corrupt", &error).has_value() || error.empty()) return EXIT_FAILURE;
+
+#if defined(_WIN32)
+    {
+        // Symlink/reparse destinations must be rejected on load and save.
+        const fs::path victim = root / "victim-target.txt";
+        WriteText(victim, "do-not-overwrite");
+        const fs::path linkPath = root / "symlink.checkpoint";
+        fs::remove(linkPath, cleanupError);
+        const std::wstring link = linkPath.wstring();
+        const std::wstring target = victim.wstring();
+        if (CreateSymbolicLinkW(link.c_str(), target.c_str(), SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)
+            || CreateSymbolicLinkW(link.c_str(), target.c_str(), 0)) {
+            error.clear();
+            if (store.Load("symlink", &error).has_value() || error.empty()) return EXIT_FAILURE;
+            ri::world::RuntimeCheckpointSnapshot overwrite = MakeSnapshot("symlink");
+            overwrite.state.level = "overwrite-attempt";
+            error.clear();
+            if (store.Save(overwrite, &error) || error.empty()) return EXIT_FAILURE;
+            if (ReadText(victim) != "do-not-overwrite") return EXIT_FAILURE;
+            // Clear must unlink the reparse point without deleting the victim target.
+            error.clear();
+            if (!store.Clear("symlink", &error) || !error.empty()) return EXIT_FAILURE;
+            if (fs::exists(linkPath) || ReadText(victim) != "do-not-overwrite") return EXIT_FAILURE;
+            fs::remove(linkPath, cleanupError);
+        }
+        fs::remove(victim, cleanupError);
+
+        const fs::path dirSlot = root / "directory.checkpoint";
+        fs::create_directories(dirSlot, cleanupError);
+        error.clear();
+        if (store.Clear("directory", &error) || error.empty()) return EXIT_FAILURE;
+        fs::remove_all(dirSlot, cleanupError);
+    }
+#endif
+    // Unknown keys must fail closed (not silently ignored).
+    WriteText(corruptPath, "version=2\nslot=corrupt\nlevel=ok\ninjected=1\n");
+    error.clear();
+    if (store.Load("corrupt", &error).has_value()
+        || error.find("unknown") == std::string::npos) {
+        return EXIT_FAILURE;
+    }
+    // Collection safety limit (10k values) must reject before unbounded growth.
+    std::string excessiveValues = "version=2\nslot=corrupt\nlevel=ok\n";
+    for (std::size_t index = 0; index <= 10000U; ++index) {
+        excessiveValues += "value:v" + std::to_string(index) + "=1\n";
+    }
+    WriteText(corruptPath, excessiveValues);
+    error.clear();
+    if (store.Load("corrupt", &error).has_value()
+        || error.find("excessive") == std::string::npos) {
+        return EXIT_FAILURE;
+    }
 
     const auto query = ri::world::ParseCheckpointStartupOptions(
         "?startFromCheckpoint=%20YES%20&checkpointSlot=slot%2Fwith%2Bplus");

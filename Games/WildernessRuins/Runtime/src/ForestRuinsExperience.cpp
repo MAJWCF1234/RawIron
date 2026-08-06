@@ -1350,18 +1350,29 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         liminalExe = fs::path(std::wstring(moduleWide));
     }
     const fs::path textureDir = ri::content::PickEngineTexturesDirectory(workspaceForTextures, liminalExe);
+    const fs::path gamePsxPack = manifest.rootPath / "assets" / "PsxPack";
+    const fs::path gameSkyRelative = PickSkiesEquirectRelative(gamePsxPack);
     if (!textureDir.empty()) {
         state.previewOptions.textureRoot = textureDir;
-        state.nativeSkyEquirectRelative = PickSkiesEquirectRelative(textureDir);
         ri::core::LogInfo("Texture library: " + textureDir.string());
+    } else {
+        ri::core::LogInfo("Texture library not found; preview will render without texture files.");
+    }
+    if (!gameSkyRelative.empty()) {
+        // Prefer licensed PSX skies copied into the game pack (absolute so Vulkan skips textureRoot join).
+        std::error_code skyEc{};
+        const fs::path absoluteSky =
+            fs::weakly_canonical(gamePsxPack / gameSkyRelative, skyEc);
+        state.nativeSkyEquirectRelative = skyEc ? (gamePsxPack / gameSkyRelative) : absoluteSky;
+        ri::core::LogInfo("Native Vulkan sky texture: " + state.nativeSkyEquirectRelative.string());
+    } else if (!textureDir.empty()) {
+        state.nativeSkyEquirectRelative = PickSkiesEquirectRelative(textureDir);
         if (!state.nativeSkyEquirectRelative.empty()) {
             ri::core::LogInfo("Native Vulkan sky texture: " + state.nativeSkyEquirectRelative.string());
         } else {
             ri::core::LogInfo(
-                "Native Vulkan sky: no image found under Textures/Skies (add .png/.jpg/.hdr/etc.; subfolders ok).");
+                "Native Vulkan sky: no image found under assets/PsxPack/Skies or Textures/Skies.");
         }
-    } else {
-        ri::core::LogInfo("Texture library not found; preview will render without texture files.");
     }
 
     ri::games::BootstrapGamePluginRuntime(state.pluginHost, manifest.rootPath);

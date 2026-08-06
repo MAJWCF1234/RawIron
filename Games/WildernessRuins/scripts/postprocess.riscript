@@ -1,15 +1,32 @@
 # RawIron Postprocess Script v1 (scalar contract)
+
 # Required by RawIron game format v1.3.5.
 
+# Tuned for PSX pack: lower exposure so skies don't blow out to white film.
+
+
+
 postprocess_quality = 1
-postprocess_tint_strength = 0.02
-bloom_strength = 0.06
-vignette_strength = 0.08
-sharpen_amount = 0.08
-native_exposure = 1.10
-native_contrast = 1.02
-native_saturation = 1.06
-native_fog_density = 0.0038
-fov_base = 80.0
-fov_sprint_add = 3.5
+
+postprocess_tint_strength = 0.04
+
+bloom_strength = 0.03
+
+vignette_strength = 0.14
+
+sharpen_amount = 0.04
+
+native_exposure = 0.82
+
+native_contrast = 1.05
+
+native_saturation = 0.92
+
+native_fog_density = 0.0065
+
+fov_base = 72.0
+
+fov_sprint_add = 3.0
+
 fov_lerp_per_second = 8.5
+

@@ -75,7 +75,9 @@ Each game manifest can declare `editorPreviewScene`, which lets the editor open 
 counted before allocation or filesystem mutation, is limited to 16 MiB and
 100,000 nodes, writes an exclusively created same-directory temporary, flushes
 its contents, and only then commits the destination. Existing symlink/reparse
-destinations and non-regular files are rejected.
+destinations and non-regular files are rejected on both save and load; load also
+opens the snapshot reparse-safe with a bounded read so a destination swap cannot
+redirect the editor into an attacker-controlled file.
 
 On Windows, replacement of an existing snapshot supplies `ReplaceFileW` with a
 unique same-directory backup. Raw Iron inspects every failed replacement state:

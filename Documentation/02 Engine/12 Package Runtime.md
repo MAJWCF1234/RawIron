@@ -35,8 +35,10 @@ mount-point collisions are rejected before registry state changes.
 Runtime lookup is intentionally narrow: callers can resolve declared asset IDs, declared
 virtual asset paths, or a validated executable entry point. Arbitrary files inside a
 package are not exposed through the mount API. Asset IDs and virtual paths are indexed
-when the package mounts, so steady-state lookup does not scan manifests or touch the
-filesystem.
+when the package mounts so lookup does not re-scan manifests, but every resolve
+re-opens the cached path reparse-safe and re-checks that the final path still lies
+under the package root. That blocks post-mount symlink/junction swaps from escaping
+the package; it is intentionally not a pure in-memory path table.
 
 Inspect a graph from the command line:
 

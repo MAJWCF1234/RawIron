@@ -14,14 +14,18 @@ Format contract: `rawiron-game-v1.3.7`
 
 ## Purpose
 
-Wilderness Ruins is the grounded outdoor counterpart to Liminal Hall. It uses the same shared engine and project contract while demonstrating procedural terrain, imported FBX/OBJ scatter, hero ruin clusters, and a **material showcase pad** east of spawn with six LRT PBR samples (oak, moss stone, gold, copper, prismarine, deepslate). The editor viewport now loads the full wilderness world instead of a generic starter grid.
+Wilderness Ruins is the grounded outdoor counterpart to Liminal Hall. It uses the same shared engine and project contract while demonstrating procedural terrain, **PsxPack** mesh trees and props, hero landmark FBX clusters, and a **material reference pad** (`primaryLevel` CSV) with LRT PBR samples. The editor viewport loads the full wilderness world instead of a generic starter grid.
 
 ## Showcase highlights
 
-- **Procedural forest** — terrain, BOTD/exported conifers, rock and bush scatter, post-apocalypse ruin props along a winding path.
-- **Hero ruin cluster** — gateway, foundation walls, imported bus stop/sign/pole FBX heroes with moss-overgrown presentation.
-- **Material showcase pad** — labeled LRT tile samples with full albedo/normal/spec binding via `ApplyForestRuinsShowcaseMaterials`.
+- **Procedural forest** — terrain, PsxPack nature trees/rocks/bushes, and small World prop scatter around authored clearings.
+- **Hero landmark cluster** — Abandoned House, Gas Station, Trailer Park, Industrial, Diner, and 6Twelve packs from `assets/PsxPack/World`.
+- **Material reference pad** — `levels/assembly.primitives.csv` LRT tile samples; runtime world building is procedural via `BuildForestRuinsWorld`.
 - **Editor preview** — `BuildForestRuinsEditorScene` mirrors the playable world in the editor viewport.
+
+Content note: runtime expects `Games/WildernessRuins/assets/PsxPack/`.
+See `assets/PsxPack/LICENSING.md` and `CLASSIFICATION.md`. Optional assemble:
+`pwsh Tools/PsxPack/Assemble-PsxPack.ps1 -SourceRoot <private>`.
 
 ## Open and run
 

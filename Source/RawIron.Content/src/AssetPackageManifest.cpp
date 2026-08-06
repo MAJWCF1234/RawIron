@@ -267,6 +267,19 @@ struct PackageFileMetrics {
     return true;
 }
 
+/// Reject multi-hard-link files so package content cannot alias inodes outside the tree.
+[[nodiscard]] std::optional<std::string> HardLinkAliasIssue(const fs::path& path) {
+    std::error_code linkError;
+    const std::uintmax_t linkCount = fs::hard_link_count(path, linkError);
+    if (linkError) {
+        return "hard-link state cannot be inspected: " + linkError.message();
+    }
+    if (linkCount > 1U) {
+        return "has multiple hard-link aliases; refusing content that may mutate outside the package";
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] int CompareInstallDestinationNames(
     const fs::path& left,
     const fs::path& right) {
@@ -576,6 +589,10 @@ AssetPackageValidationReport ValidateAssetPackageManifest(const AssetPackageMani
                 const fs::path canonicalEntry = fs::weakly_canonical(entryPointPath, entryError);
                 if (rootError || entryError || !IsPathWithin(canonicalRoot, canonicalEntry)) {
                     report.issues.push_back("executable package runtime entryPoint escapes the package root.");
+                } else if (const std::optional<std::string> hardLinkIssue =
+                               HardLinkAliasIssue(canonicalEntry)) {
+                    report.issues.push_back("executable package runtime entryPoint " + *hardLinkIssue
+                                            + ".");
                 }
             }
         }
@@ -698,6 +715,10 @@ AssetPackageValidationReport ValidateAssetPackageManifest(const AssetPackageMani
         const fs::path canonicalAsset = fs::weakly_canonical(assetPath, assetError);
         if (rootError || assetError || !IsPathWithin(canonicalRoot, canonicalAsset)) {
             report.issues.push_back("asset " + label + " resolves outside the package root.");
+            continue;
+        }
+        if (const std::optional<std::string> hardLinkIssue = HardLinkAliasIssue(canonicalAsset)) {
+            report.issues.push_back("asset " + label + " " + *hardLinkIssue + ".");
             continue;
         }
         if (!asset.path.ends_with(".ri_asset.json")) {

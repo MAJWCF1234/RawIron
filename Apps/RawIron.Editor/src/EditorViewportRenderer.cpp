@@ -2,12 +2,20 @@
 
 #include "EditorRenderer.h"
 #include "EditorUiTheme.h"
+#include "RawIron/Content/GameManifest.h"
 #include "RawIron/Render/PreviewTexture.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <filesystem>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#endif
 
 namespace ri::editor {
 
@@ -86,12 +94,56 @@ struct CameraRailSpriteSet {
     std::uint32_t resolvedAssetCount = 0;
 };
 
+[[nodiscard]] std::filesystem::path ResolveCameraRailSpritesRoot() {
+    std::filesystem::path anchor;
+#if defined(_WIN32)
+    wchar_t modulePath[4096]{};
+    const DWORD length =
+        GetModuleFileNameW(nullptr, modulePath, static_cast<DWORD>(std::size(modulePath)));
+    if (length > 0U && length < static_cast<DWORD>(std::size(modulePath))) {
+        anchor = std::filesystem::path(modulePath).parent_path();
+    }
+#endif
+    if (anchor.empty()) {
+        std::error_code cwdError;
+        anchor = std::filesystem::current_path(cwdError);
+        if (cwdError) {
+            anchor.clear();
+        }
+    }
+    const std::filesystem::path workspace = ri::content::DetectWorkspaceRoot(anchor);
+    const std::filesystem::path relativeSprites =
+        std::filesystem::path("Assets") / "UI" / "mobile-controls-1.0" / "Sprites";
+    if (!workspace.empty()) {
+        const std::filesystem::path candidate = workspace / relativeSprites;
+        std::error_code existsError;
+        if (std::filesystem::is_directory(candidate, existsError) && !existsError) {
+            return candidate;
+        }
+    }
+    if (!anchor.empty()) {
+        std::filesystem::path cursor = anchor;
+        for (int step = 0; step < 16; ++step) {
+            const std::filesystem::path candidate = cursor / relativeSprites;
+            std::error_code existsError;
+            if (std::filesystem::is_directory(candidate, existsError) && !existsError) {
+                return candidate;
+            }
+            if (!cursor.has_parent_path() || cursor == cursor.root_path()) {
+                break;
+            }
+            cursor = cursor.parent_path();
+        }
+    }
+    return relativeSprites;
+}
+
 CameraRailSpriteSet& CameraRailSprites() {
     static CameraRailSpriteSet sprites{};
     if (sprites.loaded) {
         return sprites;
     }
-    const std::filesystem::path root = "O:/RawIron/Assets/UI/mobile-controls-1.0/Sprites";
+    const std::filesystem::path root = ResolveCameraRailSpritesRoot();
     CameraRailSpriteSet& spriteRef = sprites;
     const auto load = [&spriteRef](ri::render::software::RgbaImage& image, const std::filesystem::path& path) {
         image = ri::render::software::LoadRgbaImageFile(path);
@@ -364,8 +416,12 @@ bool HitTestViewportHelpMenu(const RECT& viewportInner, const POINT& point) {
     if (PtInRect(&menuBanner, point) == FALSE) {
         return false;
     }
-    const LONG helpLeft = menuBanner.right - 56;
-    const LONG helpRight = menuBanner.right - 8;
+    // Left-aligned with DrawViewportBlock's menu label (same convention as Create).
+    // Prefix before "Help (F1)" is 56 chars; Create starts at +188 over a 22-char prefix.
+    constexpr LONG kHelpLeft = 188 * 56 / 22;
+    constexpr LONG kHelpRight = kHelpLeft + (188 * 9 / 22);
+    const LONG helpLeft = menuBanner.left + kHelpLeft;
+    const LONG helpRight = menuBanner.left + kHelpRight;
     return point.x >= helpLeft && point.x <= helpRight;
 }
 

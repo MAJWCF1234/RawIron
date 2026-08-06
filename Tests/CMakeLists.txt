@@ -39,3 +39,21 @@ add_test(
   NAME RawIron.Games.BundledExperiencesSmoke
   COMMAND BundledGameExperiencesSmoke ${CMAKE_SOURCE_DIR}
 )
+
+# Requires committed fixtures (or a local PsxPack Abandoned_House). Gate the
+# CTest entry so a clean clone without those inputs does not fail the suite.
+set(_rawiron_fbx_remap_fixture
+  "${CMAKE_SOURCE_DIR}/Tests/fixtures/FbxTextureRemap/Abandoned_House/Models/Abandoned_House.fbx")
+set(_rawiron_fbx_remap_psx
+  "${CMAKE_SOURCE_DIR}/Games/WildernessRuins/assets/PsxPack/World/Abandoned_House/Models/Abandoned_House.fbx")
+if(EXISTS "${CMAKE_SOURCE_DIR}/Tests/FbxTextureRemapSmoke.cpp"
+   AND (EXISTS "${_rawiron_fbx_remap_fixture}" OR EXISTS "${_rawiron_fbx_remap_psx}"))
+  add_executable(FbxTextureRemapSmoke FbxTextureRemapSmoke.cpp)
+  target_link_libraries(FbxTextureRemapSmoke PRIVATE RawIron::SceneUtilities)
+  add_test(
+    NAME RawIron.Scene.FbxTextureRemapSmoke
+    COMMAND FbxTextureRemapSmoke ${CMAKE_SOURCE_DIR}
+  )
+endif()
+unset(_rawiron_fbx_remap_fixture)
+unset(_rawiron_fbx_remap_psx)

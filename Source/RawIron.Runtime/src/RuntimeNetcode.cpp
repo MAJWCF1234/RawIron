@@ -93,7 +93,8 @@ std::vector<std::uint8_t> EncodeAuthoritativePosition(const std::uint32_t tick, 
 }
 
 bool DecodeAuthoritativePosition(const std::vector<std::uint8_t>& bytes, std::uint32_t& tick, float& x) {
-    if (bytes.size() < 8U) {
+    // EncodeAuthoritativePosition always emits exactly 8 bytes; reject trailing garbage.
+    if (bytes.size() != 8U) {
         return false;
     }
     tick = static_cast<std::uint32_t>(bytes[0]) |
@@ -363,8 +364,15 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
             std::uint32_t authTick = 0U;
             float authX = 0.0f;
             if (!DecodeAuthoritativePosition(rebuilt->bytes, authTick, authX)) {
+                RuntimeEvent rejected{};
+                rejected.fields["peer"] = std::to_string(ready->peerId);
+                rejected.fields["tick"] = std::to_string(rebuilt->tick);
+                rejected.fields["reason"] = "authoritative_position_decode_failed";
+                context.Events().Emit("net.snapshot.rejected", std::move(rejected));
                 continue;
             }
+            // Commit baseline only after the domain payload validates.
+            snapshotReplicator_.RememberPeerBaseline(ready->peerId, *rebuilt);
             auto it = std::find_if(predictedHistory_.begin(), predictedHistory_.end(),
                                    [authTick](const auto& state) { return state.first == authTick; });
             if (it != predictedHistory_.end()) {
@@ -427,6 +435,9 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
                     continue;
                 }
                 if (authorityTransport_->Send(peerId, *encodedPacket)) {
+                    // Only advance the peer baseline after encode+send succeed; otherwise the
+                    // next delta would reference a snapshot the peer never received.
+                    snapshotReplicator_.RememberPeerBaseline(peerId, snapshot);
                     ++serverTelemetry_.outboundPackets;
                     broadcasted = true;
                     usedDelta = usedDelta || usedPeerDelta;

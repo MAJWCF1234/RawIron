@@ -456,7 +456,7 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    // Saving through a symlink/reparse destination is explicitly unsupported;
+    // Saving/loading through a symlink/reparse destination is explicitly unsupported;
     // if the platform permits creating one, neither the link nor target moves.
     const fs::path symlinkPath = root / "scene_state_link.ri_state";
     std::error_code symlinkError;
@@ -471,6 +471,14 @@ int main() {
             || ReadText(validPath) != validText
             || !fs::is_symlink(fs::symlink_status(symlinkPath, symlinkError))
             || symlinkError) {
+            return EXIT_FAILURE;
+        }
+        ri::scene::Scene symlinkLoadTarget = BuildLoadTarget();
+        const ri::scene::SceneStateIOResult symlinkLoad =
+            ri::scene::LoadSceneNodeTransformsDetailed(symlinkLoadTarget, symlinkPath);
+        if (symlinkLoad.Succeeded()
+            || (symlinkLoad.error != ri::scene::SceneStateIOError::DestinationSymlinkUnsupported
+                && symlinkLoad.error != ri::scene::SceneStateIOError::InputInspectionFailed)) {
             return EXIT_FAILURE;
         }
         fs::remove(symlinkPath, symlinkError);

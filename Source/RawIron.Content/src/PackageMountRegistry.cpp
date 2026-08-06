@@ -6,6 +6,21 @@
 #include <set>
 #include <system_error>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <cstdio>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#if defined(__APPLE__)
+#include <limits.h>
+#endif
+#endif
+
 namespace ri::content {
 namespace {
 
@@ -31,9 +46,19 @@ namespace fs = std::filesystem;
     auto rootIt = root.begin();
     auto candidateIt = candidate.begin();
     for (; rootIt != root.end(); ++rootIt, ++candidateIt) {
-        if (candidateIt == candidate.end() || *rootIt != *candidateIt) {
+        if (candidateIt == candidate.end()) {
             return false;
         }
+#if defined(_WIN32)
+        // Match AssetPackageManifest: Windows paths are case-insensitive.
+        if (CompareStringOrdinal(rootIt->c_str(), -1, candidateIt->c_str(), -1, TRUE) != CSTR_EQUAL) {
+            return false;
+        }
+#else
+        if (*rootIt != *candidateIt) {
+            return false;
+        }
+#endif
     }
     return true;
 }
@@ -72,6 +97,123 @@ namespace fs = std::filesystem;
         return std::nullopt;
     }
     return canonicalFile;
+}
+
+/// Re-check a cached absolute path still resolves under the package root.
+/// Open reparse-safe first so a symlink swap between attribute probes and
+/// weakly_canonical cannot redirect containment to a different target.
+[[nodiscard]] std::optional<fs::path> ResolveStillContained(
+    const fs::path& packageRoot,
+    const fs::path& cachedPhysicalPath) {
+    std::error_code rootError;
+    const fs::path canonicalRoot = fs::weakly_canonical(packageRoot, rootError);
+    if (rootError || canonicalRoot.empty()) {
+        return std::nullopt;
+    }
+#if defined(_WIN32)
+    const HANDLE fileHandle = CreateFileW(cachedPhysicalPath.c_str(),
+                                          GENERIC_READ,
+                                          FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                          nullptr,
+                                          OPEN_EXISTING,
+                                          FILE_FLAG_OPEN_REPARSE_POINT,
+                                          nullptr);
+    if (fileHandle == INVALID_HANDLE_VALUE) {
+        return std::nullopt;
+    }
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (!GetFileInformationByHandle(fileHandle, &info)
+        || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U
+        || (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U
+        || info.nNumberOfLinks > 1U) {
+        CloseHandle(fileHandle);
+        return std::nullopt;
+    }
+    std::wstring finalPath;
+    constexpr DWORD kMaxFinalPathChars = 32768U;
+    for (DWORD capacity = MAX_PATH;;) {
+        finalPath.assign(capacity, L'\0');
+        const DWORD length =
+            GetFinalPathNameByHandleW(fileHandle, finalPath.data(), capacity, FILE_NAME_NORMALIZED);
+        if (length == 0U) {
+            CloseHandle(fileHandle);
+            return std::nullopt;
+        }
+        if (length < capacity) {
+            finalPath.resize(length);
+            break;
+        }
+        if (capacity >= kMaxFinalPathChars) {
+            CloseHandle(fileHandle);
+            return std::nullopt;
+        }
+        const DWORD nextCapacity = capacity * 2U;
+        capacity = nextCapacity < capacity || nextCapacity > kMaxFinalPathChars
+            ? kMaxFinalPathChars
+            : nextCapacity;
+    }
+    CloseHandle(fileHandle);
+    fs::path canonicalFile(finalPath);
+    // Strip the \\?\ / \\?\UNC\ prefix so IsPathWithin matches weakly_canonical roots.
+    const std::wstring& wide = canonicalFile.native();
+    if (wide.rfind(L"\\\\?\\UNC\\", 0) == 0) {
+        canonicalFile = fs::path(L"\\\\" + wide.substr(8));
+    } else if (wide.rfind(L"\\\\?\\", 0) == 0) {
+        canonicalFile = fs::path(wide.substr(4));
+    }
+    canonicalFile = canonicalFile.lexically_normal();
+    if (!IsPathWithin(canonicalRoot, canonicalFile)) {
+        return std::nullopt;
+    }
+    return canonicalFile;
+#else
+    int flags = O_RDONLY;
+#if defined(O_CLOEXEC)
+    flags |= O_CLOEXEC;
+#endif
+#if defined(O_NOFOLLOW)
+    flags |= O_NOFOLLOW;
+#endif
+    const int fd = ::open(cachedPhysicalPath.c_str(), flags);
+    if (fd < 0) {
+        return std::nullopt;
+    }
+    struct stat status {};
+    if (::fstat(fd, &status) != 0 || !S_ISREG(status.st_mode) || status.st_nlink > 1) {
+        ::close(fd);
+        return std::nullopt;
+    }
+    // Resolve the path of the open fd before closing so a symlink swap cannot
+    // redirect weakly_canonical to a different target.
+    fs::path canonicalFile;
+#if defined(__linux__)
+    char fdPath[64];
+    std::snprintf(fdPath, sizeof(fdPath), "/proc/self/fd/%d", fd);
+    char resolved[4096]{};
+    const ssize_t resolvedLength = ::readlink(fdPath, resolved, sizeof(resolved) - 1U);
+    ::close(fd);
+    if (resolvedLength <= 0) {
+        return std::nullopt;
+    }
+    resolved[resolvedLength] = '\0';
+    canonicalFile = fs::path(resolved).lexically_normal();
+#elif defined(__APPLE__)
+    char resolved[PATH_MAX];
+    if (::fcntl(fd, F_GETPATH, resolved) == -1) {
+        ::close(fd);
+        return std::nullopt;
+    }
+    ::close(fd);
+    canonicalFile = fs::path(resolved).lexically_normal();
+#else
+    ::close(fd);
+    return std::nullopt;
+#endif
+    if (!IsPathWithin(canonicalRoot, canonicalFile)) {
+        return std::nullopt;
+    }
+    return canonicalFile;
+#endif
 }
 
 } // namespace
@@ -349,7 +491,9 @@ std::optional<fs::path> PackageMountRegistry::ResolveAsset(
     if (asset == mounted->second.assetsById.end()) {
         return std::nullopt;
     }
-    return asset->second;
+    // Re-validate containment on every resolve so a post-mount symlink swap cannot
+    // escape the package root through a stale cached absolute path.
+    return ResolveStillContained(mounted->second.package.packageRoot, asset->second);
 }
 
 std::optional<fs::path> PackageMountRegistry::ResolveVirtualPath(
@@ -363,10 +507,11 @@ std::optional<fs::path> PackageMountRegistry::ResolveVirtualPath(
     if (virtualAsset == virtualAssets_.end()) {
         return std::nullopt;
     }
-    if (!mounted_.contains(virtualAsset->second.packageId)) {
+    const auto mounted = mounted_.find(virtualAsset->second.packageId);
+    if (mounted == mounted_.end()) {
         return std::nullopt;
     }
-    return virtualAsset->second.physicalPath;
+    return ResolveStillContained(mounted->second.package.packageRoot, virtualAsset->second.physicalPath);
 }
 
 std::optional<fs::path> PackageMountRegistry::ResolveRuntimeEntry(
@@ -376,7 +521,7 @@ std::optional<fs::path> PackageMountRegistry::ResolveRuntimeEntry(
     if (mounted == mounted_.end() || !mounted->second.runtimeEntry.has_value()) {
         return std::nullopt;
     }
-    return mounted->second.runtimeEntry;
+    return ResolveStillContained(mounted->second.package.packageRoot, *mounted->second.runtimeEntry);
 }
 
 } // namespace ri::content

@@ -2,6 +2,7 @@
 
 #include "RawIron/Content/GameManifest.h"
 #include "RawIron/Content/ScriptScalars.h"
+#include "RawIron/Core/Log.h"
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Scene/ModelLoader.h"
 #include "RawIron/Scene/SceneSubtreeHelpers.h"
@@ -150,11 +151,45 @@ struct Clearing {
 struct ScatterAsset {
     std::string namePrefix{};
     fs::path sourcePath{};
+    /// Target height range in meters after import fit (not a raw FBX multiplier).
     float minScale = 1.0f;
     float maxScale = 1.0f;
     float colliderRadius = 0.0f;
     float colliderHeight = 0.0f;
 };
+
+/// Whole-pack FBX/GLB files often ship in cm / huge authoring units. Import at identity,
+/// then rescale so world height / footprint match gameplay meters.
+[[nodiscard]] bool FitImportedNodeToMeters(Scene& scene,
+                                           const int nodeHandle,
+                                           const float groundY,
+                                           const float targetHeightMeters,
+                                           const float maxFootprintMeters) {
+    if (nodeHandle == kInvalidHandle) {
+        return false;
+    }
+    const std::optional<WorldBounds> bounds = ComputeNodeWorldBounds(scene, nodeHandle, true);
+    if (!bounds.has_value()) {
+        return false;
+    }
+    const ri::math::Vec3 size = GetBoundsSize(*bounds);
+    if (size.y <= 1.0e-4f) {
+        return false;
+    }
+    const float safeTargetHeight = std::max(targetHeightMeters, 0.05f);
+    const float safeMaxFootprint = std::max(maxFootprintMeters, safeTargetHeight * 0.5f);
+    float uniform = safeTargetHeight / size.y;
+    const float footprint = std::max(size.x, size.z);
+    if (footprint > 1.0e-4f && (footprint * uniform) > safeMaxFootprint) {
+        uniform = safeMaxFootprint / footprint;
+    }
+    // Guard against degenerate / inverted authoring bounds.
+    uniform = std::clamp(uniform, 1.0e-6f, 1000.0f);
+    Transform& local = scene.GetNode(nodeHandle).localTransform;
+    local.scale = local.scale * uniform;
+    SnapNodeMeshBaseToGround(scene, nodeHandle, groundY);
+    return true;
+}
 
 [[nodiscard]] bool ShouldSkipPostApocalypseScatter(const fs::path& meshPath) {
     const std::string lower = ToLowerAscii(meshPath.generic_string());
@@ -299,23 +334,21 @@ void ApplyPostApocalypseScatterHeuristics(ScatterAsset& asset) {
 }
 
 struct ForestSceneLayout {
-    fs::path sceneRoot{};
-    fs::path assetsRoot{};
     fs::path packRoot{};
-    fs::path astra113Root{};
-    fs::path texturesRoot{};
-    fs::path botdRoot{};
-    fs::path botdBillboardsRoot{};
-    fs::path botdMeshesRoot{};
-    fs::path botdSharedTexturesRoot{};
-    fs::path botdTrunkDiffuse{};
-    fs::path exportedMeshesRoot{};
+    fs::path propsRoot{};
+    fs::path treesRoot{};
     fs::path rocksRoot{};
+    fs::path forestTexturesRoot{};
+    fs::path looseTexturesRoot{};
+    fs::path lrtRoot{};
+    fs::path skiesRoot{};
+    fs::path botdBillboardsRoot{};
+    fs::path exportedMeshesRoot{};
     fs::path bushesMeshesRoot{};
     fs::path groundDiffuse{};
     fs::path groundNormal{};
     fs::path barkDiffuse{};
-    bool usesSortedAssetPack = false;
+    bool usesPsxPack = false;
 };
 
 [[nodiscard]] fs::path PreferExistingPath(const fs::path& preferred, const fs::path& fallback) {
@@ -327,57 +360,30 @@ struct ForestSceneLayout {
 }
 
 [[nodiscard]] ForestSceneLayout MakeForestSceneLayout(const fs::path& workspaceRoot, const fs::path& gameRoot) {
+    (void)workspaceRoot;
     ForestSceneLayout layout{};
-    const fs::path legacySceneRoot = workspaceRoot / "Assets" / "Source" / "Forest Scene";
-    const fs::path sortedPackRoot = workspaceRoot / "Assets" / "Source" / "Forest Scene Assets";
-    const fs::path legacyAssetsRoot = legacySceneRoot / "Assets";
-    const fs::path legacyPackRoot = legacyAssetsRoot / "Assets";
-    const fs::path legacyAstraRoot = legacyAssetsRoot / "Astra113 Assets";
+    // Licensed PSX collection copied into the game. World/ holds distinct landmark packs
+    // (house, gas station, trailer park, industrial…) — not the old MS roadside set.
+    layout.packRoot = gameRoot / "assets" / "PsxPack";
+    layout.propsRoot = layout.packRoot / "World";
+    layout.treesRoot = layout.packRoot / "Nature" / "Trees";
+    layout.rocksRoot = layout.packRoot / "Nature" / "Rocks";
+    layout.forestTexturesRoot = layout.packRoot / "Nature" / "Forest";
+    layout.looseTexturesRoot = layout.packRoot / "Textures";
+    layout.lrtRoot = layout.packRoot / "LRT";
+    layout.skiesRoot = layout.packRoot / "Skies";
+    layout.exportedMeshesRoot = layout.treesRoot;
+    layout.bushesMeshesRoot = layout.packRoot / "Nature" / "Plants";
+    layout.botdBillboardsRoot.clear();
+    layout.usesPsxPack = fs::is_directory(layout.packRoot) && fs::is_directory(layout.propsRoot);
 
-    const fs::path sortedModelsRoot = sortedPackRoot / "Models";
-    const fs::path sortedTexturesRoot = sortedPackRoot / "Textures";
-    const bool sortedPackReady = fs::is_directory(sortedModelsRoot) && fs::is_directory(sortedTexturesRoot);
-
-    layout.usesSortedAssetPack = sortedPackReady;
-    layout.sceneRoot = sortedPackReady ? sortedPackRoot : legacySceneRoot;
-    layout.assetsRoot = sortedPackReady ? sortedPackRoot : legacyAssetsRoot;
-    layout.packRoot = sortedPackReady ? (sortedModelsRoot / "Assets") : legacyPackRoot;
-    layout.astra113Root =
-        sortedPackReady ? (sortedModelsRoot / "Astra113 Assets") : legacyAstraRoot;
-    layout.texturesRoot =
-        sortedPackReady ? (sortedTexturesRoot / "Astra113 Assets" / "Textures")
-                        : (legacyAstraRoot / "Textures");
-
-    const fs::path legacyBotdRoot = legacyPackRoot / "Conifers [BOTD]";
-    const fs::path sortedBotdRoot = sortedTexturesRoot / "Assets" / "Conifers [BOTD]";
-    layout.botdRoot = PreferExistingPath(sortedBotdRoot, legacyBotdRoot);
-    layout.botdBillboardsRoot = PreferExistingPath(
-        sortedPackRoot / "UnityOnly" / "Assets" / "Conifers [BOTD]" / "Sources" / "Billboards",
-        layout.botdRoot / "Sources" / "Billboards");
-    layout.botdMeshesRoot = PreferExistingPath(
-        sortedPackRoot / "UnityOnly" / "Assets" / "Conifers [BOTD]" / "Sources" / "Meshes",
-        layout.botdRoot / "Sources" / "Meshes");
-    layout.botdSharedTexturesRoot = PreferExistingPath(
-        sortedPackRoot / "UnityOnly" / "Assets" / "Conifers [BOTD]" / "Sources" / "Shared Textures",
-        layout.botdRoot / "Sources" / "Shared Textures");
-    layout.botdTrunkDiffuse = layout.botdSharedTexturesRoot / "BODT Conifer Trunk [Albedo] [Smoothness].tif";
-    layout.exportedMeshesRoot = gameRoot / "Assets" / "Generated" / "ForestScene" / "Meshes";
-
-    layout.rocksRoot = PreferExistingPath(
-        sortedModelsRoot / "Assets" / "Rocks and Boulders 2" / "Rocks" / "Source" / "Models",
-        legacyPackRoot / "Rocks and Boulders 2" / "Rocks" / "Source" / "Models");
-    layout.bushesMeshesRoot = PreferExistingPath(
-        sortedModelsRoot / "Astra113 Assets" / "YughuesFreeBushes2018" / "Meshes",
-        legacyAstraRoot / "YughuesFreeBushes2018" / "Meshes");
-
+    layout.groundDiffuse = PreferExistingPath(layout.forestTexturesRoot / "forestshortgrass.png",
+                                              layout.forestTexturesRoot / "forestwildground.png");
     layout.groundDiffuse =
-        PreferExistingPath(layout.texturesRoot / "Forest_Ground_diffuseOriginal.png",
-                           legacyAstraRoot / "Textures" / "Forest_Ground_diffuseOriginal.png");
-    layout.groundNormal =
-        PreferExistingPath(layout.texturesRoot / "Forest_Ground_normal.png",
-                           legacyAstraRoot / "Textures" / "Forest_Ground_normal.png");
-    layout.barkDiffuse =
-        PreferExistingPath(layout.texturesRoot / "Bark.tif", legacyAstraRoot / "Textures" / "Bark.tif");
+        PreferExistingPath(layout.groundDiffuse, layout.looseTexturesRoot / "grass_2.png");
+    layout.groundNormal.clear();
+    layout.barkDiffuse = PreferExistingPath(layout.looseTexturesRoot / "pine_bark_1.png",
+                                            layout.looseTexturesRoot / "tree_bark_5.png");
     return layout;
 }
 
@@ -512,35 +518,169 @@ struct BotdBillboardVariant {
     return assets;
 }
 
-[[nodiscard]] std::vector<fs::path> DiscoverExportedConiferMeshes(const fs::path& exportedMeshesRoot) {
-    std::vector<fs::path> meshes;
+void CollectMeshFilesRecursive(const fs::path& root,
+                               const std::function<bool(const fs::path&)>& accept,
+                               std::vector<fs::path>& out) {
     std::error_code ec{};
-    if (!fs::is_directory(exportedMeshesRoot, ec) || ec) {
-        return meshes;
+    if (!fs::is_directory(root, ec) || ec) {
+        return;
     }
-    for (const fs::directory_entry& entry : fs::directory_iterator(exportedMeshesRoot, ec)) {
-        if (ec || !entry.is_regular_file()) {
+    for (const fs::directory_entry& entry :
+         fs::recursive_directory_iterator(root, fs::directory_options::skip_permission_denied, ec)) {
+        if (ec || !entry.is_regular_file() || !IsMeshExtension(entry.path())) {
             continue;
         }
-        if (!IsMeshExtension(entry.path())) {
-            continue;
+        if (accept(entry.path())) {
+            out.push_back(entry.path());
         }
-        const std::string stemLower = ToLowerAscii(entry.path().stem().string());
-        if (stemLower.find("conifer") == std::string::npos) {
-            continue;
-        }
-        if (stemLower.find("lod1") != std::string::npos) {
-            continue;
-        }
-        meshes.push_back(entry.path());
     }
-    std::sort(meshes.begin(), meshes.end());
+}
+
+[[nodiscard]] std::vector<fs::path> DiscoverPsxTreeMeshes(const ForestSceneLayout& forest) {
+    std::vector<fs::path> meshes;
+    const auto acceptTree = [](const fs::path& path) {
+        const std::string stem = ToLowerAscii(path.stem().string());
+        if (stem.find("stump") != std::string::npos || stem.find("rock") != std::string::npos) {
+            return false;
+        }
+        // Prefer GLB when both exist later via sort; accept pine/aspen/tree/dead packs.
+        return stem.find("pine") != std::string::npos || stem.find("aspen") != std::string::npos
+            || stem.find("tree") != std::string::npos || stem.find("dead") != std::string::npos
+            || stem.find("fallen") != std::string::npos;
+    };
+    CollectMeshFilesRecursive(forest.treesRoot, acceptTree, meshes);
+    CollectMeshFilesRecursive(forest.packRoot / "Nature" / "Retro" / "models" / "FBX" / "trees", acceptTree, meshes);
+    CollectMeshFilesRecursive(forest.packRoot / "Nature" / "TreePack" / "models", acceptTree, meshes);
+    CollectMeshFilesRecursive(forest.packRoot / "Nature" / "DeadTrees", acceptTree, meshes);
+    // Prefer .glb then .fbx, drop winter variants for a greener forest.
+    meshes.erase(std::remove_if(meshes.begin(),
+                                meshes.end(),
+                                [](const fs::path& path) {
+                                    return ToLowerAscii(path.stem().string()).find("winter") != std::string::npos;
+                                }),
+                 meshes.end());
+    std::sort(meshes.begin(), meshes.end(), [](const fs::path& a, const fs::path& b) {
+        const bool aGlb = ToLowerAscii(a.extension().string()) == ".glb";
+        const bool bGlb = ToLowerAscii(b.extension().string()) == ".glb";
+        if (aGlb != bGlb) {
+            return aGlb;
+        }
+        return a.generic_string() < b.generic_string();
+    });
+    constexpr std::size_t kMaxTreeVariants = 28U;
+    if (meshes.size() > kMaxTreeVariants) {
+        meshes.resize(kMaxTreeVariants);
+    }
     return meshes;
 }
 
+[[nodiscard]] std::vector<ScatterAsset> DiscoverPsxRockAssets(const fs::path& rocksRoot) {
+    std::vector<ScatterAsset> assets;
+    std::error_code ec{};
+    if (!fs::is_directory(rocksRoot, ec) || ec) {
+        return assets;
+    }
+    for (const fs::directory_entry& entry : fs::directory_iterator(rocksRoot, ec)) {
+        if (ec || !entry.is_regular_file() || !IsMeshExtension(entry.path())) {
+            continue;
+        }
+        const std::string stemLower = ToLowerAscii(entry.path().stem().string());
+        if (stemLower.find("rock") == std::string::npos) {
+            continue;
+        }
+        const bool large = stemLower.find("large") != std::string::npos;
+        assets.push_back(ScatterAsset{
+            .namePrefix = "Rock",
+            .sourcePath = entry.path(),
+            .minScale = large ? 0.55f : 0.28f,
+            .maxScale = large ? 1.35f : 0.75f,
+            .colliderRadius = large ? 1.4f : 0.7f,
+            .colliderHeight = large ? 1.2f : 0.7f,
+        });
+    }
+    std::sort(assets.begin(), assets.end(), [](const ScatterAsset& a, const ScatterAsset& b) {
+        return a.sourcePath.generic_string() < b.sourcePath.generic_string();
+    });
+    return assets;
+}
+
+[[nodiscard]] std::vector<ScatterAsset> DiscoverPsxBushAssets(const ForestSceneLayout& forest) {
+    std::vector<ScatterAsset> assets;
+    const auto pushMesh = [&assets](const fs::path& path, const char* prefix, const float minS, const float maxS) {
+        assets.push_back(ScatterAsset{
+            .namePrefix = prefix,
+            .sourcePath = path,
+            .minScale = minS,
+            .maxScale = maxS,
+            .colliderRadius = 0.9f,
+            .colliderHeight = 1.3f,
+        });
+    };
+    const auto acceptBush = [](const fs::path& path) {
+        const std::string stem = ToLowerAscii(path.stem().string());
+        return stem.find("bush") != std::string::npos || stem.find("bracken") != std::string::npos
+            || stem.find("grass") != std::string::npos || stem.find("goldenrod") != std::string::npos
+            || stem.find("aster") != std::string::npos || stem.find("dogbane") != std::string::npos
+            || stem.find("rhus") != std::string::npos;
+    };
+    std::vector<fs::path> meshes;
+    CollectMeshFilesRecursive(forest.packRoot / "Nature" / "Plants", acceptBush, meshes);
+    CollectMeshFilesRecursive(forest.packRoot / "Nature" / "Retro" / "models" / "FBX" / "bushes", acceptBush, meshes);
+    CollectMeshFilesRecursive(forest.packRoot / "Nature" / "TreePack" / "models", acceptBush, meshes);
+    for (const fs::path& mesh : meshes) {
+        const std::string stem = ToLowerAscii(mesh.stem().string());
+        if (stem.find("winter") != std::string::npos) {
+            continue;
+        }
+        const bool grass = stem.find("grass") != std::string::npos;
+        pushMesh(mesh, grass ? "Grass" : "Brush", grass ? 0.35f : 0.55f, grass ? 0.85f : 1.35f);
+    }
+    std::vector<fs::path> debris;
+    CollectMeshFilesRecursive(forest.treesRoot,
+                              [](const fs::path& path) {
+                                  const std::string stem = ToLowerAscii(path.stem().string());
+                                  return stem.find("dead_branch") != std::string::npos
+                                      || stem.find("stump") != std::string::npos;
+                              },
+                              debris);
+    for (const fs::path& mesh : debris) {
+        pushMesh(mesh, "Debris", 0.4f, 1.1f);
+    }
+    return assets;
+}
+
+[[nodiscard]] std::vector<ScatterAsset> DiscoverWorldPropScatter(const fs::path& worldRoot) {
+    std::vector<ScatterAsset> assets;
+    // Small props only — never scatter whole landmark / prop-pack scenes.
+    const std::array<std::pair<const char*, const char*>, 6> smallProps{{
+        {"Campfire", "MS_Campfire.fbx"},
+        {"Firepot", "MS_Firepot.fbx"},
+        {"Sawbuck", "MS_Sawbuck.fbx"},
+        {"Planter", "MS_Planter_Box.fbx"},
+        {"Board_Message", "MS_Board_Message.fbx"},
+        {"Totem", "MS_Totem_Welcome.fbx"},
+    }};
+    for (const auto& [folder, file] : smallProps) {
+        const fs::path path = worldRoot / folder / file;
+        if (!fs::exists(path)) {
+            continue;
+        }
+        const bool tall = folder == std::string_view{"Totem"};
+        assets.push_back(ScatterAsset{
+            .namePrefix = folder,
+            .sourcePath = path,
+            .minScale = tall ? 2.2f : 0.9f,
+            .maxScale = tall ? 3.4f : 1.8f,
+            .colliderRadius = tall ? 1.2f : 1.0f,
+            .colliderHeight = tall ? 3.2f : 1.6f,
+        });
+    }
+    return assets;
+}
+
 [[nodiscard]] bool SourceForestPackReady(const ForestSceneLayout& forest) {
-    return fs::exists(forest.groundDiffuse) && fs::exists(forest.rocksRoot / "Rock1A.fbx")
-        && !DiscoverBotdBillboardVariants(forest.botdBillboardsRoot).empty();
+    return forest.usesPsxPack && fs::exists(forest.groundDiffuse)
+        && !DiscoverPsxTreeMeshes(forest).empty() && fs::is_directory(forest.propsRoot);
 }
 
 [[nodiscard]] bool ContainsAny(std::string_view text, std::initializer_list<std::string_view> needles) {
@@ -585,9 +725,10 @@ void AbsolutizeMaterialTexturePaths(ri::scene::Scene& scene) {
     }
 }
 
-void ApplyForestRuinsShowcaseMaterials(ri::scene::Scene& scene, const fs::path& engineTexturesRoot) {
-    const fs::path lrtPackageRoot =
-        fs::weakly_canonical(engineTexturesRoot / ".." / "Packages" / "LRT - Texture Pack - RT28.8 - 128x");
+void ApplyForestRuinsShowcaseMaterials(ri::scene::Scene& scene, const fs::path& lrtPackageRoot) {
+    if (lrtPackageRoot.empty() || !fs::exists(lrtPackageRoot)) {
+        return;
+    }
     const auto packagePath = [&lrtPackageRoot](std::string_view tail) {
         return (lrtPackageRoot / fs::path(tail)).lexically_normal().generic_string();
     };
@@ -712,9 +853,9 @@ void ApplyForestRuinsShowcaseMaterials(ri::scene::Scene& scene, const fs::path& 
             setLayeredStone(material,
                             material.baseColor,
                             0.74f,
-                            "tile/rt2_oak_planks.png",
-                            "tile/rt2_oak_planks_n.png",
-                            "tile/rt2_oak_planks_s.png",
+                            "tile/RT_oak_log.png",
+                            "tile/RT_oak_log_n.png",
+                            "tile/RT_oak_log_s.png",
                             ri::math::Vec2{1.4f, 1.4f});
             continue;
         }
@@ -732,9 +873,9 @@ void ApplyForestRuinsShowcaseMaterials(ri::scene::Scene& scene, const fs::path& 
             setLayeredStone(material,
                             material.baseColor,
                             0.22f,
-                            "tile/rt2_gold_block.png",
-                            "tile/rt2_gold_block_n.png",
-                            "tile/rt2_gold_block_s.png",
+                            "tile/RT_gold_block.png",
+                            "tile/RT_gold_block_n.png",
+                            "tile/RT_gold_block_s.png",
                             ri::math::Vec2{1.0f, 1.0f});
             material.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
             material.metallic = 0.92f;
@@ -744,9 +885,9 @@ void ApplyForestRuinsShowcaseMaterials(ri::scene::Scene& scene, const fs::path& 
             setLayeredStone(material,
                             material.baseColor,
                             0.28f,
-                            "tile/rt2_copper_block.png",
-                            "tile/rt2_copper_block_n.png",
-                            "tile/rt2_copper_block_s.png",
+                            "tile/RT_raw_copper_block.png",
+                            "tile/RT_raw_copper_block_n.png",
+                            "tile/RT_raw_copper_block_s.png",
                             ri::math::Vec2{1.0f, 1.0f});
             material.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
             material.metallic = 0.88f;
@@ -756,9 +897,9 @@ void ApplyForestRuinsShowcaseMaterials(ri::scene::Scene& scene, const fs::path& 
             setLayeredStone(material,
                             material.baseColor,
                             0.52f,
-                            "tile/rt2_prismarine_bricks.png",
-                            "tile/rt2_prismarine_bricks_n.png",
-                            "tile/rt2_prismarine_bricks_s.png",
+                            "tile/RT_prismarine_bricks.png",
+                            "tile/RT_prismarine_bricks_n.png",
+                            "tile/RT_prismarine_bricks_s.png",
                             ri::math::Vec2{1.4f, 1.4f});
             continue;
         }
@@ -766,9 +907,9 @@ void ApplyForestRuinsShowcaseMaterials(ri::scene::Scene& scene, const fs::path& 
             setLayeredStone(material,
                             material.baseColor,
                             0.66f,
-                            "tile/rt2_deepslate_tiles.png",
-                            "tile/rt2_deepslate_tiles_n.png",
-                            "tile/rt2_deepslate_tiles_s.png",
+                            "tile/RT_deepslate_tiles.png",
+                            "tile/RT_deepslate_tiles_n.png",
+                            "tile/RT_deepslate_tiles_s.png",
                             ri::math::Vec2{1.5f, 1.5f});
             continue;
         }
@@ -866,7 +1007,7 @@ struct ForestRuinsScatterBundle {
     std::vector<BotdBillboardVariant> botdTreeVariants;
     std::vector<fs::path> exportedConiferMeshes;
     std::string barkTexturePath;
-    std::function<void(const std::string&,
+    std::function<bool(const std::string&,
                        const fs::path&,
                        const ri::math::Vec3&,
                        const ri::math::Vec3&,
@@ -903,6 +1044,7 @@ struct ForestRuinsScatterBundle {
     bool generateTrees = false;
     bool sourcePackReady = false;
     bool useExportedConiferMeshes = false;
+    float exportedTreeReferenceHeight = 24.0f;
     int botdTreeVariantCount = 0;
     int heroRubbleCount = 0;
     fs::path postApocRoot;
@@ -935,7 +1077,6 @@ void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& call
     Scene& scene = ctx.scene;
     const ForestSceneLayout& forest = ctx.forest;
     const fs::path& workspaceRoot = ctx.workspaceRoot;
-    const fs::path& gameRoot = ctx.gameRoot;
     const ProceduralTerrainOptions& terrain = ctx.terrain;
     const ri::content::ScriptScalarMap& gameplay = ctx.gameplay;
     const bool useBotdForestTrees = ctx.useBotdForestTrees;
@@ -952,51 +1093,7 @@ void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& call
         return SampleForestTerrainHeight(terrain, worldX, worldZ);
     };
 
-    auto resolveImportedModelUniformScale = [](const fs::path& sourcePath) -> float {
-        if (PathContainsAscii(sourcePath, "forest scene")) {
-            return 0.055f;
-        }
-        if (PathContainsAscii(sourcePath, "generated/forestscene")) {
-            return 1.0f;
-        }
-        if (PathContainsAscii(sourcePath, "post apocalypse")) {
-            return 0.018f;
-        }
-        return 0.025f;
-    };
-
     SceneModelTemplateRegistry scatterModelTemplates{};
-
-    auto addImported = [&](const std::string& nodeName,
-                           const fs::path& sourcePath,
-                           const ri::math::Vec3& position,
-                           const ri::math::Vec3& rotation,
-                           const ri::math::Vec3& scale) {
-        if (!fs::exists(sourcePath)) {
-            return;
-        }
-        const float importScale = resolveImportedModelUniformScale(sourcePath);
-        const ri::math::Vec3 calibratedScale = scale * importScale;
-        std::string importError;
-        (void)InstantiateSceneModelTemplate(
-            scene,
-            scatterModelTemplates,
-            sourcePath,
-            world.handles.root,
-            nodeName,
-            Transform{
-                .position = position,
-                .rotationDegrees = rotation,
-                .scale = calibratedScale,
-            },
-            position.y,
-            ImportedModelOptions{
-                .sourcePath = sourcePath,
-                .nodeName = "Template_" + sourcePath.stem().string(),
-                .createPlaceholderOnFailure = true,
-            },
-            &importError);
-    };
 
     auto groundPoint = [&](const float x, const float z) {
         return ri::math::Vec3{x, sampleTerrainHeight(x, z), z};
@@ -1044,10 +1141,8 @@ void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& call
                             materialName);
     };
 
-    const fs::path preferredBarkDiffuse =
-        fs::exists(forest.botdTrunkDiffuse) ? forest.botdTrunkDiffuse : forest.barkDiffuse;
     const std::string barkTexturePath =
-        fs::exists(preferredBarkDiffuse) ? ToAbsoluteAssetPath(preferredBarkDiffuse) : std::string{};
+        fs::exists(forest.barkDiffuse) ? ToAbsoluteAssetPath(forest.barkDiffuse) : std::string{};
     int coniferTrunkBatch = ri::scene::kInvalidHandle;
     std::array<int, 4> coniferBillboardBatches{
         ri::scene::kInvalidHandle,
@@ -1055,7 +1150,7 @@ void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& call
         ri::scene::kInvalidHandle,
         ri::scene::kInvalidHandle,
     };
-    if (!useBotdForestTrees) {
+    if (!useBotdForestTrees && !useExportedConiferMeshes) {
         const int coniferTrunkMesh = scene.AddMesh(Mesh{
             .name = "instanced-conifer-trunk",
             .primitive = PrimitiveType::Cube,
@@ -1080,9 +1175,14 @@ void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& call
             .material = coniferTrunkMaterial,
             .transforms = {},
         });
-        const fs::path atlasPath = gameRoot / "Assets" / "Generated" / "conifer_desktop_atlas_billboards.png";
+        // Legacy Generated atlas was removed with the PsxPack migration. Prefer a pack leaf
+        // albedo when available; otherwise keep an untextured green proxy (never a dead path).
+        fs::path atlasPath = forest.packRoot / "LRT" / "tile" / "RT_oak_leaves.png";
+        if (!fs::exists(atlasPath) && fs::exists(forest.groundDiffuse)) {
+            atlasPath = forest.groundDiffuse;
+        }
         const int coniferBillboardMaterial = scene.AddMaterial(Material{
-            .name = "speedtree-conifer-atlas-fallback",
+            .name = "psx-conifer-billboard-fallback",
             .shadingModel = ShadingModel::Lit,
             .baseColor = ri::math::Vec3{0.34f, 0.48f, 0.30f},
             .baseColorTexture = fs::exists(atlasPath) ? ToAbsoluteAssetPath(atlasPath) : std::string{},
@@ -1149,171 +1249,14 @@ void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& call
                               });
     };
 
-    const fs::path postApocRoot = workspaceRoot / "Assets" / "Source" / "Post apocalypse";
+    const fs::path postApocRoot = forest.propsRoot; // PsxPack/World landmarks + small props
     const fs::path forestRocksRoot = forest.rocksRoot;
-    const fs::path bushesRoot = forest.bushesMeshesRoot;
     const bool sourcePackReady = SourceForestPackReady(forest);
+    (void)workspaceRoot;
 
-    const std::vector<ScatterAsset> fallbackRuinAssets{
-        ScatterAsset{
-            .namePrefix = "RuinBusStop",
-            .sourcePath = postApocRoot / "Bus_Stop_Rural" / "MS_Bus_Stop_Rural.fbx",
-            .minScale = 2.8f,
-            .maxScale = 4.2f,
-            .colliderRadius = 3.2f,
-            .colliderHeight = 4.2f,
-        },
-        ScatterAsset{
-            .namePrefix = "RuinBarrier",
-            .sourcePath = postApocRoot / "Barrier_Road" / "MS_Barrier_Road.fbx",
-            .minScale = 2.1f,
-            .maxScale = 3.4f,
-            .colliderRadius = 1.8f,
-            .colliderHeight = 2.3f,
-        },
-        ScatterAsset{
-            .namePrefix = "RuinFence",
-            .sourcePath = postApocRoot / "Fence_Wood" / "MS_Fence_Wood.fbx",
-            .minScale = 3.4f,
-            .maxScale = 5.0f,
-            .colliderRadius = 2.5f,
-            .colliderHeight = 3.4f,
-        },
-        ScatterAsset{
-            .namePrefix = "RuinPole",
-            .sourcePath = postApocRoot / "Pole_Light_Rural" / "MS_Pole_Light_Rural.fbx",
-            .minScale = 2.6f,
-            .maxScale = 3.6f,
-            .colliderRadius = 1.5f,
-            .colliderHeight = 5.0f,
-        },
-        ScatterAsset{
-            .namePrefix = "RuinBrickPile",
-            .sourcePath = postApocRoot / "Brick_Pile" / "MS_Brick_Pile.fbx",
-            .minScale = 1.8f,
-            .maxScale = 3.0f,
-            .colliderRadius = 1.6f,
-            .colliderHeight = 1.8f,
-        },
-        ScatterAsset{
-            .namePrefix = "RuinCableReel",
-            .sourcePath = postApocRoot / "Cable_Reel" / "MS_Cable_Reel.fbx",
-            .minScale = 1.8f,
-            .maxScale = 2.8f,
-            .colliderRadius = 1.3f,
-            .colliderHeight = 1.8f,
-        },
-        ScatterAsset{
-            .namePrefix = "RuinTower",
-            .sourcePath = postApocRoot / "Fireplace_Tower" / "MS_Fireplace_Tower.fbx",
-            .minScale = 2.4f,
-            .maxScale = 3.7f,
-            .colliderRadius = 2.7f,
-            .colliderHeight = 5.2f,
-        },
-        ScatterAsset{
-            .namePrefix = "RuinTent",
-            .sourcePath = postApocRoot / "Tent_Civilian" / "MS_Tent_Civilian.fbx",
-            .minScale = 2.4f,
-            .maxScale = 3.8f,
-            .colliderRadius = 2.4f,
-            .colliderHeight = 2.5f,
-        },
-        ScatterAsset{
-            .namePrefix = "RuinBillboard",
-            .sourcePath = postApocRoot / "Sign_Billboard" / "MS_Sign_Billboard.fbx",
-            .minScale = 2.7f,
-            .maxScale = 4.2f,
-            .colliderRadius = 3.3f,
-            .colliderHeight = 4.8f,
-        },
-        ScatterAsset{
-            .namePrefix = "RuinTransformer",
-            .sourcePath = postApocRoot / "Transformer_Box" / "MS_Transformer_Box.fbx",
-            .minScale = 1.8f,
-            .maxScale = 3.1f,
-            .colliderRadius = 1.8f,
-            .colliderHeight = 2.5f,
-        },
-        ScatterAsset{
-            .namePrefix = "RuinCrate",
-            .sourcePath = postApocRoot / "Crate" / "MS_Crate.fbx",
-            .minScale = 1.7f,
-            .maxScale = 2.8f,
-            .colliderRadius = 1.1f,
-            .colliderHeight = 1.6f,
-        },
-    };
-    const std::vector<ScatterAsset> fallbackRockAssets{
-        ScatterAsset{
-            .namePrefix = "Rock",
-            .sourcePath = forestRocksRoot / "Rock1A.fbx",
-            .minScale = 2.4f,
-            .maxScale = 5.0f,
-            .colliderRadius = 1.9f,
-            .colliderHeight = 2.4f,
-        },
-        ScatterAsset{
-            .namePrefix = "Rock",
-            .sourcePath = forestRocksRoot / "Rock1B.fbx",
-            .minScale = 2.2f,
-            .maxScale = 4.8f,
-            .colliderRadius = 1.8f,
-            .colliderHeight = 2.3f,
-        },
-        ScatterAsset{
-            .namePrefix = "Rock",
-            .sourcePath = forestRocksRoot / "Rock2.fbx",
-            .minScale = 2.4f,
-            .maxScale = 5.1f,
-            .colliderRadius = 2.0f,
-            .colliderHeight = 2.6f,
-        },
-        ScatterAsset{
-            .namePrefix = "Rock",
-            .sourcePath = forestRocksRoot / "Rock3.fbx",
-            .minScale = 2.6f,
-            .maxScale = 5.6f,
-            .colliderRadius = 2.2f,
-            .colliderHeight = 2.8f,
-        },
-        ScatterAsset{
-            .namePrefix = "Rock",
-            .sourcePath = forestRocksRoot / "Rock4A.fbx",
-            .minScale = 2.3f,
-            .maxScale = 4.9f,
-            .colliderRadius = 1.9f,
-            .colliderHeight = 2.4f,
-        },
-        ScatterAsset{
-            .namePrefix = "Rock",
-            .sourcePath = forestRocksRoot / "Rock5A.fbx",
-            .minScale = 2.4f,
-            .maxScale = 5.0f,
-            .colliderRadius = 2.0f,
-            .colliderHeight = 2.5f,
-        },
-        ScatterAsset{
-            .namePrefix = "Rock",
-            .sourcePath = forestRocksRoot / "Rock6C.fbx",
-            .minScale = 2.8f,
-            .maxScale = 5.8f,
-            .colliderRadius = 2.3f,
-            .colliderHeight = 3.0f,
-        },
-    };
-    std::vector<ScatterAsset> ruinAssets =
-        MergeScatterAssets(DiscoverPostApocalypseScatterAssets(postApocRoot), fallbackRuinAssets);
-    std::vector<ScatterAsset> rockAssets =
-        MergeScatterAssets(DiscoverRockScatterAssets(forestRocksRoot), fallbackRockAssets);
-    const std::vector<ScatterAsset> fallbackBushAssets{
-        ScatterAsset{.namePrefix = "Bush", .sourcePath = bushesRoot / "Bush01.FBX", .minScale = 1.8f, .maxScale = 3.4f, .colliderRadius = 1.4f, .colliderHeight = 1.5f},
-        ScatterAsset{.namePrefix = "Bush", .sourcePath = bushesRoot / "Bush02.FBX", .minScale = 1.8f, .maxScale = 3.5f, .colliderRadius = 1.4f, .colliderHeight = 1.5f},
-        ScatterAsset{.namePrefix = "Bush", .sourcePath = bushesRoot / "Bush03.FBX", .minScale = 1.8f, .maxScale = 3.6f, .colliderRadius = 1.4f, .colliderHeight = 1.6f},
-        ScatterAsset{.namePrefix = "Bush", .sourcePath = bushesRoot / "Bush04.FBX", .minScale = 1.8f, .maxScale = 3.6f, .colliderRadius = 1.4f, .colliderHeight = 1.6f},
-        ScatterAsset{.namePrefix = "Bush", .sourcePath = bushesRoot / "Bush05.FBX", .minScale = 1.8f, .maxScale = 3.7f, .colliderRadius = 1.4f, .colliderHeight = 1.7f},
-    };
-    std::vector<ScatterAsset> bushAssets = MergeScatterAssets(DiscoverBushScatterAssets(bushesRoot), fallbackBushAssets);
+    std::vector<ScatterAsset> ruinAssets = DiscoverWorldPropScatter(postApocRoot);
+    std::vector<ScatterAsset> rockAssets = DiscoverPsxRockAssets(forestRocksRoot);
+    std::vector<ScatterAsset> bushAssets = DiscoverPsxBushAssets(forest);
 
     auto addConiferBillboardCluster = [&](const std::string& nodeName,
                                           const ri::math::Vec3& root,
@@ -1377,6 +1320,7 @@ void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& call
     };
 
     std::unordered_map<std::string, int> exportedConiferTemplates;
+    std::unordered_map<std::string, float> exportedConiferReferenceHeights;
     const int coniferTemplateParent = scene.CreateNode("ConiferMeshTemplates", world.handles.root);
     scene.GetNode(coniferTemplateParent).localTransform.position = ri::math::Vec3{0.0f, -2000.0f, 0.0f};
 
@@ -1408,12 +1352,24 @@ void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& call
                                             &importError);
                 if (templateRoot != kInvalidHandle) {
                     exportedConiferTemplates.emplace(meshKey, templateRoot);
+                    float measured = forest.usesPsxPack ? 8.0f : 24.0f;
+                    if (const std::optional<WorldBounds> bounds =
+                            ComputeNodeWorldBounds(scene, templateRoot, true)) {
+                        measured = std::max(0.25f, GetBoundsSize(*bounds).y);
+                    }
+                    exportedConiferReferenceHeights.emplace(meshKey, measured);
                 }
             }
             if (templateRoot == kInvalidHandle) {
                 return;
             }
-            const float meshScale = std::clamp(targetHeight / 24.0f, 0.35f, 2.4f);
+            float referenceHeight = forest.usesPsxPack ? 8.0f : 24.0f;
+            const auto refIt = exportedConiferReferenceHeights.find(meshKey);
+            if (refIt != exportedConiferReferenceHeights.end()) {
+                referenceHeight = refIt->second;
+            }
+            // Match FitImportedNodeToMeters: allow large unit-scale corrections (cm → m).
+            const float meshScale = std::clamp(targetHeight / std::max(referenceHeight, 1.0e-3f), 1.0e-6f, 1000.0f);
             const Transform placement{
                 .position = root,
                 .rotationDegrees = ri::math::Vec3{0.0f, yawDegrees, 0.0f},
@@ -1455,37 +1411,43 @@ void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& call
     const int rockCount = ri::content::ScriptScalarOrIntClamped(gameplay, "scatter_rock_count", 28, 8, 300);
     const int bushCount = ri::content::ScriptScalarOrIntClamped(gameplay, "scatter_bush_count", 40, 8, 500);
     const int treeCount = ri::content::ScriptScalarOrIntClamped(gameplay, "scatter_tree_count", 90, 0, 1200);
-    const bool generateTrees = useExportedConiferMeshes
-        || ri::content::ScriptScalarOrBool(gameplay, "scatter_tree_proxies", true)
-        || ri::content::ScriptScalarOrBool(gameplay, "scatter_tree_billboards", true);
+    // With PsxPack mounted, never auto-spawn cube/billboard proxies when tree meshes are missing.
+    // Proxies require an explicit script opt-in (`scatter_tree_proxies` / `scatter_tree_billboards`).
+    const bool allowTreeProxies = !forest.usesPsxPack
+        || ri::content::ScriptScalarOrBool(gameplay, "scatter_tree_proxies", false)
+        || ri::content::ScriptScalarOrBool(gameplay, "scatter_tree_billboards", false);
+    const bool generateTrees = useExportedConiferMeshes || allowTreeProxies;
 
     DeterministicRng rng{};
     rng.state ^= static_cast<std::uint64_t>(scatterSeed) * 0x9E3779B97F4A7C15ULL;
+
+    // Fresh layout: spawn hollow + authored ruin pockets, then organic forest clearings.
+    // Premise only — forest with human wreckage islands. No old highway / gateway parade.
+    guaranteedSpawn = ri::math::Vec3{
+        ri::content::ScriptScalarOr(gameplay, "spawn_x", 0.0f),
+        0.0f,
+        ri::content::ScriptScalarOr(gameplay, "spawn_z", 8.0f),
+    };
+    const float spawnReserveRadius = 14.0f;
     std::vector<Clearing> clearings;
-    clearings.reserve(static_cast<std::size_t>(clearingCount));
+    clearings.reserve(static_cast<std::size_t>(clearingCount) + 8U);
+    clearings.push_back(Clearing{.center = guaranteedSpawn, .radius = spawnReserveRadius});
+    clearings.push_back(Clearing{.center = ri::math::Vec3{-42.0f, 0.0f, 36.0f}, .radius = 18.0f}); // camp
+    clearings.push_back(Clearing{.center = ri::math::Vec3{48.0f, 0.0f, 28.0f}, .radius = 16.0f});  // utility
+    clearings.push_back(Clearing{.center = ri::math::Vec3{38.0f, 0.0f, -34.0f}, .radius = 17.0f}); // roadside remnant
+    clearings.push_back(Clearing{.center = ri::math::Vec3{-36.0f, 0.0f, -40.0f}, .radius = 19.0f}); // cabin debris
+    clearings.push_back(Clearing{.center = ri::math::Vec3{8.0f, 0.0f, -62.0f}, .radius = 15.0f});  // dump
+    clearings.push_back(Clearing{.center = ri::math::Vec3{-8.0f, 0.0f, 54.0f}, .radius = 12.0f});  // overlook
     for (int i = 0; i < clearingCount; ++i) {
         clearings.push_back(Clearing{
             .center = ri::math::Vec3{
-                rng.NextRange(-scatterExtent * 0.85f, scatterExtent * 0.85f),
+                rng.NextRange(-scatterExtent * 0.78f, scatterExtent * 0.78f),
                 0.0f,
-                rng.NextRange(-scatterExtent * 0.85f, scatterExtent * 0.85f),
+                rng.NextRange(-scatterExtent * 0.78f, scatterExtent * 0.78f),
             },
             .radius = rng.NextRange(clearingRadiusMin, clearingRadiusMax),
         });
     }
-
-    guaranteedSpawn = ri::math::Vec3{0.0f, 0.0f, 76.0f};
-    const float spawnReserveRadius = 11.5f;
-    clearings.push_back(Clearing{.center = guaranteedSpawn, .radius = spawnReserveRadius});
-    for (float z = 82.0f; z >= -34.0f; z -= 12.0f) {
-        clearings.push_back(Clearing{
-            .center = ri::math::Vec3{RuinPathCenterX(z), 0.0f, z},
-            .radius = RuinPathHalfWidth(z) + 2.7f,
-        });
-    }
-    clearings.push_back(Clearing{.center = ri::math::Vec3{0.0f, 0.0f, 34.0f}, .radius = 20.0f});
-    clearings.push_back(Clearing{.center = ri::math::Vec3{-8.0f, 0.0f, 10.0f}, .radius = 15.0f});
-    clearings.push_back(Clearing{.center = ri::math::Vec3{12.0f, 0.0f, -18.0f}, .radius = 13.5f});
     const int terrainColliderGrid = 30;
     const float terrainMinX = -terrain.sizeX * 0.5f;
     const float terrainMinZ = -terrain.sizeZ * 0.5f;
@@ -1521,6 +1483,7 @@ void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& call
     out.coniferBillboardBatches = coniferBillboardBatches;
     out.useBotdForestTrees = useBotdForestTrees;
     out.useExportedConiferMeshes = useExportedConiferMeshes;
+    out.exportedTreeReferenceHeight = forest.usesPsxPack ? 8.0f : 24.0f;
     out.botdVerticalBillboardMesh = botdVerticalBillboardMesh;
     out.botdTreeVariants = botdTreeVariants;
     out.exportedConiferMeshes = exportedConiferMeshes;
@@ -1558,21 +1521,14 @@ void WireForestRuinsScatterCallbacks(ForestRuinsScatterBundle& bundle) {
                                const fs::path& sourcePath,
                                const ri::math::Vec3& position,
                                const ri::math::Vec3& rotation,
-                               const ri::math::Vec3& scale) {
+                               const ri::math::Vec3& scale) -> bool {
         if (!fs::exists(sourcePath)) {
-            return;
+            return false;
         }
-        float importScale = 0.025f;
-        if (PathContainsAscii(sourcePath, "forest scene")) {
-            importScale = 0.055f;
-        } else if (PathContainsAscii(sourcePath, "generated/forestscene")) {
-            importScale = 1.0f;
-        } else if (PathContainsAscii(sourcePath, "post apocalypse")) {
-            importScale = 0.018f;
-        }
-        const ri::math::Vec3 calibratedScale = scale * importScale;
+        const float targetHeight = std::max(scale.x, 0.05f);
+        const float maxFootprint = std::max(scale.y > 1.0e-3f ? scale.y : (targetHeight * 3.2f), targetHeight);
         std::string importError;
-        (void)InstantiateSceneModelTemplate(
+        const int instance = InstantiateSceneModelTemplate(
             *self->scene,
             self->scatterModelTemplates,
             sourcePath,
@@ -1581,15 +1537,25 @@ void WireForestRuinsScatterCallbacks(ForestRuinsScatterBundle& bundle) {
             Transform{
                 .position = position,
                 .rotationDegrees = rotation,
-                .scale = calibratedScale,
+                .scale = ri::math::Vec3{1.0f, 1.0f, 1.0f},
             },
             position.y,
             ImportedModelOptions{
                 .sourcePath = sourcePath,
                 .nodeName = "Template_" + sourcePath.stem().string(),
-                .createPlaceholderOnFailure = true,
+                // Fail closed: placeholders would still return a handle and attract colliders.
+                .createPlaceholderOnFailure = false,
             },
             &importError);
+        if (instance == kInvalidHandle) {
+            return false;
+        }
+        if (!FitImportedNodeToMeters(*self->scene, instance, position.y, targetHeight, maxFootprint)) {
+            ri::core::LogInfo("Wilderness Ruins: WARN failed to fit imported scatter model '"
+                              + sourcePath.filename().string() + "' to meters");
+            return false;
+        }
+        return true;
     };
     self->addPrimitive = [self](const std::string& nodeName,
                                 const PrimitiveType primitive,
@@ -1668,7 +1634,14 @@ void WireForestRuinsScatterCallbacks(ForestRuinsScatterBundle& bundle) {
             if (templateRoot == kInvalidHandle) {
                 return;
             }
-            const float meshScale = std::clamp(targetHeight / 24.0f, 0.35f, 2.4f);
+            float referenceHeight =
+                self->exportedTreeReferenceHeight > 0.0f ? self->exportedTreeReferenceHeight : 8.0f;
+            if (const std::optional<WorldBounds> bounds =
+                    ComputeNodeWorldBounds(*self->scene, templateRoot, true)) {
+                referenceHeight = std::max(0.25f, GetBoundsSize(*bounds).y);
+            }
+            // Match FitImportedNodeToMeters: allow large unit-scale corrections (cm → m).
+            const float meshScale = std::clamp(targetHeight / std::max(referenceHeight, 1.0e-3f), 1.0e-6f, 1000.0f);
             const Transform placement{
                 .position = root,
                 .rotationDegrees = ri::math::Vec3{0.0f, yawDegrees, 0.0f},
@@ -1765,73 +1738,60 @@ void SpawnForestRuinsAssetScatter(ForestRuinsScatterBundle& bundle,
         if (!fs::exists(asset.sourcePath)) {
             continue;
         }
-        float scaleUniform = bundle.rng.NextRange(asset.minScale, asset.maxScale);
+        const float targetHeight = bundle.rng.NextRange(asset.minScale, asset.maxScale);
         ri::math::Vec3 position = PickScatterPoint(bundle.rng, bundle.scatterExtent, useClearings, bundle.clearings);
         position.y = bundle.sampleTerrainHeight(position.x, position.z);
         const ri::math::Vec3 spawnDelta = position - bundle.guaranteedSpawn;
         if ((spawnDelta.x * spawnDelta.x) + (spawnDelta.z * spawnDelta.z)
             < (bundle.spawnReserveRadius * bundle.spawnReserveRadius)) {
             position = PickScatterPoint(bundle.rng, bundle.scatterExtent, useClearings, bundle.clearings);
-            scaleUniform *= 0.98f;
+            position.y = bundle.sampleTerrainHeight(position.x, position.z);
         }
         const ri::math::Vec3 rotation{0.0f, bundle.rng.NextRange(-180.0f, 180.0f), 0.0f};
-        const ri::math::Vec3 scale{scaleUniform, scaleUniform, scaleUniform};
+        // x=target height (m), y=max footprint (m)
+        const ri::math::Vec3 scale{targetHeight, targetHeight * 2.8f, 1.0f};
         const std::string nodeName = asset.namePrefix + "_" + std::to_string(i + 1) + "_"
             + std::to_string(bundle.scatterSeed);
-        bundle.addImported(nodeName, asset.sourcePath, position, rotation, scale);
+        if (!bundle.addImported(nodeName, asset.sourcePath, position, rotation, scale)) {
+            continue;
+        }
         if (asset.colliderRadius > 0.0f && asset.colliderHeight > 0.0f) {
             bundle.addCollider("scatter-" + nodeName,
                                ri::math::Vec3{
-                                   position.x - (asset.colliderRadius * scaleUniform),
+                                   position.x - asset.colliderRadius,
                                    position.y,
-                                   position.z - (asset.colliderRadius * scaleUniform),
+                                   position.z - asset.colliderRadius,
                                },
                                ri::math::Vec3{
-                                   position.x + (asset.colliderRadius * scaleUniform),
-                                   position.y + (asset.colliderHeight * scaleUniform),
-                                   position.z + (asset.colliderRadius * scaleUniform),
+                                   position.x + asset.colliderRadius,
+                                   position.y + asset.colliderHeight,
+                                   position.z + asset.colliderRadius,
                                });
         }
     }
 }
 
-void PopulateForestRuinsPathTrees(ForestRuinsScatterBundle& bundle) {
-    const int pathWallTreeCount = bundle.sourcePackReady ? 34 : 86;
-    const int pathTallTreeCount = bundle.sourcePackReady ? 6 : 14;
-    const int pathSmallTreeCount = bundle.sourcePackReady ? 22 : 68;
-    for (int i = 0; i < pathWallTreeCount; ++i) {
-        const float z = 78.0f - (static_cast<float>(i) * (bundle.sourcePackReady ? 2.35f : 1.95f));
-        const float side = (i % 2 == 0) ? -1.0f : 1.0f;
-        const float forestWallOffset = RuinPathHalfWidth(z) + 7.0f + static_cast<float>((i * 11) % 7) * 1.05f;
-        const float x = RuinPathCenterX(z) + side * forestWallOffset;
-        const ri::math::Vec3 root{x, bundle.sampleTerrainHeight(x, z), z};
-        bundle.addForestConiferTree(root,
-                                    9.8f + static_cast<float>((i * 17) % 9) * 0.72f,
-                                    static_cast<float>((i * 29) % 360),
-                                    i,
-                                    "PathConifer_" + std::to_string(i + 1));
-    }
-    for (int i = 0; i < pathTallTreeCount; ++i) {
-        const float z = 74.0f - (static_cast<float>(i) * 3.8f);
-        const float side = (i % 2 == 0) ? -1.0f : 1.0f;
-        const float x = RuinPathCenterX(z) + side * (14.0f + static_cast<float>((i * 5) % 4) * 2.6f);
-        const ri::math::Vec3 root{x, bundle.sampleTerrainHeight(x, z), z};
-        bundle.addForestConiferTree(root,
-                                    11.6f + static_cast<float>((i * 19) % 5) * 0.9f,
-                                    static_cast<float>((i * 43) % 360),
-                                    i + 1,
-                                    "PathConiferTall_" + std::to_string(i + 1));
-    }
-    for (int i = 0; i < pathSmallTreeCount; ++i) {
-        const float z = 74.0f - (static_cast<float>(i) * 2.15f);
-        const float side = (i % 2 == 0) ? -1.0f : 1.0f;
-        const float x = RuinPathCenterX(z) + side * (RuinPathHalfWidth(z) + 2.2f + static_cast<float>((i * 5) % 4) * 0.48f);
-        const ri::math::Vec3 root{x, bundle.sampleTerrainHeight(x, z), z};
-        bundle.addForestConiferTree(root,
-                                    2.8f + static_cast<float>((i * 7) % 5) * 0.46f,
-                                    static_cast<float>((i * 47) % 360),
-                                    i + 2,
-                                    "PathConiferSmall_" + std::to_string(i + 1));
+void PopulateForestRuinsClearingRingTrees(ForestRuinsScatterBundle& bundle) {
+    // Ring the authored ruin pockets so forest presses in on human spaces.
+    const int authoredClearings = (std::min)(static_cast<int>(bundle.clearings.size()), 7);
+    int treeSerial = 0;
+    for (int c = 0; c < authoredClearings; ++c) {
+        const Clearing& clearing = bundle.clearings[static_cast<std::size_t>(c)];
+        const int ringCount = (c == 0) ? 22 : 16;
+        for (int i = 0; i < ringCount; ++i) {
+            const float angle = (static_cast<float>(i) / static_cast<float>(ringCount)) * 360.0f
+                + static_cast<float>((c * 17) % 40);
+            const float radius = clearing.radius + 3.5f + static_cast<float>((i * 3 + c) % 5) * 1.1f;
+            const float x = clearing.center.x + std::cos(ri::math::DegreesToRadians(angle)) * radius;
+            const float z = clearing.center.z + std::sin(ri::math::DegreesToRadians(angle)) * radius;
+            const ri::math::Vec3 root{x, bundle.sampleTerrainHeight(x, z), z};
+            ++treeSerial;
+            bundle.addForestConiferTree(root,
+                                        8.5f + static_cast<float>((i + c) % 7) * 0.85f,
+                                        angle + 90.0f,
+                                        treeSerial,
+                                        "RingPine_" + std::to_string(treeSerial));
+        }
     }
 }
 
@@ -1843,146 +1803,50 @@ void PopulateForestRuinsForestScatter(ForestRuinsScatterBundle& bundle) {
         const ri::math::Vec3 root = PickScatterPoint(bundle.rng, bundle.scatterExtent, false, bundle.clearings);
         const float groundY = bundle.sampleTerrainHeight(root.x, root.z);
         const float yawBase = bundle.rng.NextRange(-180.0f, 180.0f);
+        const int variantCount = static_cast<int>(bundle.exportedConiferMeshes.size());
         bundle.addForestConiferTree(ri::math::Vec3{root.x, groundY, root.z},
-                                    bundle.rng.NextRange(7.2f, 15.5f),
+                                    bundle.rng.NextRange(6.5f, 14.0f),
                                     yawBase,
-                                    bundle.rng.NextIndex(bundle.botdTreeVariantCount > 0 ? bundle.botdTreeVariantCount : 4),
-                                    "ScatterConifer_" + std::to_string(i + 1));
+                                    bundle.rng.NextIndex(variantCount > 0 ? variantCount : 4),
+                                    "ForestPine_" + std::to_string(i + 1));
     }
 }
 
 void ExecuteForestRuinsScatterBundle(ForestRuinsScatterBundle& bundle) {
     WireForestRuinsScatterCallbacks(bundle);
     const auto& addBoxOnGround = bundle.addBoxOnGround;
-    const auto& addImported = bundle.addImported;
-    const auto& groundPoint = bundle.groundPoint;
-    const int roadSegmentCount = bundle.sourcePackReady ? 10 : 27;
-    const int roadCrackCount = bundle.sourcePackReady ? 6 : 42;
-    const int floorShadowPatchCount = (bundle.sourcePackReady || bundle.useExportedConiferMeshes) ? 0 : 76;
-    const int roadEdgeStoneCount = bundle.sourcePackReady ? 8 : 34;
 
-    for (int i = 0; i < roadSegmentCount; ++i) {
-        const float z = 77.0f - (static_cast<float>(i) * 4.8f);
-        const float x = RuinPathCenterX(z);
-        const float width = (RuinPathHalfWidth(z) * 1.12f) + ((i % 3 == 0) ? 0.75f : 0.0f);
-        addBoxOnGround("OldForestRoad_" + std::to_string(i + 1),
-                       x,
-                       z,
-                       ri::math::Vec3{width, 0.07f, 5.25f},
-                       ri::math::Vec3{0.0f, (i % 2 == 0) ? 1.8f : -2.3f, 0.0f},
-                       (i % 2 == 0) ? ri::math::Vec3{0.095f, 0.098f, 0.087f}
-                                    : ri::math::Vec3{0.070f, 0.078f, 0.068f},
+    // Tiny broken-asphalt scars only inside the roadside remnant clearing — not a highway.
+    const ri::math::Vec3 remnantCenter{38.0f, 0.0f, -34.0f};
+    for (int i = 0; i < 5; ++i) {
+        const float ox = static_cast<float>((i % 3) - 1) * 3.4f;
+        const float oz = static_cast<float>((i / 3) * 4 - 2) * 1.8f;
+        addBoxOnGround("AsphaltScar_" + std::to_string(i + 1),
+                       remnantCenter.x + ox,
+                       remnantCenter.z + oz,
+                       ri::math::Vec3{4.8f + static_cast<float>(i % 2), 0.06f, 3.2f},
+                       ri::math::Vec3{0.0f, static_cast<float>((i * 23) % 40) - 20.0f, 0.0f},
+                       (i % 2 == 0) ? ri::math::Vec3{0.12f, 0.12f, 0.11f} : ri::math::Vec3{0.09f, 0.10f, 0.08f},
                        "old-road-moss-dirt");
     }
-    for (int i = 0; i < roadCrackCount; ++i) {
-        const float z = 75.0f - (static_cast<float>(i) * 3.1f);
-        const float x = RuinPathCenterX(z) + (std::sin(static_cast<float>(i) * 1.9f) * 1.5f);
-        addBoxOnGround("RoadMossCrack_" + std::to_string(i + 1),
-                       x,
-                       z,
-                       ri::math::Vec3{1.0f + static_cast<float>((i * 7) % 5) * 0.38f, 0.085f, 0.23f},
-                       ri::math::Vec3{0.0f, static_cast<float>((i * 41) % 100) - 50.0f, 0.0f},
-                       (i % 3 == 0) ? ri::math::Vec3{0.045f, 0.120f, 0.040f}
-                                    : ri::math::Vec3{0.025f, 0.035f, 0.030f},
-                       "road-crack-moss");
-    }
-    for (int i = 0; i < floorShadowPatchCount; ++i) {
-        const float z = 77.0f - (static_cast<float>(i) * 2.25f);
-        const float side = (i % 2 == 0) ? -1.0f : 1.0f;
-        const float x = RuinPathCenterX(z)
-            + side * (RuinPathHalfWidth(z) + 3.2f + static_cast<float>((i * 13) % 7) * 0.8f);
-        addBoxOnGround("ForestFloorShadowPatch_" + std::to_string(i + 1),
-                       x,
-                       z,
-                       ri::math::Vec3{
-                           2.6f + static_cast<float>((i * 5) % 6) * 0.55f,
-                           0.035f,
-                           1.6f + static_cast<float>((i * 11) % 5) * 0.45f,
-                       },
-                       ri::math::Vec3{0.0f, static_cast<float>((i * 37) % 180), 0.0f},
-                       (i % 4 == 0) ? ri::math::Vec3{0.045f, 0.090f, 0.038f}
-                                    : ri::math::Vec3{0.050f, 0.045f, 0.032f},
-                       "leaf-litter-shadow");
-    }
-    for (int i = 0; i < roadEdgeStoneCount; ++i) {
-        const float z = 72.0f - (static_cast<float>(i) * 3.2f);
-        const float side = (i % 2 == 0) ? -1.0f : 1.0f;
-        const float x = RuinPathCenterX(z) + (side * (RuinPathHalfWidth(z) + 1.8f + (static_cast<float>(i % 4) * 0.35f)));
-        const ri::math::Vec3 rockSize{
-            0.65f + (static_cast<float>((i * 7) % 5) * 0.12f),
-            0.18f + (static_cast<float>((i * 5) % 4) * 0.08f),
-            0.55f + (static_cast<float>((i * 3) % 6) * 0.13f),
-        };
-        addBoxOnGround("RoadEdgeStone_" + std::to_string(i + 1),
-                       x,
-                       z,
-                       rockSize,
-                       ri::math::Vec3{0.0f, static_cast<float>((i * 23) % 180), static_cast<float>((i % 3) - 1) * 4.0f},
-                       (i % 3 == 0) ? ri::math::Vec3{0.35f, 0.38f, 0.31f}
-                                    : ri::math::Vec3{0.43f, 0.42f, 0.36f},
-                       "ruin-road-stone");
-    }
 
-    {
-        struct MaterialShowcaseSample {
-            std::string name;
-            std::string materialKey;
-            float x;
-            float z;
-            ri::math::Vec3 color;
-        };
-        const std::array<MaterialShowcaseSample, 6> samples{{
-            {"MaterialShowcase_OakPlanks", "material-showcase-oak-planks", 12.0f, 68.0f, {0.86f, 0.70f, 0.46f}},
-            {"MaterialShowcase_MossStone", "material-showcase-moss-stone", 14.5f, 68.0f, {0.52f, 0.56f, 0.48f}},
-            {"MaterialShowcase_GoldBlock", "material-showcase-gold-block", 17.0f, 68.0f, {1.0f, 0.84f, 0.36f}},
-            {"MaterialShowcase_CopperBlock", "material-showcase-copper-block", 19.5f, 68.0f, {0.94f, 0.58f, 0.42f}},
-            {"MaterialShowcase_Prismarine", "material-showcase-prismarine", 22.0f, 68.0f, {0.55f, 0.82f, 0.78f}},
-            {"MaterialShowcase_Deepslate", "material-showcase-deepslate", 24.5f, 68.0f, {0.55f, 0.56f, 0.60f}},
-        }};
-        addBoxOnGround("MaterialShowcase_Pad",
-                       18.0f,
-                       64.5f,
-                       {16.0f, 0.12f, 4.8f},
-                       {0.0f, 0.0f, 0.0f},
-                       {0.34f, 0.36f, 0.32f},
-                       "material-showcase-pad");
-        for (const MaterialShowcaseSample& sample : samples) {
-            addBoxOnGround(sample.name,
-                           sample.x,
-                           sample.z,
-                           {1.05f, 1.05f, 1.05f},
-                           {0.0f, static_cast<float>((sample.x + sample.z) * 3.0f), 0.0f},
-                           sample.color,
-                           sample.materialKey);
-        }
-        addBoxOnGround("MaterialShowcase_LabelPost",
-                       10.5f,
-                       64.5f,
-                       {0.18f, 2.4f, 0.18f},
-                       {0.0f, 0.0f, 0.0f},
-                       {0.72f, 0.74f, 0.68f},
-                       "material-showcase-label");
+    // Soft leaf-litter pads in the spawn hollow so it reads as a lived-in forest floor.
+    for (int i = 0; i < 10; ++i) {
+        const float angle = static_cast<float>(i) * 36.0f;
+        const float radius = 3.0f + static_cast<float>(i % 4) * 1.4f;
+        addBoxOnGround("SpawnLitter_" + std::to_string(i + 1),
+                       bundle.guaranteedSpawn.x + std::cos(ri::math::DegreesToRadians(angle)) * radius,
+                       bundle.guaranteedSpawn.z + std::sin(ri::math::DegreesToRadians(angle)) * radius,
+                       ri::math::Vec3{2.2f, 0.04f, 1.6f},
+                       ri::math::Vec3{0.0f, angle, 0.0f},
+                       ri::math::Vec3{0.10f, 0.14f, 0.08f},
+                       "leaf-litter-shadow");
     }
 
     SpawnForestRuinsAssetScatter(bundle, bundle.ruinAssets, bundle.ruinCount, true);
     SpawnForestRuinsAssetScatter(bundle, bundle.rockAssets, bundle.rockCount, false);
     SpawnForestRuinsAssetScatter(bundle, bundle.bushAssets, bundle.bushCount, false);
-    PopulateForestRuinsPathTrees(bundle);
-
-    for (int i = 0; i < 18; ++i) {
-        const float angle = static_cast<float>(i) * 23.0f;
-        const float x = std::sin(ri::math::DegreesToRadians(angle)) * (8.8f + static_cast<float>(i % 4));
-        const float z = 25.0f + std::cos(ri::math::DegreesToRadians(angle)) * (9.0f + static_cast<float>((i + 1) % 5));
-        const ScatterAsset& bush = bundle.bushAssets[static_cast<std::size_t>(i % static_cast<int>(bundle.bushAssets.size()))];
-        addImported("HeroBushCluster_" + std::to_string(i + 1),
-                    bush.sourcePath,
-                    groundPoint(x, z),
-                    {0.0f, static_cast<float>((i * 31) % 360), 0.0f},
-                    {4.8f + static_cast<float>(i % 3) * 0.8f,
-                     4.8f + static_cast<float>(i % 3) * 0.8f,
-                     4.8f + static_cast<float>(i % 3) * 0.8f});
-    }
-
+    PopulateForestRuinsClearingRingTrees(bundle);
     PopulateForestRuinsForestScatter(bundle);
 
     ForestRuinsScatterBundle* self = &bundle;
@@ -1995,7 +1859,9 @@ void ExecuteForestRuinsScatterBundle(ForestRuinsScatterBundle& bundle) {
                                              const float colliderRadius,
                                              const float colliderHeight) {
         const ri::math::Vec3 p = self->groundPoint(x, z);
-        self->addImported(nodeName, sourcePath, p, rotation, scale);
+        if (!self->addImported(nodeName, sourcePath, p, rotation, scale)) {
+            return;
+        }
         if (colliderRadius > 0.0f && colliderHeight > 0.0f) {
             self->addCollider("hero-" + nodeName,
                               {p.x - colliderRadius, p.y, p.z - colliderRadius},
@@ -2011,115 +1877,120 @@ void ExecuteForestRuinsScatterBundle(ForestRuinsScatterBundle& bundle) {
 }
 
 void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& callbacks) {
-    const ri::math::Vec3 stone{0.43f, 0.42f, 0.36f};
-    const ri::math::Vec3 darkStone{0.28f, 0.30f, 0.27f};
-    const ri::math::Vec3 moss{0.18f, 0.31f, 0.16f};
+    const fs::path& world = callbacks.postApocRoot;
+    // scale args are meters: height + max horizontal footprint (fitted after import).
+    const auto importWorld = [&](const char* nodeName,
+                                 const fs::path& relative,
+                                 const float x,
+                                 const float z,
+                                 const ri::math::Vec3& rotation,
+                                 const float targetHeightMeters,
+                                 const float maxFootprintMeters,
+                                 const float colliderRadius,
+                                 const float colliderHeight) {
+        callbacks.heroImport(nodeName,
+                             world / relative,
+                             x,
+                             z,
+                             rotation,
+                             ri::math::Vec3{targetHeightMeters, maxFootprintMeters, 1.0f},
+                             colliderRadius,
+                             colliderHeight);
+    };
 
-    callbacks.addBoxOnGround("RuinedGateway_LeftPier", -4.8f, 38.0f, {1.6f, 5.8f, 1.5f}, {0.0f, -4.0f, 0.0f}, stone, "hero-ruin-stone");
-    callbacks.addBoxOnGround("RuinedGateway_RightPier", 4.6f, 37.2f, {1.5f, 4.7f, 1.5f}, {0.0f, 5.0f, 0.0f}, stone, "hero-ruin-stone");
-    callbacks.addBoxOnGround("RuinedGateway_BrokenLintel", -0.8f, 37.7f, {8.4f, 1.0f, 1.2f}, {0.0f, 2.0f, -7.0f}, stone, "hero-ruin-stone");
-    callbacks.addBoxOnGround("RuinedGateway_FallenLintel", 3.7f, 32.7f, {1.2f, 0.75f, 7.4f}, {0.0f, -32.0f, 10.0f}, darkStone, "hero-ruin-dark-stone");
-    callbacks.addBoxOnGround("OvergrownFoundation_LeftWall", -8.8f, 22.0f, {1.1f, 2.4f, 15.5f}, {0.0f, 3.0f, 0.0f}, stone, "hero-ruin-stone");
-    callbacks.addBoxOnGround("OvergrownFoundation_RightWall", 8.8f, 23.0f, {1.1f, 1.8f, 13.5f}, {0.0f, -6.0f, 0.0f}, stone, "hero-ruin-stone");
-    callbacks.addBoxOnGround("OvergrownFoundation_BackWall", 0.0f, 14.0f, {16.2f, 2.2f, 1.1f}, {0.0f, 2.0f, 0.0f}, stone, "hero-ruin-stone");
-    callbacks.addBoxOnGround("SunkenThreshold", 0.0f, 30.4f, {7.6f, 0.28f, 2.8f}, {0.0f, 0.0f, 0.0f}, darkStone, "hero-ruin-dark-stone");
-    callbacks.addBoxOnGround("CrackedStep_1", 0.0f, 33.8f, {6.4f, 0.22f, 1.5f}, {0.0f, 1.5f, 0.0f}, darkStone, "hero-ruin-dark-stone");
-    callbacks.addBoxOnGround("CrackedStep_2", -0.4f, 35.3f, {5.0f, 0.24f, 1.3f}, {0.0f, -2.0f, 0.0f}, darkStone, "hero-ruin-dark-stone");
+    // Distinct landmark packs — abandoned house / gas station / trailer / industrial / diner.
+    // These are NOT the old Modular Survival roadside props.
+    importWorld("LandmarkAbandonedHouse",
+                "Abandoned_House/Models/Abandoned_House.fbx",
+                -36.0f,
+                -40.0f,
+                {0.0f, 40.0f, 0.0f},
+                9.5f,
+                28.0f,
+                10.0f,
+                7.0f);
+    importWorld("LandmarkGasStation",
+                "Gas_station/Models/Gas_station.fbx",
+                40.0f,
+                -34.0f,
+                {0.0f, -125.0f, 0.0f},
+                8.5f,
+                34.0f,
+                12.0f,
+                6.0f);
+    importWorld("LandmarkTrailerPark",
+                "Trailer_Park/Models/Trailer_Park.fbx",
+                -42.0f,
+                36.0f,
+                {0.0f, 18.0f, 0.0f},
+                7.5f,
+                42.0f,
+                14.0f,
+                5.5f);
+    importWorld("LandmarkIndustrial",
+                "IndustrialHorror/Industrial_exterior_v2/Models/IndustrialHorror_PS_like.fbx",
+                48.0f,
+                28.0f,
+                {0.0f, -55.0f, 0.0f},
+                14.0f,
+                36.0f,
+                12.0f,
+                10.0f);
+    importWorld("LandmarkDiner",
+                "DINER/Models/DINER.fbx",
+                8.0f,
+                -62.0f,
+                {0.0f, 200.0f, 0.0f},
+                8.0f,
+                30.0f,
+                11.0f,
+                5.5f);
+    importWorld("LandmarkSixTwelve",
+                "SixTwelve/Models/6twelve.fbx",
+                -8.0f,
+                54.0f,
+                {0.0f, 155.0f, 0.0f},
+                7.5f,
+                26.0f,
+                9.0f,
+                5.5f);
 
-    for (int i = 0; i < callbacks.heroRubbleCount; ++i) {
-        const float angle = static_cast<float>(i) * 37.0f;
-        const float radius = 5.0f + static_cast<float>((i * 5) % 7) * 0.95f;
-        const float x = std::sin(ri::math::DegreesToRadians(angle)) * radius;
-        const float z = 23.0f + (std::cos(ri::math::DegreesToRadians(angle)) * radius);
-        callbacks.addBoxOnGround("RuinBlockRubble_" + std::to_string(i + 1),
-                                 x,
-                                 z,
-                                 {0.75f + static_cast<float>(i % 3) * 0.18f,
-                                  0.34f + static_cast<float>((i + 1) % 4) * 0.13f,
-                                  0.7f + static_cast<float>((i + 2) % 4) * 0.16f},
-                                 {static_cast<float>((i % 5) - 2) * 5.0f, angle, static_cast<float>((i % 7) - 3) * 3.0f},
-                                 (i % 4 == 0) ? moss : stone,
-                                 "hero-ruin-rubble");
-    }
+    // Small human traces near spawn / landmarks
+    importWorld("SpawnCampfire", "Campfire/MS_Campfire.fbx", 3.5f, 10.0f, {0.0f, 25.0f, 0.0f}, 1.2f, 2.4f, 1.4f, 1.2f);
+    importWorld("SpawnTotem", "Totem/MS_Totem_Welcome.fbx", -4.0f, 14.0f, {0.0f, -30.0f, 0.0f}, 3.2f, 2.0f, 1.2f, 3.4f);
+    importWorld("SpawnSawbuck", "Sawbuck/MS_Sawbuck.fbx", 6.0f, 5.5f, {0.0f, 70.0f, 0.0f}, 1.4f, 2.2f, 1.2f, 1.3f);
+    importWorld("HouseFirepot", "Firepot/MS_Firepot.fbx", -30.0f, -36.0f, {0.0f, 10.0f, 0.0f}, 1.3f, 1.8f, 1.0f, 1.2f);
+    importWorld("GasPropsCluster",
+                "Gas_station/Models/Gas_station_Props.fbx",
+                34.0f,
+                -40.0f,
+                {0.0f, 40.0f, 0.0f},
+                3.5f,
+                16.0f,
+                6.0f,
+                3.0f);
+    importWorld("TrailerPropsCluster",
+                "Trailer_Park/Models/Trailer_Park_Props.fbx",
+                -48.0f,
+                30.0f,
+                {0.0f, -20.0f, 0.0f},
+                3.5f,
+                18.0f,
+                6.0f,
+                3.0f);
+    importWorld("DinerObjects",
+                "DINER/Models/Objects.fbx",
+                14.0f,
+                -58.0f,
+                {0.0f, 90.0f, 0.0f},
+                2.8f,
+                12.0f,
+                5.0f,
+                2.5f);
+    // Skip Forest_Set — full forest scenes often span kilometers in authoring units.
 
-    const int mossCushionCount = callbacks.sourcePackReady ? 4 : 11;
-    for (int i = 0; i < mossCushionCount; ++i) {
-        const float x = -6.0f + static_cast<float>(i) * 1.25f;
-        const float z = 27.0f + std::sin(static_cast<float>(i) * 1.7f) * 4.0f;
-        callbacks.addPrimitive("MossCushion_" + std::to_string(i + 1),
-                               PrimitiveType::Sphere,
-                               ri::math::Vec3{x, callbacks.sampleTerrainHeight(x, z) + 0.25f, z},
-                               {},
-                               {1.2f, 0.32f, 0.9f},
-                               moss,
-                               "moss-cushion",
-                               ShadingModel::Lit);
-    }
-
-    callbacks.heroImport("HeroBusStop_ClaimedByMoss",
-                         callbacks.postApocRoot / "Bus_Stop_Rural" / "MS_Bus_Stop_Rural.fbx",
-                         -11.5f,
-                         43.0f,
-                         {0.0f, 18.0f, 0.0f},
-                         {4.4f, 4.4f, 4.4f},
-                         5.6f,
-                         4.2f);
-    callbacks.heroImport("HeroRoadEndsSign",
-                         callbacks.postApocRoot / "Sign_Public_Road_Ends" / "MS_Sign_Public_Road_Ends.fbx",
-                         5.8f,
-                         53.2f,
-                         {180.0f, -16.0f, 0.0f},
-                         {3.3f, 3.3f, 3.3f},
-                         1.1f,
-                         2.8f);
-    callbacks.heroImport("HeroLightPoleLean",
-                         callbacks.postApocRoot / "Pole_Light_Rural" / "MS_Pole_Light_Rural.fbx",
-                         -7.8f,
-                         31.2f,
-                         {0.0f, 38.0f, -7.0f},
-                         {3.5f, 3.5f, 3.5f},
-                         1.2f,
-                         5.2f);
-    callbacks.heroImport("HeroFireplaceTowerBack",
-                         callbacks.postApocRoot / "Fireplace_Tower" / "MS_Fireplace_Tower.fbx",
-                         10.8f,
-                         11.8f,
-                         {0.0f, -28.0f, 0.0f},
-                         {3.6f, 3.6f, 3.6f},
-                         3.6f,
-                         7.0f);
-    callbacks.heroImport("HeroPlankPile",
-                         callbacks.postApocRoot / "Planks" / "MS_Plank_Pile.fbx",
-                         -3.0f,
-                         20.2f,
-                         {0.0f, 31.0f, 0.0f},
-                         {3.2f, 3.2f, 3.2f},
-                         2.4f,
-                         1.2f);
-    callbacks.heroImport("HeroMailboxTilted",
-                         callbacks.postApocRoot / "Mailbox" / "MS_Mailbox.fbx",
-                         7.4f,
-                         45.4f,
-                         {0.0f, -24.0f, 9.0f},
-                         {3.0f, 3.0f, 3.0f},
-                         0.9f,
-                         1.7f);
-    callbacks.heroImport("HeroControlBox",
-                         callbacks.postApocRoot / "Control_Box" / "MS_Control_Box.fbx",
-                         -6.2f,
-                         17.0f,
-                         {0.0f, 48.0f, 0.0f},
-                         {2.7f, 2.7f, 2.7f},
-                         1.2f,
-                         1.8f);
-    callbacks.heroImport("HeroPalletRotting",
-                         callbacks.postApocRoot / "Pallet" / "MS_Pallet.fbx",
-                         5.8f,
-                         24.8f,
-                         {0.0f, -42.0f, 0.0f},
-                         {3.1f, 3.1f, 3.1f},
-                         1.8f,
-                         0.7f);
+    (void)callbacks.heroRubbleCount;
+    (void)callbacks.sourcePackReady;
 }
 
 } // namespace
@@ -2135,12 +2006,18 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     Scene& scene = world.scene;
     const fs::path workspaceRoot = ri::content::DetectWorkspaceRoot(gameRoot);
     const ForestSceneLayout forest = MakeForestSceneLayout(workspaceRoot, gameRoot);
-    const std::vector<BotdBillboardVariant> botdTreeVariants = DiscoverBotdBillboardVariants(forest.botdBillboardsRoot);
-    const std::vector<fs::path> exportedConiferMeshes = DiscoverExportedConiferMeshes(forest.exportedMeshesRoot);
-    const bool useBotdForestTrees = !botdTreeVariants.empty();
+    const std::vector<BotdBillboardVariant> botdTreeVariants{};
+    const std::vector<fs::path> exportedConiferMeshes = DiscoverPsxTreeMeshes(forest);
     const bool useExportedConiferMeshes = !exportedConiferMeshes.empty();
-    const int botdVerticalBillboardMesh =
-        useBotdForestTrees ? scene.AddMesh(MakeVerticalBillboardMesh(0.0f, 1.0f)) : ri::scene::kInvalidHandle;
+    // BOTD billboards are retired; PsxPack worlds use mesh trees only (see generateTrees gating).
+    const bool useBotdForestTrees = false;
+    const int botdVerticalBillboardMesh = ri::scene::kInvalidHandle;
+    if (!useExportedConiferMeshes) {
+        ri::core::LogInfo("Wilderness Ruins: PSX tree meshes missing under assets/PsxPack/Nature/Trees");
+    } else {
+        ri::core::LogInfo("Wilderness Ruins: using " + std::to_string(exportedConiferMeshes.size())
+                          + " PSX tree meshes from assets/PsxPack");
+    }
     const ri::content::ScriptScalarMap gameplay = ri::content::LoadScriptScalars(gameRoot / "scripts" / "gameplay.riscript");
 
     world.handles.root = scene.CreateNode("WildernessRuinsLayer");
@@ -2148,25 +2025,25 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     LightNodeOptions sun{};
     sun.nodeName = "SunLight";
     sun.parent = world.handles.root;
-    sun.transform.rotationDegrees = ri::math::Vec3{-42.0f, 34.0f, 0.0f};
+    sun.transform.rotationDegrees = ri::math::Vec3{-28.0f, 210.0f, 0.0f};
     sun.light = Light{
         .name = "SunLight",
         .type = LightType::Directional,
-        .color = ri::math::Vec3{1.00f, 0.94f, 0.82f},
-        .intensity = 2.45f,
+        .color = ri::math::Vec3{0.88f, 0.80f, 0.66f},
+        .intensity = 1.15f,
     };
     world.handles.sun = AddLightNode(scene, sun);
 
     LightNodeOptions bounce{};
     bounce.nodeName = "BounceFill";
     bounce.parent = world.handles.root;
-    bounce.transform.position = ri::math::Vec3{0.0f, 4.0f, 0.0f};
+    bounce.transform.position = ri::math::Vec3{0.0f, 5.0f, 8.0f};
     bounce.light = Light{
         .name = "BounceFill",
         .type = LightType::Point,
-        .color = ri::math::Vec3{0.42f, 0.56f, 0.48f},
-        .intensity = 2.85f,
-        .range = 120.0f,
+        .color = ri::math::Vec3{0.34f, 0.40f, 0.36f},
+        .intensity = 1.25f,
+        .range = 70.0f,
     };
     (void)AddLightNode(scene, bounce);
 
@@ -2175,15 +2052,15 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     orbitCamera.camera = Camera{
         .name = "EditorOrbitCamera",
         .projection = ProjectionType::Perspective,
-        .fieldOfViewDegrees = 80.0f,
+        .fieldOfViewDegrees = 72.0f,
         .nearClip = 0.05f,
         .farClip = 2000.0f,
     };
     orbitCamera.orbit = OrbitCameraState{
-        .target = ri::math::Vec3{0.0f, 4.0f, 78.0f},
-        .distance = 34.0f,
-        .yawDegrees = 180.0f,
-        .pitchDegrees = -28.0f,
+        .target = ri::math::Vec3{0.0f, 3.0f, 8.0f},
+        .distance = 28.0f,
+        .yawDegrees = 145.0f,
+        .pitchDegrees = -22.0f,
     };
     world.handles.orbitCamera = AddOrbitCamera(scene, orbitCamera);
 
@@ -2206,20 +2083,20 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     terrain.nodeName = "ForestTerrain";
     terrain.parent = world.handles.root;
     terrain.materialName = "wilderness-ground";
-    terrain.baseColor = ri::math::Vec3{0.30f, 0.37f, 0.24f};
+    terrain.baseColor = ri::math::Vec3{0.32f, 0.38f, 0.24f};
     terrain.baseColorTexture = ToAbsoluteAssetPath(forest.groundDiffuse);
-    if (fs::exists(forest.groundNormal)) {
+    if (!forest.groundNormal.empty() && fs::exists(forest.groundNormal)) {
         terrain.normalTexture = ToAbsoluteAssetPath(forest.groundNormal);
     }
-    terrain.textureTiling = ri::math::Vec2{36.0f, 36.0f};
-    terrain.resolutionX = 96;
-    terrain.resolutionZ = 96;
-    terrain.sizeX = 520.0f;
-    terrain.sizeZ = 520.0f;
-    terrain.heightAmplitude = 1.15f;
-    terrain.heightFrequency = 0.018f;
-    terrain.detailAmplitude = 0.32f;
-    terrain.detailFrequency = 0.092f;
+    terrain.textureTiling = ri::math::Vec2{56.0f, 56.0f};
+    terrain.resolutionX = 112;
+    terrain.resolutionZ = 112;
+    terrain.sizeX = 420.0f;
+    terrain.sizeZ = 420.0f;
+    terrain.heightAmplitude = 2.4f;
+    terrain.heightFrequency = 0.014f;
+    terrain.detailAmplitude = 0.55f;
+    terrain.detailFrequency = 0.11f;
     (void)AddProceduralTerrainNode(scene, terrain);
 
     auto sampleTerrainHeight = [&terrain](const float worldX, const float worldZ) -> float {
@@ -2264,9 +2141,8 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     world.handles.crate = world.playerRig;
     world.handles.beacon = world.playerCameraNode;
 
-    const fs::path engineTexturesRoot = workspaceRoot / "Assets" / "Textures";
     AbsolutizeMaterialTexturePaths(scene);
-    ApplyForestRuinsShowcaseMaterials(scene, engineTexturesRoot);
+    ApplyForestRuinsShowcaseMaterials(scene, forest.lrtRoot);
     AbsolutizeMaterialTexturePaths(scene);
 
     return world;

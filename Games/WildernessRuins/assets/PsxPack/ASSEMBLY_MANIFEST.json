@@ -1,0 +1,12 @@
+{
+  "assembledUtc": "2026-08-06T01:57:21.1877555Z",
+  "destination": "Games/WildernessRuins/assets/PsxPack",
+  "fileCount": 614,
+  "totalBytes": 134974600.0,
+  "totalMiB": 128.72,
+  "notes": [
+    "Byte-identical copies only; purchase root is never written and never named here.",
+    "Excluded: unused bulk, full LRT tile set, landmark Characters/, blend/dae/obj duplicates.",
+    "Material pad uses RT_* tile names (no invented rt2_* aliases)."
+  ]
+}

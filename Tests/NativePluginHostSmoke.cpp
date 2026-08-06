@@ -6,6 +6,13 @@
 #include <fstream>
 #include <string>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#endif
+
 namespace {
 
 void WriteText(const std::filesystem::path& path, const std::string& text) {
@@ -89,6 +96,106 @@ int main(int argc, char** argv) {
     if (host.LoadedPluginCount() != 0U
         || ri::content::IsPluginHookHandlerRegistered("native_fixture_tick")) {
         return EXIT_FAILURE;
+    }
+
+    // Unsafe module paths must be rejected before the OS loader runs.
+    {
+        const std::filesystem::path unsafeRoot =
+            std::filesystem::temp_directory_path() / "RawIronNativePluginHostUnsafeSmoke";
+        std::error_code unsafeError;
+        std::filesystem::remove_all(unsafeRoot, unsafeError);
+        const std::filesystem::path pluginsRoot = unsafeRoot / "plugins";
+        std::filesystem::create_directories(pluginsRoot, unsafeError);
+        if (unsafeError) {
+            return EXIT_FAILURE;
+        }
+
+        // Always-exercised case: a directory named like a DLL must be rejected.
+        const std::filesystem::path directoryModule = pluginsRoot / "directory-as-module.dll";
+        std::filesystem::create_directories(directoryModule, unsafeError);
+        if (unsafeError) {
+            std::filesystem::remove_all(unsafeRoot, unsafeError);
+            return EXIT_FAILURE;
+        }
+        const ri::content::NativePluginLoadResult viaDirectory = host.Load(
+            directoryModule,
+            {
+                .allowedRoot = pluginsRoot,
+                .allowedCapabilities = {"native.fixture"},
+                .enforceAllowedCapabilities = true,
+            });
+        if (viaDirectory.loaded) {
+            std::filesystem::remove_all(unsafeRoot, unsafeError);
+            return EXIT_FAILURE;
+        }
+        std::filesystem::remove_all(directoryModule, unsafeError);
+
+#if defined(_WIN32)
+        const std::filesystem::path realModule = unsafeRoot / "real" / modulePath.filename();
+        const std::filesystem::path linkModule = pluginsRoot / modulePath.filename();
+        std::filesystem::create_directories(realModule.parent_path(), unsafeError);
+        std::filesystem::copy_file(
+            modulePath, realModule, std::filesystem::copy_options::overwrite_existing, unsafeError);
+        if (unsafeError) {
+            std::filesystem::remove_all(unsafeRoot, unsafeError);
+            return EXIT_FAILURE;
+        }
+        const std::wstring linkWide = linkModule.wstring();
+        const std::wstring targetWide = realModule.wstring();
+        if (CreateSymbolicLinkW(linkWide.c_str(),
+                                targetWide.c_str(),
+                                SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)
+            || CreateSymbolicLinkW(linkWide.c_str(), targetWide.c_str(), 0)) {
+            const ri::content::NativePluginLoadResult viaLink = host.Load(
+                linkModule,
+                {
+                    .allowedRoot = pluginsRoot,
+                    .allowedCapabilities = {"native.fixture"},
+                    .enforceAllowedCapabilities = true,
+                });
+            const bool rejectedAsUnsafe =
+                viaLink.diagnostic.find("symlink") != std::string::npos
+                || viaLink.diagnostic.find("reparse") != std::string::npos
+                || viaLink.diagnostic.find("escapes") != std::string::npos;
+            if (viaLink.loaded || !rejectedAsUnsafe) {
+                std::filesystem::remove_all(unsafeRoot, unsafeError);
+                return EXIT_FAILURE;
+            }
+            std::filesystem::remove(linkModule, unsafeError);
+        }
+#else
+        const std::filesystem::path realModule = unsafeRoot / "real" / modulePath.filename();
+        const std::filesystem::path linkModule = pluginsRoot / modulePath.filename();
+        std::filesystem::create_directories(realModule.parent_path(), unsafeError);
+        std::filesystem::copy_file(
+            modulePath, realModule, std::filesystem::copy_options::overwrite_existing, unsafeError);
+        if (unsafeError) {
+            std::filesystem::remove_all(unsafeRoot, unsafeError);
+            return EXIT_FAILURE;
+        }
+        std::filesystem::create_symlink(realModule, linkModule, unsafeError);
+        if (unsafeError) {
+            // Symlink creation should succeed on POSIX CI; treat failure as a real test fault.
+            std::filesystem::remove_all(unsafeRoot, unsafeError);
+            return EXIT_FAILURE;
+        }
+        const ri::content::NativePluginLoadResult viaLink = host.Load(
+            linkModule,
+            {
+                .allowedRoot = pluginsRoot,
+                .allowedCapabilities = {"native.fixture"},
+                .enforceAllowedCapabilities = true,
+            });
+        const bool rejectedAsUnsafe =
+            viaLink.diagnostic.find("symlink") != std::string::npos
+            || viaLink.diagnostic.find("reparse") != std::string::npos
+            || viaLink.diagnostic.find("escapes") != std::string::npos;
+        if (viaLink.loaded || !rejectedAsUnsafe) {
+            std::filesystem::remove_all(unsafeRoot, unsafeError);
+            return EXIT_FAILURE;
+        }
+#endif
+        std::filesystem::remove_all(unsafeRoot, unsafeError);
     }
 
     const std::filesystem::path projectRoot =

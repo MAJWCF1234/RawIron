@@ -44,9 +44,20 @@ class SnapshotReplicator {
 public:
     explicit SnapshotReplicator(std::size_t baselineHistory = 64);
 
+    /// Builds a full or delta packet against the peer's last *remembered* baseline.
+    /// Does not advance peer history — call RememberPeerBaseline only after a successful send.
     [[nodiscard]] SnapshotDeltaPacket BuildForPeer(std::size_t peerId,
                                                    const SnapshotBlob& current,
                                                    bool& usedDelta);
+
+    /// Records `current` as the peer's delivered baseline after encode+send succeed.
+    void RememberPeerBaseline(std::size_t peerId, const SnapshotBlob& current);
+
+    /// Drops the newest baseline when it matches `tick` (e.g. domain decode rejected after apply).
+    void DiscardLatestPeerBaseline(std::size_t peerId, std::uint32_t tick);
+
+    /// Rebuilds a snapshot against remembered baselines. Does not advance history —
+    /// call RememberPeerBaseline only after domain validation succeeds.
     [[nodiscard]] std::optional<SnapshotBlob> ApplyFromServer(std::size_t peerId,
                                                               const SnapshotBlob& fallbackBaseline,
                                                               const SnapshotDeltaPacket& packet);

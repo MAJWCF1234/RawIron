@@ -362,14 +362,31 @@ void RemapMaterialsUsedByGltfSubtree(ri::scene::Scene& scene,
             if (tex.empty()) {
                 return;
             }
-            const fs::path asPath(tex);
+            fs::path asPath(tex);
+            // Rewrite legacy machine-absolute LRT package paths to package-relative tails.
             if (asPath.is_absolute()) {
+                const std::string generic = asPath.generic_string();
+                constexpr std::string_view kLrtMarker = "/Assets/Packages/LRT - Texture Pack - RT28.8 - 128x/";
+                const std::size_t marker = generic.find(kLrtMarker);
+                if (marker == std::string::npos) {
+                    return;
+                }
+                tex = generic.substr(marker + kLrtMarker.size());
+                asPath = fs::path(tex);
+            }
+            if (fs::exists(engineTexturesRoot / asPath)) {
                 return;
             }
-            if (fs::exists(engineTexturesRoot / tex)) {
+            const fs::path lrtAbs =
+                (engineTexturesRoot / ".." / "Packages" / "LRT - Texture Pack - RT28.8 - 128x" / asPath)
+                    .lexically_normal();
+            if (fs::is_regular_file(lrtAbs)) {
+                tex = (fs::path("..") / "Packages" / "LRT - Texture Pack - RT28.8 - 128x" / asPath)
+                          .lexically_normal()
+                          .generic_string();
                 return;
             }
-            const fs::path kitAbs = (logicKitRoot / tex).lexically_normal();
+            const fs::path kitAbs = (logicKitRoot / asPath).lexically_normal();
             if (!fs::is_regular_file(kitAbs)) {
                 return;
             }
@@ -379,7 +396,7 @@ void RemapMaterialsUsedByGltfSubtree(ri::scene::Scene& scene,
                 tex = relative.generic_string();
                 return;
             }
-            tex = (fs::path("..") / "Packages" / "LogicKit" / fs::path(tex)).lexically_normal().generic_string();
+            tex = (fs::path("..") / "Packages" / "LogicKit" / asPath).lexically_normal().generic_string();
         };
         fixTexturePath(mat.baseColorTexture);
         fixTexturePath(mat.emissiveTexture);
@@ -1173,6 +1190,30 @@ World BuildWorld(std::string_view sceneName, const fs::path& gameRoot) {
             gameRoot / "levels" / "assembly.primitives.csv",
             &primitiveImport,
             &primitiveImportError);
+        // CSV textures are package-relative (tile/..., ctm/...). Resolve them against the
+        // committed LRT pack so imports do not depend on machine-absolute paths.
+        for (std::size_t materialIndex = 0; materialIndex < scene.MaterialCount(); ++materialIndex) {
+            ri::scene::Material& material = scene.GetMaterial(static_cast<int>(materialIndex));
+            auto resolveRelative = [&](std::string& texturePath) {
+                if (texturePath.empty()) {
+                    return;
+                }
+                const fs::path authored(texturePath);
+                if (authored.is_absolute()) {
+                    return;
+                }
+                const fs::path candidate = (lrtPackageRoot / authored).lexically_normal();
+                if (fs::is_regular_file(candidate)) {
+                    texturePath = candidate.generic_string();
+                }
+            };
+            resolveRelative(material.baseColorTexture);
+            resolveRelative(material.normalTexture);
+            resolveRelative(material.ormTexture);
+            resolveRelative(material.emissiveTexture);
+            resolveRelative(material.opacityTexture);
+            resolveRelative(material.detailTexture);
+        }
     }
 
     {

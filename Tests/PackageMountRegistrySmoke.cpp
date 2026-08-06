@@ -9,6 +9,13 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace {
 
 namespace fs = std::filesystem;
@@ -224,6 +231,79 @@ int main() {
         || registry.IsMounted("invalid.package")) {
         fs::remove_all(fixtureRoot, error);
         return Fail("invalid package entered the live mount table");
+    }
+
+#if defined(_WIN32)
+    {
+        // Post-mount swap: replace a declared asset with a junction that escapes the package.
+        // Resolve must fail closed rather than return the escaped target.
+        const fs::path payloadPath = shared.packageRoot / "assets" / "payload.ri_asset.json";
+        const fs::path escapeRoot = fixtureRoot / "escape-target";
+        const fs::path escapeFile = escapeRoot / "secret.txt";
+        fs::create_directories(escapeRoot, error);
+        std::ofstream(escapeFile) << "secret";
+        fs::remove(payloadPath, error);
+        const std::wstring link = payloadPath.wstring();
+        const std::wstring target = escapeFile.wstring();
+        if (!CreateSymbolicLinkW(link.c_str(), target.c_str(), SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)
+            && !CreateSymbolicLinkW(link.c_str(), target.c_str(), 0)) {
+            // Symlink creation may be denied on locked-down hosts; skip this hostile case.
+            fs::remove_all(escapeRoot, error);
+        } else if (registry.ResolveAsset("rawiron.shared", "rawiron.shared.payload").has_value()
+                   || registry.ResolveVirtualPath(
+                       "Packages/rawiron.shared/assets/payload.ri_asset.json").has_value()) {
+            fs::remove_all(fixtureRoot, error);
+            return Fail("post-mount symlink escape was not rejected on resolve");
+        } else {
+            fs::remove(payloadPath, error);
+            fs::remove_all(escapeRoot, error);
+            // Restore a real payload so teardown deactivation stays clean.
+            ri::content::AssetDocument restored{};
+            restored.id = "rawiron.shared.payload";
+            restored.type = "data";
+            restored.displayName = "rawiron.shared payload";
+            restored.sourcePath = "generated/rawiron.shared/payload.json";
+            restored.payloadJson = R"({"ready":true})";
+            (void)ri::content::SaveAssetDocument(payloadPath, restored);
+        }
+    }
+#endif
+
+    {
+        // Hard-link alias of an outside inode must not resolve through the mount table.
+        const fs::path payloadPath = shared.packageRoot / "assets" / "payload.ri_asset.json";
+        const fs::path outsideRoot = fixtureRoot / "hardlink-outside";
+        const fs::path outsideFile = outsideRoot / "aliased.ri_asset.json";
+        fs::create_directories(outsideRoot, error);
+        fs::copy_file(payloadPath, outsideFile, fs::copy_options::overwrite_existing, error);
+        fs::remove(payloadPath, error);
+        fs::create_hard_link(outsideFile, payloadPath, error);
+        if (error) {
+            fs::remove_all(outsideRoot, error);
+            // Restore payload if hard links are unavailable on this volume.
+            ri::content::AssetDocument restored{};
+            restored.id = "rawiron.shared.payload";
+            restored.type = "data";
+            restored.displayName = "rawiron.shared payload";
+            restored.sourcePath = "generated/rawiron.shared/payload.json";
+            restored.payloadJson = R"({"ready":true})";
+            (void)ri::content::SaveAssetDocument(payloadPath, restored);
+        } else if (registry.ResolveAsset("rawiron.shared", "rawiron.shared.payload").has_value()
+                   || registry.ResolveVirtualPath(
+                       "Packages/rawiron.shared/assets/payload.ri_asset.json").has_value()) {
+            fs::remove_all(fixtureRoot, error);
+            return Fail("post-mount hard-link alias was not rejected on resolve");
+        } else {
+            fs::remove(payloadPath, error);
+            fs::remove_all(outsideRoot, error);
+            ri::content::AssetDocument restored{};
+            restored.id = "rawiron.shared.payload";
+            restored.type = "data";
+            restored.displayName = "rawiron.shared payload";
+            restored.sourcePath = "generated/rawiron.shared/payload.json";
+            restored.payloadJson = R"({"ready":true})";
+            (void)ri::content::SaveAssetDocument(payloadPath, restored);
+        }
     }
 
     if (!registry.Deactivate(second.activationId)

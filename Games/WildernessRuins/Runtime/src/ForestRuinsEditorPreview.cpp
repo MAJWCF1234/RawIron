@@ -17,14 +17,15 @@ void ApplyForestRuinsScenePreviewProfile(ri::render::software::ScenePreviewOptio
     options.farHorizonMaxNodeStride = 3U;
     options.farHorizonMaxInstanceStride = 4U;
     options.orderedDither = true;
-    options.fogStartDepth = 14.0f;
-    options.fogEndDepth = 110.0f;
-    options.fogStrength = 0.40f;
-    options.clearTop = ri::math::Vec3{0.22f, 0.32f, 0.38f};
-    options.clearBottom = ri::math::Vec3{0.06f, 0.10f, 0.07f};
-    options.fogColor = ri::math::Vec3{0.14f, 0.20f, 0.18f};
-    options.fogColorFar = ri::math::Vec3{0.26f, 0.32f, 0.27f};
-    options.ambientLight = ri::math::Vec3{0.10f, 0.12f, 0.09f};
+    // Keep in sync with Games/WildernessRuins/scripts/rendering.riscript.
+    options.fogStartDepth = 10.0f;
+    options.fogEndDepth = 85.0f;
+    options.fogStrength = 0.55f;
+    options.clearTop = ri::math::Vec3{0.42f, 0.48f, 0.52f};
+    options.clearBottom = ri::math::Vec3{0.18f, 0.22f, 0.18f};
+    options.fogColor = ri::math::Vec3{0.28f, 0.32f, 0.30f};
+    options.fogColorFar = ri::math::Vec3{0.34f, 0.38f, 0.36f};
+    options.ambientLight = ri::math::Vec3{0.22f, 0.24f, 0.20f};
 }
 
 namespace {

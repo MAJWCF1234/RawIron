@@ -1,9 +1,11 @@
-# Wilderness Ruins material showcase pad — east of spawn, mirrors runtime MaterialShowcase_* nodes.
+# Wilderness Ruins material reference pad (primaryLevel contract / editor import).
+# Runtime world building is procedural via BuildForestRuinsWorld; this CSV remains the
+# authored material-sample assembly for BundledExperiencesSmoke and editor previews.
 # name,type,x,y,z,rx,ry,rz,sx,sy,sz,color_r,color_g,color_b,texture,tileX,tileY
 MaterialShowcase_Pad,box,18,0,64.5,0,0,0,16,0.12,4.8,0.34,0.36,0.32,,2,2
-MaterialShowcase_OakPlanks,box,12,0.52,68,0,0,0,1.05,1.05,1.05,0.86,0.70,0.46,tile/rt2_oak_planks.png,1,1
+MaterialShowcase_OakPlanks,box,12,0.52,68,0,0,0,1.05,1.05,1.05,0.86,0.70,0.46,tile/RT_oak_log.png,1,1
 MaterialShowcase_MossStone,box,14.5,0.52,68,0,0,0,1.05,1.05,1.05,0.52,0.56,0.48,tile/RT_mossy_stone_bricks.png,1,1
-MaterialShowcase_GoldBlock,box,17,0.52,68,0,0,0,1.05,1.05,1.05,1,0.84,0.36,tile/rt2_gold_block.png,1,1
-MaterialShowcase_CopperBlock,box,19.5,0.52,68,0,0,0,1.05,1.05,1.05,0.94,0.58,0.42,tile/rt2_copper_block.png,1,1
-MaterialShowcase_Prismarine,box,22,0.52,68,0,0,0,1.05,1.05,1.05,0.55,0.82,0.78,tile/rt2_prismarine_bricks.png,1,1
-MaterialShowcase_Deepslate,box,24.5,0.52,68,0,0,0,1.05,1.05,1.05,0.55,0.56,0.60,tile/rt2_deepslate_tiles.png,1,1
+MaterialShowcase_GoldBlock,box,17,0.52,68,0,0,0,1.05,1.05,1.05,1,0.84,0.36,tile/RT_gold_block.png,1,1
+MaterialShowcase_CopperBlock,box,19.5,0.52,68,0,0,0,1.05,1.05,1.05,0.94,0.58,0.42,tile/RT_raw_copper_block.png,1,1
+MaterialShowcase_Prismarine,box,22,0.52,68,0,0,0,1.05,1.05,1.05,0.55,0.82,0.78,tile/RT_prismarine_bricks.png,1,1
+MaterialShowcase_Deepslate,box,24.5,0.52,68,0,0,0,1.05,1.05,1.05,0.55,0.56,0.60,tile/RT_deepslate_tiles.png,1,1

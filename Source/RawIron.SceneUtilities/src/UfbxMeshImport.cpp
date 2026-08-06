@@ -156,41 +156,121 @@ std::vector<std::filesystem::path> CollectTextureCandidates(const std::filesyste
     return out;
 }
 
+[[nodiscard]] std::string ExistingAbsolutePath(const std::filesystem::path& path) {
+    std::error_code ec{};
+    if (path.empty() || !std::filesystem::exists(path, ec) || ec) {
+        return {};
+    }
+    return std::filesystem::absolute(path, ec).lexically_normal().generic_string();
+}
+
 std::string AbsolutizeTexturePath(const std::filesystem::path& path, const std::filesystem::path& modelPath) {
     if (path.empty()) {
         return {};
     }
-    std::error_code ec{};
     std::filesystem::path resolved = path;
     if (!resolved.is_absolute()) {
         resolved = modelPath.parent_path() / resolved;
     }
-    resolved = resolved.lexically_normal();
-    if (std::filesystem::exists(resolved, ec) && !ec) {
-        return std::filesystem::absolute(resolved, ec).lexically_normal().generic_string();
+    return ExistingAbsolutePath(resolved.lexically_normal());
+}
+
+/// Remap baked author-machine absolute paths / bare filenames onto pack-local textures
+/// (e.g. Models/*.fbx + sibling ../Textures/<basename>).
+[[nodiscard]] std::string RemapTextureByBasename(const std::filesystem::path& authoredPath,
+                                                 const std::filesystem::path& modelPath,
+                                                 const std::vector<std::filesystem::path>& textureCandidates) {
+    if (authoredPath.empty()) {
+        return {};
+    }
+    const std::filesystem::path fileName = authoredPath.filename();
+    if (fileName.empty()) {
+        return {};
+    }
+    const std::string fileNameLower = ToLowerAscii(fileName.string());
+    const std::string stemLower = ToLowerAscii(authoredPath.stem().string());
+    const std::filesystem::path modelDir = modelPath.parent_path();
+    const std::filesystem::path packDir = modelDir.parent_path();
+
+    const std::array<std::filesystem::path, 5> probes{{
+        modelDir / fileName,
+        modelDir / "Textures" / fileName,
+        packDir / "Textures" / fileName,
+        packDir / fileName,
+        modelDir.parent_path().parent_path() / "Textures" / fileName,
+    }};
+    for (const std::filesystem::path& probe : probes) {
+        if (const std::string absolute = ExistingAbsolutePath(probe); !absolute.empty()) {
+            return absolute;
+        }
+    }
+
+    const std::filesystem::path* stemMatch = nullptr;
+    for (const std::filesystem::path& candidate : textureCandidates) {
+        const std::string candidateNameLower = ToLowerAscii(candidate.filename().string());
+        if (candidateNameLower == fileNameLower) {
+            if (const std::string absolute = ExistingAbsolutePath(candidate); !absolute.empty()) {
+                return absolute;
+            }
+        }
+        if (stemMatch == nullptr && !stemLower.empty()) {
+            const std::string candidateStemLower = ToLowerAscii(candidate.stem().string());
+            if (candidateStemLower == stemLower) {
+                stemMatch = &candidate;
+            }
+        }
+    }
+    if (stemMatch != nullptr) {
+        return ExistingAbsolutePath(*stemMatch);
     }
     return {};
 }
 
 std::string ResolveUfbxTextureFile(const ufbx_texture* texture,
-                                 const std::filesystem::path& modelPath,
-                                 const int depth = 0) {
+                                   const std::filesystem::path& modelPath,
+                                   const std::vector<std::filesystem::path>& textureCandidates,
+                                   const int depth = 0) {
     if (texture == nullptr || depth > 8) {
         return {};
     }
     for (std::size_t fileIndex = 0; fileIndex < texture->file_textures.count; ++fileIndex) {
         const ufbx_texture* nestedTexture = texture->file_textures[fileIndex];
-        const std::string resolved = ResolveUfbxTextureFile(nestedTexture, modelPath, depth + 1);
+        const std::string resolved =
+            ResolveUfbxTextureFile(nestedTexture, modelPath, textureCandidates, depth + 1);
         if (!resolved.empty()) {
             return resolved;
         }
     }
-    return AbsolutizeTexturePath(ToString(texture->filename, ""), modelPath);
+
+    const std::array<std::string, 3> authoredPaths{{
+        ToString(texture->filename, ""),
+        ToString(texture->relative_filename, ""),
+        ToString(texture->absolute_filename, ""),
+    }};
+    for (const std::string& authored : authoredPaths) {
+        if (authored.empty()) {
+            continue;
+        }
+        if (const std::string resolved = AbsolutizeTexturePath(authored, modelPath); !resolved.empty()) {
+            return resolved;
+        }
+    }
+    for (const std::string& authored : authoredPaths) {
+        if (authored.empty()) {
+            continue;
+        }
+        if (const std::string remapped = RemapTextureByBasename(authored, modelPath, textureCandidates);
+            !remapped.empty()) {
+            return remapped;
+        }
+    }
+    return {};
 }
 
 std::string ResolveUfbxMaterialTextureProp(const ufbx_material* material,
-                                         const std::filesystem::path& modelPath,
-                                         const std::vector<const char*>& propNames) {
+                                           const std::filesystem::path& modelPath,
+                                           const std::vector<std::filesystem::path>& textureCandidates,
+                                           const std::vector<const char*>& propNames) {
     if (material == nullptr) {
         return {};
     }
@@ -199,7 +279,7 @@ std::string ResolveUfbxMaterialTextureProp(const ufbx_material* material,
             break;
         }
         const ufbx_texture* texture = ufbx_find_prop_texture(material, propName);
-        const std::string resolved = ResolveUfbxTextureFile(texture, modelPath);
+        const std::string resolved = ResolveUfbxTextureFile(texture, modelPath, textureCandidates);
         if (!resolved.empty()) {
             return resolved;
         }
@@ -321,7 +401,8 @@ std::string ResolveUfbxBaseColorTexture(const ufbx_material* material,
         "BaseColor",
         "albedo",
     };
-    const std::string embedded = ResolveUfbxMaterialTextureProp(material, modelPath, kAlbedoPropNames);
+    const std::string embedded =
+        ResolveUfbxMaterialTextureProp(material, modelPath, textureCandidates, kAlbedoPropNames);
     if (!embedded.empty()) {
         return embedded;
     }
@@ -338,7 +419,8 @@ std::string ResolveUfbxNormalTexture(const ufbx_material* material,
         "bump",
         "norm",
     };
-    const std::string embedded = ResolveUfbxMaterialTextureProp(material, modelPath, kNormalPropNames);
+    const std::string embedded =
+        ResolveUfbxMaterialTextureProp(material, modelPath, textureCandidates, kNormalPropNames);
     if (!embedded.empty()) {
         return embedded;
     }

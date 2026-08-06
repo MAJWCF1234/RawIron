@@ -54,7 +54,7 @@ if(RAWIRON_BUILD_TESTS)
 
   add_executable(BundledPluginProjectDataSmoke ${CMAKE_SOURCE_DIR}/Tests/BundledPluginProjectDataSmoke.cpp)
   target_link_libraries(BundledPluginProjectDataSmoke PRIVATE RawIron::Content)
-  add_test(NAME RawIron.Content.BundledPluginProjectDataSmoke COMMAND BundledPluginProjectDataSmoke)
+  add_test(NAME RawIron.Content.BundledPluginProjectDataSmoke COMMAND BundledPluginProjectDataSmoke ${CMAKE_SOURCE_DIR})
 
   add_executable(ShaderAssetSmoke ${CMAKE_SOURCE_DIR}/Tests/ShaderAssetSmoke.cpp)
   target_link_libraries(ShaderAssetSmoke PRIVATE RawIron::Content)

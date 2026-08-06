@@ -97,6 +97,11 @@ std::optional<SnapshotBlob> ApplySnapshotDelta(const SnapshotBlob& baseline, con
         }
         const std::size_t startIndex = static_cast<std::size_t>(start);
         const std::size_t runLength = static_cast<std::size_t>(len);
+        // Zero-length runs are never emitted by BuildSnapshotDelta and would be a
+        // no-op patch; reject them so malformed packets cannot pad the op stream.
+        if (runLength == 0U) {
+            return std::nullopt;
+        }
         if (startIndex > rebuilt.bytes.size() || runLength > rebuilt.bytes.size() - startIndex) {
             return std::nullopt;
         }
@@ -107,6 +112,11 @@ std::optional<SnapshotBlob> ApplySnapshotDelta(const SnapshotBlob& baseline, con
                   delta.encodedOps.begin() + static_cast<std::ptrdiff_t>(at + runLength),
                   rebuilt.bytes.begin() + static_cast<std::ptrdiff_t>(startIndex));
         at += runLength;
+    }
+    // Reject trailing garbage so checksum-matching ambiguous packets cannot hide
+    // unconsumed op bytes (parse-then-apply: consume the whole encodedOps buffer).
+    if (at != delta.encodedOps.size()) {
+        return std::nullopt;
     }
     if (SnapshotChecksum(rebuilt.bytes) != delta.payloadChecksum) {
         return std::nullopt;
@@ -124,8 +134,13 @@ SnapshotDeltaPacket SnapshotReplicator::BuildForPeer(const std::size_t peerId,
     SnapshotDeltaPacket packet{};
     packet.targetTick = current.tick;
 
-    auto& history = peerBaselines_[peerId];
-    const SnapshotBlob* baseline = history.empty() ? nullptr : &history.back();
+    // Do not insert an empty peer slot here — history advances only via RememberPeerBaseline
+    // after a successful encode+send, so a failed send cannot desync later deltas.
+    const auto historyIt = peerBaselines_.find(peerId);
+    const SnapshotBlob* baseline = nullptr;
+    if (historyIt != peerBaselines_.end() && !historyIt->second.empty()) {
+        baseline = &historyIt->second.back();
+    }
     if (baseline != nullptr && baseline->bytes.size() == current.bytes.size() && baseline->tick < current.tick) {
         const auto maybeDelta = BuildSnapshotDelta(*baseline, current);
         if (maybeDelta.has_value()) {
@@ -149,22 +164,41 @@ SnapshotDeltaPacket SnapshotReplicator::BuildForPeer(const std::size_t peerId,
         stats_.bytesFull += current.bytes.size();
     }
 
+    return packet;
+}
+
+void SnapshotReplicator::RememberPeerBaseline(const std::size_t peerId, const SnapshotBlob& current) {
+    auto& history = peerBaselines_[peerId];
     history.push_back(current);
     while (history.size() > history_) {
         history.pop_front();
     }
-    return packet;
+}
+
+void SnapshotReplicator::DiscardLatestPeerBaseline(const std::size_t peerId, const std::uint32_t tick) {
+    const auto it = peerBaselines_.find(peerId);
+    if (it == peerBaselines_.end() || it->second.empty()) {
+        return;
+    }
+    if (it->second.back().tick == tick) {
+        it->second.pop_back();
+    }
+    if (it->second.empty()) {
+        peerBaselines_.erase(it);
+    }
 }
 
 std::optional<SnapshotBlob> SnapshotReplicator::ApplyFromServer(const std::size_t peerId,
                                                                 const SnapshotBlob& fallbackBaseline,
                                                                 const SnapshotDeltaPacket& packet) {
-    auto& history = peerBaselines_[peerId];
     const SnapshotBlob* baseline = nullptr;
-    for (auto it = history.rbegin(); it != history.rend(); ++it) {
-        if (it->tick == packet.baseTick) {
-            baseline = &(*it);
-            break;
+    const auto historyIt = peerBaselines_.find(peerId);
+    if (historyIt != peerBaselines_.end()) {
+        for (auto it = historyIt->second.rbegin(); it != historyIt->second.rend(); ++it) {
+            if (it->tick == packet.baseTick) {
+                baseline = &(*it);
+                break;
+            }
         }
     }
     if (baseline == nullptr && fallbackBaseline.tick == packet.baseTick) {
@@ -192,10 +226,8 @@ std::optional<SnapshotBlob> SnapshotReplicator::ApplyFromServer(const std::size_
         rebuilt = *applied;
     }
 
-    history.push_back(rebuilt);
-    while (history.size() > history_) {
-        history.pop_front();
-    }
+    // Do not commit peer history here — callers must RememberPeerBaseline only after
+    // domain-level validation succeeds (e.g. authoritative position decode).
     return rebuilt;
 }
 

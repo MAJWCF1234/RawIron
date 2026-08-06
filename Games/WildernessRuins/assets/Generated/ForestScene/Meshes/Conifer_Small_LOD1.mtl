@@ -1,6 +1,0 @@
-# RawIron BOTD YAML mesh export
-newmtl Trunk
-map_Kd ../Textures/BODT Conifer Trunk [Albedo] [Smoothness].png
-newmtl Branches
-map_Kd ../Textures/BODT Conifer  Branches [Albedo] [Smoothness].png
-map_Bump ../Textures/BODT Conifer Branches_Normal combined.png

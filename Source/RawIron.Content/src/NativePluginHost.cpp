@@ -7,15 +7,26 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
+#include <string>
 #include <system_error>
 #include <utility>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <Windows.h>
 #else
 #include <dlfcn.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#if defined(__APPLE__)
+#include <limits.h>
+#endif
 #endif
 
 namespace ri::content {
@@ -27,8 +38,97 @@ constexpr const char* kDescriptorSymbol = "RawIronPluginGetDescriptorV1";
 #if defined(_WIN32)
 using ModuleHandle = HMODULE;
 
+/// Open reparse-safe, then LoadLibraryW by resolved path, then verify the loaded
+/// image still refers to the same NTFS file identity as the vetted handle.
+/// Windows cannot fd-bind LoadLibrary; same-inode in-place overwrite remains a
+/// residual when the attacker already has write access to the module file.
 [[nodiscard]] ModuleHandle OpenModule(const std::filesystem::path& path) {
-    return LoadLibraryW(path.c_str());
+    const HANDLE fileHandle = CreateFileW(path.c_str(),
+                                          GENERIC_READ,
+                                          FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                          nullptr,
+                                          OPEN_EXISTING,
+                                          FILE_FLAG_OPEN_REPARSE_POINT,
+                                          nullptr);
+    if (fileHandle == INVALID_HANDLE_VALUE) {
+        return nullptr;
+    }
+    BY_HANDLE_FILE_INFORMATION openedInfo{};
+    if (!GetFileInformationByHandle(fileHandle, &openedInfo)
+        || (openedInfo.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U
+        || (openedInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U) {
+        CloseHandle(fileHandle);
+        return nullptr;
+    }
+    std::wstring loaderPath;
+    constexpr DWORD kMaxFinalPathChars = 32768U;
+    for (DWORD capacity = MAX_PATH;; ) {
+        loaderPath.assign(capacity, L'\0');
+        const DWORD length =
+            GetFinalPathNameByHandleW(fileHandle, loaderPath.data(), capacity, FILE_NAME_NORMALIZED);
+        if (length == 0U) {
+            CloseHandle(fileHandle);
+            return nullptr;
+        }
+        if (length < capacity) {
+            loaderPath.resize(length);
+            break;
+        }
+        if (capacity >= kMaxFinalPathChars) {
+            CloseHandle(fileHandle);
+            return nullptr;
+        }
+        const DWORD nextCapacity = capacity * 2U;
+        capacity = nextCapacity < capacity || nextCapacity > kMaxFinalPathChars
+            ? kMaxFinalPathChars
+            : nextCapacity;
+    }
+    // GetFinalPathNameByHandleW returns \\?\ / \\?\UNC\ forms. LoadLibraryW is unreliable
+    // with those prefixes; strip them the same way PackageMountRegistry does.
+    if (loaderPath.rfind(L"\\\\?\\UNC\\", 0) == 0) {
+        loaderPath = L"\\\\" + loaderPath.substr(8);
+    } else if (loaderPath.rfind(L"\\\\?\\", 0) == 0) {
+        loaderPath = loaderPath.substr(4);
+    }
+    const ModuleHandle module = LoadLibraryW(loaderPath.c_str());
+    if (module == nullptr) {
+        CloseHandle(fileHandle);
+        return nullptr;
+    }
+    wchar_t loadedPath[4096]{};
+    const DWORD loadedLength =
+        GetModuleFileNameW(module, loadedPath, static_cast<DWORD>(std::size(loadedPath)));
+    if (loadedLength == 0U || loadedLength >= static_cast<DWORD>(std::size(loadedPath))) {
+        FreeLibrary(module);
+        CloseHandle(fileHandle);
+        return nullptr;
+    }
+    const HANDLE loadedHandle = CreateFileW(loadedPath,
+                                            GENERIC_READ,
+                                            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                            nullptr,
+                                            OPEN_EXISTING,
+                                            FILE_FLAG_OPEN_REPARSE_POINT,
+                                            nullptr);
+    if (loadedHandle == INVALID_HANDLE_VALUE) {
+        FreeLibrary(module);
+        CloseHandle(fileHandle);
+        return nullptr;
+    }
+    BY_HANDLE_FILE_INFORMATION loadedInfo{};
+    const BOOL gotLoadedInfo = GetFileInformationByHandle(loadedHandle, &loadedInfo);
+    CloseHandle(loadedHandle);
+    const bool sameIdentity = gotLoadedInfo
+        && openedInfo.dwVolumeSerialNumber == loadedInfo.dwVolumeSerialNumber
+        && openedInfo.nFileIndexHigh == loadedInfo.nFileIndexHigh
+        && openedInfo.nFileIndexLow == loadedInfo.nFileIndexLow
+        && (loadedInfo.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0U;
+    CloseHandle(fileHandle);
+    if (!sameIdentity) {
+        FreeLibrary(module);
+        return nullptr;
+    }
+    return module;
 }
 
 [[nodiscard]] void* FindModuleSymbol(const ModuleHandle module, const char* name) {
@@ -43,8 +143,44 @@ void CloseModule(const ModuleHandle module) {
 #else
 using ModuleHandle = void*;
 
+/// Open with O_NOFOLLOW and load via an fd-bound path so a symlink swap cannot
+/// redirect dlopen to an attacker-controlled target.
 [[nodiscard]] ModuleHandle OpenModule(const std::filesystem::path& path) {
-    return dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    int flags = O_RDONLY;
+#if defined(O_CLOEXEC)
+    flags |= O_CLOEXEC;
+#endif
+#if defined(O_NOFOLLOW)
+    flags |= O_NOFOLLOW;
+#endif
+    const int fd = ::open(path.c_str(), flags);
+    if (fd < 0) {
+        return nullptr;
+    }
+    struct stat status {};
+    if (::fstat(fd, &status) != 0 || !S_ISREG(status.st_mode)) {
+        ::close(fd);
+        return nullptr;
+    }
+#if defined(__linux__)
+    char fdPath[64];
+    std::snprintf(fdPath, sizeof(fdPath), "/proc/self/fd/%d", fd);
+    ModuleHandle module = dlopen(fdPath, RTLD_NOW | RTLD_LOCAL);
+#elif defined(__APPLE__)
+    char resolved[PATH_MAX];
+    if (::fcntl(fd, F_GETPATH, resolved) == -1) {
+        ::close(fd);
+        return nullptr;
+    }
+    ModuleHandle module = dlopen(resolved, RTLD_NOW | RTLD_LOCAL);
+#else
+    // Fail closed: path-only dlopen after open() is a TOCTOU hole on platforms
+    // without an fd-bound loader path.
+    ::close(fd);
+    return nullptr;
+#endif
+    ::close(fd);
+    return module;
 }
 
 [[nodiscard]] void* FindModuleSymbol(const ModuleHandle module, const char* name) {
@@ -62,11 +198,43 @@ void CloseModule(const ModuleHandle module) {
     auto rootIt = root.begin();
     auto candidateIt = candidate.begin();
     for (; rootIt != root.end(); ++rootIt, ++candidateIt) {
-        if (candidateIt == candidate.end() || *rootIt != *candidateIt) {
+        if (candidateIt == candidate.end()) {
             return false;
         }
+#if defined(_WIN32)
+        if (CompareStringOrdinal(rootIt->c_str(), -1, candidateIt->c_str(), -1, TRUE) != CSTR_EQUAL) {
+            return false;
+        }
+#else
+        if (*rootIt != *candidateIt) {
+            return false;
+        }
+#endif
     }
     return true;
+}
+
+[[nodiscard]] bool IsUnsafeNativePluginPath(const std::filesystem::path& path) {
+#if defined(_WIN32)
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        return true;
+    }
+    if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U) {
+        return true;
+    }
+    if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0U) {
+        return true;
+    }
+    return false;
+#else
+    std::error_code statusError;
+    const std::filesystem::file_status status = std::filesystem::symlink_status(path, statusError);
+    if (statusError || std::filesystem::is_symlink(status) || std::filesystem::is_directory(status)) {
+        return true;
+    }
+    return false;
+#endif
 }
 
 [[nodiscard]] bool CapabilityAllowed(
@@ -120,6 +288,10 @@ NativePluginLoadResult NativePluginHost::Load(
     const NativePluginLoadOptions& options) {
     NativePluginLoadResult result{};
     std::error_code error;
+    if (IsUnsafeNativePluginPath(modulePath)) {
+        result.diagnostic = "Native plugin module must be a regular non-symlink file.";
+        return result;
+    }
     const std::filesystem::path canonicalModule = std::filesystem::weakly_canonical(modulePath, error);
     if (error || !std::filesystem::is_regular_file(canonicalModule, error) || error) {
         result.diagnostic = "Native plugin module does not exist or is not a regular file.";
@@ -134,9 +306,11 @@ NativePluginLoadResult NativePluginHost::Load(
         }
     }
 
+    // OpenModule rejects reparse points and (on Win32) verifies loaded file identity.
     const ModuleHandle rawHandle = OpenModule(canonicalModule);
     if (rawHandle == nullptr) {
-        result.diagnostic = "Operating system loader rejected the native plugin module.";
+        result.diagnostic =
+            "Operating system loader rejected the native plugin module (missing, unsafe reparse, or load failure).";
         return result;
     }
     auto lease = std::make_shared<ModuleLease>();

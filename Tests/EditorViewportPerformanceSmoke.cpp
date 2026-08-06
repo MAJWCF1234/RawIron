@@ -281,6 +281,18 @@ int main() {
             != ri::editor::CameraRailHit::ResolutionScaleButton) {
         return EXIT_FAILURE;
     }
+
+    // Menu banner Help is left-aligned with the label text, not glued to the right edge.
+    const RECT viewportInner{0, 0, 1280, 720};
+    const POINT createPoint{4 + 220, 6 + 12};
+    const POINT helpPoint{4 + (188 * 56 / 22) + 20, 6 + 12};
+    const POINT rightEdgeFalseHelp{viewportInner.right - 30, 6 + 12};
+    if (!ri::editor::HitTestViewportCreateMenu(viewportInner, createPoint)
+        || !ri::editor::HitTestViewportHelpMenu(viewportInner, helpPoint)
+        || ri::editor::HitTestViewportHelpMenu(viewportInner, rightEdgeFalseHelp)
+        || ri::editor::HitTestViewportHelpMenu(viewportInner, createPoint)) {
+        return EXIT_FAILURE;
+    }
 #endif
 
     return EXIT_SUCCESS;
