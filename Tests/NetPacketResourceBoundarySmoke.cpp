@@ -272,8 +272,10 @@ bool RuntimeRejectsOversizeBeforeDispatch() {
     oversized.payload.resize(ri::runtime::kMaxNetPacketPayloadBytes + 1U);
     injected->inbox.push_back(std::move(oversized));
 
+    // Use a different peer for the follow-up valid packet: soft protocol-offense cooldowns
+    // intentionally suppress further traffic from the offending peerId.
     ri::runtime::NetPacket valid{};
-    valid.peerId = 41U;
+    valid.peerId = 42U;
     valid.payload = {1U, 2U, 3U};
     injected->inbox.push_back(std::move(valid));
 
