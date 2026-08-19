@@ -187,8 +187,27 @@ struct EditorViewportBlockCallbacks {
 [[nodiscard]] std::string EditorToolbarTooltipAtPoint(const RECT& toolStrip, const POINT& point);
 [[nodiscard]] CameraRailHit HitTestCameraRail(const RECT& railRect, const POINT& point);
 [[nodiscard]] CameraRailSpriteDiagnostics GetCameraRailSpriteDiagnostics();
-[[nodiscard]] bool HitTestViewportCreateMenu(const RECT& viewportInner, const POINT& point);
-[[nodiscard]] bool HitTestViewportHelpMenu(const RECT& viewportInner, const POINT& point);
+struct ViewportMenuBannerHits {
+    RECT banner{};
+    RECT create{};
+    RECT help{};
+    bool measured = false;
+};
+
+/// Measures Create/Help hit boxes from the real menu label + font (not char-count ratios).
+[[nodiscard]] ViewportMenuBannerHits MeasureViewportMenuBannerHits(HDC dc,
+                                                                   HFONT font,
+                                                                   const RECT& viewportInner,
+                                                                   bool createMenuActive);
+
+[[nodiscard]] bool HitTestViewportCreateMenu(const RECT& viewportInner,
+                                             const POINT& point,
+                                             bool createMenuActive = false,
+                                             HFONT font = nullptr);
+[[nodiscard]] bool HitTestViewportHelpMenu(const RECT& viewportInner,
+                                           const POINT& point,
+                                           bool createMenuActive = false,
+                                           HFONT font = nullptr);
 
 void RenderEditorTopChrome(HDC dc,
                            const RECT& client,

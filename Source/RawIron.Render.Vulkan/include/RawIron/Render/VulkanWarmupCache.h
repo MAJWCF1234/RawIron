@@ -12,6 +12,10 @@
 #include <unordered_map>
 #include <vector>
 
+namespace ri::core {
+class JobSystem;
+}
+
 namespace ri::render::vulkan {
 
 enum class VulkanWarmupMode : std::uint8_t {
@@ -46,7 +50,8 @@ struct VulkanWarmupCacheStats {
 class VulkanWarmupCache {
 public:
     [[nodiscard]] VulkanWarmupCacheStats Preload(const std::vector<std::filesystem::path>& paths,
-                                                 const VulkanWarmupCacheOptions& options);
+                                                 const VulkanWarmupCacheOptions& options,
+                                                 ri::core::JobSystem* sharedJobs = nullptr);
     [[nodiscard]] std::shared_ptr<const ri::render::software::RgbaImage> Load(
         const std::filesystem::path& path);
 

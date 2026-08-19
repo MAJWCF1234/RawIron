@@ -68,7 +68,8 @@ public:
         if (found == services_.end()) {
             return {};
         }
-        return std::any_cast<std::shared_ptr<T>>(found->second);
+        const auto* service = std::any_cast<std::shared_ptr<T>>(&found->second);
+        return service != nullptr ? *service : std::shared_ptr<T>{};
     }
 
     template <class T>
@@ -159,7 +160,7 @@ public:
     /// Registration is rejected once startup has begun so an unstarted module can never receive frames.
     void AddModule(std::unique_ptr<RuntimeModule> module);
     [[nodiscard]] bool TryAddModule(std::unique_ptr<RuntimeModule> module);
-    /// Registers built-in runtime modules (level schedulers, HostInput, etc.).
+    /// Registers built-in runtime modules (Jobs, level schedulers, HostInput, etc.).
     void AddDefaultModules();
     [[nodiscard]] bool HasModule(std::string_view moduleName) const;
     [[nodiscard]] std::vector<std::string> ModuleNames() const;

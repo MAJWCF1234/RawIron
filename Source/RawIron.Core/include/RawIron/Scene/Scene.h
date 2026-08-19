@@ -15,6 +15,19 @@ namespace ri::scene {
 
 inline constexpr int kInvalidHandle = -1;
 
+/// Append-only resource counts for all-or-nothing import rollback.
+struct SceneAppendWatermark {
+    std::size_t nodeCount = 0;
+    std::size_t materialCount = 0;
+    std::size_t meshCount = 0;
+    std::size_t cameraCount = 0;
+    std::size_t lightCount = 0;
+    std::size_t cameraConfinementVolumeCount = 0;
+    std::size_t meshInstanceBatchCount = 0;
+    /// Per-batch transform counts so AddMeshInstance growth can roll back without dropping batches.
+    std::vector<std::size_t> meshInstanceBatchSizes{};
+};
+
 struct Node {
     std::string name;
     Transform localTransform{};
@@ -47,6 +60,11 @@ public:
 
     [[nodiscard]] int CreateNode(std::string name, int parent = kInvalidHandle);
     [[nodiscard]] bool SetParent(int child, int parent);
+
+    /// Captures append-only resource sizes so a failed import can truncate cleanly.
+    [[nodiscard]] SceneAppendWatermark CaptureAppendWatermark() const;
+    /// Drops nodes/resources appended after `watermark` and strips dangling child refs.
+    void TruncateToAppendWatermark(const SceneAppendWatermark& watermark);
 
     [[nodiscard]] Node& GetNode(int handle);
     [[nodiscard]] const Node& GetNode(int handle) const;

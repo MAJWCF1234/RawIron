@@ -282,15 +282,60 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    // Menu banner Help is left-aligned with the label text, not glued to the right edge.
+    // Menu hits must come from measured glyph boxes, not char-count ratios / right-edge glue.
     const RECT viewportInner{0, 0, 1280, 720};
-    const POINT createPoint{4 + 220, 6 + 12};
-    const POINT helpPoint{4 + (188 * 56 / 22) + 20, 6 + 12};
+    const HDC screenDc = GetDC(nullptr);
+    if (screenDc == nullptr) {
+        return EXIT_FAILURE;
+    }
+    const HDC measureDc = CreateCompatibleDC(screenDc);
+    const HFONT menuFont = CreateFontW(-12,
+                                       0,
+                                       0,
+                                       0,
+                                       FW_NORMAL,
+                                       FALSE,
+                                       FALSE,
+                                       FALSE,
+                                       ANSI_CHARSET,
+                                       OUT_DEFAULT_PRECIS,
+                                       CLIP_DEFAULT_PRECIS,
+                                       DEFAULT_QUALITY,
+                                       DEFAULT_PITCH | FF_DONTCARE,
+                                       L"Segoe UI");
+    if (measureDc == nullptr || menuFont == nullptr) {
+        if (menuFont != nullptr) {
+            DeleteObject(menuFont);
+        }
+        if (measureDc != nullptr) {
+            DeleteDC(measureDc);
+        }
+        ReleaseDC(nullptr, screenDc);
+        return EXIT_FAILURE;
+    }
+    const auto inactive = ri::editor::MeasureViewportMenuBannerHits(measureDc, menuFont, viewportInner, false);
+    const auto active = ri::editor::MeasureViewportMenuBannerHits(measureDc, menuFont, viewportInner, true);
+    if (!inactive.measured || !active.measured) {
+        DeleteObject(menuFont);
+        DeleteDC(measureDc);
+        ReleaseDC(nullptr, screenDc);
+        return EXIT_FAILURE;
+    }
+    const POINT createCenter{(inactive.create.left + inactive.create.right) / 2,
+                             (inactive.create.top + inactive.create.bottom) / 2};
+    const POINT helpCenter{(inactive.help.left + inactive.help.right) / 2,
+                           (inactive.help.top + inactive.help.bottom) / 2};
     const POINT rightEdgeFalseHelp{viewportInner.right - 30, 6 + 12};
-    if (!ri::editor::HitTestViewportCreateMenu(viewportInner, createPoint)
-        || !ri::editor::HitTestViewportHelpMenu(viewportInner, helpPoint)
-        || ri::editor::HitTestViewportHelpMenu(viewportInner, rightEdgeFalseHelp)
-        || ri::editor::HitTestViewportHelpMenu(viewportInner, createPoint)) {
+    const bool hitsOk =
+        ri::editor::HitTestViewportCreateMenu(viewportInner, createCenter, false, menuFont)
+        && ri::editor::HitTestViewportHelpMenu(viewportInner, helpCenter, false, menuFont)
+        && !ri::editor::HitTestViewportHelpMenu(viewportInner, rightEdgeFalseHelp, false, menuFont)
+        && !ri::editor::HitTestViewportHelpMenu(viewportInner, createCenter, false, menuFont)
+        && active.help.left != inactive.help.left;
+    DeleteObject(menuFont);
+    DeleteDC(measureDc);
+    ReleaseDC(nullptr, screenDc);
+    if (!hitsOk) {
         return EXIT_FAILURE;
     }
 #endif

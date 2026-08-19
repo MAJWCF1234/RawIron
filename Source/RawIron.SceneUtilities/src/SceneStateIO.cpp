@@ -389,6 +389,61 @@ struct TemporaryPaths {
     return {};
 }
 
+/// Reject any existing symlink/reparse component in `path` (and ancestors).
+/// Intermediate directory junctions divert CreateFile/ofstream even when the leaf is clean.
+[[nodiscard]] SceneStateIOResult InspectPathPrefix(const fs::path& path) {
+    if (path.empty()) {
+        return {};
+    }
+    std::error_code absoluteError;
+    fs::path current = fs::absolute(path, absoluteError);
+    if (absoluteError) {
+        return Failure(SceneStateIOError::DestinationInspectionFailed, absoluteError);
+    }
+
+    std::vector<fs::path> chain;
+    for (;;) {
+        chain.push_back(current);
+        if (!current.has_relative_path()) {
+            break;
+        }
+        const fs::path parent = current.parent_path();
+        if (parent.empty() || parent == current) {
+            break;
+        }
+        current = parent;
+    }
+
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        std::error_code statusError;
+        const fs::file_status status = fs::symlink_status(*it, statusError);
+        if (statusError == std::errc::no_such_file_or_directory
+            || status.type() == fs::file_type::not_found) {
+            continue;
+        }
+        if (statusError) {
+            return Failure(SceneStateIOError::DestinationInspectionFailed, statusError);
+        }
+        if (fs::is_symlink(status)) {
+            return Failure(SceneStateIOError::DestinationSymlinkUnsupported);
+        }
+#if defined(_WIN32)
+        const DWORD attributes = GetFileAttributesW(it->c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES) {
+            const DWORD error = GetLastError();
+            if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
+                continue;
+            }
+            return Failure(SceneStateIOError::DestinationInspectionFailed, WindowsError(error));
+        }
+        if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U) {
+            return Failure(SceneStateIOError::DestinationSymlinkUnsupported);
+        }
+#endif
+    }
+    return {};
+}
+
 [[nodiscard]] bool OpenExclusiveTemporary(const fs::path& targetPath,
                                           OwnedTemporaryFile& temporary,
                                           SceneStateIOResult& failure) {
@@ -906,6 +961,13 @@ public:
 }
 
 [[nodiscard]] SceneStateIOResult ReadBoundedFile(const fs::path& inputPath, std::string& bytes) {
+    const fs::path parentPath = inputPath.parent_path();
+    if (!parentPath.empty()) {
+        SceneStateIOResult prefixInspected = InspectPathPrefix(parentPath);
+        if (!prefixInspected.Succeeded()) {
+            return prefixInspected;
+        }
+    }
     DestinationInfo destination{};
     SceneStateIOResult inspected = InspectDestination(inputPath, destination);
     if (!inspected.Succeeded()) {
@@ -1128,6 +1190,11 @@ SceneStateIOResult SaveSceneNodeTransformsDetailed(const Scene& scene, const fs:
 
     const fs::path parentPath = outputPath.parent_path();
     if (!parentPath.empty()) {
+        // Fail before create_directories: junctions in the parent chain divert writes.
+        SceneStateIOResult prefixInspected = InspectPathPrefix(parentPath);
+        if (!prefixInspected.Succeeded()) {
+            return prefixInspected;
+        }
         std::error_code createError;
         fs::create_directories(parentPath, createError);
         if (createError) {

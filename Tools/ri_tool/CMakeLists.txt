@@ -555,6 +555,18 @@ if (RAWIRON_BUILD_TESTS)
   )
 
   add_executable(
+    PluginPackageBuildSmoke
+    ${PROJECT_SOURCE_DIR}/Tests/PluginPackageBuildSmoke.cpp
+  )
+  target_link_libraries(PluginPackageBuildSmoke PRIVATE RawIron::Content)
+  target_compile_features(PluginPackageBuildSmoke PRIVATE cxx_std_20)
+  add_dependencies(PluginPackageBuildSmoke ri_tool)
+  add_test(
+    NAME RawIron.Tool.PluginPackageBuildSmoke
+    COMMAND PluginPackageBuildSmoke $<TARGET_FILE:ri_tool> ${PROJECT_SOURCE_DIR}
+  )
+
+  add_executable(
     RipakArchiveSecuritySmoke
     ${PROJECT_SOURCE_DIR}/Tests/RipakArchiveSecuritySmoke.cpp
   )

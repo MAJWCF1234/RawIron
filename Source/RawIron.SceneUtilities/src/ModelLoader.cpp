@@ -359,6 +359,9 @@ int AddModelNode(Scene& scene, const ImportedModelOptions& options, std::string*
     std::vector<AttemptResult> failures;
 
     for (const ModelImportBackend backend : candidates) {
+        // Each backend attempt must leave the scene unchanged on failure so a later
+        // backend (or placeholder) does not inherit orphaned partial imports.
+        const SceneAppendWatermark attemptWatermark = scene.CaptureAppendWatermark();
         std::string backendError;
         int result = kInvalidHandle;
         switch (backend) {
@@ -413,6 +416,7 @@ int AddModelNode(Scene& scene, const ImportedModelOptions& options, std::string*
             return result;
         }
 
+        scene.TruncateToAppendWatermark(attemptWatermark);
         failures.push_back(AttemptResult{
             .backend = backend,
             .error = backendError.empty() ? "import failed" : backendError,

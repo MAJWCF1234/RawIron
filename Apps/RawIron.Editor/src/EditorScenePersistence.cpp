@@ -19,6 +19,7 @@
 #include <system_error>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -734,11 +735,72 @@ bool ReadVec3(std::istream& stream, ri::math::Vec3& value) {
     };
 }
 
+/// Reject symlink/reparse components in `path` and ancestors before create_directories
+/// can divert new trees outside the intended project root.
+[[nodiscard]] bool PathPrefixHasIndirection(const fs::path& path, std::string& error) {
+    if (path.empty()) {
+        return false;
+    }
+    std::error_code absoluteError;
+    fs::path current = fs::absolute(path, absoluteError);
+    if (absoluteError) {
+        error = "path could not be inspected: " + absoluteError.message();
+        return true;
+    }
+    std::vector<fs::path> chain;
+    for (;;) {
+        chain.push_back(current);
+        if (!current.has_relative_path()) {
+            break;
+        }
+        const fs::path parent = current.parent_path();
+        if (parent.empty() || parent == current) {
+            break;
+        }
+        current = parent;
+    }
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        std::error_code statusError;
+        const fs::file_status status = fs::symlink_status(*it, statusError);
+        if (statusError == std::errc::no_such_file_or_directory
+            || status.type() == fs::file_type::not_found) {
+            continue;
+        }
+        if (statusError) {
+            error = "path could not be inspected: " + statusError.message();
+            return true;
+        }
+        if (fs::is_symlink(status)) {
+            error = "path must not contain a symlink or reparse component";
+            return true;
+        }
+#if defined(_WIN32)
+        const DWORD attributes = GetFileAttributesW(it->c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES) {
+            const DWORD lastError = GetLastError();
+            if (lastError == ERROR_FILE_NOT_FOUND || lastError == ERROR_PATH_NOT_FOUND) {
+                continue;
+            }
+            error = "path could not be inspected";
+            return true;
+        }
+        if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U) {
+            error = "path must not contain a symlink or reparse component";
+            return true;
+        }
+#endif
+    }
+    return false;
+}
+
 [[nodiscard]] bool ReserveGeneration(const EditorSceneBundleSlotPaths& slot,
                                      EditorSceneBundlePaths& paths,
                                      std::string& error) {
     if (slot.slotRoot.empty()) {
         error = "bundle slot root is empty";
+        return false;
+    }
+    if (PathPrefixHasIndirection(slot.slotRoot, error)) {
         return false;
     }
     std::error_code ec;
@@ -752,6 +814,14 @@ bool ReadVec3(std::istream& stream, ri::math::Vec3& value) {
         error = "bundle slot root is not a regular directory";
         return false;
     }
+#if defined(_WIN32)
+    const DWORD rootAttributes = GetFileAttributesW(slot.slotRoot.c_str());
+    if (rootAttributes == INVALID_FILE_ATTRIBUTES
+        || (rootAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U) {
+        error = "bundle slot root is not a regular directory";
+        return false;
+    }
+#endif
 
     std::uint64_t maximum = 0U;
     for (fs::directory_iterator it(slot.slotRoot, ec), end; !ec && it != end; it.increment(ec)) {

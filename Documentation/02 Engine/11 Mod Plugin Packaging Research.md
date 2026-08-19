@@ -72,14 +72,14 @@ This mirrors the useful parts of real-world systems: descriptor discovery, proje
 
 ## Active Packaging Backlog
 
-- [ ] Add `--plugin-package-build` to package a plugin folder into a `.ripak` with its descriptor, README/LICENSE/icon, and project control-plane files.
-- [ ] Add `--plugin-package-validate` to verify a plugin descriptor, registry, hooks, load order, safe paths, and dependencies before install.
+- [x] Add `--plugin-package-build` to package a plugin folder into a `.ripak` with its descriptor, README/LICENSE/icon, and project control-plane files (`ri_tool --plugin-package-build`, `PlanPluginPackageArchive` / `StagePluginPackageArchive`).
+- [x] Add `--plugin-package-validate` to verify a plugin descriptor, registry, hooks, load order, and safe paths before install (`ri_tool --plugin-package-validate`, `ValidatePluginPackage`; accepts package folders and built `.ripak` archives). Package-root resolution refuses symlink/reparse directories and a directory decoy named `package.riplugin.json`.
 - [ ] Resolve `package.ri_package.json` from a single top-level directory after `.ripak` extraction, without weakening path validation.
 - [ ] Add a mod load report that explains each plugin's loaded, skipped, policy-blocked, disabled, and handler-missing state.
 - [ ] Map descriptor hook groups such as `runtime.mod` to deliberate engine phases/events instead of the current unhandled `default` event.
 - [ ] Add an internal `Export Public Ripack v1` preset that normalizes richer internal metadata into the supported public asset and plugin contracts.
 
-The next implementation should be `--plugin-package-validate`; it establishes one trustworthy plugin-package contract before archive build or import behavior is added.
+`--plugin-package-validate` and `--plugin-package-build` are shipped. Next packaging steps are archive install/import for plugin packages into a game project, then the remaining backlog items above.
 
 ## Design line
 

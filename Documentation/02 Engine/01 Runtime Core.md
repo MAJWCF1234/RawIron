@@ -21,6 +21,8 @@ flowchart LR
 - `RuntimeServices`: typed service registry for runtime-owned systems
 - `RuntimeModule`: shared startup, frame, pause, resume, and shutdown hooks
 - `RuntimeCore`: owns the module list and advances the runtime through its phases
+- `JobSystem`: shared CPU worker pool with fences, range dispatch, nested-wait helping, metrics,
+  failure propagation, and deterministic drain/cancel shutdown
 
 ## Runtime phases
 
@@ -71,6 +73,19 @@ Games do not create a separate lifecycle convention. A game mounts a runtime mod
 
 `RuntimeCore::AddDefaultModules()` registers built-in runtime helpers, and app hosts can wrap a runtime through `RuntimeHostAdapter` or mount another `ri::core::Host` through `RuntimeHostModule`.
 
+### Shared CPU jobs
+
+The default `Jobs` module mounts `ri::core::JobSystem` first and shuts it down last. Other runtime
+modules can resolve it with `TryGetJobSystem(context)` and safely finish outstanding work during
+their own shutdown. `--job-workers N` overrides the hardware-aware worker count for profiling,
+servers, and constrained machines.
+
+Jobs are grouped under `JobFence` values. Waiting seals the fence and rethrows the first callback
+failure only after the entire batch is terminal. A worker waiting for child work helps execute the
+same queue, so nested fan-out remains live even when configured with one worker. Engine subsystems
+should use this service for general CPU work; dedicated affinity threads remain appropriate for
+render presentation, audio callbacks, and external APIs that require thread ownership.
+
 ## Polled keyboard input (mounted HostInput)
 
 `RuntimeCore::AddDefaultModules()` mounts `HostInputRuntimeModule`, which registers `ri::runtime::HostInputService`. That service owns the focus gate and calls `Update` each frame. Games and demos that boot through RuntimeCore must:
@@ -94,6 +109,7 @@ A host with no window is never focused and every read is inert, which is what ke
 | Capability | Engine API | Differentiated by |
 |---|---|---|
 | Focus-gated keys | `HostInputService` (default module) | window bind only |
+| General CPU work | `JobSystem` (default module) | worker override / dispatched jobs |
 | Escape / diagnostics chords | `PollHostChrome` | `HostChromePolicy` (later `ui.riscript`) |
 | WASD + jump/sprint | `BuildKeyboardMovementInput` | bindings override |
 | Head bob + sprint FOV | `SampleFirstPersonView` | `gameplay` / `rendering` / `postprocess` riscript |

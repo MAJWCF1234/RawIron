@@ -56,7 +56,8 @@ using ModuleHandle = HMODULE;
     BY_HANDLE_FILE_INFORMATION openedInfo{};
     if (!GetFileInformationByHandle(fileHandle, &openedInfo)
         || (openedInfo.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U
-        || (openedInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U) {
+        || (openedInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U
+        || openedInfo.nNumberOfLinks > 1U) {
         CloseHandle(fileHandle);
         return nullptr;
     }
@@ -158,7 +159,7 @@ using ModuleHandle = void*;
         return nullptr;
     }
     struct stat status {};
-    if (::fstat(fd, &status) != 0 || !S_ISREG(status.st_mode)) {
+    if (::fstat(fd, &status) != 0 || !S_ISREG(status.st_mode) || status.st_nlink > 1) {
         ::close(fd);
         return nullptr;
     }

@@ -482,6 +482,13 @@ int main(const int argc, const char* const* argv) {
                           std::nullopt, 5U, 0x12345678U}}},
         {"truncated-deflate", {{"assets/truncated.bin", {std::byte{0x73U}}, 0U, 8U, 20U, 0U,
                                std::nullopt, 5U, Crc32(Bytes("valid"))}}},
+        {"trailing-deflate", [&]() {
+            std::vector<std::byte> padded = FixedDeflate("AB");
+            padded.push_back(std::byte{0x00U});
+            padded.push_back(std::byte{0xFFU});
+            return std::vector<ZipEntry>{{"assets/trailing.bin", std::move(padded), 0U, 8U, 20U, 0U,
+                                          std::nullopt, 2U, Crc32(Bytes("AB"))}};
+        }()},
         {"mid-extract-failure", {{"assets/first.txt", Bytes("first")},
                                  {"assets/second.bin", FixedDeflate("valid"), 0U, 8U, 20U, 0U,
                                   std::nullopt, 5U, 0x12345678U}}},

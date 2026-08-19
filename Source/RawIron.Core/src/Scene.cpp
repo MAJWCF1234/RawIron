@@ -403,6 +403,121 @@ int Scene::CreateNode(std::string name, int parent) {
     return handle;
 }
 
+SceneAppendWatermark Scene::CaptureAppendWatermark() const {
+    SceneAppendWatermark watermark{
+        .nodeCount = nodes_.size(),
+        .materialCount = materials_.size(),
+        .meshCount = meshes_->size(),
+        .cameraCount = cameras_.size(),
+        .lightCount = lights_.size(),
+        .cameraConfinementVolumeCount = cameraConfinementVolumes_.size(),
+        .meshInstanceBatchCount = meshInstanceBatches_->size(),
+    };
+    watermark.meshInstanceBatchSizes.reserve(meshInstanceBatches_->size());
+    for (const MeshInstanceBatch& batch : *meshInstanceBatches_) {
+        watermark.meshInstanceBatchSizes.push_back(batch.transforms.size());
+    }
+    return watermark;
+}
+
+void Scene::TruncateToAppendWatermark(const SceneAppendWatermark& watermark) {
+    if (watermark.meshInstanceBatchSizes.size() != watermark.meshInstanceBatchCount
+        || watermark.nodeCount > nodes_.size()
+        || watermark.materialCount > materials_.size()
+        || watermark.meshCount > meshes_->size()
+        || watermark.cameraCount > cameras_.size()
+        || watermark.lightCount > lights_.size()
+        || watermark.cameraConfinementVolumeCount > cameraConfinementVolumes_.size()
+        || watermark.meshInstanceBatchCount > meshInstanceBatches_->size()) {
+        return;
+    }
+    bool instancesGrew = false;
+    for (std::size_t index = 0U; index < watermark.meshInstanceBatchCount; ++index) {
+        if (watermark.meshInstanceBatchSizes[index]
+            > (*meshInstanceBatches_)[index].transforms.size()) {
+            return;
+        }
+        if (watermark.meshInstanceBatchSizes[index]
+            < (*meshInstanceBatches_)[index].transforms.size()) {
+            instancesGrew = true;
+        }
+    }
+    if (watermark.nodeCount == nodes_.size()
+        && watermark.materialCount == materials_.size()
+        && watermark.meshCount == meshes_->size()
+        && watermark.cameraCount == cameras_.size()
+        && watermark.lightCount == lights_.size()
+        && watermark.cameraConfinementVolumeCount == cameraConfinementVolumes_.size()
+        && watermark.meshInstanceBatchCount == meshInstanceBatches_->size()
+        && !instancesGrew) {
+        return;
+    }
+
+    const int nodeLimit = static_cast<int>(watermark.nodeCount);
+    for (std::size_t index = 0U; index < watermark.nodeCount; ++index) {
+        Node& node = nodes_[index];
+        node.children.erase(std::remove_if(node.children.begin(),
+                                           node.children.end(),
+                                           [nodeLimit](const int child) { return child >= nodeLimit; }),
+                            node.children.end());
+        if (node.mesh >= static_cast<int>(watermark.meshCount)) {
+            node.mesh = kInvalidHandle;
+        }
+        if (node.material >= static_cast<int>(watermark.materialCount)) {
+            node.material = kInvalidHandle;
+        }
+        if (node.camera >= static_cast<int>(watermark.cameraCount)) {
+            node.camera = kInvalidHandle;
+        }
+        if (node.light >= static_cast<int>(watermark.lightCount)) {
+            node.light = kInvalidHandle;
+        }
+        if (node.cameraConfinementVolume >= static_cast<int>(watermark.cameraConfinementVolumeCount)) {
+            node.cameraConfinementVolume = kInvalidHandle;
+        }
+    }
+
+    nodes_.resize(watermark.nodeCount);
+    materials_.resize(watermark.materialCount);
+    cameras_.resize(watermark.cameraCount);
+    lights_.resize(watermark.lightCount);
+    cameraConfinementVolumes_.resize(watermark.cameraConfinementVolumeCount);
+
+    if (meshes_->size() != watermark.meshCount) {
+        if (meshes_.use_count() != 1) {
+            meshes_ = std::make_shared<std::vector<Mesh>>(*meshes_);
+        }
+        meshes_->resize(watermark.meshCount);
+    }
+    if (instancesGrew || meshInstanceBatches_->size() != watermark.meshInstanceBatchCount) {
+        if (meshInstanceBatches_.use_count() != 1) {
+            meshInstanceBatches_ = std::make_shared<std::vector<MeshInstanceBatch>>(*meshInstanceBatches_);
+        }
+        if (meshInstanceBatches_->size() != watermark.meshInstanceBatchCount) {
+            meshInstanceBatches_->resize(watermark.meshInstanceBatchCount);
+        }
+        for (std::size_t index = 0U; index < meshInstanceBatches_->size(); ++index) {
+            MeshInstanceBatch& batch = (*meshInstanceBatches_)[index];
+            if (index < watermark.meshInstanceBatchSizes.size()
+                && batch.transforms.size() > watermark.meshInstanceBatchSizes[index]) {
+                batch.transforms.resize(watermark.meshInstanceBatchSizes[index]);
+            }
+            if (batch.mesh >= static_cast<int>(watermark.meshCount)) {
+                batch.mesh = kInvalidHandle;
+            }
+            if (batch.material >= static_cast<int>(watermark.materialCount)) {
+                batch.material = kInvalidHandle;
+            }
+            if (batch.parent >= nodeLimit) {
+                batch.parent = kInvalidHandle;
+            }
+        }
+    }
+
+    InvalidateTransformCaches();
+    InvalidateRenderableNodeCache();
+}
+
 bool Scene::SetParent(int child, int parent) {
     if (!IsValidNodeHandle(child)) {
         return false;

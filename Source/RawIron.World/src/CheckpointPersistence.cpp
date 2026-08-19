@@ -6,10 +6,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
-#include <fstream>
 #include <iomanip>
 #include <limits>
 #include <sstream>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -213,6 +213,76 @@ bool Vec3Finite(const ri::math::Vec3& value) noexcept {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 }
 
+/// Rejects any existing symlink/reparse component in `path` or its ancestors so
+/// intermediate directory junctions cannot divert create_directories/ofstream/rename.
+[[nodiscard]] bool IsUnsafeCheckpointPathPrefix(const std::filesystem::path& path, std::string* error) {
+    if (path.empty()) {
+        return false;
+    }
+    std::error_code absoluteError;
+    std::filesystem::path current = std::filesystem::absolute(path, absoluteError);
+    if (absoluteError) {
+        if (error != nullptr) {
+            *error = "Checkpoint path could not be inspected: " + absoluteError.message();
+        }
+        return true;
+    }
+
+    std::vector<std::filesystem::path> chain;
+    for (;;) {
+        chain.push_back(current);
+        if (!current.has_relative_path()) {
+            break;
+        }
+        const std::filesystem::path parent = current.parent_path();
+        if (parent.empty() || parent == current) {
+            break;
+        }
+        current = parent;
+    }
+
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        std::error_code statusError;
+        const std::filesystem::file_status status = std::filesystem::symlink_status(*it, statusError);
+        if (statusError == std::errc::no_such_file_or_directory
+            || status.type() == std::filesystem::file_type::not_found) {
+            continue;
+        }
+        if (statusError) {
+            if (error != nullptr) {
+                *error = "Checkpoint path could not be inspected: " + statusError.message();
+            }
+            return true;
+        }
+        if (std::filesystem::is_symlink(status)) {
+            if (error != nullptr) {
+                *error = "Checkpoint path must not be a symlink or reparse point.";
+            }
+            return true;
+        }
+#if defined(_WIN32)
+        const DWORD attributes = GetFileAttributesW(it->c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES) {
+            const DWORD lastError = GetLastError();
+            if (lastError == ERROR_FILE_NOT_FOUND || lastError == ERROR_PATH_NOT_FOUND) {
+                continue;
+            }
+            if (error != nullptr) {
+                *error = "Checkpoint path could not be inspected.";
+            }
+            return true;
+        }
+        if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U) {
+            if (error != nullptr) {
+                *error = "Checkpoint path must not be a symlink or reparse point.";
+            }
+            return true;
+        }
+#endif
+    }
+    return false;
+}
+
 /// Rejects directories and reparse points/symlinks so checkpoint I/O cannot follow a
 /// replaced destination into an attacker-controlled path (parity with SceneStateIO).
 [[nodiscard]] bool IsUnsafeCheckpointPath(const std::filesystem::path& path, std::string* error) {
@@ -336,6 +406,105 @@ std::filesystem::path TemporaryCheckpointPath(const std::filesystem::path& targe
     return temporary;
 }
 
+/// Exclusive create so a planted symlink/hardlink at the temp name cannot divert the write.
+[[nodiscard]] bool WriteExclusiveTemporaryCheckpoint(const std::filesystem::path& targetPath,
+                                                     const std::string_view bytes,
+                                                     std::filesystem::path& temporaryPath,
+                                                     std::string* error) {
+    constexpr std::size_t kCollisionRetries = 8U;
+    for (std::size_t attempt = 0U; attempt < kCollisionRetries; ++attempt) {
+        temporaryPath = TemporaryCheckpointPath(targetPath);
+#if defined(_WIN32)
+        const HANDLE handle = CreateFileW(temporaryPath.c_str(),
+                                          GENERIC_WRITE,
+                                          0U,
+                                          nullptr,
+                                          CREATE_NEW,
+                                          FILE_ATTRIBUTE_NORMAL,
+                                          nullptr);
+        if (handle == INVALID_HANDLE_VALUE) {
+            const DWORD lastError = GetLastError();
+            if (lastError == ERROR_FILE_EXISTS || lastError == ERROR_ALREADY_EXISTS) {
+                continue;
+            }
+            if (error != nullptr) {
+                *error = "Failed to open checkpoint file for write.";
+            }
+            return false;
+        }
+        DWORD written = 0U;
+        const BOOL ok = bytes.empty()
+            || (WriteFile(handle,
+                          bytes.data(),
+                          static_cast<DWORD>(bytes.size()),
+                          &written,
+                          nullptr)
+                && written == bytes.size());
+        const BOOL flushed = ok ? FlushFileBuffers(handle) : FALSE;
+        CloseHandle(handle);
+        if (!ok || !flushed) {
+            std::error_code cleanupError;
+            std::filesystem::remove(temporaryPath, cleanupError);
+            if (error != nullptr) {
+                *error = "Failed to write checkpoint file.";
+            }
+            return false;
+        }
+        return true;
+#else
+        int flags = O_WRONLY | O_CREAT | O_EXCL;
+#if defined(O_CLOEXEC)
+        flags |= O_CLOEXEC;
+#endif
+#if defined(O_NOFOLLOW)
+        flags |= O_NOFOLLOW;
+#endif
+        const int descriptor = ::open(temporaryPath.c_str(), flags, 0600);
+        if (descriptor < 0) {
+            if (errno == EEXIST) {
+                continue;
+            }
+            if (error != nullptr) {
+                *error = "Failed to open checkpoint file for write.";
+            }
+            return false;
+        }
+        bool writeOk = true;
+        std::size_t offset = 0U;
+        while (offset < bytes.size()) {
+            const ssize_t chunk = ::write(descriptor, bytes.data() + offset, bytes.size() - offset);
+            if (chunk < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                writeOk = false;
+                break;
+            }
+            if (chunk == 0) {
+                writeOk = false;
+                break;
+            }
+            offset += static_cast<std::size_t>(chunk);
+        }
+        const bool synced = writeOk && ::fsync(descriptor) == 0;
+        ::close(descriptor);
+        if (!writeOk || !synced) {
+            std::error_code cleanupError;
+            std::filesystem::remove(temporaryPath, cleanupError);
+            if (error != nullptr) {
+                *error = "Failed to write checkpoint file.";
+            }
+            return false;
+        }
+        return true;
+#endif
+    }
+    if (error != nullptr) {
+        *error = "Failed to open checkpoint file for write.";
+    }
+    return false;
+}
+
 } // namespace
 
 FileCheckpointStore::FileCheckpointStore(std::filesystem::path rootDirectory)
@@ -371,6 +540,13 @@ bool FileCheckpointStore::Save(const RuntimeCheckpointSnapshot& snapshot, std::s
     if ((snapshot.playerPosition.has_value() && !Vec3Finite(*snapshot.playerPosition))
         || (snapshot.playerRotation.has_value() && !Vec3Finite(*snapshot.playerRotation))) {
         if (error != nullptr) *error = "Checkpoint player transform must contain finite values.";
+        return false;
+    }
+
+    if (std::string prefixError; IsUnsafeCheckpointPathPrefix(rootDirectory_, &prefixError)) {
+        if (error != nullptr) {
+            *error = std::move(prefixError);
+        }
         return false;
     }
 
@@ -417,26 +593,10 @@ bool FileCheckpointStore::Save(const RuntimeCheckpointSnapshot& snapshot, std::s
         }
         return false;
     }
-    const std::filesystem::path temporaryPath = TemporaryCheckpointPath(targetPath);
-    std::ofstream output(temporaryPath, std::ios::binary | std::ios::trunc);
-    if (!output.is_open()) {
-        if (error != nullptr) {
-            *error = "Failed to open checkpoint file for write.";
-        }
+    std::filesystem::path temporaryPath;
+    if (!WriteExclusiveTemporaryCheckpoint(targetPath, bytes, temporaryPath, error)) {
         return false;
     }
-    output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-    output.flush();
-    if (!output.good()) {
-        output.close();
-        std::error_code cleanupError;
-        std::filesystem::remove(temporaryPath, cleanupError);
-        if (error != nullptr) {
-            *error = "Failed to write checkpoint file.";
-        }
-        return false;
-    }
-    output.close();
 
 #if defined(_WIN32)
     if (!MoveFileExW(temporaryPath.c_str(), targetPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
@@ -467,6 +627,10 @@ std::optional<RuntimeCheckpointSnapshot> FileCheckpointStore::Load(std::string_v
     };
     if (normalizedSlot.size() > kMaxSlotBytes) {
         return fail("Checkpoint slot exceeds the maximum length.");
+    }
+
+    if (std::string prefixError; IsUnsafeCheckpointPathPrefix(rootDirectory_, &prefixError)) {
+        return fail(std::move(prefixError));
     }
 
     std::filesystem::path inputPath = SlotPath(normalizedSlot);
@@ -756,6 +920,12 @@ bool FileCheckpointStore::Clear(std::string_view slot, std::string* error) const
     const std::string normalizedSlot = slot.empty() ? std::string("autosave") : std::string(slot);
     if (normalizedSlot.size() > kMaxSlotBytes) {
         if (error != nullptr) *error = "Checkpoint slot exceeds the maximum length.";
+        return false;
+    }
+    if (std::string prefixError; IsUnsafeCheckpointPathPrefix(rootDirectory_, &prefixError)) {
+        if (error != nullptr) {
+            *error = std::move(prefixError);
+        }
         return false;
     }
     const auto clearPath = [error](const std::filesystem::path& path) -> bool {

@@ -775,6 +775,19 @@ void ExtractEntry(
             Reject("deflate output for entry '" + EntryLabel(entry.name)
                    + " is corrupt or exceeds its declared bounded size");
         }
+        // stb does not expose a consumed-input cursor. If a one-byte-shorter prefix still
+        // expands to the same size, the declared compressed region contains trailing garbage.
+        if (compressed.size() > 1U) {
+            std::vector<std::byte> prefixProbe(std::max<std::size_t>(entry.expandedBytes, 1U));
+            const int prefixDecoded = stbi_zlib_decode_noheader_buffer(
+                reinterpret_cast<char*>(prefixProbe.data()), static_cast<int>(entry.expandedBytes),
+                reinterpret_cast<const char*>(compressed.data()),
+                static_cast<int>(compressed.size() - 1U));
+            if (prefixDecoded == decoded) {
+                Reject("deflate entry '" + EntryLabel(entry.name)
+                       + "' contains trailing bytes after the compressed stream");
+            }
+        }
         actualBytes = static_cast<std::uint64_t>(decoded);
         if (actualBytes != entry.expandedBytes
             || actualBytes > limits.maximumFileBytes
@@ -816,6 +829,286 @@ void SecureRipakExtraction::Cleanup() noexcept {
     std::error_code ignored;
     fs::remove_all(root_, ignored);
     root_.clear();
+}
+
+void WriteU16(std::ostream& output, const std::uint16_t value) {
+    const unsigned char bytes[2]{
+        static_cast<unsigned char>(value & 0xFFU),
+        static_cast<unsigned char>((value >> 8U) & 0xFFU),
+    };
+    output.write(reinterpret_cast<const char*>(bytes), 2);
+}
+
+void WriteU32(std::ostream& output, const std::uint32_t value) {
+    WriteU16(output, static_cast<std::uint16_t>(value & 0xFFFFU));
+    WriteU16(output, static_cast<std::uint16_t>((value >> 16U) & 0xFFFFU));
+}
+
+void WriteStoredRipakArchiveFromDirectory(
+    const fs::path& packageDirectory,
+    const fs::path& archivePath) {
+    std::error_code error;
+    const fs::file_status rootStatus = fs::symlink_status(packageDirectory, error);
+    if (error || !fs::is_directory(rootStatus) || fs::is_symlink(rootStatus)) {
+        throw std::runtime_error(
+            ".ripak package directory must be a regular directory: " + packageDirectory.string());
+    }
+
+    struct PlannedEntry {
+        std::string relativeName{};
+        fs::path sourcePath{};
+        std::vector<std::byte> bytes{};
+        std::uint32_t crc32 = 0U;
+        std::uint32_t localHeaderOffset = 0U;
+    };
+
+    std::vector<PlannedEntry> entries;
+    for (const fs::directory_entry& entry :
+         fs::recursive_directory_iterator(packageDirectory, fs::directory_options::skip_permission_denied, error)) {
+        if (error) {
+            throw std::runtime_error(
+                "Failed while scanning package directory for .ripak write: " + error.message());
+        }
+        error.clear();
+        const fs::file_status status = entry.symlink_status(error);
+        if (error) {
+            throw std::runtime_error(
+                "Failed to inspect package entry for .ripak write: " + error.message());
+        }
+        if (fs::is_symlink(status) || !fs::is_regular_file(status)) {
+            continue;
+        }
+#if defined(_WIN32)
+        const DWORD attributes = GetFileAttributesW(entry.path().c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES
+            || (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U) {
+            throw std::runtime_error(
+                "Refusing to archive a reparse/link path: " + entry.path().string());
+        }
+#endif
+        const fs::path relative = entry.path().lexically_relative(packageDirectory).lexically_normal();
+        if (relative.empty() || *relative.begin() == "..") {
+            throw std::runtime_error(
+                "Package entry escapes the archive root: " + entry.path().string());
+        }
+        std::string relativeName = relative.generic_string();
+        if (relativeName.find('\\') != std::string::npos) {
+            throw std::runtime_error("Package entry path is not portable: " + relativeName);
+        }
+        const ri::content::PackageInstallPathResolution pathCheck =
+            ri::content::ResolvePackageInstallPath(packageDirectory, relativeName);
+        if (!pathCheck.safe) {
+            throw std::runtime_error(
+                "Unsafe package archive entry '" + relativeName + "': " + pathCheck.issue);
+        }
+
+        PlannedEntry planned{
+            .relativeName = std::move(relativeName),
+            .sourcePath = entry.path(),
+        };
+        std::ifstream input(planned.sourcePath, std::ios::binary);
+        if (!input) {
+            throw std::runtime_error("Could not read package entry: " + planned.sourcePath.string());
+        }
+        const std::string text{
+            std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        if (!input && !input.eof()) {
+            throw std::runtime_error("Failed while reading package entry: " + planned.sourcePath.string());
+        }
+        if (text.size() > 0xFFFFFFFFULL) {
+            throw std::runtime_error(
+                "Package entry exceeds classic ZIP size limits: " + planned.relativeName);
+        }
+        planned.bytes.resize(text.size());
+        for (std::size_t index = 0U; index < text.size(); ++index) {
+            planned.bytes[index] = static_cast<std::byte>(static_cast<unsigned char>(text[index]));
+        }
+        planned.crc32 = UpdateCrc32(0U, planned.bytes.data(), planned.bytes.size());
+        entries.push_back(std::move(planned));
+    }
+    if (error) {
+        throw std::runtime_error(
+            "Failed while scanning package directory for .ripak write: " + error.message());
+    }
+    if (entries.empty()) {
+        throw std::runtime_error("Refusing to write an empty .ripak archive.");
+    }
+    if (entries.size() > 0xFFFFU) {
+        throw std::runtime_error("Package entry count exceeds classic ZIP limits.");
+    }
+    std::sort(entries.begin(), entries.end(), [](const PlannedEntry& left, const PlannedEntry& right) {
+        return left.relativeName < right.relativeName;
+    });
+    for (std::size_t index = 1U; index < entries.size(); ++index) {
+        if (entries[index - 1U].relativeName == entries[index].relativeName) {
+            throw std::runtime_error(
+                "Duplicate package archive entry: " + entries[index].relativeName);
+        }
+    }
+
+    const fs::path absoluteArchivePath = fs::absolute(archivePath).lexically_normal();
+    fs::create_directories(absoluteArchivePath.parent_path(), error);
+    if (error) {
+        throw std::runtime_error(
+            "Could not create .ripak output directory: " + error.message());
+    }
+    error.clear();
+    fs::remove(absoluteArchivePath, error);
+
+    std::ostringstream memory(std::ios::binary);
+    for (PlannedEntry& entry : entries) {
+        if (entry.relativeName.size() > 0xFFFFU) {
+            throw std::runtime_error("Package entry name exceeds ZIP limits: " + entry.relativeName);
+        }
+        const auto localOffset = static_cast<std::uint64_t>(memory.tellp());
+        if (localOffset > 0xFFFFFFFFULL) {
+            throw std::runtime_error("Package archive exceeds classic ZIP local-offset limits.");
+        }
+        entry.localHeaderOffset = static_cast<std::uint32_t>(localOffset);
+        const auto size = static_cast<std::uint32_t>(entry.bytes.size());
+        WriteU32(memory, kLocalHeaderSignature);
+        WriteU16(memory, 20U);
+        WriteU16(memory, kFlagUtf8);
+        WriteU16(memory, kMethodStored);
+        WriteU16(memory, 0U);
+        WriteU16(memory, 0U);
+        WriteU32(memory, entry.crc32);
+        WriteU32(memory, size);
+        WriteU32(memory, size);
+        WriteU16(memory, static_cast<std::uint16_t>(entry.relativeName.size()));
+        WriteU16(memory, 0U);
+        memory.write(entry.relativeName.data(), static_cast<std::streamsize>(entry.relativeName.size()));
+        if (!entry.bytes.empty()) {
+            memory.write(
+                reinterpret_cast<const char*>(entry.bytes.data()),
+                static_cast<std::streamsize>(entry.bytes.size()));
+        }
+    }
+
+    const auto centralOffset64 = static_cast<std::uint64_t>(memory.tellp());
+    if (centralOffset64 > 0xFFFFFFFFULL) {
+        throw std::runtime_error("Package archive central directory exceeds classic ZIP limits.");
+    }
+    for (const PlannedEntry& entry : entries) {
+        const auto size = static_cast<std::uint32_t>(entry.bytes.size());
+        WriteU32(memory, kCentralHeaderSignature);
+        WriteU16(memory, 20U);
+        WriteU16(memory, 20U);
+        WriteU16(memory, kFlagUtf8);
+        WriteU16(memory, kMethodStored);
+        WriteU16(memory, 0U);
+        WriteU16(memory, 0U);
+        WriteU32(memory, entry.crc32);
+        WriteU32(memory, size);
+        WriteU32(memory, size);
+        WriteU16(memory, static_cast<std::uint16_t>(entry.relativeName.size()));
+        WriteU16(memory, 0U);
+        WriteU16(memory, 0U);
+        WriteU16(memory, 0U);
+        WriteU16(memory, 0U);
+        WriteU32(memory, 0U);
+        WriteU32(memory, entry.localHeaderOffset);
+        memory.write(entry.relativeName.data(), static_cast<std::streamsize>(entry.relativeName.size()));
+    }
+    const auto centralEnd64 = static_cast<std::uint64_t>(memory.tellp());
+    if (centralEnd64 - centralOffset64 > 0xFFFFFFFFULL) {
+        throw std::runtime_error("Package archive central directory size exceeds classic ZIP limits.");
+    }
+    WriteU32(memory, kEndSignature);
+    WriteU16(memory, 0U);
+    WriteU16(memory, 0U);
+    WriteU16(memory, static_cast<std::uint16_t>(entries.size()));
+    WriteU16(memory, static_cast<std::uint16_t>(entries.size()));
+    WriteU32(memory, static_cast<std::uint32_t>(centralEnd64 - centralOffset64));
+    WriteU32(memory, static_cast<std::uint32_t>(centralOffset64));
+    WriteU16(memory, 0U);
+
+    const std::string archiveBytes = memory.str();
+#if defined(_WIN32)
+    const HANDLE handle = CreateFileW(
+        absoluteArchivePath.c_str(),
+        GENERIC_WRITE,
+        0U,
+        nullptr,
+        CREATE_NEW,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        throw std::system_error(
+            static_cast<int>(GetLastError()),
+            std::system_category(),
+            "exclusive .ripak archive creation failed");
+    }
+    bool committed = false;
+    try {
+        std::size_t cursor = 0U;
+        while (cursor < archiveBytes.size()) {
+            const DWORD chunk = static_cast<DWORD>(
+                std::min<std::size_t>(archiveBytes.size() - cursor, 64U * 1024U));
+            DWORD written = 0U;
+            if (WriteFile(handle, archiveBytes.data() + cursor, chunk, &written, nullptr) == FALSE
+                || written == 0U) {
+                throw std::system_error(
+                    static_cast<int>(GetLastError()),
+                    std::system_category(),
+                    ".ripak archive write failed");
+            }
+            cursor += written;
+        }
+        if (FlushFileBuffers(handle) == FALSE) {
+            throw std::system_error(
+                static_cast<int>(GetLastError()),
+                std::system_category(),
+                ".ripak archive flush failed");
+        }
+        committed = true;
+    } catch (...) {
+        CloseHandle(handle);
+        if (!committed) {
+            std::error_code ignored;
+            fs::remove(absoluteArchivePath, ignored);
+        }
+        throw;
+    }
+    CloseHandle(handle);
+#else
+    const int descriptor = open(
+        absoluteArchivePath.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    if (descriptor < 0) {
+        throw std::system_error(errno, std::generic_category(),
+                                "exclusive .ripak archive creation failed");
+    }
+    bool committed = false;
+    try {
+        std::size_t cursor = 0U;
+        while (cursor < archiveBytes.size()) {
+            const std::size_t chunk = std::min<std::size_t>(archiveBytes.size() - cursor, 64U * 1024U);
+            const ssize_t written = write(descriptor, archiveBytes.data() + cursor, chunk);
+            if (written < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                throw std::system_error(errno, std::generic_category(), ".ripak archive write failed");
+            }
+            if (written == 0) {
+                throw std::runtime_error(".ripak archive write made no progress");
+            }
+            cursor += static_cast<std::size_t>(written);
+        }
+        if (fsync(descriptor) != 0) {
+            throw std::system_error(errno, std::generic_category(), ".ripak archive flush failed");
+        }
+        committed = true;
+    } catch (...) {
+        close(descriptor);
+        if (!committed) {
+            std::error_code ignored;
+            fs::remove(absoluteArchivePath, ignored);
+        }
+        throw;
+    }
+    close(descriptor);
+#endif
 }
 
 SecureRipakExtraction SecureRipakExtraction::Extract(

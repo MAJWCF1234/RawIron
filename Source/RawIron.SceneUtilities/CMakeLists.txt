@@ -25,6 +25,7 @@ add_library(RawIron.SceneUtilities
   src/UfbxMeshImport.cpp
   src/GltfLoader.cpp
   src/Helpers.cpp
+  src/InteractionStructuralGate.cpp
   src/HumanoidAnimationProfiles.cpp
   src/HumanoidRigNames.cpp
   src/LevelObjectRegistry.cpp
@@ -113,6 +114,10 @@ if (RAWIRON_BUILD_TESTS)
   target_link_libraries(SceneStructuralTraceFeedSmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.SceneStructuralTraceFeedSmoke COMMAND SceneStructuralTraceFeedSmoke)
 
+  add_executable(InteractionStructuralGateSmoke ${CMAKE_SOURCE_DIR}/Tests/InteractionStructuralGateSmoke.cpp)
+  target_link_libraries(InteractionStructuralGateSmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.InteractionStructuralGateSmoke COMMAND InteractionStructuralGateSmoke)
+
   add_executable(RigAuthoringSmoke ${CMAKE_SOURCE_DIR}/Tests/RigAuthoringSmoke.cpp)
   target_link_libraries(RigAuthoringSmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.RigAuthoringSmoke COMMAND RigAuthoringSmoke)
@@ -128,6 +133,10 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(SceneStateIOSmoke ${CMAKE_SOURCE_DIR}/Tests/SceneStateIOSmoke.cpp)
   target_link_libraries(SceneStateIOSmoke PRIVATE RawIron::SceneUtilities Threads::Threads)
   add_test(NAME RawIron.SceneUtilities.SceneStateIOSmoke COMMAND SceneStateIOSmoke)
+
+  add_executable(ModelImportRollbackSmoke ${CMAKE_SOURCE_DIR}/Tests/ModelImportRollbackSmoke.cpp)
+  target_link_libraries(ModelImportRollbackSmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.ModelImportRollbackSmoke COMMAND ModelImportRollbackSmoke)
 
   add_executable(SceneStateIOCommitRecoverySmoke
     ${CMAKE_SOURCE_DIR}/Tests/SceneStateIOCommitRecoverySmoke.cpp)

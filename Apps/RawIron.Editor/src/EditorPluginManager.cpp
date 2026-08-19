@@ -56,21 +56,35 @@ std::string SerializeJsonStringArray(const std::vector<std::string>& values) {
 }
 
 AppendLineResult AppendLineIfMissing(const fs::path& path, const std::string& line) {
-    std::ifstream input(path);
-    if (input.is_open()) {
-        std::string row{};
-        while (std::getline(input, row)) {
-            if (Trim(row) == line) {
-                return AppendLineResult::AlreadyPresent;
+    std::ostringstream rebuilt{};
+    bool alreadyPresent = false;
+    bool wroteAny = false;
+    {
+        std::ifstream input(path);
+        if (input.is_open()) {
+            std::string row{};
+            while (std::getline(input, row)) {
+                if (Trim(row) == line) {
+                    alreadyPresent = true;
+                }
+                if (wroteAny) {
+                    rebuilt << '\n';
+                }
+                rebuilt << row;
+                wroteAny = true;
             }
         }
     }
-    std::ofstream output(path, std::ios::out | std::ios::app);
-    if (!output.is_open()) {
-        return AppendLineResult::WriteFailed;
+    if (alreadyPresent) {
+        return AppendLineResult::AlreadyPresent;
     }
-    output << line << '\n';
-    return output.good() ? AppendLineResult::Appended : AppendLineResult::WriteFailed;
+    if (wroteAny) {
+        rebuilt << '\n';
+    }
+    rebuilt << line << '\n';
+    return ri::core::detail::WriteTextFile(path, rebuilt.str())
+        ? AppendLineResult::Appended
+        : AppendLineResult::WriteFailed;
 }
 
 bool RewriteRegistryEnabled(const fs::path& registryPath, const std::string& pluginId, const bool enabled) {
@@ -115,31 +129,29 @@ bool RewriteRegistryEnabled(const fs::path& registryPath, const std::string& plu
 
 bool RewriteTextFileFiltered(const fs::path& path,
                              const std::function<bool(std::string_view line)>& keepLine) {
-    std::ifstream input(path);
-    if (!input.is_open()) {
-        return false;
-    }
-    std::vector<std::string> kept{};
-    std::string row{};
-    while (std::getline(input, row)) {
-        if (keepLine(row)) {
-            kept.push_back(row);
+    std::ostringstream rebuilt{};
+    bool first = true;
+    {
+        std::ifstream input(path);
+        if (!input.is_open()) {
+            return false;
+        }
+        std::string row{};
+        while (std::getline(input, row)) {
+            if (!keepLine(row)) {
+                continue;
+            }
+            if (!first) {
+                rebuilt << '\n';
+            }
+            rebuilt << row;
+            first = false;
         }
     }
-    std::ofstream output(path, std::ios::out | std::ios::trunc);
-    if (!output.is_open()) {
-        return false;
+    if (!first) {
+        rebuilt << '\n';
     }
-    for (std::size_t index = 0; index < kept.size(); ++index) {
-        output << kept[index];
-        if (index + 1U < kept.size()) {
-            output << '\n';
-        }
-    }
-    if (!kept.empty()) {
-        output << '\n';
-    }
-    return output.good();
+    return ri::core::detail::WriteTextFile(path, rebuilt.str());
 }
 
 bool RemovePluginFromRegistryJson(const fs::path& registryPath, const std::string& pluginId) {

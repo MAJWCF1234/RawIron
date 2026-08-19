@@ -62,7 +62,7 @@ public:
                                                               const SnapshotBlob& fallbackBaseline,
                                                               const SnapshotDeltaPacket& packet);
 
-    /// Drops baseline history for a peer that has disconnected.
+    /// Drops baseline history for a peer (disconnect or reject→force-full resync).
     void ForgetPeer(std::size_t peerId);
 
     /// Drops baseline history for every peer not present in `activePeers`. Without this the

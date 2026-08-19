@@ -47,7 +47,6 @@ std::vector<std::size_t> RenderCommandStream::BuildSortedPacketOrder() const {
     struct SortRecord {
         std::size_t packetIndex = 0;
         std::uint64_t sortKey = 0;
-        std::uint32_t sequence = 0;
     };
 
     std::vector<std::size_t> order(packetOffsets_.size());
@@ -58,20 +57,19 @@ std::vector<std::size_t> RenderCommandStream::BuildSortedPacketOrder() const {
         const std::size_t packetOffset = packetOffsets_[packetIndex];
         RenderCommandHeader header{};
         if (!SizeAddWithin(packetOffset, sizeof(RenderCommandHeader), bytes_.size())) {
-            sortRecords[packetIndex] = SortRecord{.packetIndex = packetIndex, .sortKey = 0, .sequence = 0};
+            sortRecords[packetIndex] = SortRecord{.packetIndex = packetIndex, .sortKey = 0};
             continue;
         }
         std::memcpy(&header, bytes_.data() + packetOffset, sizeof(RenderCommandHeader));
         if (!SizeAddWithin(packetOffset + sizeof(RenderCommandHeader),
                            static_cast<std::size_t>(header.sizeBytes),
                            bytes_.size())) {
-            sortRecords[packetIndex] = SortRecord{.packetIndex = packetIndex, .sortKey = 0, .sequence = 0};
+            sortRecords[packetIndex] = SortRecord{.packetIndex = packetIndex, .sortKey = 0};
             continue;
         }
         sortRecords[packetIndex] = SortRecord{
             .packetIndex = packetIndex,
             .sortKey = header.sortKey,
-            .sequence = header.sequence,
         };
     }
 
@@ -79,11 +77,8 @@ std::vector<std::size_t> RenderCommandStream::BuildSortedPacketOrder() const {
         if (lhs.sortKey != rhs.sortKey) {
             return lhs.sortKey < rhs.sortKey;
         }
-        if (lhs.sequence != rhs.sequence) {
-            return lhs.sequence < rhs.sequence;
-        }
-        // Sequence numbers are intentionally compact and may wrap in very long recording
-        // sessions. Preserve emission order when they collide.
+        // Packet indices are the canonical emission order and never wrap within a stream. The
+        // serialized 32-bit sequence is diagnostic metadata and can wrap in long-running sessions.
         return lhs.packetIndex < rhs.packetIndex;
     });
 

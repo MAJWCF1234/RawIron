@@ -4,6 +4,7 @@ project(RawIron VERSION 0.1.0 LANGUAGES CXX C)
 
 include("${CMAKE_SOURCE_DIR}/cmake/BundleEngineTextures.cmake")
 include("${CMAKE_SOURCE_DIR}/cmake/RawIronApp.cmake")
+include("${CMAKE_SOURCE_DIR}/cmake/RawIronArchitecture.cmake")
 include(CMakeDependentOption)
 include(FetchContent)
 
@@ -177,4 +178,12 @@ endif()
 
 if (RAWIRON_BUILD_TESTS)
   add_subdirectory(Tests)
+  add_test(
+    NAME RawIron.Architecture.FoundationPolicy
+    COMMAND ${CMAKE_COMMAND}
+      -DRAWIRON_WORKSPACE=${CMAKE_SOURCE_DIR}
+      -P ${CMAKE_SOURCE_DIR}/Tests/VerifyArchitecturePolicy.cmake
+  )
 endif()
+
+rawiron_enforce_foundation_architecture("${CMAKE_SOURCE_DIR}")

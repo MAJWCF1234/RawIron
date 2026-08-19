@@ -2,6 +2,7 @@
 #include "RawIron/Content/GameManifest.h"
 #include "RawIron/Content/GamePackageRequirements.h"
 #include "RawIron/Content/ExtensionDescriptor.h"
+#include "RawIron/Content/PluginPackage.h"
 #include "RawIron/Content/PluginProjectData.h"
 #include "RawIron/Content/PluginRuntime.h"
 #include "RawIron/Content/AssetDocument.h"
@@ -27,6 +28,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cstdint>
@@ -36,11 +38,27 @@
 #include <fstream>
 #include <iomanip>
 #include <optional>
+#include <random>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
+#include <utility>
 #include <vector>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#include <process.h>
+#else
+#include <cerrno>
+#include <cstdio>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -1315,6 +1333,95 @@ struct PackageInstallCopyPlan {
     std::string label{};
 };
 
+struct PackageInstallPromotionRecord {
+    fs::path destination{};
+    fs::path backupPath{};
+    bool createdNew = false;
+};
+
+class ExclusivePackageInstallStaging final {
+public:
+    ExclusivePackageInstallStaging() = default;
+    ~ExclusivePackageInstallStaging() noexcept { Cleanup(); }
+
+    ExclusivePackageInstallStaging(const ExclusivePackageInstallStaging&) = delete;
+    ExclusivePackageInstallStaging& operator=(const ExclusivePackageInstallStaging&) = delete;
+
+    ExclusivePackageInstallStaging(ExclusivePackageInstallStaging&& other) noexcept
+        : root_(std::move(other.root_)) {
+        other.root_.clear();
+    }
+
+    ExclusivePackageInstallStaging& operator=(ExclusivePackageInstallStaging&& other) noexcept {
+        if (this != &other) {
+            Cleanup();
+            root_ = std::move(other.root_);
+            other.root_.clear();
+        }
+        return *this;
+    }
+
+    [[nodiscard]] const fs::path& Root() const noexcept { return root_; }
+    [[nodiscard]] explicit operator bool() const noexcept { return !root_.empty(); }
+
+    static ExclusivePackageInstallStaging Create() {
+        std::error_code error;
+        const fs::path temporaryRoot = fs::canonical(fs::temp_directory_path(), error);
+        if (error || !fs::is_directory(temporaryRoot)) {
+            throw std::runtime_error(
+                "Could not resolve the system temporary directory for package install staging: "
+                + error.message());
+        }
+
+        static std::atomic<std::uint64_t> counter{0U};
+        std::random_device random;
+#if defined(_WIN32)
+        const auto processId = static_cast<std::uint64_t>(_getpid());
+#else
+        const auto processId = static_cast<std::uint64_t>(getpid());
+#endif
+        for (std::size_t attempt = 0U; attempt < 128U; ++attempt) {
+            std::ostringstream suffix;
+            suffix << "RawIronPackageInstall." << processId << '.'
+                   << std::hex << std::setw(8) << std::setfill('0') << random()
+                   << std::setw(8) << random() << '.'
+                   << counter.fetch_add(1U, std::memory_order_relaxed);
+            const fs::path candidate = temporaryRoot / suffix.str();
+            error.clear();
+            if (fs::create_directory(candidate, error)) {
+                const fs::path canonicalCandidate = fs::canonical(candidate, error);
+                if (error || canonicalCandidate.parent_path() != temporaryRoot) {
+                    std::error_code cleanupError;
+                    fs::remove(candidate, cleanupError);
+                    throw std::runtime_error(
+                        "Exclusive package-install staging root failed containment validation.");
+                }
+                return ExclusivePackageInstallStaging(canonicalCandidate);
+            }
+            if (error && error != std::errc::file_exists) {
+                throw std::runtime_error(
+                    "Could not create exclusive package-install staging root: " + error.message());
+            }
+        }
+        throw std::runtime_error(
+            "Could not allocate a unique package-install staging root after 128 attempts.");
+    }
+
+private:
+    explicit ExclusivePackageInstallStaging(fs::path root) : root_(std::move(root)) {}
+
+    void Cleanup() noexcept {
+        if (root_.empty()) {
+            return;
+        }
+        std::error_code ignored;
+        fs::remove_all(root_, ignored);
+        root_.clear();
+    }
+
+    fs::path root_{};
+};
+
 ri::content::PackageInstallPathResolution ResolvePackageInstallPathOrThrow(
     const fs::path& projectRoot,
     const std::string_view relativeDestination,
@@ -1329,31 +1436,373 @@ ri::content::PackageInstallPathResolution ResolvePackageInstallPathOrThrow(
     return resolution;
 }
 
-void CopyPackageInstallFileChecked(
+[[nodiscard]] bool IsExclusiveCreateCollision(const std::system_error& error) {
+#if defined(_WIN32)
+    const int value = error.code().value();
+    return value == ERROR_FILE_EXISTS || value == ERROR_ALREADY_EXISTS;
+#else
+    return error.code().value() == EEXIST;
+#endif
+}
+
+[[nodiscard]] fs::path MakePackagePromoteTempPath(
+    const fs::path& destination,
+    const std::uint64_t sequence) {
+    const std::uint64_t stamp = static_cast<std::uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+#if defined(_WIN32)
+    const unsigned long pid = GetCurrentProcessId();
+#else
+    const long pid = static_cast<long>(::getpid());
+#endif
+    fs::path temporary = destination;
+    temporary += ".promote-tmp." + std::to_string(pid) + "." + std::to_string(stamp) + "."
+        + std::to_string(sequence);
+    return temporary;
+}
+
+void AssertPackageOverwriteDestinationReplaceable(const fs::path& destination) {
+#if defined(_WIN32)
+    const DWORD attributes = GetFileAttributesW(destination.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        throw std::system_error(
+            static_cast<int>(GetLastError()),
+            std::system_category(),
+            "package install destination attributes cannot be inspected");
+    }
+    if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0U) {
+        throw std::runtime_error(
+            "package install destination is a directory: " + destination.string());
+    }
+    if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U) {
+        throw std::runtime_error(
+            "package install destination is a reparse point: " + destination.string());
+    }
+    if ((attributes & FILE_ATTRIBUTE_READONLY) != 0U) {
+        throw std::runtime_error(
+            "package install destination is not writable: " + destination.string());
+    }
+#else
+    std::error_code statusError;
+    const fs::file_status linkStatus = fs::symlink_status(destination, statusError);
+    if (statusError) {
+        throw std::runtime_error(
+            "package install destination cannot be inspected: " + statusError.message());
+    }
+    if (fs::is_symlink(linkStatus) || fs::is_directory(linkStatus)) {
+        throw std::runtime_error(
+            "package install destination is not a replaceable regular file: " + destination.string());
+    }
+    int probeFlags = O_WRONLY;
+#if defined(O_NOFOLLOW)
+    probeFlags |= O_NOFOLLOW;
+#endif
+    const int probe = ::open(destination.c_str(), probeFlags);
+    if (probe < 0) {
+        throw std::system_error(
+            errno, std::generic_category(), "package install destination is not writable");
+    }
+    ::close(probe);
+#endif
+}
+
+void CopyFileExclusiveCreate(const fs::path& source, const fs::path& destination) {
+#if defined(_WIN32)
+    const HANDLE handle = CreateFileW(
+        destination.c_str(),
+        GENERIC_WRITE,
+        0U,
+        nullptr,
+        CREATE_NEW,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        throw std::system_error(
+            static_cast<int>(GetLastError()),
+            std::system_category(),
+            "exclusive package install destination creation failed");
+    }
+    bool committed = false;
+    try {
+        std::ifstream input(source, std::ios::binary);
+        if (!input) {
+            throw std::runtime_error("Failed to open staged package source: " + source.string());
+        }
+        std::array<char, 64U * 1024U> buffer{};
+        while (input) {
+            input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+            const std::streamsize got = input.gcount();
+            if (got <= 0) {
+                break;
+            }
+            DWORD written = 0U;
+            if (!WriteFile(
+                    handle,
+                    buffer.data(),
+                    static_cast<DWORD>(got),
+                    &written,
+                    nullptr)
+                || written != static_cast<DWORD>(got)) {
+                throw std::system_error(
+                    static_cast<int>(GetLastError()),
+                    std::system_category(),
+                    "exclusive package install write failed");
+            }
+        }
+        if (!input && !input.eof()) {
+            throw std::runtime_error("Failed while reading staged package source: " + source.string());
+        }
+        if (!FlushFileBuffers(handle)) {
+            throw std::system_error(
+                static_cast<int>(GetLastError()),
+                std::system_category(),
+                "exclusive package install flush failed");
+        }
+        committed = true;
+    } catch (...) {
+        CloseHandle(handle);
+        if (!committed) {
+            std::error_code ignored;
+            fs::remove(destination, ignored);
+        }
+        throw;
+    }
+    CloseHandle(handle);
+#else
+    const int descriptor = open(destination.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    if (descriptor < 0) {
+        throw std::system_error(errno, std::generic_category(),
+                                "exclusive package install destination creation failed");
+    }
+    bool committed = false;
+    try {
+        std::ifstream input(source, std::ios::binary);
+        if (!input) {
+            throw std::runtime_error("Failed to open staged package source: " + source.string());
+        }
+        std::array<char, 64U * 1024U> buffer{};
+        while (input) {
+            input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+            const std::streamsize got = input.gcount();
+            if (got <= 0) {
+                break;
+            }
+            std::streamsize offset = 0;
+            while (offset < got) {
+                const ssize_t written = write(
+                    descriptor, buffer.data() + offset, static_cast<std::size_t>(got - offset));
+                if (written < 0) {
+                    if (errno == EINTR) {
+                        continue;
+                    }
+                    throw std::system_error(errno, std::generic_category(),
+                                            "exclusive package install write failed");
+                }
+                if (written == 0) {
+                    throw std::runtime_error("exclusive package install write made no progress");
+                }
+                offset += written;
+            }
+        }
+        if (!input && !input.eof()) {
+            throw std::runtime_error("Failed while reading staged package source: " + source.string());
+        }
+        if (fsync(descriptor) != 0) {
+            throw std::system_error(errno, std::generic_category(),
+                                    "exclusive package install flush failed");
+        }
+        committed = true;
+    } catch (...) {
+        close(descriptor);
+        if (!committed) {
+            std::error_code ignored;
+            fs::remove(destination, ignored);
+        }
+        throw;
+    }
+    close(descriptor);
+#endif
+}
+
+void ReplaceExistingFileFromStaged(const fs::path& source, const fs::path& destination) {
+    AssertPackageOverwriteDestinationReplaceable(destination);
+
+    static std::atomic<std::uint64_t> sequence{0U};
+    constexpr std::size_t kCollisionRetries = 8U;
+    for (std::size_t attempt = 0U; attempt < kCollisionRetries; ++attempt) {
+        const fs::path temporary = MakePackagePromoteTempPath(
+            destination, sequence.fetch_add(1U, std::memory_order_relaxed));
+        try {
+            CopyFileExclusiveCreate(source, temporary);
+        } catch (const std::system_error& error) {
+            if (IsExclusiveCreateCollision(error)) {
+                continue;
+            }
+            throw;
+        }
+
+        try {
+#if defined(_WIN32)
+            if (MoveFileExW(
+                    temporary.c_str(),
+                    destination.c_str(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)
+                == FALSE) {
+                throw std::system_error(
+                    static_cast<int>(GetLastError()),
+                    std::system_category(),
+                    "package install destination replace failed");
+            }
+#else
+            if (::rename(temporary.c_str(), destination.c_str()) != 0) {
+                throw std::system_error(
+                    errno, std::generic_category(), "package install destination replace failed");
+            }
+#endif
+            return;
+        } catch (...) {
+            std::error_code ignored;
+            fs::remove(temporary, ignored);
+            throw;
+        }
+    }
+    throw std::runtime_error(
+        "Failed to allocate an exclusive package promote temp beside "
+        + destination.string());
+}
+
+void RollbackPackageInstallPromotions(const std::vector<PackageInstallPromotionRecord>& promotions) {
+    for (auto it = promotions.rbegin(); it != promotions.rend(); ++it) {
+        std::error_code error;
+        if (it->createdNew) {
+            fs::remove(it->destination, error);
+            continue;
+        }
+        if (it->backupPath.empty() || !fs::is_regular_file(it->backupPath, error)) {
+            continue;
+        }
+        try {
+            ReplaceExistingFileFromStaged(it->backupPath, it->destination);
+        } catch (...) {
+            error.clear();
+            fs::copy_file(
+                it->backupPath, it->destination, fs::copy_options::overwrite_existing, error);
+        }
+    }
+}
+
+void PromotePackageInstallTransactionally(
     const fs::path& projectRoot,
-    const PackageInstallCopyPlan& plan) {
-    const ri::content::PackageInstallPathResolution beforeDirectories =
-        ResolvePackageInstallPathOrThrow(projectRoot, plan.relativeDestination, plan.label);
-    if (beforeDirectories.destination != plan.resolvedDestination) {
-        throw std::runtime_error(
-            "RawIron package destination changed after preflight for " + plan.label + "; install aborted.");
+    const fs::path& stagingRoot,
+    const std::vector<PackageInstallCopyPlan>& copyPlan) {
+    const fs::path stagedFilesRoot = stagingRoot / "files";
+    const fs::path backupRoot = stagingRoot / "backups";
+    std::error_code error;
+    fs::create_directories(stagedFilesRoot, error);
+    if (error) {
+        throw std::runtime_error("Failed to create package install stage directory: " + error.message());
+    }
+    fs::create_directories(backupRoot, error);
+    if (error) {
+        throw std::runtime_error("Failed to create package install backup directory: " + error.message());
     }
 
-    EnsureParentDirectoryExists(beforeDirectories.destination);
-
-    const ri::content::PackageInstallPathResolution beforeCopy =
-        ResolvePackageInstallPathOrThrow(projectRoot, plan.relativeDestination, plan.label);
-    if (beforeCopy.destination != plan.resolvedDestination) {
-        throw std::runtime_error(
-            "RawIron package destination changed while preparing " + plan.label + "; install aborted.");
+    // Stage every payload under the exclusive temp root before the first project mutation.
+    for (const PackageInstallCopyPlan& plan : copyPlan) {
+        const fs::path stagedDestination = stagedFilesRoot / fs::path(plan.relativeDestination);
+        EnsureParentDirectoryExists(stagedDestination);
+        error.clear();
+        fs::copy_file(plan.source, stagedDestination, fs::copy_options::overwrite_existing, error);
+        if (error) {
+            throw std::runtime_error(
+                "Failed to stage " + plan.label + " (" + plan.source.string() + "): " + error.message());
+        }
     }
 
-    std::error_code ec{};
-    fs::copy_file(plan.source, beforeCopy.destination, fs::copy_options::overwrite_existing, ec);
-    if (ec) {
-        throw std::runtime_error(
-            "Failed to copy " + plan.source.string() + " to " + beforeCopy.destination.string()
-            + ": " + ec.message());
+    std::vector<PackageInstallPromotionRecord> promotions;
+    promotions.reserve(copyPlan.size());
+    try {
+        for (const PackageInstallCopyPlan& plan : copyPlan) {
+            const ri::content::PackageInstallPathResolution beforeDirectories =
+                ResolvePackageInstallPathOrThrow(projectRoot, plan.relativeDestination, plan.label);
+            if (beforeDirectories.destination != plan.resolvedDestination) {
+                throw std::runtime_error(
+                    "RawIron package destination changed after preflight for " + plan.label
+                    + "; install aborted.");
+            }
+
+            EnsureParentDirectoryExists(beforeDirectories.destination);
+
+            const ri::content::PackageInstallPathResolution beforeCopy =
+                ResolvePackageInstallPathOrThrow(projectRoot, plan.relativeDestination, plan.label);
+            if (beforeCopy.destination != plan.resolvedDestination) {
+                throw std::runtime_error(
+                    "RawIron package destination changed while preparing " + plan.label
+                    + "; install aborted.");
+            }
+
+            const fs::path stagedSource = stagedFilesRoot / fs::path(plan.relativeDestination);
+            PackageInstallPromotionRecord record{
+                .destination = beforeCopy.destination,
+                .backupPath = {},
+                .createdNew = false,
+            };
+
+            error.clear();
+            const fs::file_status destinationLinkStatus =
+                fs::symlink_status(beforeCopy.destination, error);
+            const bool missingDestination = destinationLinkStatus.type() == fs::file_type::not_found
+                || error == std::errc::no_such_file_or_directory;
+            if (error && !missingDestination) {
+                throw std::runtime_error(
+                    "Failed to inspect package install destination for " + plan.label + ": "
+                    + error.message());
+            }
+            if (!missingDestination) {
+#if defined(_WIN32)
+                const DWORD destinationAttributes = GetFileAttributesW(beforeCopy.destination.c_str());
+                if (destinationAttributes == INVALID_FILE_ATTRIBUTES) {
+                    throw std::system_error(
+                        static_cast<int>(GetLastError()),
+                        std::system_category(),
+                        "package install destination attributes cannot be inspected");
+                }
+                if ((destinationAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U
+                    || (destinationAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U) {
+                    throw std::runtime_error(
+                        "Refusing to overwrite a reparse or directory package destination for "
+                        + plan.label);
+                }
+#endif
+                if (fs::is_symlink(destinationLinkStatus) || !fs::is_regular_file(destinationLinkStatus)) {
+                    throw std::runtime_error(
+                        "Refusing to overwrite a non-regular package destination for " + plan.label);
+                }
+                record.backupPath = backupRoot / fs::path(plan.relativeDestination);
+                EnsureParentDirectoryExists(record.backupPath);
+                error.clear();
+                fs::copy_file(
+                    beforeCopy.destination,
+                    record.backupPath,
+                    fs::copy_options::overwrite_existing,
+                    error);
+                if (error) {
+                    throw std::runtime_error(
+                        "Failed to backup existing package destination for " + plan.label + ": "
+                        + error.message());
+                }
+                record.createdNew = false;
+                promotions.push_back(record);
+                ReplaceExistingFileFromStaged(stagedSource, beforeCopy.destination);
+            } else {
+                record.createdNew = true;
+                CopyFileExclusiveCreate(stagedSource, beforeCopy.destination);
+                promotions.push_back(record);
+            }
+        }
+    } catch (...) {
+        RollbackPackageInstallPromotions(promotions);
+        throw;
     }
 }
 
@@ -1484,10 +1933,10 @@ void InstallAssetPackage(const WorkspaceLayout& workspace, const ri::core::Comma
         .label = "package receipt",
     });
 
-    // Every manifest-derived destination is validated before the first project mutation.
-    for (const PackageInstallCopyPlan& copy : copyPlan) {
-        CopyPackageInstallFileChecked(projectRoot, copy);
-    }
+    // Validate every destination, stage under an exclusive temp root, then promote with
+    // backup/rollback so a mid-install failure does not leave a partial project mutation.
+    ExclusivePackageInstallStaging staging = ExclusivePackageInstallStaging::Create();
+    PromotePackageInstallTransactionally(projectRoot, staging.Root(), copyPlan);
 
     ri::core::LogInfo("RawIron package installed into project.");
     ri::core::LogInfo("  Project root: " + projectRoot.string());
@@ -1963,6 +2412,96 @@ void PrintPluginHandlers() {
     ri::core::LogInfo("Handler count: " + std::to_string(handlers.size()));
 }
 
+bool ValidatePluginPackageFile(const ri::core::CommandLine& commandLine) {
+    const std::optional<std::string> pathArg = commandLine.GetValue("--plugin-package-validate");
+    if (!pathArg.has_value() || pathArg->empty()) {
+        throw std::runtime_error(
+            "--plugin-package-validate requires a plugin package directory, "
+            "package.riplugin.json path, or .ripak archive.");
+    }
+    std::optional<ri::tooling::SecureRipakExtraction> extraction;
+    fs::path packageRoot = fs::path(*pathArg);
+    if (IsRipakArchivePath(packageRoot)) {
+        extraction.emplace(ri::tooling::SecureRipakExtraction::Extract(packageRoot));
+        packageRoot = extraction->Root();
+    }
+    const ri::content::PluginPackageValidationReport report =
+        ri::content::ValidatePluginPackage(packageRoot);
+    ri::core::LogInfo("Plugin package root: "
+                      + (report.packageRoot.empty() ? std::string("<unresolved>") : report.packageRoot.string()));
+    if (!report.descriptor.id.empty()) {
+        ri::core::LogInfo("Plugin package id: " + report.descriptor.id);
+        ri::core::LogInfo("Plugin package version: " + report.descriptor.version);
+    }
+    ri::core::LogInfo(std::string("Plugin package validation: ") + (report.valid ? "pass" : "fail"));
+    for (const std::string& issue : report.issues) {
+        ri::core::LogInfo("  - " + issue);
+    }
+    return report.valid;
+}
+
+void BuildPluginPackage(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto packageArg = commandLine.GetValue("--plugin-package-build");
+    if (!packageArg.has_value() || packageArg->empty()) {
+        throw std::runtime_error(
+            "Missing --plugin-package-build <plugin-package-dir-or-package.riplugin.json>.");
+    }
+
+    const ri::content::PluginPackageArchivePlan plan =
+        ri::content::PlanPluginPackageArchive(fs::path(*packageArg));
+    if (!plan.valid) {
+        for (const std::string& issue : plan.issues) {
+            ri::core::LogInfo("  Issue: " + issue);
+        }
+        throw std::runtime_error("Plugin package validation failed; archive build aborted.");
+    }
+
+    fs::path archivePath = workspace.assetsCooked / "Packages" / "Plugins"
+        / (plan.descriptor.id + "-" + plan.descriptor.version + ".ripak");
+    if (const auto outputArg = commandLine.GetValue("--output"); outputArg.has_value() && !outputArg->empty()) {
+        archivePath = fs::path(*outputArg);
+    } else if (const auto packageOut = commandLine.GetValue("--package");
+               packageOut.has_value() && !packageOut->empty()) {
+        archivePath = fs::path(*packageOut);
+    }
+    if (!IsRipakArchivePath(archivePath)) {
+        archivePath += ".ripak";
+    }
+
+    ExclusivePackageInstallStaging staging = ExclusivePackageInstallStaging::Create();
+    std::vector<std::string> stageIssues;
+    if (!ri::content::StagePluginPackageArchive(plan, staging.Root(), stageIssues)) {
+        for (const std::string& issue : stageIssues) {
+            ri::core::LogInfo("  Issue: " + issue);
+        }
+        throw std::runtime_error("Plugin package staging failed; archive build aborted.");
+    }
+
+    // Native STORED writer: PowerShell Compress-Archive DEFLATE often leaves trailing
+    // bytes that SecureRipakExtraction rejects.
+    ri::tooling::WriteStoredRipakArchiveFromDirectory(staging.Root(), archivePath);
+
+    // Round-trip proof: extract the archive and re-validate the public contract.
+    const ri::tooling::SecureRipakExtraction extraction =
+        ri::tooling::SecureRipakExtraction::Extract(archivePath);
+    const ri::content::PluginPackageValidationReport extracted =
+        ri::content::ValidatePluginPackage(extraction.Root());
+    if (!extracted.valid || extracted.descriptor.id != plan.descriptor.id) {
+        for (const std::string& issue : extracted.issues) {
+            ri::core::LogInfo("  Issue: " + issue);
+        }
+        throw std::runtime_error(
+            "Plugin package archive failed post-build validation: " + archivePath.string());
+    }
+
+    ri::core::LogInfo("RawIron plugin package built.");
+    ri::core::LogInfo("  Package root: " + plan.packageRoot.string());
+    ri::core::LogInfo("  Package id: " + plan.descriptor.id);
+    ri::core::LogInfo("  Package version: " + plan.descriptor.version);
+    ri::core::LogInfo("  Archive entries: " + std::to_string(plan.relativeEntries.size()));
+    ri::core::LogInfo("  Archive: " + archivePath.string());
+}
+
 bool ValidateExtensionFile(const ri::core::CommandLine& commandLine) {
     const std::optional<std::string> pathArg = commandLine.GetValue("--extension-validate");
     if (!pathArg.has_value() || pathArg->empty()) {
@@ -2001,6 +2540,8 @@ void PrintToolHelp() {
     ri::core::LogInfo("Plugins, mods, and extensions:");
     ri::core::LogInfo("  --plugins-list --game <id> | --plugins-doctor --game <id>");
     ri::core::LogInfo("  --plugin-handlers | --extension-validate <package.riplugin.json>");
+    ri::core::LogInfo("  --plugin-package-validate <package-dir-or-package.riplugin.json|.ripak>");
+    ri::core::LogInfo("  --plugin-package-build <package-dir-or-package.riplugin.json> [--output|--package <out.ripak>]");
     ri::core::LogInfo("Assets and authoring:");
     ri::core::LogInfo("  --formats | --asset-standardize <path> | --asset-standardize-dir <dir>");
     ri::core::LogInfo("  --asset-package-build | --asset-package-validate | --asset-package-import | --asset-package-install");
@@ -2019,7 +2560,7 @@ bool CommandRequested(const ri::core::CommandLine& commandLine, const std::strin
 }
 
 void ValidateSinglePrimaryCommand(const ri::core::CommandLine& commandLine) {
-    static constexpr std::array<std::string_view, 34> commands = {{
+    static constexpr std::array<std::string_view, 36> commands = {{
         "--workspace",
         "--list-projects",
         "--ensure-workspace",
@@ -2033,6 +2574,8 @@ void ValidateSinglePrimaryCommand(const ri::core::CommandLine& commandLine) {
         "--plugins-doctor",
         "--plugin-handlers",
         "--extension-validate",
+        "--plugin-package-validate",
+        "--plugin-package-build",
         "--rig-toolchain-report",
         "--rig-create-humanoid",
         "--rig-validate",
@@ -2553,6 +3096,15 @@ int main(int argc, char** argv) {
 
         if (CommandRequested(commandLine, "--extension-validate")) {
             return ValidateExtensionFile(commandLine) ? 0 : 1;
+        }
+
+        if (CommandRequested(commandLine, "--plugin-package-validate")) {
+            return ValidatePluginPackageFile(commandLine) ? 0 : 1;
+        }
+
+        if (CommandRequested(commandLine, "--plugin-package-build")) {
+            BuildPluginPackage(workspace, commandLine);
+            return 0;
         }
 
         if (commandLine.HasFlag("--rig-toolchain-report")) {

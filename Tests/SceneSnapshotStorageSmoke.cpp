@@ -38,5 +38,36 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // Append-only watermark truncate restores a clean import boundary.
+    Scene rollbackScene{"Rollback"};
+    const int keepRoot = rollbackScene.CreateNode("Keep");
+    const SceneAppendWatermark mark = rollbackScene.CaptureAppendWatermark();
+    const int orphan = rollbackScene.CreateNode("Orphan", keepRoot);
+    const int orphanMesh = rollbackScene.AddMesh(Mesh{.name = "OrphanMesh"});
+    rollbackScene.AttachMesh(orphan, orphanMesh);
+    rollbackScene.TruncateToAppendWatermark(mark);
+    if (rollbackScene.NodeCount() != mark.nodeCount
+        || rollbackScene.MeshCount() != mark.meshCount
+        || !rollbackScene.GetNode(keepRoot).children.empty()
+        || orphan == keepRoot) {
+        return EXIT_FAILURE;
+    }
+
+    // AddMeshInstance must roll back even when the batch count is unchanged.
+    Scene instanceScene{"InstanceRollback"};
+    MeshInstanceBatch keepBatch{};
+    keepBatch.name = "KeepBatch";
+    keepBatch.transforms.push_back(Transform{});
+    const int keepBatchHandle = instanceScene.AddMeshInstanceBatch(std::move(keepBatch));
+    const SceneAppendWatermark instanceMark = instanceScene.CaptureAppendWatermark();
+    instanceScene.AddMeshInstance(keepBatchHandle, Transform{.position = {1.0f, 0.0f, 0.0f}});
+    instanceScene.TruncateToAppendWatermark(instanceMark);
+    if (instanceScene.MeshInstanceBatchCount() != instanceMark.meshInstanceBatchCount
+        || instanceScene.GetMeshInstanceBatch(keepBatchHandle).transforms.size() != 1U
+        || instanceMark.meshInstanceBatchSizes.size() != 1U
+        || instanceMark.meshInstanceBatchSizes[0] != 1U) {
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }

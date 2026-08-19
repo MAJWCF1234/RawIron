@@ -749,7 +749,7 @@ ri::spatial::Aabb BuildRuntimeVolumeBounds(const RuntimeVolume& volume) {
     const auto finitePositionComponent = [](const float value) {
         return std::clamp(std::isfinite(value) ? value : 0.0f, -1.0e9f, 1.0e9f);
     };
-    const auto finiteExtent = [](const float value, const float fallback) {
+    const auto finiteExtent = [kMaxVolumeExtent](const float value, const float fallback) {
         return std::clamp(std::fabs(std::isfinite(value) ? value : fallback), 0.001f, kMaxVolumeExtent);
     };
     const ri::math::Vec3 position{
@@ -2827,6 +2827,7 @@ InteractionTargetState RuntimeEnvironmentService::ResolveInteractionTarget(const
         best.targetId = std::string(id);
         best.interactionHook = std::string(interactionHook);
         best.promptText = promptView.text;
+        best.position = position;
         best.distance = directDistance;
         best.inRay = inRay;
         best.inOverlap = inOverlap;

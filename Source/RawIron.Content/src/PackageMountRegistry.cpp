@@ -96,6 +96,11 @@ namespace fs = std::filesystem;
         || !fs::is_regular_file(canonicalFile)) {
         return std::nullopt;
     }
+    std::error_code linkError;
+    const std::uintmax_t linkCount = fs::hard_link_count(canonicalFile, linkError);
+    if (linkError || linkCount > 1U) {
+        return std::nullopt;
+    }
     return canonicalFile;
 }
 

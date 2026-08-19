@@ -487,6 +487,36 @@ int main() {
         }
     }
 
+#if defined(_WIN32)
+    {
+        // Parent directory junctions must also fail closed (leaf checks are not enough).
+        const fs::path outside = root / "outside_divert";
+        const fs::path aliasParent = root / "alias_parent";
+        fs::create_directories(outside, cleanupError);
+        fs::remove_all(aliasParent, cleanupError);
+        const bool aliasOk =
+            CreateSymbolicLinkW(aliasParent.c_str(),
+                                outside.c_str(),
+                                SYMBOLIC_LINK_FLAG_DIRECTORY | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)
+            || CreateSymbolicLinkW(aliasParent.c_str(), outside.c_str(), SYMBOLIC_LINK_FLAG_DIRECTORY);
+        if (aliasOk) {
+            const fs::path divertedPath = aliasParent / "diverted.ri_state";
+            const fs::path outsideVictim = outside / "diverted.ri_state";
+            ri::scene::Scene diverted = source;
+            diverted.GetNode(0).localTransform.position.x += 55.0f;
+            const ri::scene::SceneStateIOResult divertedSave =
+                ri::scene::SaveSceneNodeTransformsDetailed(diverted, divertedPath);
+            if (divertedSave.error != ri::scene::SceneStateIOError::DestinationSymlinkUnsupported
+                || divertedSave.committed
+                || fs::exists(outsideVictim, cleanupError)) {
+                return EXIT_FAILURE;
+            }
+            fs::remove_all(aliasParent, cleanupError);
+            fs::remove_all(outside, cleanupError);
+        }
+    }
+#endif
+
 #if !defined(_WIN32)
     // POSIX replacement copies deterministic permission bits from the current
     // destination before fsync + rename.

@@ -7,10 +7,58 @@
 
 #include <chrono>
 #include <cmath>
+#include <exception>
 #include <string>
 #include <thread>
 
 namespace ri::core {
+namespace {
+
+void LogShutdownFailureNoThrow(const std::string_view reason) noexcept {
+    try {
+        LogInfo(std::string("MainLoop: host shutdown failed during exception cleanup: ")
+                + std::string(reason));
+    } catch (...) {
+        // Cleanup must never replace the exception that caused the main loop to unwind.
+    }
+}
+
+class HostShutdownGuard final {
+public:
+    explicit HostShutdownGuard(Host& host) noexcept
+        : host_(host) {}
+
+    HostShutdownGuard(const HostShutdownGuard&) = delete;
+    HostShutdownGuard& operator=(const HostShutdownGuard&) = delete;
+
+    ~HostShutdownGuard() noexcept {
+        if (!active_) {
+            return;
+        }
+        active_ = false;
+        try {
+            host_.OnShutdown();
+        } catch (const std::exception& exception) {
+            LogShutdownFailureNoThrow(exception.what());
+        } catch (...) {
+            LogShutdownFailureNoThrow("non-standard exception");
+        }
+    }
+
+    void ShutdownNow() {
+        if (!active_) {
+            return;
+        }
+        active_ = false;
+        host_.OnShutdown();
+    }
+
+private:
+    Host& host_;
+    bool active_ = true;
+};
+
+} // namespace
 
 int RunMainLoop(Host& host, const CommandLine& commandLine, const MainLoopOptions& options) {
     LogSection("RawIron");
@@ -19,6 +67,10 @@ int RunMainLoop(Host& host, const CommandLine& commandLine, const MainLoopOption
     LogInfo(std::string("Mode: ") + std::string(host.GetMode()));
     LogInfo(std::string("Args: ") + std::to_string(commandLine.Args().size()));
 
+    // Once startup is entered, shutdown is paired with it exactly once—even if startup or a frame
+    // callback throws. During unwinding, a secondary shutdown failure is diagnosed and suppressed
+    // so the original failure remains observable to the caller.
+    HostShutdownGuard shutdownGuard(host);
     host.OnStartup(commandLine);
 
     using SteadyClock = std::chrono::steady_clock;
@@ -73,7 +125,7 @@ int RunMainLoop(Host& host, const CommandLine& commandLine, const MainLoopOption
         ++frameIndex;
     }
 
-    host.OnShutdown();
+    shutdownGuard.ShutdownNow();
     return 0;
 }
 

@@ -1,9 +1,11 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <span>
+#include <stdexcept>
 #include <type_traits>
 #include <vector>
 
@@ -88,15 +90,33 @@ public:
         static_assert(sizeof(TPayload) <= 0xFFFFu,
                       "Render command payload is too large for 16-bit packet size.");
 
+        constexpr std::size_t packetSize = sizeof(RenderCommandHeader) + sizeof(TPayload);
+        const std::size_t previousSize = bytes_.size();
+        if (packetSize > bytes_.max_size() || previousSize > bytes_.max_size() - packetSize) {
+            throw std::length_error("Render command stream exceeds addressable storage.");
+        }
+        if (packetOffsets_.size() == packetOffsets_.max_size()) {
+            throw std::length_error("Render command stream contains too many packets.");
+        }
+
+        // Make the only potentially allocating metadata operation happen before bytes_ changes.
+        // This keeps the stream logically unchanged if allocation fails.
+        if (packetOffsets_.size() == packetOffsets_.capacity()) {
+            const std::size_t currentCapacity = packetOffsets_.capacity();
+            const std::size_t maxCapacity = packetOffsets_.max_size();
+            const std::size_t grownCapacity = currentCapacity > (maxCapacity / 2U)
+                ? maxCapacity
+                : std::max<std::size_t>(1U, currentCapacity * 2U);
+            packetOffsets_.reserve(grownCapacity);
+        }
+
+        bytes_.resize(previousSize + packetSize);
         const RenderCommandHeader header{
             .type = type,
             .sizeBytes = static_cast<std::uint16_t>(sizeof(TPayload)),
             .sortKey = sortKey,
             .sequence = nextSequence_++,
         };
-
-        const std::size_t previousSize = bytes_.size();
-        bytes_.resize(previousSize + sizeof(RenderCommandHeader) + sizeof(TPayload));
         std::memcpy(bytes_.data() + previousSize, &header, sizeof(RenderCommandHeader));
         std::memcpy(bytes_.data() + previousSize + sizeof(RenderCommandHeader), &payload, sizeof(TPayload));
         packetOffsets_.push_back(previousSize);

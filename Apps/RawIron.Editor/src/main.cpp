@@ -1228,16 +1228,13 @@ bool SaveEditorOrbitStateToPath(const fs::path& path, const ri::scene::OrbitCame
     std::error_code ec{};
     fs::create_directories(path.parent_path(), ec);
     (void)ec;
-    std::ofstream stream(path, std::ios::trunc);
-    if (!stream.is_open()) {
-        return false;
-    }
-    stream << "RAWIRON_EDITOR_ORBIT_V1\n";
-    stream << std::fixed << std::setprecision(8);
-    stream << orbit.target.x << " " << orbit.target.y << " " << orbit.target.z << "\n";
-    stream << orbit.distance << "\n";
-    stream << orbit.yawDegrees << " " << orbit.pitchDegrees << "\n";
-    return static_cast<bool>(stream);
+    std::ostringstream body;
+    body << "RAWIRON_EDITOR_ORBIT_V1\n";
+    body << std::fixed << std::setprecision(8);
+    body << orbit.target.x << " " << orbit.target.y << " " << orbit.target.z << "\n";
+    body << orbit.distance << "\n";
+    body << orbit.yawDegrees << " " << orbit.pitchDegrees << "\n";
+    return ri::core::detail::WriteTextFile(path, body.str());
 }
 
 void DrawRawIronOrthoGrid(HDC dc,
@@ -5828,14 +5825,15 @@ enum class UiWorkbenchTextEditTarget {
             return 0;
         }
 
-        if (HitTestViewportCreateMenu(layout.viewportInner, point)) {
+        const bool createMenuActive = leftPanelMode_ == LeftPanelMode::Create;
+        if (HitTestViewportCreateMenu(layout.viewportInner, point, createMenuActive, smallFont_)) {
             leftPanelMode_ = LeftPanelMode::Create;
             lastIoStatus_ = "Creator Lab opened from Viewport > Create menu.";
             InvalidateRect(hwnd_, nullptr, FALSE);
             return 0;
         }
 
-        if (HitTestViewportHelpMenu(layout.viewportInner, point)) {
+        if (HitTestViewportHelpMenu(layout.viewportInner, point, createMenuActive, smallFont_)) {
             ShowHelpGuide();
             return 0;
         }

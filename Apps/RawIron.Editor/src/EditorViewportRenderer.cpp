@@ -8,7 +8,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
+#include <string>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -393,36 +395,143 @@ CameraRailSpriteDiagnostics GetCameraRailSpriteDiagnostics() {
     };
 }
 
-bool HitTestViewportCreateMenu(const RECT& viewportInner, const POINT& point) {
-    constexpr int kBannerHeight = 24;
-    const RECT menuBanner{viewportInner.left + 4,
-                          viewportInner.top + 6,
-                          viewportInner.right - 4,
-                          viewportInner.top + 6 + kBannerHeight};
-    if (PtInRect(&menuBanner, point) == FALSE) {
-        return false;
-    }
-    const LONG createLeft = menuBanner.left + 188;
-    const LONG createRight = menuBanner.left + 252;
-    return point.x >= createLeft && point.x <= createRight;
+namespace {
+
+[[nodiscard]] HFONT CreateMenuMeasureFont() {
+    // Match CreateUiFont(-12, FW_NORMAL, L"Segoe UI") used for theme.smallFont.
+    return CreateFontW(-12,
+                       0,
+                       0,
+                       0,
+                       FW_NORMAL,
+                       FALSE,
+                       FALSE,
+                       FALSE,
+                       ANSI_CHARSET,
+                       OUT_DEFAULT_PRECIS,
+                       CLIP_DEFAULT_PRECIS,
+                       DEFAULT_QUALITY,
+                       DEFAULT_PITCH | FF_DONTCARE,
+                       L"Segoe UI");
 }
 
-bool HitTestViewportHelpMenu(const RECT& viewportInner, const POINT& point) {
+[[nodiscard]] bool PointInRectInclusive(const RECT& rect, const POINT& point) {
+    return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+}
+
+} // namespace
+
+ViewportMenuBannerHits MeasureViewportMenuBannerHits(HDC dc,
+                                                     HFONT font,
+                                                     const RECT& viewportInner,
+                                                     const bool createMenuActive) {
+    ViewportMenuBannerHits hits{};
     constexpr int kBannerHeight = 24;
-    const RECT menuBanner{viewportInner.left + 4,
-                          viewportInner.top + 6,
-                          viewportInner.right - 4,
-                          viewportInner.top + 6 + kBannerHeight};
-    if (PtInRect(&menuBanner, point) == FALSE) {
+    hits.banner = RECT{viewportInner.left + 4,
+                       viewportInner.top + 6,
+                       viewportInner.right - 4,
+                       viewportInner.top + 6 + kBannerHeight};
+    if (dc == nullptr || font == nullptr) {
+        return hits;
+    }
+
+    const char* const label = createMenuActive
+        ? "Scene   Edit   View   [Create]   Build   Tools   Window   Help (F1)"
+        : "Scene   Edit   View   Create   Build   Tools   Window   Help (F1)";
+    const std::string labelText(label);
+    const std::string createToken = createMenuActive ? "[Create]" : "Create";
+    constexpr const char* kHelpToken = "Help (F1)";
+    const std::size_t createAt = labelText.find(createToken);
+    const std::size_t helpAt = labelText.find(kHelpToken);
+    if (createAt == std::string::npos || helpAt == std::string::npos) {
+        return hits;
+    }
+
+    const HFONT previous = static_cast<HFONT>(SelectObject(dc, font));
+    SIZE beforeCreate{};
+    SIZE createSize{};
+    SIZE beforeHelp{};
+    SIZE helpSize{};
+    const std::wstring labelWide(labelText.begin(), labelText.end());
+    const std::wstring createWide(createToken.begin(), createToken.end());
+    const std::wstring helpWide(kHelpToken, kHelpToken + std::strlen(kHelpToken));
+    const BOOL measured =
+        GetTextExtentPoint32W(dc, labelWide.c_str(), static_cast<int>(createAt), &beforeCreate)
+        && GetTextExtentPoint32W(dc, createWide.c_str(), static_cast<int>(createWide.size()), &createSize)
+        && GetTextExtentPoint32W(dc, labelWide.c_str(), static_cast<int>(helpAt), &beforeHelp)
+        && GetTextExtentPoint32W(dc, helpWide.c_str(), static_cast<int>(helpWide.size()), &helpSize);
+    SelectObject(dc, previous);
+    if (!measured) {
+        return hits;
+    }
+
+    const LONG textLeft = hits.banner.left + 8;
+    hits.create = RECT{textLeft + beforeCreate.cx,
+                       hits.banner.top,
+                       textLeft + beforeCreate.cx + createSize.cx,
+                       hits.banner.bottom};
+    hits.help = RECT{textLeft + beforeHelp.cx,
+                     hits.banner.top,
+                     textLeft + beforeHelp.cx + helpSize.cx,
+                     hits.banner.bottom};
+    hits.measured = true;
+    return hits;
+}
+
+namespace {
+
+[[nodiscard]] ViewportMenuBannerHits MeasureViewportMenuBannerHitsWithTempDc(const RECT& viewportInner,
+                                                                             const bool createMenuActive,
+                                                                             HFONT font) {
+    const HDC screenDc = GetDC(nullptr);
+    if (screenDc == nullptr) {
+        return {};
+    }
+    const HDC measureDc = CreateCompatibleDC(screenDc);
+    HFONT ownedFont = nullptr;
+    HFONT measureFont = font;
+    if (measureFont == nullptr) {
+        ownedFont = CreateMenuMeasureFont();
+        measureFont = ownedFont;
+    }
+    ViewportMenuBannerHits hits{};
+    if (measureDc != nullptr && measureFont != nullptr) {
+        hits = MeasureViewportMenuBannerHits(measureDc, measureFont, viewportInner, createMenuActive);
+    }
+    if (ownedFont != nullptr) {
+        DeleteObject(ownedFont);
+    }
+    if (measureDc != nullptr) {
+        DeleteDC(measureDc);
+    }
+    ReleaseDC(nullptr, screenDc);
+    return hits;
+}
+
+} // namespace
+
+bool HitTestViewportCreateMenu(const RECT& viewportInner,
+                               const POINT& point,
+                               const bool createMenuActive,
+                               const HFONT font) {
+    const ViewportMenuBannerHits hits =
+        MeasureViewportMenuBannerHitsWithTempDc(viewportInner, createMenuActive, font);
+    if (!hits.measured || PtInRect(&hits.banner, point) == FALSE) {
         return false;
     }
-    // Left-aligned with DrawViewportBlock's menu label (same convention as Create).
-    // Prefix before "Help (F1)" is 56 chars; Create starts at +188 over a 22-char prefix.
-    constexpr LONG kHelpLeft = 188 * 56 / 22;
-    constexpr LONG kHelpRight = kHelpLeft + (188 * 9 / 22);
-    const LONG helpLeft = menuBanner.left + kHelpLeft;
-    const LONG helpRight = menuBanner.left + kHelpRight;
-    return point.x >= helpLeft && point.x <= helpRight;
+    return PointInRectInclusive(hits.create, point);
+}
+
+bool HitTestViewportHelpMenu(const RECT& viewportInner,
+                             const POINT& point,
+                             const bool createMenuActive,
+                             const HFONT font) {
+    const ViewportMenuBannerHits hits =
+        MeasureViewportMenuBannerHitsWithTempDc(viewportInner, createMenuActive, font);
+    if (!hits.measured || PtInRect(&hits.banner, point) == FALSE) {
+        return false;
+    }
+    return PointInRectInclusive(hits.help, point);
 }
 
 EditorViewportWorldBarHit HitTestViewportWorldBar(const RECT& viewportInner,

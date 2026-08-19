@@ -3,6 +3,7 @@
 #include "RawIron/Core/CommandLine.h"
 #include "RawIron/Core/Log.h"
 #include "RawIron/Runtime/HostInputService.h"
+#include "RawIron/Runtime/JobSystemService.h"
 #include "RawIron/Runtime/LevelSchedulerRuntimeModule.h"
 #include "RawIron/Runtime/RuntimeId.h"
 
@@ -205,6 +206,8 @@ RuntimeCore& RuntimeCore::operator=(RuntimeCore&& other) {
 }
 
 void RuntimeCore::AddDefaultModules() {
+    // Mounted first and therefore shut down last, allowing every other module to drain its jobs.
+    (void)TryAddModule(MakeJobSystemRuntimeModule());
     (void)TryAddModule(std::make_unique<LevelSchedulerRuntimeModule>());
     // Standalone hosts Bind windows and query keys; headless stays inert with null handles.
     (void)TryAddModule(MakeHostInputRuntimeModule());

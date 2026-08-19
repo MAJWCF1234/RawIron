@@ -30,6 +30,7 @@
 #include "RawIron/Render/VulkanPreviewPresenter.h"
 #include "RawIron/Render/VulkanScenePreviewBridge.h"
 #include "RawIron/Scene/Scene.h"
+#include "RawIron/Scene/InteractionStructuralGate.h"
 #include "RawIron/Scene/SceneStructuralTraceFeed.h"
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Spatial/Aabb.h"
@@ -1699,7 +1700,14 @@ void SimulateAndApplyView(RuntimeState& state,
         ri::world::InteractionTargetOptions interactOpts{};
         const ri::world::InteractionTargetState target =
             state.environmentService.ResolveInteractionTarget(eye, camForward, interactOpts);
-        if (target.kind == ri::world::InteractionTargetKind::Door) {
+        const bool hasTarget = target.kind != ri::world::InteractionTargetKind::None;
+        const ri::scene::InteractionStructuralGateResult gate =
+            ri::scene::EvaluateInteractionStructuralGate(
+                state.world.scene, eye, camForward, target.position, hasTarget);
+        if (gate.blockedByStructural) {
+            ri::core::LogInfo("Interact blocked by structural geometry at distance "
+                              + std::to_string(gate.structuralHitDistance));
+        } else if (target.kind == ri::world::InteractionTargetKind::Door) {
             std::string feedback;
             if (state.environmentService.TryInteractWithProceduralDoor(target.targetId, true, &feedback)) {
                 ri::core::LogInfo(std::string("Interact (door): ") + target.targetId

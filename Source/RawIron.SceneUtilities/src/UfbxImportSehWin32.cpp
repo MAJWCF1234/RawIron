@@ -35,6 +35,9 @@ int ImportUfbxSceneFileSeh(Scene& targetScene,
                           const std::filesystem::path& path,
                           const UfbxSceneImportOptions& options,
                           std::string& error) {
+    // Soft failures roll back inside ImportUfbxSceneFile; SEH must still truncate
+    // whatever was appended before a hard crash.
+    const SceneAppendWatermark watermark = targetScene.CaptureAppendWatermark();
     UfbxImportSehContext context{
         .scene = &targetScene,
         .path = &path,
@@ -44,6 +47,7 @@ int ImportUfbxSceneFileSeh(Scene& targetScene,
     };
 
     if (RunUfbxImportWithSeh(&context) != 0) {
+        targetScene.TruncateToAppendWatermark(watermark);
         error = "Model import crashed while loading: " + path.string();
         return kInvalidHandle;
     }

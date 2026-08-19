@@ -1,6 +1,9 @@
 #include "RawIron/Core/Detail/JsonScan.h"
 
+#include <atomic>
+#include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -8,6 +11,18 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <system_error>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#else
+#include <cerrno>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace ri::core::detail {
 
@@ -80,13 +95,134 @@ std::string ReadTextFile(const fs::path& path) {
 }
 
 bool WriteTextFile(const fs::path& path, std::string_view utf8) {
-    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
-    if (!stream.is_open()) {
+    if (path.empty()) {
         return false;
     }
-    stream.write(utf8.data(), static_cast<std::streamsize>(utf8.size()));
-    stream.flush();
-    return stream.good();
+
+#if defined(_WIN32)
+    const DWORD leafAttributes = GetFileAttributesW(path.c_str());
+    if (leafAttributes != INVALID_FILE_ATTRIBUTES
+        && ((leafAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U
+            || (leafAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U)) {
+        return false;
+    }
+#else
+    {
+        std::error_code statusError;
+        const fs::file_status leafStatus = fs::symlink_status(path, statusError);
+        if (!statusError
+            && (fs::is_symlink(leafStatus) || fs::is_directory(leafStatus))) {
+            return false;
+        }
+        if (statusError && statusError != std::errc::no_such_file_or_directory) {
+            return false;
+        }
+    }
+#endif
+
+    constexpr std::size_t kCollisionRetries = 8U;
+    static std::atomic<std::uint64_t> sequence{0U};
+    for (std::size_t attempt = 0U; attempt < kCollisionRetries; ++attempt) {
+        fs::path temporary = path;
+        const std::uint64_t stamp = static_cast<std::uint64_t>(
+            std::chrono::steady_clock::now().time_since_epoch().count());
+        temporary += ".tmp." + std::to_string(stamp) + "."
+            + std::to_string(sequence.fetch_add(1U, std::memory_order_relaxed));
+#if defined(_WIN32)
+        const HANDLE handle = CreateFileW(temporary.c_str(),
+                                          GENERIC_WRITE,
+                                          0U,
+                                          nullptr,
+                                          CREATE_NEW,
+                                          FILE_ATTRIBUTE_NORMAL,
+                                          nullptr);
+        if (handle == INVALID_HANDLE_VALUE) {
+            const DWORD lastError = GetLastError();
+            if (lastError == ERROR_FILE_EXISTS || lastError == ERROR_ALREADY_EXISTS) {
+                continue;
+            }
+            return false;
+        }
+        bool wroteOk = true;
+        if (!utf8.empty()) {
+            std::size_t offset = 0U;
+            while (offset < utf8.size()) {
+                const std::size_t remaining = utf8.size() - offset;
+                const DWORD chunk = static_cast<DWORD>(
+                    (std::min)(remaining, static_cast<std::size_t>((std::numeric_limits<DWORD>::max)())));
+                DWORD written = 0U;
+                if (WriteFile(handle, utf8.data() + offset, chunk, &written, nullptr) == FALSE
+                    || written != chunk) {
+                    wroteOk = false;
+                    break;
+                }
+                offset += written;
+            }
+        }
+        const BOOL flushed = wroteOk ? FlushFileBuffers(handle) : FALSE;
+        CloseHandle(handle);
+        if (!wroteOk || !flushed) {
+            std::error_code cleanupError;
+            fs::remove(temporary, cleanupError);
+            return false;
+        }
+        if (MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)
+            == FALSE) {
+            std::error_code cleanupError;
+            fs::remove(temporary, cleanupError);
+            return false;
+        }
+        return true;
+#else
+        int flags = O_WRONLY | O_CREAT | O_EXCL;
+#if defined(O_CLOEXEC)
+        flags |= O_CLOEXEC;
+#endif
+#if defined(O_NOFOLLOW)
+        flags |= O_NOFOLLOW;
+#endif
+        const int descriptor = ::open(temporary.c_str(), flags, 0600);
+        if (descriptor < 0) {
+            if (errno == EEXIST) {
+                continue;
+            }
+            return false;
+        }
+        bool writeOk = true;
+        std::size_t offset = 0U;
+        while (offset < utf8.size()) {
+            const ssize_t chunk = ::write(descriptor, utf8.data() + offset, utf8.size() - offset);
+            if (chunk < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                writeOk = false;
+                break;
+            }
+            if (chunk == 0) {
+                writeOk = false;
+                break;
+            }
+            offset += static_cast<std::size_t>(chunk);
+        }
+        const bool synced = writeOk && ::fsync(descriptor) == 0;
+        ::close(descriptor);
+        if (!writeOk || !synced) {
+            std::error_code cleanupError;
+            fs::remove(temporary, cleanupError);
+            return false;
+        }
+        std::error_code renameError;
+        fs::rename(temporary, path, renameError);
+        if (renameError) {
+            std::error_code cleanupError;
+            fs::remove(temporary, cleanupError);
+            return false;
+        }
+        return true;
+#endif
+    }
+    return false;
 }
 
 std::size_t SkipWhitespace(std::string_view text, std::size_t index) {

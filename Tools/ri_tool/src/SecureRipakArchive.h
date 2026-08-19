@@ -42,4 +42,11 @@ private:
     std::filesystem::path root_{};
 };
 
+/// Writes a classic ZIP-compatible `.ripak` using only STORED entries (no DEFLATE).
+/// Paths are portable forward-slash package-relative names. Exclusive create of
+/// `archivePath`; parent directories are created as needed.
+void WriteStoredRipakArchiveFromDirectory(
+    const std::filesystem::path& packageDirectory,
+    const std::filesystem::path& archivePath);
+
 } // namespace ri::tooling

@@ -69,28 +69,40 @@ The editor ensures `config/project.dev` exists for a game project and stores per
 
 Each game manifest can declare `editorPreviewScene`, which lets the editor open into a project-appropriate scene view instead of a generic placeholder.
 
-## Transform snapshot persistence
+## Editor scene persistence
 
-`SceneStateIO` writes the editor's bounded transform snapshot format. A save is
-counted before allocation or filesystem mutation, is limited to 16 MiB and
-100,000 nodes, writes an exclusively created same-directory temporary, flushes
-its contents, and only then commits the destination. Existing symlink/reparse
-destinations and non-regular files are rejected on both save and load; load also
-opens the snapshot reparse-safe with a bounded read so a destination swap cannot
-redirect the editor into an attacker-controlled file.
+Editor projects persist through generation-qualified scene bundles under a slot
+root (`SaveEditorSceneBundle`). Each save reserves an immutable `gen-…`
+directory, writes transform / authored / orbit / logic components with exclusive
+create where applicable, validates fingerprints, then publishes
+`bundle.ri_manifest` with a no-replace move. Readers treat a published manifest
+as the commit point for that generation. Slot roots reject existing
+symlink/reparse path prefixes before `create_directories`.
 
-On Windows, replacement of an existing snapshot supplies `ReplaceFileW` with a
-unique same-directory backup. Raw Iron inspects every failed replacement state:
-it confirms the original at the destination, restores an original moved to the
-backup, or returns `ManualRecoveryRequired` with exact retained backup and
-replacement paths. Callers must inspect `SceneStateIOResult::committed` even
-when `Succeeded()` is false because a committed save can still report backup
-cleanup failure. On POSIX, the implementation renames and then attempts to
-`fsync` the parent directory.
+`SceneStateIO` remains the bounded transform component writer used inside a
+bundle (and for tool-level transform snapshots). A transform save is counted
+before allocation or filesystem mutation, is limited to 16 MiB and 100,000
+nodes, writes an exclusively created same-directory temporary, flushes its
+contents, and only then commits the destination. Existing symlink/reparse
+destinations, non-regular files, and existing symlink/reparse path prefixes
+(parent directory junctions) are rejected on both save and load before
+`create_directories` or temp writes; load also opens the snapshot reparse-safe
+with a bounded read so a destination swap cannot redirect the editor into an
+attacker-controlled file.
 
-This guarantee covers one transform snapshot, not the editor's authored,
-orbit, logic, or other sidecars as a single transaction. Windows cannot provide
-a generally supported parent-directory `fsync`; remote filesystems, controller
-caches, power-loss behavior, ACL/stream merging, and cross-process writers retain
-their platform-specific semantics. A manual-recovery result intentionally leaves
-artifacts in place and requires the caller or recovery UI to reconcile them.
+On Windows, replacement of an existing transform snapshot supplies `ReplaceFileW`
+with a unique same-directory backup. Raw Iron inspects every failed replacement
+state: it confirms the original at the destination, restores an original moved to
+the backup, or returns `ManualRecoveryRequired` with exact retained backup and
+replacement paths. Callers must inspect `SceneStateIOResult::committed` even when
+`Succeeded()` is false because a committed save can still report backup cleanup
+failure. On POSIX, the implementation renames and then attempts to `fsync` the
+parent directory.
+
+Bundle publication is stronger than a single transform file, but Windows still
+cannot provide a generally supported parent-directory `fsync`; remote
+filesystems, controller caches, power-loss behavior, ACL/stream merging, and
+cross-process writers retain their platform-specific semantics. A
+manual-recovery transform result intentionally leaves artifacts in place and
+requires the caller or recovery UI to reconcile them. Legacy flat sidecars remain
+load-only compatibility inputs.

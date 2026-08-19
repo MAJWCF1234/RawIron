@@ -1,5 +1,5 @@
 # key=value hook bindings supported by the public hook parser
 # startup/on_startup map to startup/bootstrap
 # runtime/on_runtime map to runtime/frame_sample
-# descriptor hook groups are preserved as engine-owned hook phases
-runtime.mod=example_public_plugin
+# descriptor hook groups (e.g. runtime.mod) are metadata only until engine mapping lands
+on_runtime=example_public_plugin

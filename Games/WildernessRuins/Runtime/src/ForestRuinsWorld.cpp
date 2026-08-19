@@ -1347,7 +1347,8 @@ void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& call
                                                 .parent = coniferTemplateParent,
                                                 .transform = Transform{},
                                                 .snapMeshBaseToGround = false,
-                                                .createPlaceholderOnFailure = true,
+                                                // Fail closed: placeholders would be cloned across the forest.
+                                                .createPlaceholderOnFailure = false,
                                             },
                                             &importError);
                 if (templateRoot != kInvalidHandle) {
@@ -1411,9 +1412,11 @@ void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& call
     const int rockCount = ri::content::ScriptScalarOrIntClamped(gameplay, "scatter_rock_count", 28, 8, 300);
     const int bushCount = ri::content::ScriptScalarOrIntClamped(gameplay, "scatter_bush_count", 40, 8, 500);
     const int treeCount = ri::content::ScriptScalarOrIntClamped(gameplay, "scatter_tree_count", 90, 0, 1200);
-    // With PsxPack mounted, never auto-spawn cube/billboard proxies when tree meshes are missing.
-    // Proxies require an explicit script opt-in (`scatter_tree_proxies` / `scatter_tree_billboards`).
-    const bool allowTreeProxies = !forest.usesPsxPack
+    // Only suppress automatic proxies when the pack is actually content-ready.
+    // An empty PsxPack directory is a content failure, not a reason to hide stand-ins
+    // unless the script explicitly opts out of proxies.
+    const bool packContentReady = SourceForestPackReady(forest);
+    const bool allowTreeProxies = !packContentReady
         || ri::content::ScriptScalarOrBool(gameplay, "scatter_tree_proxies", false)
         || ri::content::ScriptScalarOrBool(gameplay, "scatter_tree_billboards", false);
     const bool generateTrees = useExportedConiferMeshes || allowTreeProxies;
@@ -1624,11 +1627,14 @@ void WireForestRuinsScatterCallbacks(ForestRuinsScatterBundle& bundle) {
                                                 .parent = self->coniferTemplateParent,
                                                 .transform = Transform{},
                                                 .snapMeshBaseToGround = false,
-                                                .createPlaceholderOnFailure = true,
+                                                .createPlaceholderOnFailure = false,
                                             },
                                             &importError);
                 if (templateRoot != kInvalidHandle) {
                     self->exportedConiferTemplates.emplace(meshKey, templateRoot);
+                } else if (!importError.empty()) {
+                    ri::core::LogInfo("Wilderness Ruins: WARN tree mesh import failed '"
+                                      + meshPath.filename().string() + "': " + importError);
                 }
             }
             if (templateRoot == kInvalidHandle) {
@@ -1990,7 +1996,11 @@ void PopulateForestRuinsHeroCluster(const ForestRuinsHeroPopulateCallbacks& call
     // Skip Forest_Set — full forest scenes often span kilometers in authoring units.
 
     (void)callbacks.heroRubbleCount;
-    (void)callbacks.sourcePackReady;
+    if (!callbacks.sourcePackReady) {
+        ri::core::LogInfo(
+            "Wilderness Ruins: hero landmarks skipped or sparse — PsxPack content not ready "
+            "(dirs may exist without importable trees/ground/props)");
+    }
 }
 
 } // namespace
@@ -2012,11 +2022,16 @@ World BuildForestRuinsWorld(std::string_view sceneName, const fs::path& gameRoot
     // BOTD billboards are retired; PsxPack worlds use mesh trees only (see generateTrees gating).
     const bool useBotdForestTrees = false;
     const int botdVerticalBillboardMesh = ri::scene::kInvalidHandle;
+    if (forest.usesPsxPack && !SourceForestPackReady(forest)) {
+        ri::core::LogInfo(
+            "Wilderness Ruins: PsxPack directories present but content not ready "
+            "(need ground texture, Nature/Trees meshes, and World props)");
+    }
     if (!useExportedConiferMeshes) {
         ri::core::LogInfo("Wilderness Ruins: PSX tree meshes missing under assets/PsxPack/Nature/Trees");
     } else {
-        ri::core::LogInfo("Wilderness Ruins: using " + std::to_string(exportedConiferMeshes.size())
-                          + " PSX tree meshes from assets/PsxPack");
+        ri::core::LogInfo("Wilderness Ruins: discovered " + std::to_string(exportedConiferMeshes.size())
+                          + " PSX tree mesh files under assets/PsxPack (import happens at scatter time)");
     }
     const ri::content::ScriptScalarMap gameplay = ri::content::LoadScriptScalars(gameRoot / "scripts" / "gameplay.riscript");
 

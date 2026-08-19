@@ -130,7 +130,12 @@ Done means shipping builds carry validated derived data without the full editor-
 
 - Experiment with configurable BSP split policies only after the existing candidate metrics identify a scene that needs them.
 
-The next recommended implementation is a game-runtime interaction gate that compares an interaction target's distance with the nearest `QueryMesh + Interaction` hit, then reports a clear blocked/eligible result without changing legacy target selection behavior.
+The game-runtime interaction gate compares the look-ray parameter of the interaction target
+center with the nearest `QueryMesh + Interaction` hit via `EvaluateInteractionStructuralGate`,
+then reports a clear blocked/eligible result without changing legacy target selection behavior.
+LiminalHall and WildernessRuins suppress activation when blocked. Remaining structural backlog:
+packaging of derived partition artifacts and optional BSP split experiments when metrics
+justify them.
 
 ## Quality Gates
 

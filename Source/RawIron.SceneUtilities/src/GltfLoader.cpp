@@ -453,6 +453,14 @@ int ImportGltfToScene(Scene& targetScene,
         return kInvalidHandle;
     }
 
+    // All-or-nothing: mid-import failure must not leave wrapper/partial trees attached.
+    const SceneAppendWatermark watermark = targetScene.CaptureAppendWatermark();
+    const auto failClosed = [&]() -> int {
+        targetScene.TruncateToAppendWatermark(watermark);
+        cgltf_free(data);
+        return kInvalidHandle;
+    };
+
     int importParent = options.parent;
     if (!options.wrapperNodeName.empty()) {
         importParent = targetScene.CreateNode(options.wrapperNodeName, options.parent);
@@ -464,8 +472,7 @@ int ImportGltfToScene(Scene& targetScene,
         const int rootHandle =
             ImportGltfNodeRecursive(targetScene, gltfScene->nodes[nodeIndex], importParent, options, error);
         if (rootHandle == kInvalidHandle) {
-            cgltf_free(data);
-            return kInvalidHandle;
+            return failClosed();
         }
         if (firstRoot == kInvalidHandle) {
             firstRoot = rootHandle;

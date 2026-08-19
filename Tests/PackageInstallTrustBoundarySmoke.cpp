@@ -515,6 +515,128 @@ int main(const int argc, const char* const* argv) {
         return fail("hard-link rejection mutated an outside alias or the project");
     }
 
+    // Mid-promote failure: first destination is writable, second parent path is a file so
+    // create_directories fails. Transactional install must roll back the first write.
+    const fs::path rollbackPackage = fixtureRoot / "rollback-package";
+    const fs::path rollbackProject = fixtureRoot / "rollback-project";
+    fs::create_directories(rollbackProject / "assets", error);
+    if (error) {
+        return fail("could not create transactional rollback project");
+    }
+    std::ofstream(rollbackProject / "sentinel.txt", std::ios::binary) << "rollback-before";
+    std::ofstream(rollbackProject / "assets" / "blocked", std::ios::binary) << "not-a-directory";
+    std::ofstream(rollbackProject / "assets" / "keep-me.ri_asset.json", std::ios::binary)
+        << "preexisting-keep";
+
+    ri::content::AssetPackageValidationReport rollbackValidation{};
+    if (!CreatePackage(
+            rollbackPackage,
+            "rawiron.rollback-e2e",
+            {
+                "assets/first.ri_asset.json",
+                "assets/blocked/nested.ri_asset.json",
+            },
+            rollbackValidation)
+        || !rollbackValidation.valid) {
+        return fail("could not create transactional rollback package");
+    }
+    const std::vector<std::string> rollbackProjectBefore = SnapshotTree(rollbackProject);
+    const ProcessResult rollbackInstall = RunInstall(toolPath, rollbackPackage, rollbackProject);
+    if (!rollbackInstall.launched) {
+        return fail("could not launch ri_tool for the transactional rollback regression");
+    }
+    if (rollbackInstall.exitCode == 0) {
+        return fail("ri_tool accepted an install that cannot create a blocked destination parent");
+    }
+    if (SnapshotTree(rollbackProject) != rollbackProjectBefore
+        || ReadFile(rollbackProject / "sentinel.txt") != "rollback-before"
+        || ReadFile(rollbackProject / "assets" / "keep-me.ri_asset.json") != "preexisting-keep"
+        || ReadFile(rollbackProject / "assets" / "blocked") != "not-a-directory"
+        || fs::exists(rollbackProject / "assets" / "first.ri_asset.json")
+        || fs::exists(
+            rollbackProject / "assets" / "package_receipts"
+            / "rawiron.rollback-e2e.ri_package.json")) {
+        return fail("transactional install did not roll back after a mid-promote failure");
+    }
+
+#if defined(_WIN32)
+    // Overwrite must record the promotion before mutating so a failed replace
+    // still restores the pre-install bytes (readonly destination forces the write to fail).
+    const fs::path readonlyPackage = fixtureRoot / "readonly-package";
+    const fs::path readonlyProject = fixtureRoot / "readonly-project";
+    fs::create_directories(readonlyProject / "assets", error);
+    if (error) {
+        return fail("could not create readonly overwrite project");
+    }
+    const fs::path readonlyDestination = readonlyProject / "assets" / "overwrite-me.ri_asset.json";
+    std::ofstream(readonlyDestination, std::ios::binary) << "readonly-original";
+    if (SetFileAttributesW(readonlyDestination.c_str(), FILE_ATTRIBUTE_READONLY) == FALSE) {
+        return fail("could not mark the overwrite destination read-only");
+    }
+    ri::content::AssetPackageValidationReport readonlyValidation{};
+    if (!CreatePackage(
+            readonlyPackage,
+            "rawiron.readonly-e2e",
+            {"assets/overwrite-me.ri_asset.json"},
+            readonlyValidation)
+        || !readonlyValidation.valid) {
+        SetFileAttributesW(readonlyDestination.c_str(), FILE_ATTRIBUTE_NORMAL);
+        return fail("could not create readonly overwrite package");
+    }
+    const ProcessResult readonlyInstall = RunInstall(toolPath, readonlyPackage, readonlyProject);
+    const DWORD destinationAttributes = GetFileAttributesW(readonlyDestination.c_str());
+    SetFileAttributesW(readonlyDestination.c_str(), FILE_ATTRIBUTE_NORMAL);
+    if (!readonlyInstall.launched) {
+        return fail("could not launch ri_tool for the readonly overwrite regression");
+    }
+    if (readonlyInstall.exitCode == 0
+        || ReadFile(readonlyDestination) != "readonly-original"
+        || (destinationAttributes != INVALID_FILE_ATTRIBUTES
+            && (destinationAttributes & FILE_ATTRIBUTE_READONLY) == 0U)
+        || fs::exists(
+            readonlyProject / "assets" / "package_receipts"
+            / "rawiron.readonly-e2e.ri_package.json")) {
+        return fail("failed overwrite did not preserve the original destination");
+    }
+#endif
+
+    // Happy path: multi-file install with overwrite + receipt, proving stage/promote succeeds.
+    const fs::path happyPackage = fixtureRoot / "happy-package";
+    const fs::path happyProject = fixtureRoot / "happy-project";
+    fs::create_directories(happyProject / "assets", error);
+    if (error) {
+        return fail("could not create happy-path install project");
+    }
+    std::ofstream(happyProject / "assets" / "overwrite-me.ri_asset.json", std::ios::binary)
+        << "old-payload";
+
+    ri::content::AssetPackageValidationReport happyValidation{};
+    if (!CreatePackage(
+            happyPackage,
+            "rawiron.happy-e2e",
+            {
+                "assets/overwrite-me.ri_asset.json",
+                "assets/packages/rawiron.happy-e2e/new-payload.ri_asset.json",
+            },
+            happyValidation)
+        || !happyValidation.valid) {
+        return fail("could not create happy-path install package");
+    }
+    const ProcessResult happyInstall = RunInstall(toolPath, happyPackage, happyProject);
+    if (!happyInstall.launched || happyInstall.exitCode != 0) {
+        return fail("happy-path transactional install failed");
+    }
+    if (!fs::exists(happyProject / "assets" / "overwrite-me.ri_asset.json")
+        || !fs::exists(
+            happyProject / "assets" / "packages" / "rawiron.happy-e2e"
+            / "new-payload.ri_asset.json")
+        || !fs::exists(
+            happyProject / "assets" / "package_receipts"
+            / "rawiron.happy-e2e.ri_package.json")
+        || ReadFile(happyProject / "assets" / "overwrite-me.ri_asset.json") == "old-payload") {
+        return fail("happy-path transactional install did not publish expected project files");
+    }
+
     std::string cleanupIssue;
     if (!CleanupFixtureTreeSafely(fixtureRoot, cleanupIssue)) {
         return Fail("successful fixture cleanup refused: " + cleanupIssue

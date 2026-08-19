@@ -44,6 +44,11 @@ Rendering policy is engine-owned.
 - Sequence values are opaque identifiers. Zero is valid, ordering is ignored, and only exact equality with the last successfully presented identifier suppresses a frame.
 - A sequence becomes the last-presented value only after a successful or suboptimal Vulkan present. Acquire or present failures remain retryable and cannot accidentally suppress the replacement frame.
 
+Vulkan texture warmup uses the shared `ri::core::JobSystem` execution contract instead of owning a
+private thread-pool implementation. Runtime/tool callers may pass their mounted pool to
+`VulkanWarmupCache::Preload`; standalone callers receive a bounded temporary pool using the same
+fence, failure, and shutdown guarantees.
+
 Once native initialization reaches frame processing, callback, scene-build, acquire, submit, and present failures pass through the same device-resource teardown path before the loop returns. Engine-owned Win32 windows are destroyed after Vulkan surface teardown; embedded editor/client windows remain host-owned. Host message-hook exceptions are contained inside the Win32 callback boundary and reported after teardown.
 
 Camera and sky uniform storage is owned per frame-in-flight slot. The CPU waits only for the fence protecting the slot it is about to rewrite, so the other slot may remain in flight without observing partially updated camera or atmosphere data. Descriptor sets bind the matching slot-local buffers when each swapchain command buffer is recorded.

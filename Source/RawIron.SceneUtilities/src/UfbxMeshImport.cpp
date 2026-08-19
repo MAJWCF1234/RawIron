@@ -817,6 +817,13 @@ int ImportUfbxSceneFile(Scene& targetScene,
         return kInvalidHandle;
     }
 
+    // All-or-nothing: any mid-import failure must not leave wrapper/partial trees attached.
+    const SceneAppendWatermark watermark = targetScene.CaptureAppendWatermark();
+    const auto failClosed = [&]() -> int {
+        targetScene.TruncateToAppendWatermark(watermark);
+        return kInvalidHandle;
+    };
+
     int importParent = options.parent;
     if (!options.wrapperNodeName.empty()) {
         importParent = targetScene.CreateNode(options.wrapperNodeName, options.parent);
@@ -843,7 +850,7 @@ int ImportUfbxSceneFile(Scene& targetScene,
     if (loadedScene->root_node->children.count > 0U) {
         for (std::size_t childIndex = 0; childIndex < loadedScene->root_node->children.count; ++childIndex) {
             if (!importChild(loadedScene->root_node->children[childIndex])) {
-                return kInvalidHandle;
+                return failClosed();
             }
         }
     } else if (loadedScene->root_node->mesh != nullptr) {
@@ -851,12 +858,12 @@ int ImportUfbxSceneFile(Scene& targetScene,
             ImportUfbxNodeRecursive(
                 targetScene, loadedScene->root_node, importParent, path, textureCandidates, materialTable, error);
         if (importedRoot == kInvalidHandle) {
-            return kInvalidHandle;
+            return failClosed();
         }
         firstRoot = importedRoot;
     } else {
         error = "Model file does not contain any importable geometry: " + pathString;
-        return kInvalidHandle;
+        return failClosed();
     }
 
     error.clear();

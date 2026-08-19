@@ -49,6 +49,8 @@ struct SemanticStructuralPartitionQuery {
     std::optional<StructuralBrushRebuildScope> rebuildScope{};
     std::string_view brushId{};
     std::string_view region{};
+    /// When set, exact raycasts skip this node's mesh so a target cannot occlude itself.
+    int ignoreNodeHandle = kInvalidHandle;
 };
 
 struct SemanticStructuralPartitionHit {

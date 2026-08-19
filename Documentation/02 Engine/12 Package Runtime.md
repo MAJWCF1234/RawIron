@@ -149,12 +149,16 @@ uses `Compress-Archive`; extraction is native and does not fetch a backend at ru
 
 Current format limits are intentional: no ZIP64, split, encrypted, linked, sparse, or
 non-stored/non-DEFLATE package entries. One bounded DEFLATE file is held in memory while
-decoding. The pinned stb decoder verifies actual output size and CRC but does not expose
-its final compressed-input cursor, so harmless bytes following a valid DEFLATE end marker
-inside an entry cannot yet be distinguished from fully consumed input. Publisher
-authentication and transactional multi-file project installation remain separate trust
-layers. Windows adversarial extraction is covered in CI; POSIX code paths compile by
-design but require their platform CI lane for runtime proof.
+decoding. The pinned stb decoder verifies actual output size and CRC; because it does not
+expose a consumed-input cursor, extraction also rejects entries whose declared compressed
+region still fully expands after dropping the final compressed byte (trailing garbage after
+a valid DEFLATE end marker). `--asset-package-install` stages every asset and the install
+receipt under an exclusive system-temporary root, then promotes into the project with
+per-file backup and rollback so a mid-install failure restores prior project contents.
+Existing files are replaced from an exclusive sibling temp rather than truncated in place.
+Publisher authentication remains a separate trust layer. Windows adversarial extraction is
+covered in CI; POSIX code paths compile by design but require their platform CI lane for
+runtime proof.
 
 The current `fnv1a64:` value is a deterministic integrity checksum over canonical LF text.
 It detects package corruption and makes Windows/Git line-ending conversion stable. It is

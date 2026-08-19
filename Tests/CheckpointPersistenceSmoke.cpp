@@ -222,6 +222,31 @@ int main() {
         error.clear();
         if (store.Clear("directory", &error) || error.empty()) return EXIT_FAILURE;
         fs::remove_all(dirSlot, cleanupError);
+
+        // Root directory junctions must fail closed before create_directories/ofstream divert.
+        const fs::path outsideRoot = root / "checkpoint-outside";
+        const fs::path aliasRoot = root / "checkpoint-alias-root";
+        fs::create_directories(outsideRoot, cleanupError);
+        fs::remove_all(aliasRoot, cleanupError);
+        const bool aliasOk =
+            CreateSymbolicLinkW(aliasRoot.c_str(),
+                                outsideRoot.c_str(),
+                                SYMBOLIC_LINK_FLAG_DIRECTORY | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)
+            || CreateSymbolicLinkW(aliasRoot.c_str(), outsideRoot.c_str(), SYMBOLIC_LINK_FLAG_DIRECTORY);
+        if (aliasOk) {
+            ri::world::FileCheckpointStore aliasStore(aliasRoot);
+            ri::world::RuntimeCheckpointSnapshot aliasSnap = MakeSnapshot("junction");
+            error.clear();
+            if (aliasStore.Save(aliasSnap, &error) || error.empty()) return EXIT_FAILURE;
+            error.clear();
+            if (aliasStore.Load("junction", &error).has_value()) return EXIT_FAILURE;
+            error.clear();
+            if (aliasStore.Clear("junction", &error) || error.empty()) return EXIT_FAILURE;
+            const fs::path outsideVictim = outsideRoot / "junction.checkpoint";
+            if (fs::exists(outsideVictim, cleanupError)) return EXIT_FAILURE;
+            fs::remove_all(aliasRoot, cleanupError);
+            fs::remove_all(outsideRoot, cleanupError);
+        }
     }
 #endif
     // Unknown keys must fail closed (not silently ignored).

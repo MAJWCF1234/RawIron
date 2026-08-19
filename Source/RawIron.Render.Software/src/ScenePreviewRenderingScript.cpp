@@ -195,12 +195,21 @@ bool DidGamePreviewScriptsChange(const std::filesystem::path& gameRoot,
 bool TryApplyPostprocessScriptFileToScenePreview(const std::filesystem::path& postprocessScriptPath,
                                                  const std::filesystem::path& renderingScriptPath,
                                                  ScenePreviewOptions& options) {
-    std::error_code ec{};
+    std::error_code renderingExistsError{};
     ri::content::ScriptScalarMap renderingFallback{};
-    if (std::filesystem::exists(renderingScriptPath, ec)) {
+    const bool renderingExists = std::filesystem::exists(renderingScriptPath, renderingExistsError);
+    if (renderingExistsError) {
+        return false;
+    }
+    if (renderingExists) {
         renderingFallback = ri::content::LoadScriptScalars(renderingScriptPath);
     }
-    if (!std::filesystem::exists(postprocessScriptPath, ec)) {
+    std::error_code postprocessExistsError{};
+    const bool postprocessExists = std::filesystem::exists(postprocessScriptPath, postprocessExistsError);
+    if (postprocessExistsError) {
+        return false;
+    }
+    if (!postprocessExists) {
         if (!renderingFallback.empty()) {
             ApplyPostprocessScriptScalarsToScenePreview({}, renderingFallback, options);
             return true;

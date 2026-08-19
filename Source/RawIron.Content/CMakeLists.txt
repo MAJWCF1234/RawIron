@@ -16,6 +16,7 @@ add_library(RawIron.Content
   src/PackageResolver.cpp
   src/PipelineAssetInventory.cpp
   src/PluginHookBindingParser.cpp
+  src/PluginPackage.cpp
   src/PluginProjectData.cpp
   src/PluginRuntime.cpp
   src/PrimitiveModelDocument.cpp
@@ -64,6 +65,20 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(ExtensionDescriptorSmoke ${CMAKE_SOURCE_DIR}/Tests/ExtensionDescriptorSmoke.cpp)
   target_link_libraries(ExtensionDescriptorSmoke PRIVATE RawIron::Content)
   add_test(NAME RawIron.Content.ExtensionDescriptorSmoke COMMAND ExtensionDescriptorSmoke)
+
+  add_executable(PluginPackageValidateSmoke ${CMAKE_SOURCE_DIR}/Tests/PluginPackageValidateSmoke.cpp)
+  target_link_libraries(PluginPackageValidateSmoke PRIVATE RawIron::Content)
+  add_test(
+    NAME RawIron.Content.PluginPackageValidateSmoke
+    COMMAND PluginPackageValidateSmoke ${CMAKE_SOURCE_DIR}
+  )
+
+  add_executable(PluginPackageArchivePlanSmoke ${CMAKE_SOURCE_DIR}/Tests/PluginPackageArchivePlanSmoke.cpp)
+  target_link_libraries(PluginPackageArchivePlanSmoke PRIVATE RawIron::Content)
+  add_test(
+    NAME RawIron.Content.PluginPackageArchivePlanSmoke
+    COMMAND PluginPackageArchivePlanSmoke ${CMAKE_SOURCE_DIR}
+  )
 
   add_executable(AuthoringHandoffSmoke ${CMAKE_SOURCE_DIR}/Tests/AuthoringHandoffSmoke.cpp)
   target_link_libraries(AuthoringHandoffSmoke PRIVATE RawIron::Content)

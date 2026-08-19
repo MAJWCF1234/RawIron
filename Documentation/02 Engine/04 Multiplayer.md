@@ -54,8 +54,17 @@ multiple frames instead of emitting all 4,096 queued events at once.
 
 These are engine allocation and per-frame work limits, not bandwidth rate limiting or an application
 command schema or per-peer bandwidth rate limiter. Valid traffic can still consume the documented
-per-peer waiting-data allowance, and repeated protocol offenders are not yet assigned escalating
-cooldowns. Command authorization remains the responsibility of the authority protocol layered above transport.
+per-peer waiting-data allowance. Repeated protocol offenders on an **authoritative host** (oversized or malformed packets
+from a client) receive escalating soft cooldowns (`net.peer.cooldown`, 250 ms base doubling
+to 8 s) during which further inbound packets from that peer are dropped as `peer_cooldown`
+without extending the cooldown. Clients never apply this cooldown to the authority — a
+malformed host snapshot requests a full resync instead of muting gameplay. The client keeps
+its last good snapshot baseline while that resync is in flight, so a later valid delta can
+still apply if the host rate-limits `0xA8`. Authority and
+P2P offense maps are separate so a side-channel strike cannot silence the gameplay plane.
+Unauthenticated snapshot resync requests (`0xA8`) are accepted at most once per 250 ms per
+peer. Hard disconnect/kick of offenders remains a later transport control. Command
+authorization remains the responsibility of the authority protocol layered above transport.
 Transport objects are runtime-thread confined; callers must add their own synchronization before
 using a transport from multiple threads.
 Use `RawIron.Runtime.NetPacketResourceBoundarySmoke` for exact-limit, oversized, aggregate-byte,
@@ -64,7 +73,8 @@ dispatch-isolation, and outbound rejection coverage.
 ## Engine net features
 
 - authoritative server/client flow
-- snapshot replication
+- snapshot replication (reliable delivery; decode/apply reject requests a full resync without
+  dropping the last good client baseline)
 - lag compensation and rewind buffers
 - latency simulation
 - optional side-channel P2P plane

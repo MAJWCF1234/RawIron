@@ -24,6 +24,24 @@ add_executable(FrameArenaSmoke FrameArenaSmoke.cpp)
 target_link_libraries(FrameArenaSmoke PRIVATE RawIron::Core)
 add_test(NAME RawIron.Core.FrameArenaSmoke COMMAND FrameArenaSmoke)
 
+find_package(Threads REQUIRED)
+
+add_executable(SpscRingBufferSmoke SpscRingBufferSmoke.cpp)
+target_link_libraries(SpscRingBufferSmoke PRIVATE RawIron::Core Threads::Threads)
+add_test(NAME RawIron.Core.SpscRingBufferSmoke COMMAND SpscRingBufferSmoke)
+
+add_executable(MainLoopLifecycleSmoke MainLoopLifecycleSmoke.cpp)
+target_link_libraries(MainLoopLifecycleSmoke PRIVATE RawIron::Core)
+add_test(NAME RawIron.Core.MainLoopLifecycleSmoke COMMAND MainLoopLifecycleSmoke)
+
+add_executable(JobSystemSmoke JobSystemSmoke.cpp)
+target_link_libraries(JobSystemSmoke PRIVATE RawIron::Core Threads::Threads)
+add_test(NAME RawIron.Core.JobSystemSmoke COMMAND JobSystemSmoke)
+
+add_executable(SessionExtensionSmoke SessionExtensionSmoke.cpp)
+target_link_libraries(SessionExtensionSmoke PRIVATE RawIron::Core)
+add_test(NAME RawIron.Core.SessionExtensionSmoke COMMAND SessionExtensionSmoke)
+
 add_executable(SceneSnapshotStorageSmoke SceneSnapshotStorageSmoke.cpp)
 target_link_libraries(SceneSnapshotStorageSmoke PRIVATE RawIron::Core)
 add_test(NAME RawIron.Core.SceneSnapshotStorageSmoke COMMAND SceneSnapshotStorageSmoke)
@@ -57,7 +75,3 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/Tests/FbxTextureRemapSmoke.cpp"
 endif()
 unset(_rawiron_fbx_remap_fixture)
 unset(_rawiron_fbx_remap_psx)
-
-add_executable(SessionExtensionSmoke SessionExtensionSmoke.cpp)
-target_link_libraries(SessionExtensionSmoke PRIVATE RawIron::Core)
-add_test(NAME RawIron.Core.SessionExtensionSmoke COMMAND SessionExtensionSmoke)

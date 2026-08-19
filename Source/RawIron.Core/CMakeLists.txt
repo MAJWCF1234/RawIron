@@ -9,6 +9,7 @@ add_library(RawIron.Core
   src/ImageComparison.cpp
   src/InputLabelFormat.cpp
   src/InputPolling.cpp
+  src/JobSystem.cpp
   src/JsonScan.cpp
   src/KeyboardFocus.cpp
   src/Log.cpp
@@ -51,6 +52,10 @@ if (RAWIRON_BUILD_TESTS)
     target_link_libraries(KeyboardFocusSmoke PRIVATE user32)
   endif()
   add_test(NAME RawIron.Core.KeyboardFocusSmoke COMMAND KeyboardFocusSmoke)
+
+  add_executable(WriteTextFileSmoke ${CMAKE_SOURCE_DIR}/Tests/WriteTextFileSmoke.cpp)
+  target_link_libraries(WriteTextFileSmoke PRIVATE RawIron::Core)
+  add_test(NAME RawIron.Core.WriteTextFileSmoke COMMAND WriteTextFileSmoke)
 endif()
 
 if (RAWIRON_ENABLE_STACKTRACE_DIAGNOSTICS)

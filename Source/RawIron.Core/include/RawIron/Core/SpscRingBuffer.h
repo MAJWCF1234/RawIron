@@ -3,6 +3,7 @@
 #include <atomic>
 #include <array>
 #include <cstddef>
+#include <limits>
 #include <optional>
 #include <type_traits>
 
@@ -11,6 +12,8 @@ namespace ri::core {
 template <typename T, std::size_t Capacity>
 class SpscRingBuffer {
     static_assert(Capacity > 0, "SpscRingBuffer capacity must be greater than zero.");
+    static_assert(Capacity < std::numeric_limits<std::size_t>::max(),
+                  "SpscRingBuffer capacity is too large.");
     static_assert(std::is_trivially_copyable_v<T>, "SpscRingBuffer requires trivially copyable value types.");
 
 public:
@@ -24,7 +27,7 @@ public:
         if (head >= tail) {
             return head - tail;
         }
-        return Capacity - (tail - head);
+        return kStorageCapacity - (tail - head);
     }
 
     [[nodiscard]] bool Empty() const noexcept {
@@ -75,10 +78,13 @@ public:
 
 private:
     [[nodiscard]] static constexpr std::size_t Next(std::size_t index) noexcept {
-        return (index + 1) % Capacity;
+        return (index + 1) % kStorageCapacity;
     }
 
-    std::array<T, Capacity> storage_{};
+    // One sentinel slot distinguishes full from empty while preserving the public promise that a
+    // buffer declared with Capacity can hold exactly Capacity values.
+    static constexpr std::size_t kStorageCapacity = Capacity + 1U;
+    std::array<T, kStorageCapacity> storage_{};
     std::atomic<std::size_t> head_{0};
     std::atomic<std::size_t> tail_{0};
 };

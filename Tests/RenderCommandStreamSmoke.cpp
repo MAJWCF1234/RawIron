@@ -73,6 +73,18 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // Equal-key packets retain emission order independently of the compact diagnostic sequence.
+    stream.EmitSorted(ri::core::RenderCommandType::ClearColor,
+                      ri::core::ClearColorCommand{.r = 1.0f}, 7U);
+    stream.EmitSorted(ri::core::RenderCommandType::ClearColor,
+                      ri::core::ClearColorCommand{.r = 2.0f}, 7U);
+    stream.EmitSorted(ri::core::RenderCommandType::ClearColor,
+                      ri::core::ClearColorCommand{.r = 3.0f}, 7U);
+    const std::vector<std::size_t> stableOrder = stream.BuildSortedPacketOrder();
+    if (stableOrder != std::vector<std::size_t>{1U, 2U, 3U, 0U}) {
+        return EXIT_FAILURE;
+    }
+
     stream.Clear();
     if (stream.CommandCount() != 0U || stream.SizeBytes() != 0U || !stream.Bytes().empty()
         || !stream.BuildSortedPacketOrder().empty()) {

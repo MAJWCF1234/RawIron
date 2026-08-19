@@ -1,10 +1,13 @@
 #include "RawIron/Render/VulkanWarmupCache.h"
 
+#include "RawIron/Core/JobSystem.h"
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstring>
 #include <fstream>
+#include <stdexcept>
 #include <system_error>
 #include <thread>
 #include <unordered_set>
@@ -82,7 +85,8 @@ bool VulkanWarmupCache::TryStore(
 }
 
 VulkanWarmupCacheStats VulkanWarmupCache::Preload(const std::vector<fs::path>& paths,
-                                                   const VulkanWarmupCacheOptions& options) {
+                                                   const VulkanWarmupCacheOptions& options,
+                                                   ri::core::JobSystem* sharedJobs) {
     const auto started = std::chrono::steady_clock::now();
     Clear();
     {
@@ -118,10 +122,20 @@ VulkanWarmupCacheStats VulkanWarmupCache::Preload(const std::vector<fs::path>& p
     std::atomic_size_t failed{0};
     std::atomic_size_t skipped{0};
     std::vector<std::uint8_t> failedJobs(jobs.size(), 0U);
-    std::vector<std::thread> workers{};
-    workers.reserve(stats.workerThreads);
+
+    std::unique_ptr<ri::core::JobSystem> ownedJobs;
+    if (sharedJobs == nullptr) {
+        ownedJobs = std::make_unique<ri::core::JobSystem>(ri::core::JobSystemConfig{
+            .workerCount = stats.workerThreads,
+            .maxWorkerCount = stats.workerThreads,
+        });
+        sharedJobs = ownedJobs.get();
+    }
+
+    ri::core::JobFence decodeFence;
     for (std::uint32_t workerIndex = 0; workerIndex < stats.workerThreads; ++workerIndex) {
-        workers.emplace_back([&] {
+        (void)workerIndex;
+        if (!sharedJobs->Submit(decodeFence, [&] {
             while (true) {
                 const std::size_t jobIndex = nextJob.fetch_add(1U, std::memory_order_relaxed);
                 if (jobIndex >= jobs.size()) {
@@ -141,11 +155,16 @@ VulkanWarmupCacheStats VulkanWarmupCache::Preload(const std::vector<fs::path>& p
                     skipped.fetch_add(1U, std::memory_order_relaxed);
                 }
             }
-        });
+        })) {
+            try {
+                sharedJobs->Wait(decodeFence);
+            } catch (...) {
+                // Submission failure remains the primary diagnostic.
+            }
+            throw std::runtime_error("Vulkan warmup could not submit decode work.");
+        }
     }
-    for (std::thread& worker : workers) {
-        worker.join();
-    }
+    sharedJobs->Wait(decodeFence);
 
     stats.decodedPaths = decoded.load(std::memory_order_relaxed);
     stats.failedPaths = failed.load(std::memory_order_relaxed);

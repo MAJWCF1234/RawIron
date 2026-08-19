@@ -1,5 +1,7 @@
 #include "RawIron/Render/VulkanWarmupCache.h"
 
+#include "RawIron/Core/JobSystem.h"
+
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -62,6 +64,15 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    ri::core::JobSystem sharedJobs({.workerCount = 2U, .maxWorkerCount = 2U});
+    const ri::render::vulkan::VulkanWarmupCacheStats sharedStats =
+        cache.Preload({imagePath, root / "missing.bmp"}, burst, &sharedJobs);
+    if (sharedStats.decodedPaths != 1U || sharedStats.failedPaths != 1U
+        || sharedJobs.Metrics().executedJobs == 0U || !sharedJobs.AcceptingJobs()) {
+        fs::remove_all(root, ec);
+        return EXIT_FAILURE;
+    }
+
     const ri::render::vulkan::VulkanWarmupCacheStats limited = cache.Preload(
         {imagePath},
         ri::render::vulkan::VulkanWarmupCacheOptions{
@@ -109,5 +120,5 @@ int main() {
     }
 
     fs::remove_all(root, ec);
-    return ec ? EXIT_FAILURE : EXIT_SUCCESS;
+    return !sharedJobs.Shutdown() || ec ? EXIT_FAILURE : EXIT_SUCCESS;
 }

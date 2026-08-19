@@ -6,6 +6,7 @@ add_library(RawIron.Runtime
   src/ExperiencePresets.cpp
   src/HostChrome.cpp
   src/HostInputService.cpp
+  src/JobSystemService.cpp
   src/LagCompensation.cpp
   src/LatencyTools.cpp
   src/LevelSchedulerBundle.cpp
@@ -17,6 +18,7 @@ add_library(RawIron.Runtime
   src/RuntimeEventBus.cpp
   src/RuntimeId.cpp
   src/RuntimeNetcode.cpp
+  src/SessionExtensionProtocol.cpp
   src/SnapshotReplication.cpp
   src/RuntimeTuning.cpp
 )
@@ -91,6 +93,12 @@ if(RAWIRON_BUILD_TESTS)
   target_link_libraries(RuntimeNetcodeSmoke PRIVATE RawIron::Runtime)
   add_test(NAME RawIron.Runtime.NetcodeSmoke COMMAND RuntimeNetcodeSmoke)
 
+  add_executable(SessionExtensionProtocolSmoke
+    ${CMAKE_SOURCE_DIR}/Tests/SessionExtensionProtocolSmoke.cpp)
+  target_include_directories(SessionExtensionProtocolSmoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_link_libraries(SessionExtensionProtocolSmoke PRIVATE RawIron::Runtime)
+  add_test(NAME RawIron.Runtime.SessionExtensionProtocolSmoke COMMAND SessionExtensionProtocolSmoke)
+
   add_executable(DemoStreamSmoke ${CMAKE_SOURCE_DIR}/Tests/DemoStreamSmoke.cpp)
   target_link_libraries(DemoStreamSmoke PRIVATE RawIron::Runtime)
   add_test(NAME RawIron.Runtime.DemoStreamSmoke COMMAND DemoStreamSmoke)
@@ -119,17 +127,23 @@ if(RAWIRON_BUILD_TESTS)
   target_link_libraries(RuntimeCoreLifecycleSmoke PRIVATE RawIron::Runtime)
   add_test(NAME RawIron.Runtime.CoreLifecycleSmoke COMMAND RuntimeCoreLifecycleSmoke)
 
+  add_executable(JobSystemServiceSmoke ${CMAKE_SOURCE_DIR}/Tests/JobSystemServiceSmoke.cpp)
+  target_link_libraries(JobSystemServiceSmoke PRIVATE RawIron::Runtime)
+  add_test(NAME RawIron.Runtime.JobSystemServiceSmoke COMMAND JobSystemServiceSmoke)
+
   # Runtime tests pull in the EOS rendezvous provider, so they need the same DLL
   # staging the apps get; otherwise they fail to load with 0xC0000135 on any
   # machine that actually has the EOS SDK installed.
   foreach(rawiron_runtime_test
       RuntimeNetcodeSmoke
+      SessionExtensionProtocolSmoke
       DemoStreamSmoke
       RuntimeEventBusSafetySmoke
       SnapshotReplicationSmoke
       NetHardeningSmoke
       NetPacketResourceBoundarySmoke
-      RuntimeCoreLifecycleSmoke)
+      RuntimeCoreLifecycleSmoke
+      JobSystemServiceSmoke)
     rawiron_stage_runtime_dlls(${rawiron_runtime_test})
   endforeach()
 endif()

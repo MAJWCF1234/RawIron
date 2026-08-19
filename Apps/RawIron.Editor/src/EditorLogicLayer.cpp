@@ -11,10 +11,29 @@
 #include "RawIron/Scene/ModelLoader.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <sstream>
+#include <string_view>
+#include <system_error>
+#include <vector>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#include <cerrno>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace ri::editor {
 namespace {
@@ -1073,19 +1092,188 @@ std::string EditorLogicLayer::Serialize(const Scene& scene) const {
 }
 
 bool EditorLogicLayer::Save(const fs::path& path, const Scene& scene) const {
-    std::error_code ec{};
-    fs::create_directories(path.parent_path(), ec);
-    if (ec) {
+    if (path.empty() || path.filename().empty()) {
         return false;
     }
-    std::ofstream stream(path, std::ios::out | std::ios::trunc);
-    if (!stream.is_open()) {
+
+    const auto pathPrefixHasIndirection = [](const fs::path& candidate) -> bool {
+        if (candidate.empty()) {
+            return false;
+        }
+        std::error_code absoluteError;
+        fs::path current = fs::absolute(candidate, absoluteError);
+        if (absoluteError) {
+            return true;
+        }
+        std::vector<fs::path> chain;
+        for (;;) {
+            chain.push_back(current);
+            if (!current.has_relative_path()) {
+                break;
+            }
+            const fs::path parent = current.parent_path();
+            if (parent.empty() || parent == current) {
+                break;
+            }
+            current = parent;
+        }
+        for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+            std::error_code statusError;
+            const fs::file_status status = fs::symlink_status(*it, statusError);
+            if (statusError == std::errc::no_such_file_or_directory
+                || status.type() == fs::file_type::not_found) {
+                continue;
+            }
+            if (statusError || fs::is_symlink(status)) {
+                return true;
+            }
+#if defined(_WIN32)
+            const DWORD attributes = GetFileAttributesW(it->c_str());
+            if (attributes == INVALID_FILE_ATTRIBUTES) {
+                const DWORD lastError = GetLastError();
+                if (lastError == ERROR_FILE_NOT_FOUND || lastError == ERROR_PATH_NOT_FOUND) {
+                    continue;
+                }
+                return true;
+            }
+            if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U) {
+                return true;
+            }
+#endif
+        }
+        return false;
+    };
+
+    const fs::path parentPath = path.parent_path();
+    if (!parentPath.empty()) {
+        if (pathPrefixHasIndirection(parentPath)) {
+            return false;
+        }
+        std::error_code ec{};
+        fs::create_directories(parentPath, ec);
+        if (ec) {
+            return false;
+        }
+    }
+
+    // Reject leaf symlink/reparse destinations (ofstream trunc would follow them).
+#if defined(_WIN32)
+    const DWORD leafAttributes = GetFileAttributesW(path.c_str());
+    if (leafAttributes != INVALID_FILE_ATTRIBUTES
+        && ((leafAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U
+            || (leafAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U)) {
         return false;
     }
+#else
+    {
+        std::error_code statusError;
+        const fs::file_status leafStatus = fs::symlink_status(path, statusError);
+        if (!statusError
+            && (fs::is_symlink(leafStatus) || fs::is_directory(leafStatus))) {
+            return false;
+        }
+        if (statusError && statusError != std::errc::no_such_file_or_directory) {
+            return false;
+        }
+    }
+#endif
+
     const std::string serialized = Serialize(scene);
-    stream.write(serialized.data(), static_cast<std::streamsize>(serialized.size()));
-    stream.flush();
-    return stream.good();
+    constexpr std::size_t kCollisionRetries = 8U;
+    static std::atomic<std::uint64_t> sequence{0U};
+    for (std::size_t attempt = 0U; attempt < kCollisionRetries; ++attempt) {
+        fs::path temporary = path;
+        const std::uint64_t stamp = static_cast<std::uint64_t>(
+            std::chrono::steady_clock::now().time_since_epoch().count());
+        temporary += ".tmp." + std::to_string(stamp) + "."
+            + std::to_string(sequence.fetch_add(1U, std::memory_order_relaxed));
+#if defined(_WIN32)
+        const HANDLE handle = CreateFileW(temporary.c_str(),
+                                          GENERIC_WRITE,
+                                          0U,
+                                          nullptr,
+                                          CREATE_NEW,
+                                          FILE_ATTRIBUTE_NORMAL,
+                                          nullptr);
+        if (handle == INVALID_HANDLE_VALUE) {
+            const DWORD lastError = GetLastError();
+            if (lastError == ERROR_FILE_EXISTS || lastError == ERROR_ALREADY_EXISTS) {
+                continue;
+            }
+            return false;
+        }
+        DWORD written = 0U;
+        const BOOL wrote = serialized.empty()
+            || (WriteFile(handle,
+                          serialized.data(),
+                          static_cast<DWORD>(serialized.size()),
+                          &written,
+                          nullptr)
+                && written == serialized.size());
+        const BOOL flushed = wrote ? FlushFileBuffers(handle) : FALSE;
+        CloseHandle(handle);
+        if (!wrote || !flushed) {
+            std::error_code cleanupError;
+            fs::remove(temporary, cleanupError);
+            return false;
+        }
+        if (MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)
+            == FALSE) {
+            std::error_code cleanupError;
+            fs::remove(temporary, cleanupError);
+            return false;
+        }
+        return true;
+#else
+        int flags = O_WRONLY | O_CREAT | O_EXCL;
+#if defined(O_CLOEXEC)
+        flags |= O_CLOEXEC;
+#endif
+#if defined(O_NOFOLLOW)
+        flags |= O_NOFOLLOW;
+#endif
+        const int descriptor = ::open(temporary.c_str(), flags, 0600);
+        if (descriptor < 0) {
+            if (errno == EEXIST) {
+                continue;
+            }
+            return false;
+        }
+        bool writeOk = true;
+        std::size_t offset = 0U;
+        while (offset < serialized.size()) {
+            const ssize_t chunk = ::write(descriptor, serialized.data() + offset, serialized.size() - offset);
+            if (chunk < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                writeOk = false;
+                break;
+            }
+            if (chunk == 0) {
+                writeOk = false;
+                break;
+            }
+            offset += static_cast<std::size_t>(chunk);
+        }
+        const bool synced = writeOk && ::fsync(descriptor) == 0;
+        ::close(descriptor);
+        if (!writeOk || !synced) {
+            std::error_code cleanupError;
+            fs::remove(temporary, cleanupError);
+            return false;
+        }
+        std::error_code renameError;
+        fs::rename(temporary, path, renameError);
+        if (renameError) {
+            std::error_code cleanupError;
+            fs::remove(temporary, cleanupError);
+            return false;
+        }
+        return true;
+#endif
+    }
+    return false;
 }
 
 bool EditorLogicLayer::Load(const fs::path& path,

@@ -130,5 +130,22 @@ int main() {
         || receiver.Stats().rejectedSnapshots != 1U) {
         return EXIT_FAILURE;
     }
+
+    // Reject → ForgetPeer must force the next BuildForPeer to emit a full snapshot.
+    sender.RememberPeerBaseline(7U, baseline);
+    bool usedDeltaBeforeReject = false;
+    const ri::runtime::SnapshotDeltaPacket deltaBeforeReject =
+        sender.BuildForPeer(7U, target, usedDeltaBeforeReject);
+    if (!usedDeltaBeforeReject || deltaBeforeReject.baseTick != baseline.tick) {
+        return EXIT_FAILURE;
+    }
+    sender.ForgetPeer(7U);
+    bool usedDeltaAfterForget = true;
+    const ri::runtime::SnapshotDeltaPacket fullAfterForget =
+        sender.BuildForPeer(7U, target, usedDeltaAfterForget);
+    if (usedDeltaAfterForget || fullAfterForget.encodedOps != target.bytes) {
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }

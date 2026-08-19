@@ -11,6 +11,8 @@ namespace ri::core::detail {
 
 [[nodiscard]] std::string ReadTextFile(const std::filesystem::path& path);
 
+/// Shared UTF-8 text write used by package/plugin/editor helpers. Refuses symlink/reparse and
+/// directory destinations, then publishes via exclusive sibling temp + replace.
 [[nodiscard]] bool WriteTextFile(const std::filesystem::path& path, std::string_view utf8);
 
 [[nodiscard]] std::size_t SkipWhitespace(std::string_view text, std::size_t index);

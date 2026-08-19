@@ -733,6 +733,10 @@ std::optional<SemanticStructuralRaycastHit> RaycastSemanticStructuralPartition(
         if (candidate.entry == nullptr) {
             continue;
         }
+        if (query.ignoreNodeHandle != kInvalidHandle
+            && candidate.entry->nodeHandle == query.ignoreNodeHandle) {
+            continue;
+        }
         const std::optional<RaycastHit> preciseHit =
             RaycastNode(scene, candidate.entry->nodeHandle, normalizedRay);
         if (!preciseHit.has_value() || preciseHit->distance > far) {

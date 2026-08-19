@@ -3,6 +3,8 @@
 #include "RawIron/Core/CommandLine.h"
 #include "RawIron/Core/Log.h"
 
+#include "SessionExtensionProtocol.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -17,11 +19,6 @@ constexpr std::size_t kSnapshotPacketHeaderSize = 18U;
 constexpr std::uint8_t kSnapshotResyncMarker = 0xA8U;
 constexpr std::uint8_t kSnapshotResyncVersion = 1U;
 constexpr std::size_t kSnapshotResyncPacketSize = 2U;
-constexpr std::uint8_t kSessionExtensionOfferMarker = 0xB9U;
-constexpr std::uint8_t kSessionExtensionAckMarker = 0xBAU;
-constexpr std::uint8_t kSessionExtensionPacketVersion = 1U;
-constexpr std::size_t kSessionExtensionHeaderSize = 2U;
-constexpr std::size_t kSessionExtensionAckHeaderSize = 7U;
 constexpr std::size_t kMaxSnapshotPayloadBytes = 4U * 1024U * 1024U;
 constexpr int kMaxSnapshotCatchUpSteps = 4;
 constexpr std::size_t kRuntimeTransportEventBudget = 128U;
@@ -123,77 +120,6 @@ std::optional<SnapshotDeltaPacket> DecodeSnapshotPacket(const NetPacket& packet)
     return packet.payload.size() == kSnapshotResyncPacketSize
         && packet.payload[0] == kSnapshotResyncMarker
         && packet.payload[1] == kSnapshotResyncVersion;
-}
-
-[[nodiscard]] std::optional<NetPacket> EncodeSessionExtensionOffer(
-    const ri::core::SessionExtensionContract& contract) {
-    const std::vector<std::uint8_t> serialized = ri::core::SerializeSessionExtensionContract(contract);
-    if (serialized.empty() || serialized.size() > kMaxNetPacketPayloadBytes - kSessionExtensionHeaderSize) {
-        return std::nullopt;
-    }
-    NetPacket packet{};
-    packet.channel = 0U;
-    packet.reliable = true;
-    packet.payload.reserve(kSessionExtensionHeaderSize + serialized.size());
-    packet.payload.push_back(kSessionExtensionOfferMarker);
-    packet.payload.push_back(kSessionExtensionPacketVersion);
-    packet.payload.insert(packet.payload.end(), serialized.begin(), serialized.end());
-    return packet;
-}
-
-[[nodiscard]] bool DecodeSessionExtensionOffer(const NetPacket& packet,
-                                               ri::core::SessionExtensionContract& contract) {
-    if (packet.payload.size() <= kSessionExtensionHeaderSize
-        || packet.payload[0] != kSessionExtensionOfferMarker
-        || packet.payload[1] != kSessionExtensionPacketVersion) {
-        return false;
-    }
-    const auto* first = reinterpret_cast<const char*>(packet.payload.data() + kSessionExtensionHeaderSize);
-    return ri::core::DeserializeSessionExtensionContract(
-        std::string_view(first, packet.payload.size() - kSessionExtensionHeaderSize), contract);
-}
-
-[[nodiscard]] std::optional<NetPacket> EncodeSessionExtensionAck(
-    const ri::core::SessionExtensionContract& contract,
-    const bool accepted) {
-    if (contract.fingerprint.empty() || contract.fingerprint.size() > 512U) {
-        return std::nullopt;
-    }
-    NetPacket packet{};
-    packet.channel = 0U;
-    packet.reliable = true;
-    packet.payload.reserve(kSessionExtensionAckHeaderSize + contract.fingerprint.size());
-    packet.payload.push_back(kSessionExtensionAckMarker);
-    packet.payload.push_back(kSessionExtensionPacketVersion);
-    packet.payload.push_back(accepted ? 1U : 0U);
-    WriteU32(packet.payload, static_cast<std::uint32_t>(contract.fingerprint.size()));
-    packet.payload.insert(packet.payload.end(), contract.fingerprint.begin(), contract.fingerprint.end());
-    return packet;
-}
-
-[[nodiscard]] bool DecodeSessionExtensionAck(const NetPacket& packet,
-                                             bool& accepted,
-                                             std::string& fingerprint) {
-    if (packet.payload.size() < kSessionExtensionAckHeaderSize
-        || packet.payload[0] != kSessionExtensionAckMarker
-        || packet.payload[1] != kSessionExtensionPacketVersion
-        || packet.payload[2] > 1U) {
-        return false;
-    }
-    std::uint32_t length = 0U;
-    if (!ReadU32(packet.payload, 3U, length) || length == 0U || length > 512U
-        || static_cast<std::size_t>(length) != packet.payload.size() - kSessionExtensionAckHeaderSize) {
-        return false;
-    }
-    accepted = packet.payload[2] == 1U;
-    fingerprint.assign(
-        reinterpret_cast<const char*>(packet.payload.data() + kSessionExtensionAckHeaderSize), length);
-    return true;
-}
-
-[[nodiscard]] bool IsSessionExtensionControlPacket(const NetPacket& packet) noexcept {
-    return packet.payload.size() >= kSessionExtensionHeaderSize
-        && (packet.payload[0] == kSessionExtensionOfferMarker || packet.payload[0] == kSessionExtensionAckMarker);
 }
 
 std::vector<std::uint8_t> EncodeAuthoritativePosition(const std::uint32_t tick, const float x) {
@@ -407,7 +333,8 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
         for (const std::size_t peerId : connectedPeers) {
             const auto [state, inserted] = sessionExtensionPeers_.try_emplace(peerId, SessionExtensionPeerState::Pending);
             if ((inserted || state->second == SessionExtensionPeerState::Pending)) {
-                const std::optional<NetPacket> offer = EncodeSessionExtensionOffer(config_.sessionExtensionContract);
+                const std::optional<NetPacket> offer =
+                    session_protocol::EncodeOffer(config_.sessionExtensionContract);
                 if (offer.has_value()) {
                     static_cast<void>(authorityTransport_->Send(peerId, *offer));
                 }
@@ -542,14 +469,14 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
         if (config_.requireSessionExtensionAgreement) {
             if (config_.role == NetRole::Client) {
                 ri::core::SessionExtensionContract offered{};
-                if (!DecodeSessionExtensionOffer(*ready, offered)) {
+                if (!session_protocol::DecodeOffer(*ready, offered)) {
                     emitIgnoredPacket(ready->peerId, ready->payload.size(), "session_extension_offer_invalid");
                     continue;
                 }
                 const bool accepted = ri::core::SessionExtensionContractsMatch(
                     offered, config_.sessionExtensionContract);
                 const std::optional<NetPacket> acknowledgement =
-                    EncodeSessionExtensionAck(offered, accepted);
+                    session_protocol::EncodeAcknowledgement(offered, accepted);
                 if (acknowledgement.has_value()) {
                     static_cast<void>(authorityTransport_->Send(ready->peerId, *acknowledgement));
                 }
@@ -567,7 +494,7 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
 
             bool accepted = false;
             std::string fingerprint;
-            if (DecodeSessionExtensionAck(*ready, accepted, fingerprint)) {
+            if (session_protocol::DecodeAcknowledgement(*ready, accepted, fingerprint)) {
                 const bool matches = accepted && fingerprint == config_.sessionExtensionContract.fingerprint;
                 sessionExtensionPeers_[ready->peerId] = matches
                     ? SessionExtensionPeerState::Accepted
@@ -580,7 +507,7 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
                                               : "net.session_extensions.rejected", std::move(event));
                 continue;
             }
-            if (IsSessionExtensionControlPacket(*ready)) {
+            if (session_protocol::IsControlPacket(*ready)) {
                 emitIgnoredPacket(ready->peerId, ready->payload.size(), "session_extension_ack_invalid");
                 continue;
             }

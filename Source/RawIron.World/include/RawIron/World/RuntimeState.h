@@ -1838,6 +1838,7 @@ struct InteractionTargetState {
     std::string targetId;
     std::string interactionHook;
     std::string promptText;
+    ri::math::Vec3 position{};
     float distance = 0.0f;
     bool inRay = false;
     bool inOverlap = false;
