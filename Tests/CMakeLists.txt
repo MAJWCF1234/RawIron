@@ -57,3 +57,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/Tests/FbxTextureRemapSmoke.cpp"
 endif()
 unset(_rawiron_fbx_remap_fixture)
 unset(_rawiron_fbx_remap_psx)
+
+add_executable(SessionExtensionSmoke SessionExtensionSmoke.cpp)
+target_link_libraries(SessionExtensionSmoke PRIVATE RawIron::Core)
+add_test(NAME RawIron.Core.SessionExtensionSmoke COMMAND SessionExtensionSmoke)

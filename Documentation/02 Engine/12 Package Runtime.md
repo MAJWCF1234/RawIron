@@ -76,6 +76,42 @@ configuration. Validate a game's mount graph without launching it with:
 ri_tool --game-package-mount-check --game <id>
 ```
 
+## Shared session extensions
+
+RawIron treats a **session extension** as the network-visible form of a package, mod,
+plugin, data pack, or external integration. It is an engine capability: any game can
+adopt it and decide its own policy; sample projects merely exercise it.
+
+`SessionExtensionContract` is a bounded, canonical list of extension id, version,
+package-content fingerprint, provided capabilities, kind, and reload policy. Content
+builds descriptors from validated installed packages and rechecks every declared asset
+before producing the package fingerprint. The fingerprint proves that peers selected the
+same bytes under the current integrity model; it is not publisher authentication.
+
+An authoritative host may set `AuthoritativeNetConfig::requireSessionExtensionAgreement`.
+Before a client can send authority gameplay traffic or receive simulation snapshots, the
+host sends its contract and the client must acknowledge the exact fingerprint. A mismatch
+leaves that peer outside gameplay and emits `net.session_extensions.rejected`; an exact
+match emits `net.session_extensions.accepted` on both sides. This applies equally to a
+dedicated server, listen host, editor playtest, or any custom game runtime.
+
+Reload policy expresses the minimum safe boundary rather than forcing one game style:
+
+- `frame-boundary`: data/assets and visual integrations
+- `simulation-boundary`: gameplay systems whose state/schema can be synchronized
+- `session-restart`: native modules until an explicit state-migration and isolated-code host exists
+
+`SessionExtensionCoordinator` is the generic host-side state machine for a live proposal:
+stage a normalized contract, require acknowledgement from the selected peers, and activate
+only at or after its declared simulation tick. It intentionally does not mount code itself;
+the host uses the accepted boundary to run its own package staging, state migration, and
+rollback actions.
+
+The first protocol intentionally performs preflight only. Package acquisition, host
+approval UI, replicated schema registration, state migration, and coordinated live
+activation are separate layers; RawIron will not hot-swap arbitrary native code in an
+active multiplayer simulation.
+
 ## Security boundary
 
 Capabilities describe what a package supplies or needs. Permissions describe privileged

@@ -7,15 +7,25 @@
 #include "RawIron/Runtime/RendezvousProvider.h"
 #include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Runtime/SnapshotReplication.h"
+#include "RawIron/Core/SessionExtensions.h"
 
+#include <cstdint>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <deque>
+#include <unordered_map>
 #include <vector>
 
 namespace ri::runtime {
+
+enum class SessionExtensionPeerState : std::uint8_t {
+    NotRequired = 0,
+    Pending,
+    Accepted,
+    Rejected,
+};
 
 enum class NetChannelKind : std::uint8_t {
     Authority = 0, // gameplay-critical: movement, combat, inventory
@@ -53,6 +63,10 @@ struct AuthoritativeNetConfig {
     RendezvousProviderKind rendezvousProvider = RendezvousProviderKind::EpicOnlineServices;
     bool issueJoinCodeOnStartup = false;
     std::string joinCodeToResolve;
+    /// When enabled, every authority-plane peer must accept this exact package/extension contract
+    /// before it can send gameplay commands or receive simulation snapshots.
+    bool requireSessionExtensionAgreement = false;
+    ri::core::SessionExtensionContract sessionExtensionContract{};
 };
 
 struct PredictionTelemetry {
@@ -71,6 +85,8 @@ struct ServerNetTelemetry {
     std::uint64_t inboundPacketsDroppedByQueueBudget = 0;
     std::uint64_t inboundPacketsDroppedByPollBudget = 0;
     std::uint64_t oversizedOutboundPacketsRejected = 0;
+    /// Packets dropped because the peer is under an escalating protocol-offense cooldown.
+    std::uint64_t inboundPacketsDroppedByPeerCooldown = 0;
     std::uint32_t lastSnapshotTick = 0;
 };
 
@@ -89,6 +105,8 @@ public:
     [[nodiscard]] const ServerNetTelemetry& ServerStats() const noexcept;
     [[nodiscard]] HostMigrationState MigrationState() const noexcept;
     [[nodiscard]] std::optional<std::string> ActiveJoinCode() const;
+    [[nodiscard]] SessionExtensionPeerState SessionExtensionState() const noexcept;
+    [[nodiscard]] SessionExtensionPeerState PeerSessionExtensionState(std::size_t peerId) const noexcept;
 
     /// Packet routing helper so games can keep authority and side-channel traffic cleanly separated.
     bool SendPacket(std::size_t peerId, const NetPacket& packet, NetChannelKind kind);
@@ -100,6 +118,11 @@ private:
     void EmitMigrationState(RuntimeContext& context, HostMigrationState newState, std::string reason = {});
     void TickHostMigration(RuntimeContext& context);
 
+    struct PeerOffenseState {
+        std::uint32_t strikes = 0;
+        std::uint64_t cooldownUntilMs = 0;
+    };
+
     AuthoritativeNetConfig config_{};
     std::unique_ptr<INetTransport> authorityTransport_{};
     std::unique_ptr<INetTransport> p2pTransport_{};
@@ -110,6 +133,12 @@ private:
     SnapshotReplicator snapshotReplicator_{};
     PredictionTelemetry predictionTelemetry_{};
     ServerNetTelemetry serverTelemetry_{};
+    /// Authority-plane protocol offenders. Never applied on clients (the peer is the host).
+    std::unordered_map<std::size_t, PeerOffenseState> peerOffenses_{};
+    /// P2P-plane protocol offenders; kept separate so a side-channel strike cannot mute gameplay.
+    std::unordered_map<std::size_t, PeerOffenseState> p2pPeerOffenses_{};
+    /// Last accepted client resync request per peer, to bound unauthenticated full-snapshot spam.
+    std::unordered_map<std::size_t, std::uint64_t> peerResyncAcceptedMs_{};
     std::uint32_t lastBroadcastTick_ = 0;
     double snapshotCadenceAccumulatorSeconds_ = 0.0;
     HostMigrationState migrationState_ = HostMigrationState::Idle;
@@ -118,6 +147,8 @@ private:
     std::uint32_t localPredictionTick_ = 0;
     float predictedPositionX_ = 0.0f;
     std::deque<std::pair<std::uint32_t, float>> predictedHistory_{};
+    std::unordered_map<std::size_t, SessionExtensionPeerState> sessionExtensionPeers_{};
+    SessionExtensionPeerState localSessionExtensionState_ = SessionExtensionPeerState::NotRequired;
 };
 
 } // namespace ri::runtime

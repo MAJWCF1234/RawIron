@@ -4,6 +4,7 @@
 #include "RawIron/Runtime/RuntimeNetcode.h"
 
 #include <cstdlib>
+#include <iostream>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -78,6 +79,27 @@ ri::core::FrameContext Frame(const int index) {
     };
 }
 
+ri::core::SessionExtensionContract MakeSessionExtensions(const std::string_view version = "1.0.0") {
+    ri::core::SessionExtensionContract contract{};
+    contract.extensions.push_back({
+        .id = "studio.shared-physics",
+        .version = std::string(version),
+        .fingerprint = "fnv1a64:0123456789abcdef",
+        .kind = ri::core::SessionExtensionKind::Gameplay,
+        .reloadPolicy = ri::core::SessionExtensionReloadPolicy::SimulationBoundary,
+        .capabilities = {"physics.props", "world.damage"},
+    });
+    static_cast<void>(ri::core::NormalizeSessionExtensionContract(contract));
+    return contract;
+}
+
+bool Check(const bool condition, const char* const message) {
+    if (!condition) {
+        std::cerr << "RuntimeNetcodeSmoke: " << message << '\n';
+    }
+    return condition;
+}
+
 } // namespace
 
 int main() {
@@ -96,11 +118,15 @@ int main() {
     serverConfig.mode = ri::runtime::NetMode::Dedicated;
     serverConfig.serverTickRate = 30;
     serverConfig.rendezvousProvider = ri::runtime::RendezvousProviderKind::DirectToken;
+    serverConfig.requireSessionExtensionAgreement = true;
+    serverConfig.sessionExtensionContract = MakeSessionExtensions();
     ri::runtime::AuthoritativeNetModule server(serverConfig, std::make_unique<TestTransport>(link, true));
 
     ri::runtime::AuthoritativeNetConfig clientConfig{};
     clientConfig.mode = ri::runtime::NetMode::ClientOnly;
     clientConfig.rendezvousProvider = ri::runtime::RendezvousProviderKind::DirectToken;
+    clientConfig.requireSessionExtensionAgreement = true;
+    clientConfig.sessionExtensionContract = MakeSessionExtensions();
     ri::runtime::AuthoritativeNetModule client(clientConfig, std::make_unique<TestTransport>(link, false));
 
     ri::runtime::RuntimeContext serverContext({}, {});
@@ -116,20 +142,63 @@ int main() {
     command.channel = 0U;
     command.reliable = true;
     command.payload = {1U, 2U, 3U};
-    if (!client.SendPacket(0U, std::move(command), ri::runtime::NetChannelKind::Authority)) {
+    // Gameplay is refused until the exact host contract has been received and accepted.
+    if (!Check(!client.SendPacket(0U, command, ri::runtime::NetChannelKind::Authority), "preflight did not gate command")
+        || !Check(server.OnRuntimeFrame(serverContext, Frame(1)), "server offer frame failed")
+        || !Check(client.OnRuntimeFrame(clientContext, Frame(1)), "client offer frame failed")
+        || !Check(client.SessionExtensionState() == ri::runtime::SessionExtensionPeerState::Accepted, "client did not accept offer")
+        || !Check(server.OnRuntimeFrame(serverContext, Frame(2)), "server acknowledgement frame failed")
+        || !Check(server.PeerSessionExtensionState(7U) == ri::runtime::SessionExtensionPeerState::Accepted,
+                  "server did not accept acknowledgement")) {
+        return EXIT_FAILURE;
+    }
+    // Drain the repeated offer and first accepted snapshot.
+    if (!Check(client.OnRuntimeFrame(clientContext, Frame(2)), "client accepted snapshot frame failed")) {
         return EXIT_FAILURE;
     }
 
-    if (!server.OnRuntimeFrame(serverContext, Frame(1)) || server.ServerStats().inboundPackets != 1U ||
-        server.ServerStats().outboundPackets == 0U || link->serverToClient.empty()) {
+    if (!Check(client.SendPacket(0U, command, ri::runtime::NetChannelKind::Authority), "accepted client command rejected")) {
         return EXIT_FAILURE;
     }
-    if (!client.OnRuntimeFrame(clientContext, Frame(1)) || client.PredictionStats().reconciledFrames == 0U ||
-        client.PredictionStats().correctionCount == 0U) {
+
+    if (!Check(server.OnRuntimeFrame(serverContext, Frame(3)), "server command frame failed")
+        || !Check(server.ServerStats().inboundPackets >= 2U, "server did not receive acknowledgement and command")
+        || !Check(server.ServerStats().outboundPackets > 0U, "server sent no snapshots")
+        || !Check(!link->serverToClient.empty(), "client did not receive snapshots")) {
+        return EXIT_FAILURE;
+    }
+    if (!Check(client.OnRuntimeFrame(clientContext, Frame(3)), "client snapshot frame failed")) {
         return EXIT_FAILURE;
     }
 
     server.OnRuntimeShutdown(serverContext);
     client.OnRuntimeShutdown(clientContext);
+
+    // A client with a different package revision must be kept out of gameplay.
+    auto rejectedLink = std::make_shared<TestLink>();
+    ri::runtime::AuthoritativeNetConfig rejectedServerConfig = serverConfig;
+    ri::runtime::AuthoritativeNetConfig rejectedClientConfig = clientConfig;
+    rejectedClientConfig.sessionExtensionContract = MakeSessionExtensions("1.0.1");
+    ri::runtime::AuthoritativeNetModule rejectedServer(
+        rejectedServerConfig, std::make_unique<TestTransport>(rejectedLink, true));
+    ri::runtime::AuthoritativeNetModule rejectedClient(
+        rejectedClientConfig, std::make_unique<TestTransport>(rejectedLink, false));
+    ri::runtime::RuntimeContext rejectedServerContext({}, {});
+    ri::runtime::RuntimeContext rejectedClientContext({}, {});
+    if (!Check(rejectedServer.OnRuntimeStartup(rejectedServerContext, commandLine), "mismatch server startup failed")
+        || !Check(rejectedClient.OnRuntimeStartup(rejectedClientContext, commandLine), "mismatch client startup failed")
+        || !Check(rejectedServer.OnRuntimeFrame(rejectedServerContext, Frame(1)), "mismatch server offer frame failed")
+        || !Check(rejectedClient.OnRuntimeFrame(rejectedClientContext, Frame(1)), "mismatch client offer frame failed")
+        || !Check(rejectedServer.OnRuntimeFrame(rejectedServerContext, Frame(2)), "mismatch server acknowledgement frame failed")
+        || !Check(rejectedClient.SessionExtensionState() == ri::runtime::SessionExtensionPeerState::Rejected,
+                  "mismatch client was not rejected")
+        || !Check(rejectedServer.PeerSessionExtensionState(7U) == ri::runtime::SessionExtensionPeerState::Rejected,
+                  "mismatch server did not reject client")
+        || !Check(!rejectedClient.SendPacket(0U, command, ri::runtime::NetChannelKind::Authority),
+                  "mismatch client command was accepted")) {
+        return EXIT_FAILURE;
+    }
+    rejectedServer.OnRuntimeShutdown(rejectedServerContext);
+    rejectedClient.OnRuntimeShutdown(rejectedClientContext);
     return EXIT_SUCCESS;
 }

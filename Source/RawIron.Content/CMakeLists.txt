@@ -21,6 +21,7 @@ add_library(RawIron.Content
   src/PrimitiveModelDocument.cpp
   src/PrefabExpansion.cpp
   src/ScriptScalars.cpp
+  src/SessionExtensionPackage.cpp
   src/ShaderAsset.cpp
   src/Value.cpp
   src/ValueSchema.cpp
@@ -91,6 +92,10 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(GamePackageRequirementsSmoke ${CMAKE_SOURCE_DIR}/Tests/GamePackageRequirementsSmoke.cpp)
   target_link_libraries(GamePackageRequirementsSmoke PRIVATE RawIron::Content)
   add_test(NAME RawIron.Content.GamePackageRequirementsSmoke COMMAND GamePackageRequirementsSmoke)
+
+  add_executable(SessionExtensionPackageSmoke ${CMAKE_SOURCE_DIR}/Tests/SessionExtensionPackageSmoke.cpp)
+  target_link_libraries(SessionExtensionPackageSmoke PRIVATE RawIron::Content)
+  add_test(NAME RawIron.Content.SessionExtensionPackageSmoke COMMAND SessionExtensionPackageSmoke)
 
   add_library(NativePluginFixture MODULE ${CMAKE_SOURCE_DIR}/Tests/NativePluginFixture.cpp)
   target_include_directories(NativePluginFixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

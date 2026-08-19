@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <unordered_set>
 
 namespace ri::runtime {
 namespace {
@@ -13,10 +14,40 @@ namespace {
 constexpr std::uint8_t kSnapshotPacketMarker = 0xA7U;
 constexpr std::uint8_t kSnapshotPacketVersion = 2U;
 constexpr std::size_t kSnapshotPacketHeaderSize = 18U;
+constexpr std::uint8_t kSnapshotResyncMarker = 0xA8U;
+constexpr std::uint8_t kSnapshotResyncVersion = 1U;
+constexpr std::size_t kSnapshotResyncPacketSize = 2U;
+constexpr std::uint8_t kSessionExtensionOfferMarker = 0xB9U;
+constexpr std::uint8_t kSessionExtensionAckMarker = 0xBAU;
+constexpr std::uint8_t kSessionExtensionPacketVersion = 1U;
+constexpr std::size_t kSessionExtensionHeaderSize = 2U;
+constexpr std::size_t kSessionExtensionAckHeaderSize = 7U;
 constexpr std::size_t kMaxSnapshotPayloadBytes = 4U * 1024U * 1024U;
 constexpr int kMaxSnapshotCatchUpSteps = 4;
 constexpr std::size_t kRuntimeTransportEventBudget = 128U;
 constexpr std::size_t kRuntimeReadyPacketBudget = 128U;
+constexpr std::uint64_t kPeerCooldownBaseMs = 250U;
+constexpr std::uint64_t kPeerCooldownMaxMs = 8000U;
+constexpr std::uint32_t kPeerCooldownShiftCap = 5U;
+constexpr std::uint64_t kSnapshotResyncMinIntervalMs = 250U;
+
+[[nodiscard]] bool IsAuthorityHostRole(const NetRole role) noexcept {
+    return role == NetRole::DedicatedServer || role == NetRole::ListenServer;
+}
+
+[[nodiscard]] bool IsSessionExtensionHostRole(const NetRole role) noexcept {
+    return role == NetRole::DedicatedServer || role == NetRole::ListenServer;
+}
+
+[[nodiscard]] bool IsProtocolOffenseReason(const std::string_view reason) noexcept {
+    return reason == "payload_too_large"
+        || reason == "p2p_payload_too_large"
+        || reason == "unknown_or_malformed_packet";
+}
+
+[[nodiscard]] bool IsP2pProtocolOffenseReason(const std::string_view reason) noexcept {
+    return reason == "p2p_payload_too_large";
+}
 
 void SaturatingAdd(std::uint64_t& counter, const std::uint64_t amount) noexcept {
     counter = amount > std::numeric_limits<std::uint64_t>::max() - counter
@@ -48,7 +79,9 @@ std::optional<NetPacket> EncodeSnapshotPacket(const SnapshotDeltaPacket& snapsho
     }
     NetPacket packet{};
     packet.channel = 1U;
-    packet.reliable = false;
+    // Reliable delivery keeps RememberPeerBaseline coherent: Send success must mean the
+    // peer can receive the baseline we just recorded (lossy UDP snapshots desync deltas).
+    packet.reliable = true;
     packet.payload.reserve(kSnapshotPacketHeaderSize + snapshot.encodedOps.size());
     packet.payload.push_back(kSnapshotPacketMarker);
     packet.payload.push_back(kSnapshotPacketVersion);
@@ -76,6 +109,91 @@ std::optional<SnapshotDeltaPacket> DecodeSnapshotPacket(const NetPacket& packet)
     snapshot.encodedOps.assign(packet.payload.begin() + static_cast<std::ptrdiff_t>(kSnapshotPacketHeaderSize),
                                packet.payload.end());
     return snapshot;
+}
+
+[[nodiscard]] NetPacket EncodeSnapshotResyncRequest() {
+    NetPacket packet{};
+    packet.channel = 1U;
+    packet.reliable = true;
+    packet.payload = {kSnapshotResyncMarker, kSnapshotResyncVersion};
+    return packet;
+}
+
+[[nodiscard]] bool IsSnapshotResyncRequest(const NetPacket& packet) noexcept {
+    return packet.payload.size() == kSnapshotResyncPacketSize
+        && packet.payload[0] == kSnapshotResyncMarker
+        && packet.payload[1] == kSnapshotResyncVersion;
+}
+
+[[nodiscard]] std::optional<NetPacket> EncodeSessionExtensionOffer(
+    const ri::core::SessionExtensionContract& contract) {
+    const std::vector<std::uint8_t> serialized = ri::core::SerializeSessionExtensionContract(contract);
+    if (serialized.empty() || serialized.size() > kMaxNetPacketPayloadBytes - kSessionExtensionHeaderSize) {
+        return std::nullopt;
+    }
+    NetPacket packet{};
+    packet.channel = 0U;
+    packet.reliable = true;
+    packet.payload.reserve(kSessionExtensionHeaderSize + serialized.size());
+    packet.payload.push_back(kSessionExtensionOfferMarker);
+    packet.payload.push_back(kSessionExtensionPacketVersion);
+    packet.payload.insert(packet.payload.end(), serialized.begin(), serialized.end());
+    return packet;
+}
+
+[[nodiscard]] bool DecodeSessionExtensionOffer(const NetPacket& packet,
+                                               ri::core::SessionExtensionContract& contract) {
+    if (packet.payload.size() <= kSessionExtensionHeaderSize
+        || packet.payload[0] != kSessionExtensionOfferMarker
+        || packet.payload[1] != kSessionExtensionPacketVersion) {
+        return false;
+    }
+    const auto* first = reinterpret_cast<const char*>(packet.payload.data() + kSessionExtensionHeaderSize);
+    return ri::core::DeserializeSessionExtensionContract(
+        std::string_view(first, packet.payload.size() - kSessionExtensionHeaderSize), contract);
+}
+
+[[nodiscard]] std::optional<NetPacket> EncodeSessionExtensionAck(
+    const ri::core::SessionExtensionContract& contract,
+    const bool accepted) {
+    if (contract.fingerprint.empty() || contract.fingerprint.size() > 512U) {
+        return std::nullopt;
+    }
+    NetPacket packet{};
+    packet.channel = 0U;
+    packet.reliable = true;
+    packet.payload.reserve(kSessionExtensionAckHeaderSize + contract.fingerprint.size());
+    packet.payload.push_back(kSessionExtensionAckMarker);
+    packet.payload.push_back(kSessionExtensionPacketVersion);
+    packet.payload.push_back(accepted ? 1U : 0U);
+    WriteU32(packet.payload, static_cast<std::uint32_t>(contract.fingerprint.size()));
+    packet.payload.insert(packet.payload.end(), contract.fingerprint.begin(), contract.fingerprint.end());
+    return packet;
+}
+
+[[nodiscard]] bool DecodeSessionExtensionAck(const NetPacket& packet,
+                                             bool& accepted,
+                                             std::string& fingerprint) {
+    if (packet.payload.size() < kSessionExtensionAckHeaderSize
+        || packet.payload[0] != kSessionExtensionAckMarker
+        || packet.payload[1] != kSessionExtensionPacketVersion
+        || packet.payload[2] > 1U) {
+        return false;
+    }
+    std::uint32_t length = 0U;
+    if (!ReadU32(packet.payload, 3U, length) || length == 0U || length > 512U
+        || static_cast<std::size_t>(length) != packet.payload.size() - kSessionExtensionAckHeaderSize) {
+        return false;
+    }
+    accepted = packet.payload[2] == 1U;
+    fingerprint.assign(
+        reinterpret_cast<const char*>(packet.payload.data() + kSessionExtensionAckHeaderSize), length);
+    return true;
+}
+
+[[nodiscard]] bool IsSessionExtensionControlPacket(const NetPacket& packet) noexcept {
+    return packet.payload.size() >= kSessionExtensionHeaderSize
+        && (packet.payload[0] == kSessionExtensionOfferMarker || packet.payload[0] == kSessionExtensionAckMarker);
 }
 
 std::vector<std::uint8_t> EncodeAuthoritativePosition(const std::uint32_t tick, const float x) {
@@ -125,6 +243,16 @@ std::string_view AuthoritativeNetModule::Name() const noexcept {
 }
 
 bool AuthoritativeNetModule::OnRuntimeStartup(RuntimeContext& context, const ri::core::CommandLine&) {
+    if (config_.requireSessionExtensionAgreement) {
+        const ri::core::SessionExtensionValidationReport report =
+            ri::core::NormalizeSessionExtensionContract(config_.sessionExtensionContract);
+        if (!report.valid) {
+            context.Fail("AuthoritativeNetModule: invalid session-extension contract: "
+                         + (report.issues.empty() ? std::string("unknown validation failure") : report.issues.front()));
+            return false;
+        }
+        localSessionExtensionState_ = SessionExtensionPeerState::Pending;
+    }
     if (!config_.enabled) {
         config_.role = NetRole::None;
         ri::core::LogInfo("Net: offline mode enabled; authoritative transport is disabled.");
@@ -272,8 +400,25 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
         return true;
     }
 
+    const std::vector<std::size_t> connectedPeers = IsSessionExtensionHostRole(config_.role)
+        ? authorityTransport_->ConnectedPeers()
+        : std::vector<std::size_t>{};
+    if (config_.requireSessionExtensionAgreement && IsSessionExtensionHostRole(config_.role)) {
+        for (const std::size_t peerId : connectedPeers) {
+            const auto [state, inserted] = sessionExtensionPeers_.try_emplace(peerId, SessionExtensionPeerState::Pending);
+            if ((inserted || state->second == SessionExtensionPeerState::Pending)) {
+                const std::optional<NetPacket> offer = EncodeSessionExtensionOffer(config_.sessionExtensionContract);
+                if (offer.has_value()) {
+                    static_cast<void>(authorityTransport_->Send(peerId, *offer));
+                }
+            }
+        }
+    }
+
     const std::uint64_t nowMs = static_cast<std::uint64_t>(std::max(0.0, frame.realtimeSeconds * 1000.0));
-    if (config_.role == NetRole::Client) {
+    if (config_.role == NetRole::Client
+        && (!config_.requireSessionExtensionAgreement
+            || localSessionExtensionState_ == SessionExtensionPeerState::Accepted)) {
         const float dt = static_cast<float>(frame.deltaSeconds);
         const float syntheticInput = std::sin(static_cast<float>(frame.frameIndex) * 0.05f);
         predictedPositionX_ += syntheticInput * dt * 6.0f;
@@ -284,14 +429,47 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
         }
     }
 
-    auto emitIgnoredPacket = [&context](const std::size_t peerId,
-                                        const std::size_t payloadBytes,
-                                        const std::string_view reason) {
+    auto noteProtocolOffense = [this, &context, nowMs](const std::size_t peerId,
+                                                       const std::string_view reason) {
+        // Cooldowns defend the authority against hostile clients. On a client the
+        // inbound peer is the host — striking it would mute snapshots.
+        if (!IsAuthorityHostRole(config_.role) || !IsProtocolOffenseReason(reason)) {
+            return;
+        }
+        auto& offenses = IsP2pProtocolOffenseReason(reason) ? p2pPeerOffenses_ : peerOffenses_;
+        PeerOffenseState& state = offenses[peerId];
+        if (state.strikes < std::numeric_limits<std::uint32_t>::max()) {
+            ++state.strikes;
+        }
+        const std::uint32_t shift = std::min(state.strikes - 1U, kPeerCooldownShiftCap);
+        const std::uint64_t durationMs = std::min(kPeerCooldownMaxMs, kPeerCooldownBaseMs << shift);
+        state.cooldownUntilMs = nowMs + durationMs;
+        RuntimeEvent cooldown{};
+        cooldown.fields["peer"] = std::to_string(peerId);
+        cooldown.fields["reason"] = std::string(reason);
+        cooldown.fields["strikes"] = std::to_string(state.strikes);
+        cooldown.fields["cooldown_ms"] = std::to_string(durationMs);
+        context.Events().Emit("net.peer.cooldown", std::move(cooldown));
+    };
+
+    auto emitIgnoredPacket = [&context, &noteProtocolOffense](const std::size_t peerId,
+                                                              const std::size_t payloadBytes,
+                                                              const std::string_view reason) {
         RuntimeEvent ignored{};
         ignored.fields["peer"] = std::to_string(peerId);
         ignored.fields["bytes"] = std::to_string(payloadBytes);
         ignored.fields["reason"] = std::string(reason);
         context.Events().Emit("net.packet.ignored", std::move(ignored));
+        noteProtocolOffense(peerId, reason);
+    };
+
+    auto peerIsCoolingDown = [this, nowMs](const std::size_t peerId, const bool p2pPlane) -> bool {
+        if (!IsAuthorityHostRole(config_.role)) {
+            return false;
+        }
+        const auto& offenses = p2pPlane ? p2pPeerOffenses_ : peerOffenses_;
+        const auto it = offenses.find(peerId);
+        return it != offenses.end() && nowMs < it->second.cooldownUntilMs;
     };
 
     auto inbound = authorityTransport_->PollReceive(kRuntimeTransportEventBudget);
@@ -310,6 +488,15 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
     std::size_t inspectedPayloadBytes = 0U;
     for (std::size_t packetIndex = 0U; packetIndex < inboundInspectionCount; ++packetIndex) {
         NetPacket& packet = inbound[packetIndex];
+        if (peerIsCoolingDown(packet.peerId, false)) {
+            SaturatingAdd(serverTelemetry_.inboundPacketsDroppedByPeerCooldown, 1U);
+            RuntimeEvent ignored{};
+            ignored.fields["peer"] = std::to_string(packet.peerId);
+            ignored.fields["bytes"] = std::to_string(packet.payload.size());
+            ignored.fields["reason"] = "peer_cooldown";
+            context.Events().Emit("net.packet.ignored", std::move(ignored));
+            continue;
+        }
         if (!IsNetPacketPayloadSizeAllowed(packet.payload.size())) {
             SaturatingAdd(serverTelemetry_.oversizedInboundPacketsRejected, 1U);
             emitIgnoredPacket(packet.peerId, packet.payload.size(), "payload_too_large");
@@ -343,32 +530,96 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
             break;
         }
         ++readyPacketCount;
+        if (peerIsCoolingDown(ready->peerId, false)) {
+            SaturatingAdd(serverTelemetry_.inboundPacketsDroppedByPeerCooldown, 1U);
+            RuntimeEvent ignored{};
+            ignored.fields["peer"] = std::to_string(ready->peerId);
+            ignored.fields["bytes"] = std::to_string(ready->payload.size());
+            ignored.fields["reason"] = "peer_cooldown";
+            context.Events().Emit("net.packet.ignored", std::move(ignored));
+            continue;
+        }
+        if (config_.requireSessionExtensionAgreement) {
+            if (config_.role == NetRole::Client) {
+                ri::core::SessionExtensionContract offered{};
+                if (!DecodeSessionExtensionOffer(*ready, offered)) {
+                    emitIgnoredPacket(ready->peerId, ready->payload.size(), "session_extension_offer_invalid");
+                    continue;
+                }
+                const bool accepted = ri::core::SessionExtensionContractsMatch(
+                    offered, config_.sessionExtensionContract);
+                const std::optional<NetPacket> acknowledgement =
+                    EncodeSessionExtensionAck(offered, accepted);
+                if (acknowledgement.has_value()) {
+                    static_cast<void>(authorityTransport_->Send(ready->peerId, *acknowledgement));
+                }
+                localSessionExtensionState_ = accepted
+                    ? SessionExtensionPeerState::Accepted
+                    : SessionExtensionPeerState::Rejected;
+                RuntimeEvent event{};
+                event.fields["peer"] = std::to_string(ready->peerId);
+                event.fields["fingerprint"] = offered.fingerprint;
+                event.fields["accepted"] = accepted ? "1" : "0";
+                context.Events().Emit(accepted ? "net.session_extensions.accepted"
+                                               : "net.session_extensions.rejected", std::move(event));
+                continue;
+            }
+
+            bool accepted = false;
+            std::string fingerprint;
+            if (DecodeSessionExtensionAck(*ready, accepted, fingerprint)) {
+                const bool matches = accepted && fingerprint == config_.sessionExtensionContract.fingerprint;
+                sessionExtensionPeers_[ready->peerId] = matches
+                    ? SessionExtensionPeerState::Accepted
+                    : SessionExtensionPeerState::Rejected;
+                RuntimeEvent event{};
+                event.fields["peer"] = std::to_string(ready->peerId);
+                event.fields["fingerprint"] = std::move(fingerprint);
+                event.fields["accepted"] = matches ? "1" : "0";
+                context.Events().Emit(matches ? "net.session_extensions.accepted"
+                                              : "net.session_extensions.rejected", std::move(event));
+                continue;
+            }
+            if (IsSessionExtensionControlPacket(*ready)) {
+                emitIgnoredPacket(ready->peerId, ready->payload.size(), "session_extension_ack_invalid");
+                continue;
+            }
+            if (PeerSessionExtensionState(ready->peerId) != SessionExtensionPeerState::Accepted) {
+                emitIgnoredPacket(ready->peerId, ready->payload.size(), "session_extension_preflight_pending");
+                continue;
+            }
+        }
         if (config_.role == NetRole::Client) {
+            const auto requestForceFullResync = [&](const std::uint32_t tick, const char* reason) {
+                // Keep the last good local baseline. Forgetting it here makes every later
+                // delta fail until the host accepts a rate-limited resync and sends a full
+                // snapshot. The host still ForgetPeer when it accepts 0xA8.
+                (void)authorityTransport_->Send(ready->peerId, EncodeSnapshotResyncRequest());
+                RuntimeEvent rejected{};
+                rejected.fields["peer"] = std::to_string(ready->peerId);
+                rejected.fields["tick"] = std::to_string(tick);
+                if (reason != nullptr) {
+                    rejected.fields["reason"] = reason;
+                }
+                rejected.fields["resync"] = "full";
+                context.Events().Emit("net.snapshot.rejected", std::move(rejected));
+            };
             const auto snapshotPacket = DecodeSnapshotPacket(*ready);
             if (!snapshotPacket.has_value()) {
-                RuntimeEvent ignored{};
-                ignored.fields["peer"] = std::to_string(ready->peerId);
-                ignored.fields["reason"] = "unknown_or_malformed_packet";
-                context.Events().Emit("net.packet.ignored", std::move(ignored));
+                emitIgnoredPacket(ready->peerId, ready->payload.size(), "unknown_or_malformed_packet");
+                requestForceFullResync(0U, "unknown_or_malformed_packet");
                 continue;
             }
             const SnapshotBlob fallback{};
             const auto rebuilt = snapshotReplicator_.ApplyFromServer(ready->peerId, fallback, *snapshotPacket);
             if (!rebuilt.has_value()) {
-                RuntimeEvent rejected{};
-                rejected.fields["peer"] = std::to_string(ready->peerId);
-                rejected.fields["tick"] = std::to_string(snapshotPacket->targetTick);
-                context.Events().Emit("net.snapshot.rejected", std::move(rejected));
+                requestForceFullResync(snapshotPacket->targetTick, "apply_failed");
                 continue;
             }
             std::uint32_t authTick = 0U;
             float authX = 0.0f;
             if (!DecodeAuthoritativePosition(rebuilt->bytes, authTick, authX)) {
-                RuntimeEvent rejected{};
-                rejected.fields["peer"] = std::to_string(ready->peerId);
-                rejected.fields["tick"] = std::to_string(rebuilt->tick);
-                rejected.fields["reason"] = "authoritative_position_decode_failed";
-                context.Events().Emit("net.snapshot.rejected", std::move(rejected));
+                requestForceFullResync(rebuilt->tick, "authoritative_position_decode_failed");
                 continue;
             }
             // Commit baseline only after the domain payload validates.
@@ -390,6 +641,25 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
             applied.fields["peer"] = std::to_string(ready->peerId);
             applied.fields["tick"] = std::to_string(authTick);
             context.Events().Emit("net.snapshot.applied", std::move(applied));
+        } else if (IsSnapshotResyncRequest(*ready)) {
+            // Client rejected a snapshot; clear server baseline so the next BuildForPeer is full.
+            // Unauthenticated resync is cheap to spam, so accept at most one per interval.
+            const auto lastAccepted = peerResyncAcceptedMs_.find(ready->peerId);
+            if (lastAccepted != peerResyncAcceptedMs_.end()
+                && nowMs < lastAccepted->second + kSnapshotResyncMinIntervalMs) {
+                RuntimeEvent ignored{};
+                ignored.fields["peer"] = std::to_string(ready->peerId);
+                ignored.fields["bytes"] = std::to_string(ready->payload.size());
+                ignored.fields["reason"] = "resync_rate_limited";
+                context.Events().Emit("net.packet.ignored", std::move(ignored));
+                continue;
+            }
+            peerResyncAcceptedMs_[ready->peerId] = nowMs;
+            snapshotReplicator_.ForgetPeer(ready->peerId);
+            RuntimeEvent resync{};
+            resync.fields["peer"] = std::to_string(ready->peerId);
+            resync.fields["reason"] = "client_resync_request";
+            context.Events().Emit("net.snapshot.resync_requested", std::move(resync));
         } else {
             RuntimeEvent command{};
             command.fields["peer"] = std::to_string(ready->peerId);
@@ -413,8 +683,35 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
 
         // Peer ids are never reused, so baseline history for departed peers must be dropped
         // or the replicator grows without bound across reconnect churn.
-        const std::vector<std::size_t> connectedPeers = authorityTransport_->ConnectedPeers();
         snapshotReplicator_.RetainPeers(connectedPeers);
+        {
+            const std::unordered_set<std::size_t> active(connectedPeers.begin(), connectedPeers.end());
+            const auto pruneMap = [](auto& offenses, const std::unordered_set<std::size_t>& keep) {
+                for (auto it = offenses.begin(); it != offenses.end();) {
+                    if (keep.find(it->first) == keep.end()) {
+                        it = offenses.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+            };
+            pruneMap(peerOffenses_, active);
+            pruneMap(peerResyncAcceptedMs_, active);
+            for (auto it = sessionExtensionPeers_.begin(); it != sessionExtensionPeers_.end();) {
+                if (std::find(connectedPeers.begin(), connectedPeers.end(), it->first) == connectedPeers.end()) {
+                    it = sessionExtensionPeers_.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            if (p2pTransport_ != nullptr) {
+                const std::vector<std::size_t> p2pPeers = p2pTransport_->ConnectedPeers();
+                const std::unordered_set<std::size_t> p2pActive(p2pPeers.begin(), p2pPeers.end());
+                pruneMap(p2pPeerOffenses_, p2pActive);
+            } else {
+                p2pPeerOffenses_.clear();
+            }
+        }
 
         while (snapshotCadenceAccumulatorSeconds_ >= snapshotStep) {
             snapshotCadenceAccumulatorSeconds_ -= snapshotStep;
@@ -427,6 +724,10 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
             bool usedDelta = false;
             bool broadcasted = false;
             for (const std::size_t peerId : connectedPeers) {
+                if (config_.requireSessionExtensionAgreement
+                    && PeerSessionExtensionState(peerId) != SessionExtensionPeerState::Accepted) {
+                    continue;
+                }
                 bool usedPeerDelta = false;
                 const SnapshotDeltaPacket packet = snapshotReplicator_.BuildForPeer(peerId, snapshot, usedPeerDelta);
                 const std::optional<NetPacket> encodedPacket = EncodeSnapshotPacket(packet);
@@ -472,6 +773,15 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
         }
         for (std::size_t packetIndex = 0U; packetIndex < p2pInspectionCount; ++packetIndex) {
             const NetPacket& packet = p2pInbound[packetIndex];
+            if (peerIsCoolingDown(packet.peerId, true)) {
+                SaturatingAdd(serverTelemetry_.inboundPacketsDroppedByPeerCooldown, 1U);
+                RuntimeEvent ignored{};
+                ignored.fields["peer"] = std::to_string(packet.peerId);
+                ignored.fields["bytes"] = std::to_string(packet.payload.size());
+                ignored.fields["reason"] = "peer_cooldown";
+                context.Events().Emit("net.packet.ignored", std::move(ignored));
+                continue;
+            }
             if (!IsNetPacketPayloadSizeAllowed(packet.payload.size())) {
                 SaturatingAdd(serverTelemetry_.oversizedInboundPacketsRejected, 1U);
                 emitIgnoredPacket(packet.peerId, packet.payload.size(), "p2p_payload_too_large");
@@ -520,6 +830,8 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
         std::to_string(serverTelemetry_.inboundPacketsDroppedByQueueBudget);
     metrics.fields["inbound_poll_resource_drops"] =
         std::to_string(serverTelemetry_.inboundPacketsDroppedByPollBudget);
+    metrics.fields["inbound_peer_cooldown_drops"] =
+        std::to_string(serverTelemetry_.inboundPacketsDroppedByPeerCooldown);
     metrics.fields["latency_queue_packets"] = std::to_string(latencySimulator_.QueuedPacketCount());
     metrics.fields["latency_queue_payload_bytes"] = std::to_string(latencySimulator_.QueuedPayloadBytes());
     metrics.fields["latency_queue_packet_budget_drops"] =
@@ -578,6 +890,19 @@ std::optional<std::string> AuthoritativeNetModule::ActiveJoinCode() const {
     return activeJoinCode_;
 }
 
+SessionExtensionPeerState AuthoritativeNetModule::SessionExtensionState() const noexcept {
+    return config_.requireSessionExtensionAgreement ? localSessionExtensionState_
+                                                    : SessionExtensionPeerState::NotRequired;
+}
+
+SessionExtensionPeerState AuthoritativeNetModule::PeerSessionExtensionState(const std::size_t peerId) const noexcept {
+    if (!config_.requireSessionExtensionAgreement) {
+        return SessionExtensionPeerState::NotRequired;
+    }
+    const auto state = sessionExtensionPeers_.find(peerId);
+    return state == sessionExtensionPeers_.end() ? SessionExtensionPeerState::Pending : state->second;
+}
+
 bool AuthoritativeNetModule::SendPacket(
     const std::size_t peerId,
     const NetPacket& packet,
@@ -585,6 +910,16 @@ bool AuthoritativeNetModule::SendPacket(
     if (!IsNetPacketPayloadSizeAllowed(packet.payload.size())) {
         SaturatingAdd(serverTelemetry_.oversizedOutboundPacketsRejected, 1U);
         return false;
+    }
+    if (config_.requireSessionExtensionAgreement && kind == NetChannelKind::Authority) {
+        if (config_.role == NetRole::Client
+            && localSessionExtensionState_ != SessionExtensionPeerState::Accepted) {
+            return false;
+        }
+        if (IsSessionExtensionHostRole(config_.role)
+            && PeerSessionExtensionState(peerId) != SessionExtensionPeerState::Accepted) {
+            return false;
+        }
     }
     if (kind == NetChannelKind::Authority) {
         const bool ok = authorityTransport_ != nullptr && authorityTransport_->Send(peerId, packet);

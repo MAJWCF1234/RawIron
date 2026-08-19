@@ -17,6 +17,7 @@ add_library(RawIron.Core
   src/RenderRecorder.cpp
   src/RenderSubmissionPlan.cpp
   src/Scene.cpp
+  src/SessionExtensions.cpp
   src/ShaderConfig.cpp
 )
 
