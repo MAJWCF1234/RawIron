@@ -1,6 +1,7 @@
 # Content and Game Format
 
-Game projects are validated content bundles, not loose folders.
+Game projects are validated content bundles, not unstructured loose folders. Editable source content may be kept with
+the project, but a playable distribution declares the cooked packages it needs.
 
 ## Manifest and format contract
 
@@ -55,6 +56,13 @@ Games that mount an `AudioManager` call those helpers; they do not re-parse or r
 ## Why this matters
 
 Every game mounts the same engine features. What makes a project feel different is its authored configuration and content — riscript scalars, cfg policies, UI manifests, levels, assets — or a custom package it brings. That keeps projects consistent and stops runtime tuning from drifting into hardcoded per-game forks of engine systems.
+
+## Cooked asset packages
+
+Generic source texture libraries are not shipped inside the engine repository. A game or workspace cooks only the
+assets it needs into `.ripak` packages, declares those packages in its project data, and mounts them at runtime.
+Mounted packages are range-read directly; they are not extracted into a permanent loose runtime copy. Loose file paths
+remain an authoring compatibility route, not the distribution contract. See [Cooked asset packs](../../docs/COOKED_ASSET_PACKS.md).
 
 ## Reference
 

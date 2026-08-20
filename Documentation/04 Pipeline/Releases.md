@@ -4,7 +4,7 @@ RawIron ships user-facing GitHub releases as a split full-workspace archive plus
 
 ```mermaid
 flowchart LR
-    A["D:\\RawIron"] --> B["Exclude ReleaseArtifacts"]
+    A["Repository root"] --> B["Exclude ReleaseArtifacts"]
     B --> C["Create Full ZIP"]
     C --> D["Split Into Parts"]
     D --> E["Upload Parts To GitHub Release"]
@@ -17,7 +17,8 @@ flowchart LR
 
 ## Packaging rule
 
-Package the full `D:\RawIron` workspace and exclude only `D:\RawIron\ReleaseArtifacts`.
+Package the full repository root selected by `Scripts/Publish-FullWorkspaceSplitZip.ps1` and exclude only its
+`ReleaseArtifacts` directory. The drive letter and checkout location are local choices, not release requirements.
 
 ## Release shape
 

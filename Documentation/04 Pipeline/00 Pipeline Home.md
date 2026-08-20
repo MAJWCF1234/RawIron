@@ -10,4 +10,5 @@ The RawIron pipeline covers configure/build, local run scripts, project authorin
 
 ## Key rule
 
-The workspace is shipped as the workspace. Release packaging excludes `ReleaseArtifacts` and includes the rest of `D:\RawIron`.
+The workspace is shipped as the workspace. Release packaging excludes `<repository-root>/ReleaseArtifacts` and includes
+the rest of the selected repository root; no fixed drive letter is part of the contract.

@@ -14,7 +14,8 @@ RawIron is a native C++20 game engine and game workspace built around a shared r
 - `Source/` contains the engine libraries.
 - `Apps/` contains runtime hosts, editor-facing tools, and multiplayer utilities.
 - `Games/` contains shippable game projects and game-specific runtime modules.
-- `Assets/` contains the workspace asset corpus that ships with the workspace.
+- `Assets/` contains engine-owned runtime support content. Generic texture authoring libraries are external to the
+  repository; playable content is distributed as declared cooked `.ripak` packages.
 - `Installer/` contains the full-workspace installer that reassembles split release parts.
 - `Scripts/` contains publishing, sync, and build helper scripts.
 
@@ -26,3 +27,10 @@ RawIron is a native C++20 game engine and game workspace built around a shared r
 - Multiplayer is a first-class engine surface with dedicated, listen, hybrid, and client flows.
 - Plugins, policies, manifests, and hook files are part of every game contract.
 - GitHub releases are shipped as a split full-workspace archive plus installer.
+
+## Reading status
+
+The README and the Pipeline, Engine Overview, Content and Game Format, and Package Runtime pages describe the current
+`main` contract. Pages explicitly named **Research**, **Plan**, or **Fulfillment Plan** record design work and should
+not be read as a promise that every listed item is shipped. When a page conflicts with source, CMake, or a validated
+runtime path, the executable contract wins and the page should be corrected.

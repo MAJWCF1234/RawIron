@@ -6,7 +6,7 @@ Typical local Windows flow:
 
 ```powershell
 cmake --preset dev-msvc
-cmake --build build/dev-msvc --config RelWithDebInfo --target RawIron.Player RawIron.Preview RawIron.Editor RawIron.VisualShell RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame RawIron.MultiplayerSandboxGame RawIron.BotClient RawIron.DedicatedServer
+cmake --build build/dev-msvc --config RelWithDebInfo --target RawIron.Player RawIron.Preview RawIron.Editor RawIron.Forge RawIron.VisualShell RawIron.UiMenu RawIron.ParticleShowcase RawIron.LiminalGame RawIron.ForestRuinsGame RawIron.MultiplayerSandboxGame RawIron.BotClient RawIron.DedicatedServer
 ```
 
 A LocalAppData-based preset (`dev-msvc-localappdata`) exists for environments where the repo path is not a good build location. After building there, run `Scripts/Sync-ProfileBuildToRepo.ps1` to mirror binaries into `build/dev-msvc`.
