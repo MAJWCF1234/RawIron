@@ -20,6 +20,7 @@ add_library(RawIron.Content
   src/PluginProjectData.cpp
   src/PluginRuntime.cpp
   src/PrimitiveModelDocument.cpp
+  src/RipakArchive.cpp
   src/PrefabExpansion.cpp
   src/ScriptScalars.cpp
   src/SessionExtensionPackage.cpp
@@ -111,6 +112,10 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(SessionExtensionPackageSmoke ${CMAKE_SOURCE_DIR}/Tests/SessionExtensionPackageSmoke.cpp)
   target_link_libraries(SessionExtensionPackageSmoke PRIVATE RawIron::Content)
   add_test(NAME RawIron.Content.SessionExtensionPackageSmoke COMMAND SessionExtensionPackageSmoke)
+
+  add_executable(RipakDirectMountSmoke ${CMAKE_SOURCE_DIR}/Tests/RipakDirectMountSmoke.cpp)
+  target_link_libraries(RipakDirectMountSmoke PRIVATE RawIron::Content)
+  add_test(NAME RawIron.Content.RipakDirectMountSmoke COMMAND RipakDirectMountSmoke)
 
   add_library(NativePluginFixture MODULE ${CMAKE_SOURCE_DIR}/Tests/NativePluginFixture.cpp)
   target_include_directories(NativePluginFixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

@@ -4,10 +4,12 @@
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Scene/StructuralBrush.h"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace ri::games::cubetest {
 
@@ -26,9 +28,9 @@ ri::scene::PrimitiveNodeOptions CubeMaterialOptions(const int parent, const fs::
     options.nodeName = "CubeTest_MappedCube";
     options.parent = parent;
     options.primitive = ri::scene::PrimitiveType::Cube;
-    options.transform.position = {0.0f, 1.1f, 0.0f};
+    options.transform.position = {0.0f, 0.72f, 0.0f};
     options.transform.rotationDegrees = {0.0f, 28.0f, 0.0f};
-    options.transform.scale = {2.0f, 2.0f, 2.0f};
+    options.transform.scale = {1.2f, 1.2f, 1.2f};
     options.materialName = "cube-test-chiseled-quartz-full-map";
     options.materialStyle = ri::scene::MaterialStyle::Standard;
     options.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
@@ -398,8 +400,8 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName, const fs::pat
     world.colliders.push_back(ri::trace::TraceCollider{
         .id = "cube-test-query-cube",
         .bounds = ri::spatial::Aabb{
-            .min = {-1.0f, 0.1f, -1.0f},
-            .max = {1.0f, 2.1f, 1.0f},
+            .min = {-0.6f, 0.12f, -0.6f},
+            .max = {0.6f, 1.32f, 0.6f},
         },
         .structural = true,
         .dynamic = false,
@@ -415,7 +417,11 @@ void AnimateCubeTestWorld(CubeTestWorld& world, const double elapsedSeconds) {
         return;
     }
     ri::scene::Node& cube = world.scene.GetNode(world.cubeNode);
-    cube.localTransform.rotationDegrees.y = 28.0f + static_cast<float>(std::sin(elapsedSeconds * 0.35) * 5.0);
+    cube.localTransform.rotationDegrees = {
+        12.0f + static_cast<float>(std::sin(elapsedSeconds * 0.7) * 7.0),
+        28.0f + static_cast<float>(elapsedSeconds * 38.0),
+        5.0f,
+    };
 }
 
 void AnimateCubeTestWorldJiggle(CubeTestWorld& world, const double elapsedSeconds) {
@@ -426,7 +432,7 @@ void AnimateCubeTestWorldJiggle(CubeTestWorld& world, const double elapsedSecond
             28.0f + static_cast<float>(elapsedSeconds * 42.0),
             static_cast<float>(std::sin(elapsedSeconds * 2.3) * 2.5),
         };
-        cube.localTransform.position.y = 1.1f + static_cast<float>(std::sin(elapsedSeconds * 3.1) * 0.035);
+        cube.localTransform.position.y = 0.72f + static_cast<float>(std::sin(elapsedSeconds * 3.1) * 0.035);
     }
     const auto jiggleSample = [&world, elapsedSeconds](const int node, const float phase, const float spin) {
         if (node == ri::scene::kInvalidHandle) {
@@ -445,6 +451,39 @@ void AnimateCubeTestWorldJiggle(CubeTestWorld& world, const double elapsedSecond
         iron.localTransform.rotationDegrees.y = static_cast<float>(elapsedSeconds * 38.0);
         iron.localTransform.position.z = 3.85f + static_cast<float>(std::sin(elapsedSeconds * 2.6) * 0.045);
     }
+}
+
+void ConfigureCookedTextureCube(CubeTestWorld& world,
+                                std::vector<std::string> logicalTexturePaths,
+                                const float framesPerSecond) {
+    if (world.cubeNode == ri::scene::kInvalidHandle || logicalTexturePaths.empty()) {
+        return;
+    }
+    const ri::scene::Node& cube = world.scene.GetNode(world.cubeNode);
+    if (cube.material == ri::scene::kInvalidHandle) {
+        return;
+    }
+    ri::scene::Material& material = world.scene.GetMaterial(cube.material);
+    material.baseColorTexture = logicalTexturePaths.front();
+    material.baseColorTextureFrames = std::move(logicalTexturePaths);
+    material.baseColorTextureFramesPerSecond = std::max(framesPerSecond, 0.0f);
+    material.normalTexture.clear();
+    material.ormTexture.clear();
+    material.detailTexture.clear();
+    material.materialWorkflow = ri::scene::MaterialWorkflow::MetalRough;
+    material.metallic = 0.05f;
+    material.roughness = 0.64f;
+}
+
+const std::vector<std::string>& CubeTestCookedTextureSequence() {
+    static const std::vector<std::string> textures{
+        "1_basic_refined/1_stone/1_clay/red_clay_brick_6ey1v.png",
+        "1_basic_refined/1_stone/4_marble/blue_marble_hs6d8.png",
+        "1_basic_refined/2_roof/oxidized_copper_roof_hkw9b.png",
+        "2_advanced_refined/2_metal/rusty_iron_block_d2zgw.png",
+        "1_basic_refined/1_stone/3_limestone/mossy_dark_gray_limestone_cobbles_8p7c2.png",
+    };
+    return textures;
 }
 
 } // namespace ri::games::cubetest

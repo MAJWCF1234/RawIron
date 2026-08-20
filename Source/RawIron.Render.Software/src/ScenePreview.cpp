@@ -2,6 +2,7 @@
 #include "RawIron/Render/ScenePreviewRenderingScript.h"
 
 #include "RawIron/Content/EngineAssets.h"
+#include "RawIron/Content/RipakArchive.h"
 #include "RawIron/Render/PreviewTexture.h"
 #include "RawIron/Math/Mat4.h"
 #include "RawIron/Scene/PhotoModeCamera.h"
@@ -11,6 +12,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <limits>
 #include <optional>
@@ -945,6 +947,21 @@ const RgbaImage* ResolveTexture(TextureCache& cache,
     if (textureName.empty()) {
         return nullptr;
     }
+    if (options.cookedTexturePack && options.cookedTexturePack->Find(textureName) != nullptr) {
+        const std::string key = "ripak:" + options.cookedTexturePack->Archive().Path().generic_string()
+            + "|" + textureName;
+        if (const auto found = cache.find(key); found != cache.end()) {
+            return found->second.Valid() ? &found->second : nullptr;
+        }
+        RgbaImage loaded{};
+        try {
+            const std::vector<std::byte> encoded = options.cookedTexturePack->ReadPng(textureName);
+            loaded = LoadRgbaImageMemory(encoded);
+        } catch (const std::exception&) {
+        }
+        const auto inserted = cache.emplace(key, std::move(loaded));
+        return inserted.first->second.Valid() ? &inserted.first->second : nullptr;
+    }
     const fs::path path = textureRoot / textureName;
     const std::string key = path.generic_string();
     const auto it = cache.find(key);
@@ -985,7 +1002,7 @@ void DrawPrimitiveNode(SoftwareImage& image,
                        const ri::math::Mat4& world) {
 
     const RgbaImage* texture = nullptr;
-    if (!textureRoot.empty()) {
+    if (!textureRoot.empty() || options.cookedTexturePack) {
         texture = ResolveTexture(textureCache, textureRoot, options, material);
     }
 

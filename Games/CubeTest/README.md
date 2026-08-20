@@ -2,6 +2,10 @@
 
 Cube Test is a tiny RawIron game used to validate walking around fully mapped material samples on a structural platform, with **native Vulkan hybrid HDR** as the default interactive renderer.
 
+When `RAWIRONX32.ripak` is available beside the resolved engine texture library (or under a workspace `Assets`
+directory), the small center cube mounts it directly and cycles cooked textures while spinning. Software preview
+and native Vulkan read only the selected package blobs; the test does not extract a loose runtime copy.
+
 The cube and platform are authored as structural primitives with:
 
 - M-mesh: render geometry, material slots, UV tiling, visible shape.

@@ -19,6 +19,8 @@ class Scene;
 struct SceneKitPreview;
 }
 
+namespace ri::content { class CookedTexturePack; }
+
 namespace ri::render::vulkan {
 
 enum class VulkanPresentModePreference {
@@ -70,6 +72,8 @@ struct VulkanPreviewWindowOptions {
     ri::scene::PhotoModeCameraOverrides scenePhotoMode{};
     /// Root directory for `Material::baseColorTexture` filenames in native Vulkan preview.
     std::filesystem::path textureRoot{};
+    /// Optional directly mounted cooked texture source used before loose filesystem lookup.
+    std::shared_ptr<const ri::content::CookedTexturePack> cookedTexturePack{};
     /// Optional: receives every Win32 message (after NCCREATE). For mouse look / keyboard sampling.
     void* messageUserData = nullptr;
     using Win32MessageHook = void (*)(void* user, void* hwnd, unsigned int message, std::uint64_t wParam, std::int64_t lParam);
@@ -130,6 +134,7 @@ struct VulkanNativeSceneFrame {
     bool photoModeEnabled = false;
     /// When non-empty, native Vulkan draws sample albedo textures from this directory.
     std::filesystem::path textureRoot{};
+    std::shared_ptr<const ri::content::CookedTexturePack> cookedTexturePack{};
     /// When non-empty, path is relative to `textureRoot` (e.g. `Skies/sky_equirect.png`) for native skybox sampling.
     std::filesystem::path skyEquirectTextureRelative{};
     /// Drives `Material::baseColorTextureFrames` selection and optional water UV motion in the native Vulkan path.

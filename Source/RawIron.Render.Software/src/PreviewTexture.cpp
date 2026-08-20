@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <limits>
 #include <vector>
 
 #if defined(_WIN32)
@@ -29,44 +30,46 @@ namespace {
     return ext;
 }
 
-[[nodiscard]] RgbaImage LoadRgbaImageFileStb(const std::filesystem::path& path) {
+[[nodiscard]] RgbaImage LoadRgbaImageStb(const stbi_uc* encoded, const std::size_t encodedBytes) {
     RgbaImage out{};
-    std::ifstream stream(path, std::ios::binary | std::ios::ate);
-    if (!stream) {
+    if (encoded == nullptr || encodedBytes == 0U
+        || encodedBytes > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
         return out;
     }
-
-    const std::streamsize size = stream.tellg();
-    if (size <= 0) {
-        return out;
-    }
-
-    stream.seekg(0, std::ios::beg);
-    std::vector<stbi_uc> buffer(static_cast<std::size_t>(size));
-    if (!stream.read(reinterpret_cast<char*>(buffer.data()), size)) {
-        return out;
-    }
-
     int width = 0;
     int height = 0;
     int channels = 0;
     stbi_uc* pixels = stbi_load_from_memory(
-        buffer.data(),
-        static_cast<int>(buffer.size()),
-        &width,
-        &height,
-        &channels,
-        4);
+        encoded, static_cast<int>(encodedBytes), &width, &height, &channels, 4);
     if (pixels == nullptr || width <= 0 || height <= 0) {
         stbi_image_free(pixels);
         return out;
     }
-
     out.width = width;
     out.height = height;
     out.rgba.assign(pixels, pixels + static_cast<std::size_t>(width * height * 4));
     stbi_image_free(pixels);
     return out;
+}
+
+[[nodiscard]] RgbaImage LoadRgbaImageFileStb(const std::filesystem::path& path) {
+    std::ifstream stream(path, std::ios::binary | std::ios::ate);
+    if (!stream) {
+        return {};
+    }
+
+    const std::streamsize size = stream.tellg();
+    if (size <= 0) {
+        return {};
+    }
+
+    stream.seekg(0, std::ios::beg);
+    std::vector<stbi_uc> buffer(static_cast<std::size_t>(size));
+    if (!stream.read(reinterpret_cast<char*>(buffer.data()), size)) {
+        return {};
+    }
+
+    return LoadRgbaImageStb(buffer.data(), buffer.size());
 }
 
 #if defined(_WIN32)
@@ -211,6 +214,11 @@ RgbaImage LoadRgbaImageFile(const std::filesystem::path& path) {
 #else
     return {};
 #endif
+}
+
+RgbaImage LoadRgbaImageMemory(const std::span<const std::byte> encodedBytes) {
+    return LoadRgbaImageStb(
+        reinterpret_cast<const stbi_uc*>(encodedBytes.data()), encodedBytes.size());
 }
 
 } // namespace ri::render::software

@@ -6,6 +6,7 @@
 
 #if defined(_WIN32)
 #include "RawIron/Core/Log.h"
+#include "RawIron/Content/RipakArchive.h"
 #include "RawIron/Core/RenderRecorder.h"
 #include "RawIron/Core/RenderSubmissionPlan.h"
 #include "RawIron/Math/Mat4.h"
@@ -130,6 +131,7 @@ constexpr bool kNativeGenerateMissingMaterialMaps = true;
 struct NativeScenePreviewData {
     const ri::scene::Scene* scene = nullptr;
     fs::path textureRoot{};
+    std::shared_ptr<const ri::content::CookedTexturePack> cookedTexturePack{};
     std::array<float, 16> viewProjection{
         1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
@@ -1967,6 +1969,7 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                                  int height,
                                  const ri::scene::PhotoModeCameraOverrides* photoMode,
                                  const fs::path& textureRoot,
+                                 std::shared_ptr<const ri::content::CookedTexturePack> cookedTexturePack,
                                  const fs::path& skyEquirectRelativeToTextureRoot,
                                  double animationTimeSeconds,
                                  const std::optional<ri::math::Vec3>& environmentClearColor,
@@ -2023,6 +2026,7 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
         NativeScenePreviewData& data = *outData;
         data.scene = &scene;
         data.textureRoot = textureRoot;
+        data.cookedTexturePack = std::move(cookedTexturePack);
         data.viewProjection = {
             1.0f, 0.0f, 0.0f, 0.0f,
             0.0f, 1.0f, 0.0f, 0.0f,
@@ -2279,6 +2283,7 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
                                                 height,
                                                 photoMode,
                                                 textureRoot,
+                                                frame.cookedTexturePack,
                                                 frame.skyEquirectTextureRelative,
                                                 frame.animationTimeSeconds,
                                                 environmentClearColor,
@@ -4970,6 +4975,38 @@ struct NativeAlbedoTextureCache {
         return &it->second;
     }
 
+    [[nodiscard]] const GpuAlbedoImage* resolveImageForCookedPath(
+        const std::shared_ptr<const ri::content::CookedTexturePack>& pack,
+        const std::string_view logicalPath,
+        const VkFormat format) {
+        if (!pack || logicalPath.empty() || pack->Find(logicalPath) == nullptr) {
+            return nullptr;
+        }
+        const std::string key = "ripak:" + pack->Archive().Path().generic_string() + "|"
+            + std::string(logicalPath) + "|fmt=" + std::to_string(static_cast<int>(format));
+        if (const auto found = imagesByKey.find(key); found != imagesByKey.end()) {
+            return &found->second;
+        }
+        ri::render::software::RgbaImage rgba{};
+        try {
+            const std::vector<std::byte> encoded = pack->ReadPng(logicalPath);
+            rgba = ri::render::software::LoadRgbaImageMemory(encoded);
+        } catch (const std::exception&) {
+            return nullptr;
+        }
+        if (!rgba.Valid()) {
+            return nullptr;
+        }
+        GpuAlbedoImage gpuImage = CreateGpuRgba8Image(
+            physicalDevice, device, commandPool, graphicsQueue,
+            rgba.width, rgba.height, rgba.rgba.data(), format);
+        if (gpuImage.view == VK_NULL_HANDLE) {
+            return nullptr;
+        }
+        const auto [inserted, _] = imagesByKey.emplace(key, std::move(gpuImage));
+        return &inserted->second;
+    }
+
     [[nodiscard]] const GpuAlbedoImage* uploadGeneratedImage(const std::string& key,
                                                              const ri::render::software::RgbaImage& image,
                                                              const VkFormat format) {
@@ -5294,7 +5331,8 @@ struct NativeAlbedoTextureCache {
 
     [[nodiscard]] VkDescriptorSet descriptorFor(const ri::scene::Scene& scene,
                                                const NativeSceneDraw& draw,
-                                               const fs::path& textureRoot) {
+                                               const fs::path& textureRoot,
+                                               const std::shared_ptr<const ri::content::CookedTexturePack>& pack) {
         if (whiteDescriptorSet == VK_NULL_HANDLE) {
             return VK_NULL_HANDLE;
         }
@@ -5313,6 +5351,7 @@ struct NativeAlbedoTextureCache {
         const fs::path emissivePath = makeAbsolute(material.emissiveTexture);
         const fs::path opacityPath = makeAbsolute(material.opacityTexture);
         const fs::path detailPath = makeAbsolute(material.detailTexture.empty() ? albedoRel : material.detailTexture);
+        const bool cookedAlbedo = pack && pack->Find(albedoRel) != nullptr;
 
         const bool metalLookupMaterial = (draw.materialStyleFlags & kNativeMaterialStyleMetalLookup) != 0;
         const bool specGlossWorkflow = material.materialWorkflow == ri::scene::MaterialWorkflow::SpecGloss;
@@ -5321,7 +5360,7 @@ struct NativeAlbedoTextureCache {
         // to "<name>.png") before considering procedural generation. This lets a material
         // that only names an albedo automatically pick up the pack's real normal map.
         const bool normalEligible = kNativeGenerateMissingMaterialMaps && draw.litShadingModel
-                                     && !metalLookupMaterial;
+                                     && !metalLookupMaterial && !cookedAlbedo;
         fs::path normalPath = authoredNormalPath;
         if (normalPath.empty() && normalEligible && !albedoPath.empty()) {
             normalPath = probeSiblingMap(albedoPath, "_n");
@@ -5332,7 +5371,7 @@ struct NativeAlbedoTextureCache {
         // a spec colour, so they keep the safe authored-scalar shader path instead.
         const bool wantsGeneratedOrm = kNativeGenerateMissingMaterialMaps && draw.litShadingModel
                                        && !metalLookupMaterial && !specGlossWorkflow
-                                       && material.ormTexture.empty() && !albedoPath.empty();
+                                       && material.ormTexture.empty() && !albedoPath.empty() && !cookedAlbedo;
         // When a normal map is available (authored or auto-discovered) we generate the ORM
         // from it (curvature-based occlusion) for higher quality than luminance heuristics.
         const bool ormFromNormal = wantsGeneratedOrm && !normalPath.empty();
@@ -5343,6 +5382,7 @@ struct NativeAlbedoTextureCache {
 
         const std::string key =
             std::string("mat|a=") + albedoPath.generic_string()
+            + "|cp=" + (pack ? pack->Archive().Path().generic_string() : std::string{})
             + "|n=" + normalPath.generic_string()
             + "|o=" + ormPath.generic_string()
             + "|e=" + emissivePath.generic_string()
@@ -5365,12 +5405,22 @@ struct NativeAlbedoTextureCache {
             descriptorByKey.emplace(key, whiteDescriptorSet);
             return whiteDescriptorSet;
         }
-        const GpuAlbedoImage* albedoLoaded = resolveImageForAbsolutePath(albedoPath, kColorTextureFormat);
-        const GpuAlbedoImage* normalLoaded = resolveImageForAbsolutePath(normalPath, kDataTextureFormat);
-        const GpuAlbedoImage* ormLoaded = resolveImageForAbsolutePath(ormPath, kDataTextureFormat);
-        const GpuAlbedoImage* emissiveLoaded = resolveImageForAbsolutePath(emissivePath, kColorTextureFormat);
-        const GpuAlbedoImage* opacityLoaded = resolveImageForAbsolutePath(opacityPath, kDataTextureFormat);
-        const GpuAlbedoImage* detailLoaded = resolveImageForAbsolutePath(detailPath, kColorTextureFormat);
+        const auto resolveImage = [this, &pack](const std::string_view logicalPath,
+                                                const fs::path& absolutePath,
+                                                const VkFormat format) {
+            if (const GpuAlbedoImage* cooked = resolveImageForCookedPath(pack, logicalPath, format)) {
+                return cooked;
+            }
+            return resolveImageForAbsolutePath(absolutePath, format);
+        };
+        const GpuAlbedoImage* albedoLoaded = resolveImage(albedoRel, albedoPath, kColorTextureFormat);
+        const GpuAlbedoImage* normalLoaded = resolveImage(material.normalTexture, normalPath, kDataTextureFormat);
+        const GpuAlbedoImage* ormLoaded = resolveImage(material.ormTexture, ormPath, kDataTextureFormat);
+        const GpuAlbedoImage* emissiveLoaded = resolveImage(material.emissiveTexture, emissivePath, kColorTextureFormat);
+        const GpuAlbedoImage* opacityLoaded = resolveImage(material.opacityTexture, opacityPath, kDataTextureFormat);
+        const std::string_view detailLogical = material.detailTexture.empty() ? std::string_view(albedoRel)
+                                                                              : std::string_view(material.detailTexture);
+        const GpuAlbedoImage* detailLoaded = resolveImage(detailLogical, detailPath, kColorTextureFormat);
         if (normalLoaded == nullptr && wantsGeneratedNormal) {
             normalLoaded = resolveGeneratedNormal(albedoPath, proceduralNormalOptions);
         }
@@ -5403,6 +5453,7 @@ struct NativeAlbedoTextureCache {
     void warmForScene(const ri::scene::Scene& scene,
                       const std::vector<NativeSceneDraw>& draws,
                       const fs::path& textureRoot,
+                      const std::shared_ptr<const ri::content::CookedTexturePack>& pack,
                       const VulkanWarmupCacheOptions& warmupOptions) {
         std::vector<fs::path> decodePaths{};
         std::unordered_set<std::string> decodeKeys{};
@@ -5441,12 +5492,15 @@ struct NativeAlbedoTextureCache {
             const std::string albedoRel = !draw.resolvedAlbedoRelPath.empty()
                 ? draw.resolvedAlbedoRelPath
                 : ResolveMaterialTextureRelPath(material);
+            const bool cookedAlbedo = pack && pack->Find(albedoRel) != nullptr;
             const fs::path albedoPath = makeAbsolute(albedoRel);
             fs::path normalPath = makeAbsolute(material.normalTexture);
-            if (normalPath.empty() && !albedoPath.empty()) {
+            if (normalPath.empty() && !albedoPath.empty() && !cookedAlbedo) {
                 normalPath = probeSiblingMap(albedoPath, "_n");
             }
-            addDecodePath(albedoPath);
+            if (!cookedAlbedo) {
+                addDecodePath(albedoPath);
+            }
             addDecodePath(normalPath);
             addDecodePath(makeAbsolute(material.ormTexture));
             addDecodePath(makeAbsolute(material.emissiveTexture));
@@ -5471,7 +5525,7 @@ struct NativeAlbedoTextureCache {
         }
         for (const NativeSceneDraw& draw : draws) {
             if (draw.useTexture && draw.litShadingModel) {
-                (void)descriptorFor(scene, draw, textureRoot);
+                (void)descriptorFor(scene, draw, textureRoot, pack);
             }
         }
         decodedWarmupCache.Clear();
@@ -5843,7 +5897,8 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
             pushConstants.litShadingModel |= draw.materialStyleFlags;
             pushConstants.alphaCutoff = draw.alphaCutoff;
             if (draw.alphaCutout && draw.useTexture) {
-                VkDescriptorSet textureSet = textureCache.descriptorFor(scene, draw, sceneData.textureRoot);
+                VkDescriptorSet textureSet = textureCache.descriptorFor(
+                    scene, draw, sceneData.textureRoot, sceneData.cookedTexturePack);
                 if (textureSet == VK_NULL_HANDLE) {
                     textureSet = textureCache.whiteDescriptorSet;
                 }
@@ -5946,7 +6001,8 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
             scenePipelineMode = neededPipelineMode;
         }
 
-        VkDescriptorSet textureSet = textureCache.descriptorFor(scene, draw, sceneData.textureRoot);
+        VkDescriptorSet textureSet = textureCache.descriptorFor(
+            scene, draw, sceneData.textureRoot, sceneData.cookedTexturePack);
         if (textureSet == VK_NULL_HANDLE) {
             textureSet = textureCache.whiteDescriptorSet;
         }
@@ -8102,6 +8158,9 @@ bool RunVulkanNativeSceneLoop(const int width,
             if (frame.textureRoot.empty() && !options.textureRoot.empty()) {
                 frame.textureRoot = options.textureRoot;
             }
+            if (!frame.cookedTexturePack) {
+                frame.cookedTexturePack = options.cookedTexturePack;
+            }
 
             NativeScenePreviewData sceneData{};
             if (!BuildNativeScenePreviewData(frame, width, height, &sceneData, &frameError, kShadowMapResolution)) {
@@ -8134,7 +8193,8 @@ bool RunVulkanNativeSceneLoop(const int width,
                 ClearGpuMeshCache(device, meshCache);
                 cachedSceneIdentity = sceneIdentity;
                 textureCache.warmForScene(
-                    *sceneData.scene, sceneData.draws, sceneData.textureRoot, options.warmupCache);
+                    *sceneData.scene, sceneData.draws, sceneData.textureRoot,
+                    sceneData.cookedTexturePack, options.warmupCache);
             }
             for (const NativeSceneDraw& draw : sceneData.draws) {
                 if (draw.meshHandle >= 0) {
@@ -9032,6 +9092,7 @@ bool PresentSceneKitPreviewWindowNative(const ri::scene::SceneKitPreview& previe
             frame.photoMode = options.scenePhotoMode;
             frame.photoModeEnabled = ri::scene::PhotoModeFieldOfViewActive(options.scenePhotoMode);
             frame.textureRoot = options.textureRoot;
+            frame.cookedTexturePack = options.cookedTexturePack;
             frame.animationTimeSeconds = static_cast<double>(GetTickCount64()) * 0.001;
             frame.postProcess.timeSeconds = static_cast<float>(frame.animationTimeSeconds);
             return true;

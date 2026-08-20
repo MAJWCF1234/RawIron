@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -19,5 +20,6 @@ struct RgbaImage {
 };
 
 [[nodiscard]] RgbaImage LoadRgbaImageFile(const std::filesystem::path& path);
+[[nodiscard]] RgbaImage LoadRgbaImageMemory(std::span<const std::byte> encodedBytes);
 
 } // namespace ri::render::software

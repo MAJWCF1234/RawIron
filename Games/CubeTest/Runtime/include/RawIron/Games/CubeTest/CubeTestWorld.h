@@ -4,6 +4,7 @@
 #include "RawIron/Trace/TraceScene.h"
 
 #include <filesystem>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -29,5 +30,9 @@ struct CubeTestWorld {
     const std::filesystem::path& workspaceRoot = {});
 void AnimateCubeTestWorld(CubeTestWorld& world, double elapsedSeconds);
 void AnimateCubeTestWorldJiggle(CubeTestWorld& world, double elapsedSeconds);
+void ConfigureCookedTextureCube(CubeTestWorld& world,
+                                std::vector<std::string> logicalTexturePaths,
+                                float framesPerSecond = 0.75f);
+[[nodiscard]] const std::vector<std::string>& CubeTestCookedTextureSequence();
 
 } // namespace ri::games::cubetest

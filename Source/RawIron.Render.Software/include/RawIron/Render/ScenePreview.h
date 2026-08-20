@@ -7,10 +7,13 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+namespace ri::content { class CookedTexturePack; }
 
 namespace ri::render::software {
 
@@ -44,6 +47,9 @@ struct ScenePreviewOptions {
     /// Override directory for `Material::baseColorTexture` filenames. If unset, uses the
     /// canonical `Assets/Textures` folder from the RawIron tree (legacy: `Engine/Textures`).
     std::optional<std::filesystem::path> textureRoot{};
+    /// Directly mounted cooked texture source. Logical material paths resolve here before
+    /// the loose filesystem fallback and are decoded from memory without extraction.
+    std::shared_ptr<const ri::content::CookedTexturePack> cookedTexturePack{};
     /// Optional animation clock for frame-sequence materials.
     double animationTimeSeconds = 0.0;
     bool pointSampleTextures = true;

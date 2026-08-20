@@ -1,5 +1,6 @@
 #include "RawIron/Games/CubeTest/CubeTestWorld.h"
 
+#include "RawIron/Content/RipakArchive.h"
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Scene/Scene.h"
 
@@ -7,6 +8,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <unordered_set>
 
 namespace {
@@ -29,8 +31,8 @@ std::uint64_t HashPixels(const std::vector<std::uint8_t>& pixels) {
 
 } // namespace
 
-int main() {
-    const ri::games::cubetest::CubeTestWorld world =
+int main(int argc, char** argv) {
+    ri::games::cubetest::CubeTestWorld world =
         ri::games::cubetest::BuildCubeTestWorld("Cube Test Smoke");
 
     bool ok = true;
@@ -48,6 +50,8 @@ int main() {
     ok &= Require(!material.normalTexture.empty(), "cube material should have an M-mesh normal map");
     ok &= Require(!material.ormTexture.empty(), "cube material should have an M-mesh packed spec/ORM map");
     ok &= Require(!material.detailTexture.empty(), "cube material should have a detail map for material stress testing");
+    ok &= Require(cube.localTransform.scale.x < 1.5f && cube.localTransform.scale.y < 1.5f,
+                  "streaming cube should remain a small focused sample");
     for (const int sampleNode : {
              world.cubeNode,
              world.goldSampleNode,
@@ -64,6 +68,18 @@ int main() {
         ok &= Require(std::filesystem::is_regular_file(sampleMaterial.ormTexture),
                       "Cube Test spec/ORM map should resolve to an existing package file");
     }
+
+    ri::games::cubetest::ConfigureCookedTextureCube(
+        world, ri::games::cubetest::CubeTestCookedTextureSequence());
+    const ri::scene::Material& cookedMaterial = world.scene.GetMaterial(cube.material);
+    ok &= Require(cookedMaterial.baseColorTextureFrames.size() >= 5U,
+                  "streaming cube should expose several cooked texture frames");
+    ok &= Require(cookedMaterial.normalTexture.empty() && cookedMaterial.ormTexture.empty(),
+                  "cooked albedo demo should use safe fallback maps instead of loose sidecars");
+    const float initialYaw = cube.localTransform.rotationDegrees.y;
+    ri::games::cubetest::AnimateCubeTestWorld(world, 1.0);
+    ok &= Require(world.scene.GetNode(world.cubeNode).localTransform.rotationDegrees.y > initialYaw + 30.0f,
+                  "streaming cube should spin continuously");
 
     ri::render::software::ScenePreviewOptions previewOptions{};
     previewOptions.width = 320;
@@ -101,6 +117,31 @@ int main() {
     }
     ok &= Require(frameHashes.size() >= 4U,
                   "jiggle preview sequence should contain multiple distinct rendered frames");
+
+    if (argc == 2) {
+        auto pack = std::make_shared<ri::content::CookedTexturePack>(
+            ri::content::CookedTexturePack::Open(argv[1], "indexes/RAWIRONX32.index.json"));
+        ri::games::cubetest::CubeTestWorld cookedWorld =
+            ri::games::cubetest::BuildCubeTestWorld("Cube Test Cooked Streaming");
+        ri::games::cubetest::ConfigureCookedTextureCube(
+            cookedWorld, ri::games::cubetest::CubeTestCookedTextureSequence());
+        ri::render::software::ScenePreviewOptions cookedOptions = previewOptions;
+        cookedOptions.cookedTexturePack = pack;
+        ri::render::software::ScenePreviewCache cookedCache{};
+        std::unordered_set<std::uint64_t> cookedHashes;
+        for (const double seconds : {0.0, 1.4, 2.8}) {
+            cookedOptions.animationTimeSeconds = seconds;
+            const ri::render::software::SoftwareImage frame = ri::render::software::RenderScenePreview(
+                cookedWorld.scene, cookedWorld.playerCameraNode, cookedOptions, &cookedCache);
+            cookedHashes.insert(HashPixels(frame.pixels));
+        }
+        ok &= Require(cookedHashes.size() == 3U,
+                      "three cooked texture intervals should produce three distinct cube frames");
+        ok &= Require(cookedCache.textures.size() >= 3U,
+                      "software renderer should cache each requested cooked texture without extraction");
+    } else if (argc != 1) {
+        ok &= Require(false, "expected optional RAWIRONX32.ripak path only");
+    }
 
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

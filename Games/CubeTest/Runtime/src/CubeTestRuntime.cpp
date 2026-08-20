@@ -3,6 +3,7 @@
 #include "RawIron/Content/EngineAssets.h"
 #include "RawIron/Content/GameManifest.h"
 #include "RawIron/Content/GameRuntimeSupport.h"
+#include "RawIron/Content/RipakArchive.h"
 #include "RawIron/Content/ScriptScalars.h"
 #include "RawIron/Content/ShaderAsset.h"
 #include "RawIron/Core/Log.h"
@@ -23,11 +24,14 @@
 #include "RawIron/Trace/MovementController.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <stdexcept>
+#include <string_view>
 #include <vector>
 
 #if defined(_WIN32)
@@ -43,6 +47,39 @@ namespace ri::games::cubetest {
 namespace {
 
 namespace fs = std::filesystem;
+
+constexpr std::string_view kRawIronX32Index = "indexes/RAWIRONX32.index.json";
+
+std::shared_ptr<const ri::content::CookedTexturePack> TryMountRawIronX32(
+    const fs::path& workspaceRoot,
+    const fs::path& looseTextureRoot) {
+    const std::array candidates{
+        looseTextureRoot.parent_path() / "RAWIRONX32.ripak",
+        workspaceRoot / "Assets" / "RAWIRONX32.ripak",
+        workspaceRoot.parent_path() / "Assets" / "RAWIRONX32.ripak",
+    };
+    for (const fs::path& candidate : candidates) {
+        std::error_code error;
+        if (!fs::is_regular_file(candidate, error) || error) {
+            continue;
+        }
+        try {
+            auto pack = std::make_shared<ri::content::CookedTexturePack>(
+                ri::content::CookedTexturePack::Open(candidate, kRawIronX32Index));
+            for (const std::string& logicalPath : CubeTestCookedTextureSequence()) {
+                if (pack->Find(logicalPath) == nullptr) {
+                    throw std::runtime_error("RAWIRONX32 is missing cube texture: " + logicalPath);
+                }
+            }
+            ri::core::LogInfo("Cube Test mounted cooked textures: " + candidate.string());
+            return pack;
+        } catch (const std::exception& mountError) {
+            ri::core::LogInfo("Cube Test could not mount " + candidate.string() + ": " + mountError.what());
+        }
+    }
+    ri::core::LogInfo("Cube Test RAWIRONX32 mount unavailable; retaining loose LRT cube textures.");
+    return nullptr;
+}
 
 fs::path ResolvePreviewOutputPath(const ri::core::CommandLine& commandLine) {
     if (const std::optional<std::string> output = commandLine.GetValue("--output"); output.has_value() && !output->empty()) {
@@ -62,6 +99,7 @@ std::optional<ri::content::GameManifest> ResolveStandaloneGameManifest(
 
 bool SavePreview(const CubeTestWorld& world,
                  const fs::path& textureRoot,
+                 std::shared_ptr<const ri::content::CookedTexturePack> cookedTexturePack,
                  const fs::path& outputPath,
                  const double animationSeconds,
                  const std::string_view hiddenNodeName,
@@ -71,6 +109,7 @@ bool SavePreview(const CubeTestWorld& world,
     options.width = 960;
     options.height = 540;
     options.textureRoot = textureRoot;
+    options.cookedTexturePack = std::move(cookedTexturePack);
     options.clearTop = {0.58f, 0.66f, 0.72f};
     options.clearBottom = {0.32f, 0.35f, 0.36f};
     options.fogColor = {0.50f, 0.55f, 0.58f};
@@ -115,6 +154,7 @@ bool SavePreview(const CubeTestWorld& world,
 }
 
 bool SaveJigglePreviewSequence(const fs::path& textureRoot,
+                               const std::shared_ptr<const ri::content::CookedTexturePack>& cookedTexturePack,
                                const fs::path& workspaceRoot,
                                const fs::path& outputPath,
                                const int frames,
@@ -125,13 +165,17 @@ bool SaveJigglePreviewSequence(const fs::path& textureRoot,
     const std::string stem = outputPath.stem().string();
     const std::string ext = outputPath.extension().empty() ? ".bmp" : outputPath.extension().string();
     CubeTestWorld frameWorld = BuildCubeTestWorld("Cube Test Jiggle Preview", workspaceRoot);
+    if (cookedTexturePack) {
+        ConfigureCookedTextureCube(frameWorld, CubeTestCookedTextureSequence());
+    }
     ri::render::software::ScenePreviewCache previewCache{};
     for (int index = 0; index < frameCount; ++index) {
         const double seconds = static_cast<double>(index) / 12.0;
         AnimateCubeTestWorldJiggle(frameWorld, seconds);
         const fs::path framePath = parent / (stem + "_" + std::to_string(index) + ext);
         if (!SavePreview(
-                frameWorld, textureRoot, framePath, seconds, hiddenNodeName, &previewCache, error)) {
+                frameWorld, textureRoot, cookedTexturePack, framePath, seconds,
+                hiddenNodeName, &previewCache, error)) {
             return false;
         }
     }
@@ -283,12 +327,16 @@ void CubeTestWin32Hook(void* user, void* hwnd, const unsigned int message, const
 bool RunNativeLoop(const StandaloneOptions& options,
                    const ri::content::GameManifest& manifest,
                    const fs::path& textureRoot,
+                   const std::shared_ptr<const ri::content::CookedTexturePack>& cookedTexturePack,
                    ri::runtime::RuntimeCore& runtime,
                    const ri::core::CommandLine& commandLine,
                    std::string* error) {
     PlayState state{};
     state.world = BuildCubeTestWorld(
         "Cube Test", ri::content::DetectWorkspaceRoot(manifest.rootPath));
+    if (cookedTexturePack) {
+        ConfigureCookedTextureCube(state.world, CubeTestCookedTextureSequence());
+    }
     const ri::content::ScriptScalarMap gameplay = ri::content::LoadScriptScalars(
         ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/gameplay.riscript"));
     const ri::content::ScriptScalarMap rendering = ri::content::LoadScriptScalars(
@@ -409,6 +457,7 @@ bool RunNativeLoop(const StandaloneOptions& options,
         .windowTitle = "RawIron Cube Test",
         .presentModePreference = ri::render::vulkan::VulkanPresentModePreference::Auto,
         .textureRoot = textureRoot,
+        .cookedTexturePack = cookedTexturePack,
         .messageUserData = &state,
         .onWin32Message = &CubeTestWin32Hook,
         .outClientHwnd = &state.hwnd,
@@ -421,7 +470,7 @@ bool RunNativeLoop(const StandaloneOptions& options,
 
     int runtimeFrameIndex = 0;
     const ri::render::vulkan::VulkanNativeSceneFrameCallback buildFrame =
-        [&state, &textureRoot, &options, &frameCount, &runtimeFrameIndex, &runtime](
+        [&state, &textureRoot, &cookedTexturePack, &options, &frameCount, &runtimeFrameIndex, &runtime](
             ri::render::vulkan::VulkanNativeSceneFrame& frame,
             std::string* frameError) {
             const ri::core::FrameContext runtimeFrame = ri::games::BuildGameRuntimeFrameContext(
@@ -443,6 +492,7 @@ bool RunNativeLoop(const StandaloneOptions& options,
             frame.suppressUnchangedFrames = false;
             frame.cameraNode = state.world.playerCameraNode;
             frame.textureRoot = textureRoot;
+            frame.cookedTexturePack = cookedTexturePack;
             frame.animationTimeSeconds = state.elapsedSeconds;
             frame.renderQualityTier = state.renderQualityTier;
             frame.renderExposure = state.renderExposure;
@@ -498,6 +548,8 @@ bool RunStandalone(const StandaloneOptions& options,
         }
     }
     const fs::path textureRoot = ri::content::PickEngineTexturesDirectory(workspaceRoot, executablePath);
+    const std::shared_ptr<const ri::content::CookedTexturePack> cookedTexturePack =
+        TryMountRawIronX32(workspaceRoot, textureRoot);
 
     const std::optional<ri::content::GameManifest> manifest =
         ResolveStandaloneGameManifest(options, workspaceRoot);
@@ -534,12 +586,16 @@ bool RunStandalone(const StandaloneOptions& options,
     ri::games::LogGameRuntimeSupportSummary(*supportService);
 
     CubeTestWorld previewWorld = BuildCubeTestWorld("Cube Test", workspaceRoot);
+    if (cookedTexturePack) {
+        ConfigureCookedTextureCube(previewWorld, CubeTestCookedTextureSequence());
+    }
     const std::string hiddenPreviewNode =
         commandLine.GetValue("--preview-hide-node").value_or(std::string{});
     if (commandLine.HasFlag("--save-jiggle-preview") || options.jigglePreviewFrames > 0) {
         const int frames = options.jigglePreviewFrames > 0 ? options.jigglePreviewFrames : 8;
         return SaveJigglePreviewSequence(
             textureRoot,
+            cookedTexturePack,
             workspaceRoot,
             ResolvePreviewOutputPath(commandLine),
             frames,
@@ -550,6 +606,7 @@ bool RunStandalone(const StandaloneOptions& options,
         return SavePreview(
             previewWorld,
             textureRoot,
+            cookedTexturePack,
             ResolvePreviewOutputPath(commandLine),
             0.0,
             hiddenPreviewNode,
@@ -568,7 +625,8 @@ bool RunStandalone(const StandaloneOptions& options,
         });
     ri::core::LogInfo(
         "Cube Test controls: WASD move, Shift sprint, Space jump, right mouse drag or arrow keys look, Esc quit.");
-    const bool ok = RunNativeLoop(options, *manifest, textureRoot, runtime, commandLine, error);
+    const bool ok = RunNativeLoop(
+        options, *manifest, textureRoot, cookedTexturePack, runtime, commandLine, error);
     runtime.Shutdown();
     return ok;
 #else
