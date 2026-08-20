@@ -20,6 +20,11 @@ paths through the mounted package before loose-file fallback, decode the selecte
 cache decoded/software or uploaded/GPU images by package and logical path. Cube Test exercises this path with a
 small continuously spinning cube whose animated material cycles through RAWIRONX32 textures.
 
+The repository does not carry a second generic loose texture library at `Assets/Textures`. The local authoring
+library lives at `O:\Assets\Textures`; its cooked output is `O:\Assets\RAWIRONX32.ripak` plus the adjacent,
+human-readable `O:\Assets\RAWIRONX32.files.txt` inventory. A game should ship only the cooked packages it declares.
+This keeps the engine checkout small while retaining full authoring freedom outside the engine runtime tree.
+
 ## RAWIRONX32
 
 `Scripts/cook_texture_pack.py` cooks a PNG source tree into a deterministic, content-addressed `.ripak`:
@@ -41,7 +46,7 @@ py -3 Scripts/cook_texture_pack.py `
   --force
 ```
 
-Do not remove a loose source library merely because cooking succeeds. Removal is safe only after every editor and
-renderer consumer of that library has switched from filesystem paths to the mounted asset-source interface. Source
-assets retained for authoring should live with their project or in separately distributed source packs, not beside a
-shipped mandatory cooked runtime copy.
+The engine repository's generic loose copy has been removed only after validating the reference pack and exercising
+the Cube Test against the package with no in-repository texture root. Loose-file fallback remains an optional
+authoring compatibility path: source assets should live with their project or in separately distributed source packs,
+never beside a shipped mandatory cooked runtime copy.

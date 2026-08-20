@@ -91,6 +91,17 @@ build\dev-msvc\Apps\RawIron.DedicatedServer\RelWithDebInfo\RawIron.DedicatedServ
 - `RawIron.World`, `RawIron.Logic`, `RawIron.Events`, `RawIron.Trace`, and `RawIron.Spatial` support world simulation and authored interactions
 - `Games/Common` enforces shared config contract behavior across projects
 
+## Asset packs and the engine repository
+
+`Assets/Textures/` is intentionally **not** an engine-shipped loose texture library. Raw Iron keeps generic
+authoring textures outside the repository (the local authoring library is `O:\Assets\Textures`) and distributes
+only the cooked packs a game or workspace actually needs. `O:\Assets\RAWIRONX32.ripak` is the reference pack:
+it is mounted and range-read directly at runtime, with no extraction or duplicate loose runtime tree.
+
+Projects may retain their own editable source assets where they are authored, but a playable build must declare and
+ship cooked `.ripak` packages. The renderer resolves a mounted cooked texture before any optional loose-file fallback.
+See [Cooked asset packs](docs/COOKED_ASSET_PACKS.md) for the pack format, cooker command, and validation rules.
+
 ## Multiplayer and mods
 
 - multiplayer is a core engine surface with dedicated, listen, hybrid, and client flows
@@ -144,7 +155,8 @@ Other switches:
 - **`Source/`** — engine libraries (`RawIron.Core`, `RawIron.Runtime`, `RawIron.Render.Vulkan`, `RawIron.SceneUtilities`, …).
 - **`Games/`** — **LiminalHall**, **WildernessRuins**, and **RawIronMultiplayerSandbox** runtimes + game apps.
 - **`Apps/`** — **`RawIron.Player`**, **`RawIron.Preview`**, **`RawIron.Editor`**, **`RawIron.Forge`**, **`RawIron.VisualShell`**, **`RawIron.UiMenu`**, **`RawIron.ParticleShowcase`**, **`RawIron.BotClient`**, **`RawIron.DedicatedServer`**.
-- **`Assets/`** — cooked/source content; **`Assets/UI/`** — JSON UI manifests + schema.
+- **`Assets/`** — engine-owned runtime support content; generic texture libraries are external authoring inputs and
+  game-ready content is distributed as cooked `.ripak` packages. **`Assets/UI/`** — JSON UI manifests + schema.
 - **`Documentation/`** — Obsidian-style engine docs (`Documentation/00 Home.md`).
 - **`Scripts/`** — build hygiene, publish, sync profile builds.
 - **`Installer/`** — full-workspace release installer.
