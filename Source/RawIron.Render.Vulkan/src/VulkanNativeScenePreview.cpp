@@ -67,6 +67,7 @@ struct NativeSceneVertex {
     float position[3]{};
     float normal[3]{};
     float uv[2]{};
+    float billboardOffset[2]{};
 };
 
 struct NativeSceneDraw {
@@ -86,6 +87,7 @@ struct NativeSceneDraw {
     float metallic = 0.0f;
     float roughness = 1.0f;
     std::array<float, 2> textureTiling{1.0f, 1.0f};
+    std::array<float, 2> normalScale{1.0f, 1.0f};
     bool useTexture = false;
     bool litShadingModel = false;
     std::int32_t materialStyleFlags = 0;
@@ -110,6 +112,7 @@ constexpr std::int32_t kNativeMaterialHasNormalMap = 1 << 11;
 constexpr std::int32_t kNativeMaterialHasOrmMap = 1 << 12;
 constexpr std::int32_t kNativeMaterialWorldTileUv = 1 << 13;
 constexpr std::int32_t kNativeMaterialAlbedoAlphaSmoothness = 1 << 14;
+constexpr std::int32_t kNativeGeometryCameraFacingSprite = 1 << 15;
 
 // When a lit, textured material does not author its own normal/ORM maps, the engine
 // derives them from the albedo (Sobel-based relief + cavity occlusion) so flat
@@ -929,8 +932,10 @@ struct NativeDrawPushConstants {
     float emissiveColor[3] = {0.0f, 0.0f, 0.0f};
     float qualityTier = 1.0f;
     float alphaCutoff = 1.0f;
+    float normalScalePadding = 0.0f;
+    float normalScale[2] = {1.0f, 1.0f};
 };
-static_assert(sizeof(NativeDrawPushConstants) == 132, "Must match NativeScenePreview.{vert,frag} push_constant layout.");
+static_assert(sizeof(NativeDrawPushConstants) == 144, "Must match native scene push_constant layouts.");
 static_assert(offsetof(NativeDrawPushConstants, useTexture) == 88);
 static_assert(offsetof(NativeDrawPushConstants, nativeWaterUvMotion) == 92);
 static_assert(offsetof(NativeDrawPushConstants, nativeWaterTime) == 96);
@@ -940,7 +945,8 @@ static_assert(offsetof(NativeDrawPushConstants, roughness) == 108);
 static_assert(offsetof(NativeDrawPushConstants, emissiveColor) == 112);
 static_assert(offsetof(NativeDrawPushConstants, qualityTier) == 124);
 static_assert(offsetof(NativeDrawPushConstants, alphaCutoff) == 128);
-static_assert(sizeof(NativeSceneVertex) == 32);
+static_assert(offsetof(NativeDrawPushConstants, normalScale) == 136);
+static_assert(sizeof(NativeSceneVertex) == 40);
 
 struct CpuMeshGeometry {
     std::vector<NativeSceneVertex> vertices{};
@@ -1728,6 +1734,8 @@ void SetNativeVertex(NativeSceneVertex& vertex,
     vertex.normal[2] = normal.z;
     vertex.uv[0] = uv.x;
     vertex.uv[1] = uv.y;
+    vertex.billboardOffset[0] = 0.0f;
+    vertex.billboardOffset[1] = 0.0f;
 }
 
 CpuMeshGeometry BuildCubeMeshGeometryExpanded() {
@@ -1870,6 +1878,37 @@ std::vector<std::uint32_t> BuildSequentialIndices(const std::vector<ri::math::Ve
 }
 
 CpuMeshGeometry BuildNativeMeshGeometry(const ri::scene::Mesh& mesh) {
+    if (mesh.geometryMode == ri::scene::MeshGeometryMode::CameraFacingSpriteQuads) {
+        CpuMeshGeometry geometry{};
+        if (mesh.positions.empty() || mesh.billboardOffsets.size() != mesh.positions.size()) {
+            return geometry;
+        }
+        const bool hasNormals = mesh.normals.size() == mesh.positions.size();
+        const bool hasUv = mesh.texCoords.size() == mesh.positions.size();
+        geometry.vertices.reserve(mesh.positions.size());
+        for (std::size_t index = 0; index < mesh.positions.size(); ++index) {
+            NativeSceneVertex vertex{};
+            SetNativeVertex(
+                vertex,
+                mesh.positions[index],
+                hasNormals ? mesh.normals[index] : ri::math::Vec3{0.0f, 0.0f, 1.0f},
+                hasUv ? mesh.texCoords[index] : ri::math::Vec2{});
+            vertex.billboardOffset[0] = mesh.billboardOffsets[index].x;
+            vertex.billboardOffset[1] = mesh.billboardOffsets[index].y;
+            geometry.vertices.push_back(vertex);
+        }
+        geometry.indices.reserve(mesh.indices.empty() ? mesh.positions.size() : mesh.indices.size());
+        if (mesh.indices.empty()) {
+            geometry.indices = BuildSequentialIndices(mesh.positions);
+        } else {
+            for (const int index : mesh.indices) {
+                if (index >= 0 && static_cast<std::size_t>(index) < mesh.positions.size()) {
+                    geometry.indices.push_back(static_cast<std::uint32_t>(index));
+                }
+            }
+        }
+        return geometry;
+    }
     switch (mesh.primitive) {
     case ri::scene::PrimitiveType::Cube:
         return BuildCubeMeshGeometryExpanded();
@@ -2108,6 +2147,7 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                 const ri::scene::Material material = operation.materialHandle >= 0
                     ? scene.GetMaterial(operation.materialHandle)
                     : ri::scene::Material{};
+                const ri::scene::Mesh& mesh = scene.GetMesh(operation.meshHandle);
                 const ri::math::Vec3 color = ClampColor(material.baseColor);
                 NativeSceneDraw draw{};
                 draw.meshHandle = operation.meshHandle;
@@ -2135,6 +2175,7 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                 draw.metallic = std::clamp(material.metallic, 0.0f, 1.0f);
                 draw.roughness = std::clamp(material.roughness, 0.04f, 1.0f);
                 draw.textureTiling = {material.textureTiling.x, material.textureTiling.y};
+                draw.normalScale = {material.normalScale.x, material.normalScale.y};
                 {
                     const bool hasNamedTexture = !material.baseColorTexture.empty();
                     const bool hasFrameTexture =
@@ -2178,6 +2219,9 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                 }
                 if (material.albedoAlphaIsSmoothness) {
                     draw.materialStyleFlags |= kNativeMaterialAlbedoAlphaSmoothness;
+                }
+                if (mesh.geometryMode == ri::scene::MeshGeometryMode::CameraFacingSpriteQuads) {
+                    draw.materialStyleFlags |= kNativeGeometryCameraFacingSprite;
                 }
                 const bool hasRealAlbedo =
                     !draw.resolvedAlbedoRelPath.empty()
@@ -5896,6 +5940,8 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
             }
             pushConstants.litShadingModel |= draw.materialStyleFlags;
             pushConstants.alphaCutoff = draw.alphaCutoff;
+            pushConstants.normalScale[0] = draw.normalScale[0];
+            pushConstants.normalScale[1] = draw.normalScale[1];
             if (draw.alphaCutout && draw.useTexture) {
                 VkDescriptorSet textureSet = textureCache.descriptorFor(
                     scene, draw, sceneData.textureRoot, sceneData.cookedTexturePack);
@@ -6044,6 +6090,8 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
         pushConstants.emissiveColor[2] = draw.emissiveColor[2];
         pushConstants.qualityTier = static_cast<float>(sceneData.renderQualityTier);
         pushConstants.alphaCutoff = draw.alphaCutoff;
+        pushConstants.normalScale[0] = draw.normalScale[0];
+        pushConstants.normalScale[1] = draw.normalScale[1];
         vkCmdPushConstants(commandBuffer,
                            pipelineLayout,
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -7194,7 +7242,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             .stride = static_cast<std::uint32_t>(sizeof(NativeSceneVertex)),
             .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
         };
-        const std::array<VkVertexInputAttributeDescription, 3> vertexAttributes = {{
+        const std::array<VkVertexInputAttributeDescription, 4> vertexAttributes = {{
             VkVertexInputAttributeDescription{
                 .location = 0,
                 .binding = 0,
@@ -7212,6 +7260,12 @@ bool RunVulkanNativeSceneLoop(const int width,
                 .binding = 0,
                 .format = VK_FORMAT_R32G32_SFLOAT,
                 .offset = static_cast<std::uint32_t>(offsetof(NativeSceneVertex, uv)),
+            },
+            VkVertexInputAttributeDescription{
+                .location = 3,
+                .binding = 0,
+                .format = VK_FORMAT_R32G32_SFLOAT,
+                .offset = static_cast<std::uint32_t>(offsetof(NativeSceneVertex, billboardOffset)),
             },
         }};
         const VkPipelineVertexInputStateCreateInfo vertexInputInfo{

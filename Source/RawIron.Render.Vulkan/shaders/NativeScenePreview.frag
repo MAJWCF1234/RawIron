@@ -233,6 +233,7 @@ layout(push_constant) uniform DrawData {
     layout(offset = 112) vec3 emissiveColor;
     layout(offset = 124) float qualityTier;
     layout(offset = 128) float alphaCutoff;
+    layout(offset = 136) vec2 normalScale;
 } drawData;
 
 const float kPi = 3.14159265359;
@@ -307,7 +308,7 @@ vec3 ApplyNormalMap(vec3 baseNormal, vec2 uv) {
     vec3 tangentNormal = texture(normalTex, uv).xyz * 2.0 - 1.0;
     float tier = clamp(drawData.qualityTier, 0.0, 2.0);
     float normalStrength = mix(0.95, 1.22, tier * 0.5);
-    tangentNormal.xy *= normalStrength;
+    tangentNormal.xy *= drawData.normalScale * normalStrength;
     tangentNormal = normalize(tangentNormal);
     mat3 tbn = CotangentFrame(normalize(baseNormal), worldPositionWs - cameraData.cameraWorldPosition.xyz, uv);
     return normalize(tbn * tangentNormal);

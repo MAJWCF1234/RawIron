@@ -360,6 +360,7 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
 
     const float aspectRatio = static_cast<float>(std::max(options.viewportWidth, 1))
         / static_cast<float>(std::max(options.viewportHeight, 1));
+    const ri::math::Mat4 cameraWorld = scene.ComputeWorldMatrix(*resolvedCamera);
     const ri::math::Mat4 viewMatrix = BuildViewMatrix(scene, *resolvedCamera);
     const ri::math::Mat4 viewProjection =
         ComputeCameraViewProjection(scene, *resolvedCamera, aspectRatio, &options.photoMode);
@@ -544,6 +545,17 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
 
         const std::uint16_t stableMaterialBucket = ResolveStableMaterialBucket(scene, batch.material);
         const bool isTransparent = pipelineBucket == options.transparentPipelineBucket;
+        const auto resolveInstanceWorld = [&](const std::size_t instanceIndex) {
+            const ri::math::Mat4 authored =
+                ri::math::Multiply(parentWorld, batch.transforms[instanceIndex].LocalMatrix());
+            if (batch.facingMode == MeshInstanceFacingMode::Camera) {
+                return ri::math::CameraFacingMatrix(authored, cameraWorld, false);
+            }
+            if (batch.facingMode == MeshInstanceFacingMode::CameraYawOnly) {
+                return ri::math::CameraFacingMatrix(authored, cameraWorld, true);
+            }
+            return authored;
+        };
 
         std::vector<std::size_t> instanceOrder;
         instanceOrder.resize(batch.transforms.size());
@@ -555,8 +567,8 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
                 instanceOrder.begin(),
                 instanceOrder.end(),
                 [&](const std::size_t a, const std::size_t b) {
-                    const ri::math::Mat4 worldA = ri::math::Multiply(parentWorld, batch.transforms[a].LocalMatrix());
-                    const ri::math::Mat4 worldB = ri::math::Multiply(parentWorld, batch.transforms[b].LocalMatrix());
+                    const ri::math::Mat4 worldA = resolveInstanceWorld(a);
+                    const ri::math::Mat4 worldB = resolveInstanceWorld(b);
                     const float za =
                         ri::math::TransformPoint(viewMatrix, ri::math::ExtractTranslation(worldA)).z;
                     const float zb =
@@ -567,7 +579,7 @@ SceneRenderSubmission BuildSceneRenderSubmission(const Scene& scene,
         }
 
         for (const std::size_t instanceIndex : instanceOrder) {
-            const ri::math::Mat4 world = ri::math::Multiply(parentWorld, batch.transforms[instanceIndex].LocalMatrix());
+            const ri::math::Mat4 world = resolveInstanceWorld(instanceIndex);
             if (!IsFiniteMatrix(world)) {
                 submission.stats.skippedNodes += 1U;
                 continue;

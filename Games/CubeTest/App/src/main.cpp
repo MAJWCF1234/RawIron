@@ -24,6 +24,10 @@ int main(int argc, char** argv) {
         ri::core::LogInfo("  --save-preview                  Render a still preview and exit");
         ri::core::LogInfo("  --output=<path>                 Output path for --save-preview");
         ri::core::LogInfo("  --preview-hide-node=<name>      Hide one named node in headless preview captures");
+        ri::core::LogInfo("  --export-gltf=<path>            Export the native capability gallery as glTF 2.0");
+        ri::core::LogInfo("  --start-room=<name>             Start in baseline, sprites, normals, exporter, interaction, projectile, or teleport");
+        ri::core::LogInfo("  --net-mode=<mode>               offline (default), listen, dedicated, or client");
+        ri::core::LogInfo("  --port=<n> --connect-host=<h> --connect-port=<n>  Authority session endpoint");
         return 0;
     }
 
@@ -33,6 +37,12 @@ int main(int argc, char** argv) {
     }
     if (const auto workspaceRoot = commandLine.GetValue("--workspace-root"); workspaceRoot.has_value() && !workspaceRoot->empty()) {
         options.workspaceRoot = std::filesystem::path(*workspaceRoot);
+    }
+    if (const auto exportPath = commandLine.GetValue("--export-gltf"); exportPath.has_value() && !exportPath->empty()) {
+        options.exportGltfPath = std::filesystem::path(*exportPath);
+    }
+    if (const auto startRoom = commandLine.GetValue("--start-room"); startRoom.has_value() && !startRoom->empty()) {
+        options.startRoom = *startRoom;
     }
     options.width = std::clamp(commandLine.GetIntOr("--width", options.width), 64, 3840);
     options.height = std::clamp(commandLine.GetIntOr("--height", options.height), 64, 2160);

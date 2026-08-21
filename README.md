@@ -29,6 +29,8 @@ By default the root `CMakeLists.txt` builds these **runnable targets**:
 | **`RawIron.VisualShell`** | Keyboard-first **visual shell** (`Apps/RawIron.VisualShell`). **`Launch RawIron Visual Shell.cmd`**. |
 | **`RawIron.UiMenu`** | JSON + Dear ImGui **UI / screen-flow** harness (`--demo-vn`, `--headless`). |
 | **`RawIron.ParticleShowcase`** | CPU/GPU **particle** exercise host. |
+| **`RawIron.VRShowcase`** | Separate **OpenXR/SteamVR** host over Cube Test's shared world with hardware Vulkan stereo geometry, tracked two-hand prop interaction, haptics, collision locomotion, comfort turning, and portal travel. |
+| **`RawIron.CubeTestGame`** | Walkable portal gallery for native sprites, normal conventions, compressed glTF import, textured glTF export, and interactive prop simulation. |
 | **`RawIron.LiminalGame`** | **Liminal Hall** game. |
 | **`RawIron.ForestRuinsGame`** | **Wilderness Ruins** game. |
 | **`RawIron.MultiplayerSandboxGame`** | **RawIron Multiplayer Sandbox** game. |
@@ -60,6 +62,8 @@ build\dev-msvc\Apps\RawIron.Forge\RelWithDebInfo\RawIron.Forge.exe
 build\dev-msvc\Apps\RawIron.VisualShell\RelWithDebInfo\RawIron.VisualShell.exe
 build\dev-msvc\Apps\RawIron.UiMenu\RelWithDebInfo\RawIron.UiMenu.exe
 build\dev-msvc\Apps\RawIron.ParticleShowcase\RelWithDebInfo\RawIron.ParticleShowcase.exe
+build\dev-msvc\Apps\RawIron.VRShowcase\RelWithDebInfo\RawIron.VRShowcase.exe
+build\dev-msvc\Games\CubeTest\App\RelWithDebInfo\RawIron.CubeTestGame.exe
 build\dev-msvc\Games\LiminalHall\App\RelWithDebInfo\RawIron.LiminalGame.exe
 build\dev-msvc\Games\WildernessRuins\App\RelWithDebInfo\RawIron.ForestRuinsGame.exe
 build\dev-msvc\Games\RawIronMultiplayerSandbox\App\RelWithDebInfo\RawIron.MultiplayerSandboxGame.exe
@@ -88,7 +92,9 @@ build\dev-msvc\Apps\RawIron.DedicatedServer\RelWithDebInfo\RawIron.DedicatedServ
 - `RawIron.Runtime` owns shared lifecycle, services, events, and module mounting
 - `RawIron.Content` owns game manifest validation and project format enforcement
 - `RawIron.Render.Vulkan` and `RawIron.Render.Software` provide the main presentation paths
+- `RawIron.XR.OpenXR` isolates official OpenXR runtime/system/action discovery and Vulkan requirements from game code
 - `RawIron.World`, `RawIron.Logic`, `RawIron.Events`, `RawIron.Trace`, and `RawIron.Spatial` support world simulation and authored interactions
+- interactive prop pools encode authoritative, index-stable state into `RawIron.Runtime` snapshot blobs, so desktop and PC-VR hosts share the same validated delta-replication format
 - `Games/Common` enforces shared config contract behavior across projects
 
 ## Asset packs and the engine repository

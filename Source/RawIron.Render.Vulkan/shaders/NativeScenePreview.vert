@@ -3,6 +3,7 @@
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUv;
+layout(location = 3) in vec2 inBillboardOffset;
 
 layout(location = 0) out vec3 outNormal;
 layout(location = 1) out vec4 outColor;
@@ -225,10 +226,23 @@ layout(push_constant) uniform DrawData {
     layout(offset = 112) vec3 emissiveColor;
     layout(offset = 124) float qualityTier;
     layout(offset = 128) float alphaCutoff;
+    layout(offset = 136) vec2 normalScale;
 } drawData;
 
 void main() {
+    const int kGeometryCameraFacingSprite = 1 << 15;
+    bool cameraFacingSprite = (drawData.litShadingModel & kGeometryCameraFacingSprite) != 0;
     vec4 wp = drawData.model * vec4(inPosition, 1.0);
+    vec3 spriteNormal = vec3(0.0, 0.0, 1.0);
+    if (cameraFacingSprite) {
+        // inverse(P*V) columns 0/1 point along camera right/up after normalization. Sprite corner
+        // offsets use their own vertex stream so normals retain their actual lighting meaning.
+        mat4 inverseViewProjection = inverse(cameraData.viewProjection);
+        vec3 cameraRight = normalize(inverseViewProjection[0].xyz);
+        vec3 cameraUp = normalize(inverseViewProjection[1].xyz);
+        wp.xyz += cameraRight * inBillboardOffset.x + cameraUp * inBillboardOffset.y;
+        spriteNormal = normalize(cross(cameraRight, cameraUp));
+    }
     worldPositionWs = wp.xyz;
     gl_Position = cameraData.viewProjection * wp;
     shadowClipPosition = cameraData.lightViewProjection * wp;
@@ -242,7 +256,9 @@ void main() {
     float normalDet = determinant(normalModel);
     vec3 transformedNormal =
         abs(normalDet) > 1e-6 ? (transpose(inverse(normalModel)) * inNormal) : inNormal;
-    outNormal = normalize(length(transformedNormal) > 1e-6 ? transformedNormal : vec3(0.0, 1.0, 0.0));
+    outNormal = cameraFacingSprite
+        ? spriteNormal
+        : normalize(length(transformedNormal) > 1e-6 ? transformedNormal : vec3(0.0, 1.0, 0.0));
     outColor = drawData.color;
     texCoord = inUv;
 }

@@ -1,14 +1,19 @@
 #include "RawIron/Games/CubeTest/CubeTestWorld.h"
+#include "RawIron/Games/CubeTest/CubeTestAuthority.h"
 
 #include "RawIron/Content/RipakArchive.h"
 #include "RawIron/Render/ScenePreview.h"
+#include "RawIron/Scene/ModelLoader.h"
 #include "RawIron/Scene/Scene.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <unordered_set>
 
 namespace {
@@ -29,6 +34,17 @@ std::uint64_t HashPixels(const std::vector<std::uint8_t>& pixels) {
     return hash;
 }
 
+bool MatricesNear(const ri::math::Mat4& lhs, const ri::math::Mat4& rhs) {
+    for (int row = 0; row < 4; ++row) {
+        for (int column = 0; column < 4; ++column) {
+            if (std::abs(lhs.m[row][column] - rhs.m[row][column]) > 1.0e-6f) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -41,6 +57,103 @@ int main(int argc, char** argv) {
     ok &= Require(world.cubeNode != ri::scene::kInvalidHandle, "world should expose a valid cube node");
     ok &= Require(world.playerCameraNode != ri::scene::kInvalidHandle, "world should expose a valid camera node");
     ok &= Require(!world.colliders.empty(), "world should include at least one structural collider");
+    ok &= Require(world.colliders.size() >= 6U, "capability gallery should expose collider-backed test areas");
+    ok &= Require(world.portals.size() == 12U, "capability gallery should expose six bidirectional portal links");
+    ok &= Require(world.interactionRoomRoot != ri::scene::kInvalidHandle,
+                  "gallery should expose the native XR interaction room");
+    ok &= Require(world.interactionProps.size() == 24U
+                      && world.interactionPropNodes.size() == world.interactionProps.size(),
+                  "XR interaction room should bind every native prop state to a scene node");
+    ok &= Require(world.projectileRoomRoot != ri::scene::kInvalidHandle,
+                  "gallery should expose the native pooled-projectile room");
+    ok &= Require(world.projectileProps.size() == 50U
+                      && world.projectilePropNodes.size() == world.projectileProps.size(),
+                  "projectile room should bind targets and every fixed pool slot to scene nodes");
+    ok &= Require(world.teleportRoomRoot != ri::scene::kInvalidHandle,
+                  "gallery should expose the trace-validated teleport room");
+    const ri::world::InteractivePropEmissionResult fired =
+        ri::games::cubetest::EmitCubeTestProjectile(
+            world, {125.1f, 1.5f, 0.0f}, {1.0f, 0.0f, 0.0f});
+    ok &= Require(fired.propIndex >= 18 && world.projectileProps[fired.propIndex].active,
+                  "shared room API should activate a pooled projectile");
+    ri::games::cubetest::CubeTestWorld authorityClientWorld =
+        ri::games::cubetest::BuildCubeTestWorld("Cube Test Authority Client");
+    ri::games::cubetest::CubeTestAuthorityBridge authorityHost(&world);
+    ri::games::cubetest::CubeTestAuthorityBridge authorityClient(&authorityClientWorld);
+    const std::vector<std::uint8_t> authorityProjectile =
+        ri::games::cubetest::CubeTestAuthorityBridge::BuildProjectileCommand(
+            {125.2f, 1.4f, 0.0f}, {1.0f, 0.0f, 0.0f});
+    std::string authorityError;
+    const std::size_t activeBeforeAuthorityCommand = static_cast<std::size_t>(std::count_if(
+        world.projectileProps.begin(), world.projectileProps.end(),
+        [](const ri::world::InteractivePropState& prop) { return prop.active; }));
+    ok &= Require(authorityHost.HandleCommand(7U, 0U, authorityProjectile, &authorityError),
+                  "authority bridge should accept a bounded projectile command");
+    const std::size_t activeAfterAuthorityCommand = static_cast<std::size_t>(std::count_if(
+        world.projectileProps.begin(), world.projectileProps.end(),
+        [](const ri::world::InteractivePropState& prop) { return prop.active; }));
+    ok &= Require(activeAfterAuthorityCommand > activeBeforeAuthorityCommand,
+                  "authority command should mutate only the host physics pool");
+    const auto authoritySnapshot = authorityHost.CaptureSnapshot(42U);
+    ok &= Require(authoritySnapshot.has_value()
+                      && authorityClient.ApplySnapshot(*authoritySnapshot, &authorityError),
+                  "desktop and XR authority bridge should round-trip both dynamic pools");
+    ok &= Require(authorityClientWorld.projectileProps.size() == world.projectileProps.size()
+                      && authorityClientWorld.projectileProps[18].active == world.projectileProps[18].active
+                      && std::abs(authorityClientWorld.projectileProps[18].position.x
+                                  - world.projectileProps[18].position.x) < 1.0e-6f,
+                  "authority snapshot should reproduce the host projectile state exactly");
+    ok &= Require(world.spriteNode != ri::scene::kInvalidHandle, "sprite room should expose a native sprite cloud");
+    ok &= Require(world.spriteFrameMeshes.size() == 32U, "sprite room should prebuild smooth frames for four layouts");
+    const int initialSpriteMesh = world.scene.GetNode(world.spriteNode).mesh;
+    const ri::scene::Mesh& spriteMesh = world.scene.GetMesh(initialSpriteMesh);
+    ok &= Require(spriteMesh.positions.size() == 512U * 4U,
+                  "sprite cloud should pack all 512 reference sprites into one mesh draw");
+    ok &= Require(spriteMesh.geometryMode == ri::scene::MeshGeometryMode::CameraFacingSpriteQuads,
+                  "sprite cloud should use the engine camera-facing mesh contract");
+    ok &= Require(spriteMesh.billboardOffsets.size() == spriteMesh.positions.size(),
+                  "sprite cloud should provide an explicit billboard-offset stream");
+    ok &= Require(world.exporterInstanceBatch != ri::scene::kInvalidHandle,
+                  "export room should expose a hierarchy and instance-batch sample");
+    ok &= Require(world.shaderBallNode != ri::scene::kInvalidHandle,
+                  "export room should import the exact Three.js ShaderBall glTF fixture");
+    ok &= Require(world.coffeeModelNode != ri::scene::kInvalidHandle,
+                  "export room should import the exact meshopt-compressed coffee fixture");
+    const std::filesystem::path referenceModelRoot = std::filesystem::path(__FILE__).parent_path()
+        / ".." / ".." / "assets" / "reference" / "threejs-r185" / "models" / "gltf";
+    const ri::scene::ModelSourceValidationReport shaderBallReport =
+        ri::scene::ValidateModelSource(referenceModelRoot / "ShaderBall.glb");
+    ok &= Require(shaderBallReport.valid,
+                  "Raw Iron should import the quantized Three.js ShaderBall fixture through its public model API");
+    const ri::scene::ModelSourceValidationReport coffeeReport =
+        ri::scene::ValidateModelSource(referenceModelRoot / "coffeemat.glb");
+    if (!coffeeReport.valid) {
+        std::cerr << "coffeemat import: " << coffeeReport.summary << '\n';
+    }
+    ok &= Require(coffeeReport.valid,
+                  "Raw Iron should decode the meshopt-compressed Three.js coffee fixture through its public model API");
+    ok &= Require(std::filesystem::path(
+                      world.scene.GetMaterial(world.scene.GetNode(world.spriteNode).material).baseColorTexture)
+                      .filename() == "sprite.png",
+                  "sprite room should use the exact Three.js sprite fixture");
+    int normalFixtureCount = 0;
+    for (const ri::scene::Node& node : world.scene.Nodes()) {
+        if (node.name != "CubeTest_OpenGLNormalPanel" && node.name != "CubeTest_InvertedNormalPanel") {
+            continue;
+        }
+        const ri::scene::Material& panelMaterial = world.scene.GetMaterial(node.material);
+        ok &= Require(std::filesystem::is_regular_file(panelMaterial.normalTexture),
+                      "normal-map panels should resolve exact Three.js texture fixtures");
+        if (node.name == "CubeTest_OpenGLNormalPanel") {
+            ok &= Require(panelMaterial.normalScale.y > 0.0f,
+                          "OpenGL normal fixture should preserve its green channel");
+        } else {
+            ok &= Require(panelMaterial.normalScale.y < 0.0f,
+                          "DirectX normal fixture should invert its green channel in the material contract");
+        }
+        ++normalFixtureCount;
+    }
+    ok &= Require(normalFixtureCount == 2, "normal-map room should expose both convention fixtures");
 
     const ri::scene::Node& cube = world.scene.GetNode(world.cubeNode);
     ok &= Require(cube.material != ri::scene::kInvalidHandle, "cube should have a material");
@@ -77,9 +190,15 @@ int main(int argc, char** argv) {
     ok &= Require(cookedMaterial.normalTexture.empty() && cookedMaterial.ormTexture.empty(),
                   "cooked albedo demo should use safe fallback maps instead of loose sidecars");
     const float initialYaw = cube.localTransform.rotationDegrees.y;
+    const ri::math::Mat4 initialCameraWorld = world.scene.ComputeWorldMatrix(world.playerCameraNode);
     ri::games::cubetest::AnimateCubeTestWorld(world, 1.0);
     ok &= Require(world.scene.GetNode(world.cubeNode).localTransform.rotationDegrees.y > initialYaw + 30.0f,
                   "streaming cube should spin continuously");
+    ri::games::cubetest::AnimateCubeTestWorld(world, 6.5);
+    ok &= Require(world.scene.GetNode(world.spriteNode).mesh != initialSpriteMesh,
+                  "sprite room should transition between native layouts");
+    ok &= Require(MatricesNear(initialCameraWorld, world.scene.ComputeWorldMatrix(world.playerCameraNode)),
+                  "world animation must never orbit or rotate the player camera");
 
     ri::render::software::ScenePreviewOptions previewOptions{};
     previewOptions.width = 320;

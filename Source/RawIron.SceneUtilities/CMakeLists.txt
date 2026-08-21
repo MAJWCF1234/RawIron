@@ -1,5 +1,6 @@
 set(CGLTF_SOURCE_DIR "${CMAKE_SOURCE_DIR}/ThirdParty/cgltf")
 set(UFBX_SOURCE_DIR "${CMAKE_SOURCE_DIR}/ThirdParty/ufbx")
+set(MESHOPTIMIZER_SOURCE_DIR "${CMAKE_SOURCE_DIR}/ThirdParty/meshoptimizer/src")
 
 add_library(RawIron.cgltf STATIC
   ${CGLTF_SOURCE_DIR}/cgltf_impl.cpp
@@ -18,12 +19,24 @@ if (MSVC)
   target_compile_definitions(RawIron.ufbx PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 
+# Decoder support for EXT_meshopt_compression. Keep this as a narrow private importer
+# dependency; meshoptimizer is not exposed as part of Raw Iron's public scene API.
+add_library(RawIron.meshoptimizer STATIC
+  ${MESHOPTIMIZER_SOURCE_DIR}/allocator.cpp
+  ${MESHOPTIMIZER_SOURCE_DIR}/indexcodec.cpp
+  ${MESHOPTIMIZER_SOURCE_DIR}/vertexcodec.cpp
+  ${MESHOPTIMIZER_SOURCE_DIR}/vertexfilter.cpp
+)
+target_include_directories(RawIron.meshoptimizer PUBLIC ${MESHOPTIMIZER_SOURCE_DIR})
+target_compile_features(RawIron.meshoptimizer PUBLIC cxx_std_20)
+
 add_library(RawIron.SceneUtilities
   src/Animation.cpp
   src/AnimationLibraryHydration.cpp
   src/FbxLoader.cpp
   src/UfbxMeshImport.cpp
   src/GltfLoader.cpp
+  src/GltfExporter.cpp
   src/Helpers.cpp
   src/InteractionStructuralGate.cpp
   src/HumanoidAnimationProfiles.cpp
@@ -76,6 +89,7 @@ target_link_libraries(RawIron.SceneUtilities
     RawIron::Trace
   PRIVATE
     RawIron.cgltf
+    RawIron.meshoptimizer
     RawIron.ufbx
 )
 
@@ -137,6 +151,10 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(ModelImportRollbackSmoke ${CMAKE_SOURCE_DIR}/Tests/ModelImportRollbackSmoke.cpp)
   target_link_libraries(ModelImportRollbackSmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.ModelImportRollbackSmoke COMMAND ModelImportRollbackSmoke)
+
+  add_executable(GltfExporterSmoke ${CMAKE_SOURCE_DIR}/Tests/GltfExporterSmoke.cpp)
+  target_link_libraries(GltfExporterSmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.GltfExporterSmoke COMMAND GltfExporterSmoke)
 
   add_executable(SceneStateIOCommitRecoverySmoke
     ${CMAKE_SOURCE_DIR}/Tests/SceneStateIOCommitRecoverySmoke.cpp)

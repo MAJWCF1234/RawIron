@@ -1,4 +1,5 @@
 add_library(RawIron.Game.CubeTest
+  src/CubeTestAuthority.cpp
   src/CubeTestRuntime.cpp
   src/CubeTestWorld.cpp
   src/CubeTestEditorPreview.cpp
@@ -15,10 +16,12 @@ target_link_libraries(RawIron.Game.CubeTest
   PUBLIC
     RawIron::Content
     RawIron::Core
+    RawIron::Runtime
     RawIron::RenderSoftware
     RawIron::RenderVulkan
     RawIron::SceneUtilities
     RawIron::Trace
+    RawIron::World
     RawIron::EditorPreview
     RawIron::Game.RuntimeDiagnosticsDraw
 )

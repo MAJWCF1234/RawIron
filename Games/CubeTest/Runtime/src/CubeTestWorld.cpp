@@ -1,7 +1,9 @@
 #include "RawIron/Games/CubeTest/CubeTestWorld.h"
 
 #include "RawIron/Content/GameManifest.h"
+#include "RawIron/Core/Log.h"
 #include "RawIron/Scene/Helpers.h"
+#include "RawIron/Scene/ModelLoader.h"
 #include "RawIron/Scene/StructuralBrush.h"
 
 #include <algorithm>
@@ -21,6 +23,11 @@ constexpr const char* kLrtPackageRelativePath = "Assets\\Packages\\LRT - Texture
 
 std::string PackageTexture(const fs::path& workspaceRoot, const std::string_view relativePath) {
     return (workspaceRoot / fs::path(kLrtPackageRelativePath) / fs::path(relativePath)).lexically_normal().string();
+}
+
+fs::path ThreeJsReferenceAsset(const fs::path& workspaceRoot, const fs::path& relativePath) {
+    return (workspaceRoot / "Games" / "CubeTest" / "assets" / "reference" / "threejs-r185" / relativePath)
+        .lexically_normal();
 }
 
 ri::scene::PrimitiveNodeOptions CubeMaterialOptions(const int parent, const fs::path& workspaceRoot) {
@@ -139,6 +146,498 @@ int AddMarkerBox(ri::scene::Scene& scene,
     marker.emissiveColor = emissive;
     marker.roughness = 0.62f;
     return ri::scene::AddPrimitiveNode(scene, marker);
+}
+
+constexpr float kCapabilityRoomSpacing = 26.0f;
+constexpr std::size_t kSpriteCount = 512U;
+
+int AddCapabilityPlatform(ri::scene::Scene& scene,
+                          const int parent,
+                          const std::string_view name,
+                          const float centerX,
+                          const ri::math::Vec3& color) {
+    ri::scene::PrimitiveNodeOptions platform{};
+    platform.nodeName = std::string(name);
+    platform.parent = parent;
+    platform.primitive = ri::scene::PrimitiveType::Cube;
+    platform.transform.position = {centerX, -0.12f, 0.0f};
+    platform.transform.scale = {16.0f, 0.24f, 16.0f};
+    platform.materialName = std::string(name) + "-material";
+    platform.baseColor = color;
+    platform.roughness = 0.78f;
+    return ri::scene::AddPrimitiveNode(scene, platform);
+}
+
+void AddPortalGate(ri::scene::Scene& scene,
+                   const int parent,
+                   const std::string_view name,
+                   const float x,
+                   const ri::math::Vec3& color) {
+    const std::string prefix(name);
+    AddMarkerBox(scene, parent, prefix + "_NorthPillar", {x, 1.15f, -1.25f}, {0.34f, 2.3f, 0.34f}, color, color * 0.28f);
+    AddMarkerBox(scene, parent, prefix + "_SouthPillar", {x, 1.15f, 1.25f}, {0.34f, 2.3f, 0.34f}, color, color * 0.28f);
+    AddMarkerBox(scene, parent, prefix + "_Lintel", {x, 2.35f, 0.0f}, {0.34f, 0.34f, 2.84f}, color, color * 0.34f);
+
+    ri::scene::PrimitiveNodeOptions field{};
+    field.nodeName = prefix + "_TravelField";
+    field.parent = parent;
+    field.primitive = ri::scene::PrimitiveType::Cube;
+    field.transform.position = {x, 1.12f, 0.0f};
+    field.transform.scale = {0.06f, 2.0f, 2.0f};
+    field.materialName = prefix + "-field-material";
+    field.shadingModel = ri::scene::ShadingModel::Unlit;
+    field.baseColor = color;
+    field.emissiveColor = color * 0.85f;
+    field.transparent = true;
+    field.opacity = 0.34f;
+    field.doubleSided = true;
+    field.additiveBlend = true;
+    ri::scene::AddPrimitiveNode(scene, field);
+}
+
+std::array<std::vector<ri::math::Vec3>, 4> BuildSpriteLayouts(const ri::math::Vec3& center) {
+    std::array<std::vector<ri::math::Vec3>, 4> layouts{};
+    for (auto& layout : layouts) layout.reserve(kSpriteCount);
+
+    // Preserve the reference example's authored proportions and equations under one uniform
+    // metres-per-CSS-pixel conversion. The deterministic PRNG is intentional for repeatable tests.
+    constexpr float referenceScale = 0.0022f;
+
+    constexpr int amountX = 16;
+    constexpr int amountZ = 32;
+    constexpr float referenceSpacing = 150.0f;
+    constexpr float offsetX = ((amountX - 1) * referenceSpacing) * 0.5f;
+    constexpr float offsetZ = ((amountZ - 1) * referenceSpacing) * 0.5f;
+    for (std::size_t index = 0; index < kSpriteCount; ++index) {
+        const float referenceX = static_cast<float>(static_cast<int>(index) % amountX) * referenceSpacing;
+        const float referenceZ = static_cast<float>(static_cast<int>(index) / amountX) * referenceSpacing;
+        const float referenceY = (std::sin(referenceX * 0.5f) + std::sin(referenceZ * 0.5f)) * 200.0f;
+        layouts[0].push_back(center + ri::math::Vec3{
+            (referenceX - offsetX) * referenceScale,
+            referenceY * referenceScale,
+            (referenceZ - offsetZ) * referenceScale});
+    }
+
+    constexpr int cubeAmount = 8;
+    constexpr float cubeOffset = ((cubeAmount - 1) * referenceSpacing) * 0.5f;
+    for (std::size_t index = 0; index < kSpriteCount; ++index) {
+        const int xIndex = static_cast<int>(index) % cubeAmount;
+        const int yIndex = (static_cast<int>(index) / cubeAmount) % cubeAmount;
+        const int zIndex = static_cast<int>(index) / (cubeAmount * cubeAmount);
+        layouts[1].push_back(center + ri::math::Vec3{
+            (static_cast<float>(xIndex) * referenceSpacing - cubeOffset) * referenceScale,
+            (static_cast<float>(yIndex) * referenceSpacing - cubeOffset) * referenceScale,
+            (static_cast<float>(zIndex) * referenceSpacing - cubeOffset) * referenceScale});
+    }
+
+    std::uint32_t randomState = 0x52415749U;
+    auto randomSigned = [&randomState]() {
+        randomState = randomState * 1664525U + 1013904223U;
+        return static_cast<float>((randomState >> 8U) & 0xFFFFFFU) / 8388607.5f - 1.0f;
+    };
+    for (std::size_t index = 0; index < kSpriteCount; ++index) {
+        layouts[2].push_back(center + ri::math::Vec3{
+            randomSigned() * 2000.0f * referenceScale,
+            randomSigned() * 2000.0f * referenceScale,
+            randomSigned() * 2000.0f * referenceScale});
+    }
+
+    constexpr float sphereRadius = 750.0f * referenceScale;
+    for (std::size_t index = 0; index < kSpriteCount; ++index) {
+        const float phi = std::acos(-1.0f + (2.0f * static_cast<float>(index)) / static_cast<float>(kSpriteCount));
+        const float theta = std::sqrt(static_cast<float>(kSpriteCount) * ri::math::kPi) * phi;
+        layouts[3].push_back(center + ri::math::Vec3{
+            sphereRadius * std::cos(theta) * std::sin(phi),
+            sphereRadius * std::cos(phi),
+            sphereRadius * std::sin(theta) * std::sin(phi)});
+    }
+    return layouts;
+}
+
+void AddSpriteCapabilityRoom(CubeTestWorld& world, const fs::path& workspaceRoot) {
+    const float centerX = kCapabilityRoomSpacing;
+    AddCapabilityPlatform(world.scene, world.rootNode, "CubeTest_SpriteRoomPlatform", centerX, {0.24f, 0.34f, 0.46f});
+    world.spriteLayouts = BuildSpriteLayouts({centerX, 4.0f, 0.0f});
+
+    const int material = world.scene.AddMaterial(ri::scene::Material{
+        .name = "cube-test-native-sprite",
+        .shadingModel = ri::scene::ShadingModel::Unlit,
+        .baseColor = {1.0f, 1.0f, 1.0f},
+        .baseColorTexture = ThreeJsReferenceAsset(workspaceRoot, "textures/sprite.png").string(),
+        .emissiveColor = {0.06f, 0.10f, 0.14f},
+        .roughness = 1.0f,
+        .opacity = 1.0f,
+        .alphaCutoff = 0.01f,
+        .doubleSided = true,
+        .transparent = true,
+        .additiveBlend = false,
+    });
+
+    constexpr int framesPerTransition = 8;
+    constexpr float transitionWindowSeconds = 4.0f;
+    constexpr float referenceSpriteSize = 64.0f * 0.0022f;
+    std::vector<ri::math::Vec3> centers(kSpriteCount);
+    std::vector<float> sizes(kSpriteCount);
+    world.spriteFrameMeshes.reserve(world.spriteLayouts.size() * framesPerTransition);
+    for (std::size_t fromLayout = 0; fromLayout < world.spriteLayouts.size(); ++fromLayout) {
+        const std::size_t toLayout = (fromLayout + 1U) % world.spriteLayouts.size();
+        for (int frame = 0; frame < framesPerTransition; ++frame) {
+            const float transitionTime = transitionWindowSeconds * static_cast<float>(frame)
+                / static_cast<float>(framesPerTransition - 1);
+            for (std::size_t index = 0; index < kSpriteCount; ++index) {
+                const std::uint32_t durationHash = static_cast<std::uint32_t>(index) * 2654435761U;
+                const float duration = 2.0f
+                    + static_cast<float>((durationHash >> 24U) & 0xFFU) / 255.0f * 2.0f;
+                const float linear = std::clamp(transitionTime / duration, 0.0f, 1.0f);
+                const float eased = linear <= 0.0f ? 0.0f : linear >= 1.0f ? 1.0f
+                    : linear < 0.5f ? std::pow(2.0f, 20.0f * linear - 10.0f) * 0.5f
+                                    : (2.0f - std::pow(2.0f, -20.0f * linear + 10.0f)) * 0.5f;
+                centers[index] = ri::math::Lerp(
+                    world.spriteLayouts[fromLayout][index], world.spriteLayouts[toLayout][index], eased);
+                const float referenceX = (centers[index].x - centerX) / 0.0022f;
+                const float pulse = std::sin((std::floor(referenceX) + transitionTime * 1000.0f) * 0.002f) * 0.3f + 1.0f;
+                sizes[index] = referenceSpriteSize * pulse;
+            }
+            world.spriteFrameMeshes.push_back(world.scene.AddMesh(ri::scene::MakeBillboardCloudMesh(
+                "CubeTest_NativeSpriteCloud_" + std::to_string(fromLayout) + "_" + std::to_string(frame),
+                centers,
+                sizes)));
+        }
+    }
+    world.spriteNode = world.scene.CreateNode("CubeTest_NativeSpriteCloud", world.rootNode);
+    world.scene.AttachMesh(world.spriteNode, world.spriteFrameMeshes.front(), material);
+}
+
+void AddNormalsCapabilityRoom(CubeTestWorld& world, const fs::path& workspaceRoot) {
+    const float centerX = kCapabilityRoomSpacing * 2.0f;
+    AddCapabilityPlatform(world.scene, world.rootNode, "CubeTest_GltfNormalsRoomPlatform", centerX, {0.38f, 0.30f, 0.44f});
+
+    // Faithful asset target for three.js `webgl_materials_normalmap.html`. Raw Iron imports the
+    // original glTF geometry, then binds its authored maps through our Material contract so the
+    // desktop and OpenXR renderers exercise the same scene data rather than a copied WebGL demo.
+    const int leePerrySmithMaterial = world.scene.AddMaterial(ri::scene::Material{
+        .name = "threejs-lee-perry-smith-normal-material",
+        .materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss,
+        .baseColor = {0.937f, 0.937f, 0.937f},
+        .baseColorTexture = ThreeJsReferenceAsset(
+            workspaceRoot, "models/gltf/LeePerrySmith/Map-COL.jpg").string(),
+        .metallic = 0.0f,
+        .roughness = 0.34f,
+        .normalTexture = ThreeJsReferenceAsset(
+            workspaceRoot, "models/gltf/LeePerrySmith/Infinite-Level_02_Tangent_SmoothUV.jpg").string(),
+        .normalScale = {1.0f, 1.0f},
+        .ormTexture = ThreeJsReferenceAsset(
+            workspaceRoot, "models/gltf/LeePerrySmith/Map-SPEC.jpg").string(),
+    });
+    const std::size_t nodeCountBeforeHeadImport = world.scene.NodeCount();
+    std::string headImportError;
+    const int leePerrySmithHead = ri::scene::AddGltfModelNode(
+        world.scene,
+        ri::scene::GltfModelOptions{
+            .sourcePath = ThreeJsReferenceAsset(
+                workspaceRoot, "models/gltf/LeePerrySmith/LeePerrySmith.glb"),
+            .wrapperNodeName = "CubeTest_ThreeJsLeePerrySmithHead",
+            .parent = world.rootNode,
+            .transform = ri::scene::Transform{
+                .position = {centerX, 1.65f, 0.0f},
+                .rotationDegrees = {0.0f, 180.0f, 0.0f},
+                .scale = {1.65f, 1.65f, 1.65f},
+            },
+        },
+        &headImportError);
+    if (leePerrySmithHead == ri::scene::kInvalidHandle) {
+        ri::core::LogInfo("Cube Test Lee Perry-Smith reference import failed: " + headImportError);
+    } else {
+        // glTF import intentionally preserves its own material. This demo overrides only the
+        // newly appended render nodes with the reference example's externally supplied maps.
+        for (std::size_t nodeIndex = nodeCountBeforeHeadImport; nodeIndex < world.scene.NodeCount(); ++nodeIndex) {
+            ri::scene::Node& node = world.scene.GetNode(static_cast<int>(nodeIndex));
+            if (node.mesh != ri::scene::kInvalidHandle) node.material = leePerrySmithMaterial;
+        }
+    }
+
+    for (int panelIndex = 0; panelIndex < 2; ++panelIndex) {
+        ri::scene::Mesh panel = ri::scene::MakeBillboardQuadMesh(
+            panelIndex == 0 ? "CubeTest_OpenGLNormalPanelMesh" : "CubeTest_InvertedNormalPanelMesh");
+        // The geometry convention is identical for both panels. DirectX-vs-OpenGL normal
+        // interpretation belongs exclusively to Material::normalScale, not vertex winding.
+        panel.normals.assign(panel.positions.size(), ri::math::Vec3{0,0,1});
+        const int mesh = world.scene.AddMesh(std::move(panel));
+        const int material = world.scene.AddMaterial(ri::scene::Material{
+            .name = panelIndex == 0 ? "gltf-normal-positive" : "gltf-normal-inverted",
+            .baseColor = panelIndex == 0 ? ri::math::Vec3{0.28f,0.72f,1.0f} : ri::math::Vec3{1.0f,0.38f,0.52f},
+            .emissiveColor = panelIndex == 0 ? ri::math::Vec3{0.03f,0.12f,0.24f} : ri::math::Vec3{0.18f,0.03f,0.06f},
+            .metallic = 0.05f,
+            .roughness = 0.32f,
+            .doubleSided = true,
+            .normalTexture = ThreeJsReferenceAsset(
+                workspaceRoot,
+                panelIndex == 0 ? "textures/NormalMapOpenGL.png" : "textures/NormalMapDirectX.png").string(),
+            .normalScale = panelIndex == 0 ? ri::math::Vec2{0.5f, 0.5f} : ri::math::Vec2{0.5f, -0.5f},
+        });
+        const int node = world.scene.CreateNode(panelIndex == 0 ? "CubeTest_OpenGLNormalPanel" : "CubeTest_InvertedNormalPanel", world.rootNode);
+        auto& transform = world.scene.GetNode(node).localTransform;
+        transform.position = {centerX + 1.2f, 2.2f, panelIndex == 0 ? -2.5f : 2.5f};
+        transform.rotationDegrees = {0.0f, -90.0f, 0.0f};
+        transform.scale = {3.5f, 3.5f, 3.5f};
+        world.scene.AttachMesh(node, mesh, material);
+        AddMarkerBox(world.scene, world.rootNode,
+                     panelIndex == 0 ? "CubeTest_PositiveNormalVector" : "CubeTest_NegativeNormalVector",
+                     {centerX + (panelIndex == 0 ? -1.0f : 3.4f), 2.2f, panelIndex == 0 ? -2.5f : 2.5f},
+                     {4.2f, 0.08f, 0.08f},
+                     panelIndex == 0 ? ri::math::Vec3{0.20f,0.82f,1.0f} : ri::math::Vec3{1.0f,0.25f,0.36f},
+                     panelIndex == 0 ? ri::math::Vec3{0.08f,0.42f,0.72f} : ri::math::Vec3{0.62f,0.05f,0.10f});
+    }
+}
+
+void AddExporterCapabilityRoom(CubeTestWorld& world, const fs::path& workspaceRoot) {
+    const float centerX = kCapabilityRoomSpacing * 3.0f;
+    AddCapabilityPlatform(world.scene, world.rootNode, "CubeTest_GltfExporterRoomPlatform", centerX, {0.42f, 0.38f, 0.22f});
+
+    const int hierarchyRoot = world.scene.CreateNode("CubeTest_ExportHierarchy", world.rootNode);
+    world.scene.GetNode(hierarchyRoot).localTransform.position = {centerX, 0.0f, 0.0f};
+    ri::scene::PrimitiveNodeOptions parent{};
+    parent.nodeName = "CubeTest_ExportParentCube";
+    parent.parent = hierarchyRoot;
+    parent.primitive = ri::scene::PrimitiveType::Cube;
+    parent.transform.position = {0.0f, 1.2f, 0.0f};
+    parent.transform.scale = {1.8f, 1.8f, 1.8f};
+    parent.materialName = "export-parent-pbr";
+    parent.baseColor = {0.94f, 0.55f, 0.16f};
+    parent.baseColorTexture = ThreeJsReferenceAsset(workspaceRoot, "textures/hardwood2_diffuse.jpg").string();
+    parent.metallic = 0.56f;
+    parent.roughness = 0.24f;
+    const int parentCube = ri::scene::AddPrimitiveNode(world.scene, parent);
+    ri::scene::PrimitiveNodeOptions child{};
+    child.nodeName = "CubeTest_ExportChildSphere";
+    child.parent = parentCube;
+    child.primitive = ri::scene::PrimitiveType::Sphere;
+    child.transform.position = {0.0f, 1.25f, 0.0f};
+    child.transform.scale = {0.42f, 0.42f, 0.42f};
+    child.materialName = "export-child-transparent";
+    child.baseColor = {0.32f, 0.72f, 1.0f};
+    child.baseColorTexture = ThreeJsReferenceAsset(workspaceRoot, "textures/uv_grid_opengl.jpg").string();
+    child.transparent = true;
+    child.opacity = 0.62f;
+    child.doubleSided = true;
+    ri::scene::AddPrimitiveNode(world.scene, child);
+
+    const int instanceMesh = world.scene.AddMesh(ri::scene::Mesh{
+        .name = "CubeTest_ExportInstanceMesh", .primitive = ri::scene::PrimitiveType::Cube,
+        .vertexCount = 24, .indexCount = 36});
+    const int instanceMaterial = world.scene.AddMaterial(ri::scene::Material{
+        .name = "export-instance-material", .shadingModel = ri::scene::ShadingModel::Unlit,
+        .baseColor = {0.92f,0.82f,0.28f}, .emissiveColor = {0.16f,0.10f,0.01f}, .roughness = 0.8f});
+    ri::scene::MeshInstanceBatch batch{};
+    batch.name = "CubeTest_ExportInstanceBatch";
+    batch.parent = world.rootNode;
+    batch.mesh = instanceMesh;
+    batch.material = instanceMaterial;
+    for (int index = 0; index < 50; ++index) {
+        const float angle = static_cast<float>(index) * (2.0f * ri::math::kPi / 50.0f);
+        batch.transforms.push_back(ri::scene::Transform{
+            .position = {centerX + std::cos(angle) * 4.4f, 1.0f + static_cast<float>(index % 5) * 0.42f, std::sin(angle) * 4.4f},
+            .rotationDegrees = {0.0f, static_cast<float>(index * 19), 0.0f},
+            .scale = {0.28f, 0.28f, 0.28f}});
+    }
+    world.exporterInstanceBatch = world.scene.AddMeshInstanceBatch(std::move(batch));
+
+    std::string shaderBallError;
+    world.shaderBallNode = ri::scene::AddGltfModelNode(
+        world.scene,
+        ri::scene::GltfModelOptions{
+            .sourcePath = ThreeJsReferenceAsset(workspaceRoot, "models/gltf/ShaderBall.glb"),
+            .wrapperNodeName = "CubeTest_ThreeJsShaderBall",
+            .parent = hierarchyRoot,
+            .transform = ri::scene::Transform{
+                .position = {2.7f, 1.1f, -2.5f},
+                .rotationDegrees = {0.0f, -35.0f, 0.0f},
+                .scale = {1.1f, 1.1f, 1.1f},
+            },
+        },
+        &shaderBallError);
+    if (world.shaderBallNode == ri::scene::kInvalidHandle) {
+        ri::core::LogInfo("Cube Test ShaderBall reference import failed: " + shaderBallError);
+    }
+
+    std::string coffeeError;
+    world.coffeeModelNode = ri::scene::AddGltfModelNode(
+        world.scene,
+        ri::scene::GltfModelOptions{
+            .sourcePath = ThreeJsReferenceAsset(workspaceRoot, "models/gltf/coffeemat.glb"),
+            .wrapperNodeName = "CubeTest_ThreeJsCompressedCoffee",
+            .parent = hierarchyRoot,
+            .transform = ri::scene::Transform{
+                .position = {-2.7f, 1.0f, -2.5f},
+                .rotationDegrees = {0.0f, 35.0f, 0.0f},
+                .scale = {1.1f, 1.1f, 1.1f},
+            },
+        },
+        &coffeeError);
+    if (world.coffeeModelNode == ri::scene::kInvalidHandle) {
+        ri::core::LogInfo("Cube Test compressed coffee reference import failed: " + coffeeError);
+    }
+}
+
+void AddInteractionCapabilityRoom(CubeTestWorld& world) {
+    const float centerX = kCapabilityRoomSpacing * 4.0f;
+    AddCapabilityPlatform(
+        world.scene, world.rootNode, "CubeTest_XrInteractionRoomPlatform", centerX, {0.20f, 0.42f, 0.36f});
+    world.interactionRoomRoot = world.scene.CreateNode("CubeTest_XrInteractionRoom", world.rootNode);
+    AddMarkerBox(world.scene, world.interactionRoomRoot, "CubeTest_XrInteractionNorthRail",
+                 {centerX, 1.35f, -5.8f}, {10.5f, 0.10f, 0.10f}, {0.16f, 0.86f, 0.78f}, {0.02f, 0.22f, 0.18f});
+    AddMarkerBox(world.scene, world.interactionRoomRoot, "CubeTest_XrInteractionSouthRail",
+                 {centerX, 1.35f, 5.8f}, {10.5f, 0.10f, 0.10f}, {1.0f, 0.42f, 0.16f}, {0.24f, 0.06f, 0.01f});
+
+    world.interactionField.bounds = {
+        .min = {centerX - 5.2f, 0.02f, -5.2f},
+        .max = {centerX + 5.2f, 4.8f, 5.2f}};
+    world.interactionField.gravity = {0.0f, -9.81f, 0.0f};
+    world.interactionField.linearDampingPerSecond = 0.12f;
+    world.interactionField.restitution = 0.76f;
+    world.interactionField.resolvePropContacts = true;
+
+    constexpr int propCount = 24;
+    world.interactionPropNodes.reserve(propCount);
+    world.interactionProps.reserve(propCount);
+    for (int index = 0; index < propCount; ++index) {
+        const int column = index % 6;
+        const int layer = index / 6;
+        const float x = centerX - 3.5f + static_cast<float>(column) * 1.4f;
+        const float y = 0.55f + static_cast<float>(layer) * 0.72f;
+        const float z = -2.0f + static_cast<float>((index * 5) % 9) * 0.5f;
+        const ri::math::Vec3 color{
+            0.24f + static_cast<float>((index * 37) % 60) / 100.0f,
+            0.30f + static_cast<float>((index * 23) % 55) / 100.0f,
+            0.34f + static_cast<float>((index * 41) % 60) / 100.0f};
+        const int node = AddMarkerBox(
+            world.scene,
+            world.interactionRoomRoot,
+            "CubeTest_XrInteractiveCube_" + std::to_string(index),
+            {x, y, z},
+            {0.34f, 0.34f, 0.34f},
+            color,
+            color * 0.08f);
+        world.interactionPropNodes.push_back(node);
+        world.interactionProps.push_back(ri::world::InteractivePropState{
+            .id = "xr-interactive-cube-" + std::to_string(index),
+            .position = {x, y, z},
+            .halfExtents = {0.17f, 0.17f, 0.17f},
+            .velocity = {
+                static_cast<float>((index % 3) - 1) * 0.32f,
+                0.15f + static_cast<float>(index % 5) * 0.08f,
+                static_cast<float>(((index + 1) % 3) - 1) * 0.28f},
+            .angularVelocityDegrees = {18.0f + index, 32.0f - index * 0.4f, 12.0f}});
+    }
+}
+
+void AddProjectileCapabilityRoom(CubeTestWorld& world) {
+    const float centerX = kCapabilityRoomSpacing * 5.0f;
+    AddCapabilityPlatform(
+        world.scene, world.rootNode, "CubeTest_ProjectileRoomPlatform", centerX, {0.34f, 0.20f, 0.18f});
+    world.projectileRoomRoot = world.scene.CreateNode("CubeTest_ProjectileRoom", world.rootNode);
+    AddMarkerBox(world.scene, world.projectileRoomRoot, "CubeTest_ProjectileBackstop",
+                 {centerX + 5.15f, 1.65f, 0.0f}, {0.18f, 3.3f, 10.4f},
+                 {0.62f, 0.20f, 0.16f}, {0.18f, 0.02f, 0.01f});
+    AddMarkerBox(world.scene, world.projectileRoomRoot, "CubeTest_ProjectileFiringLine",
+                 {centerX - 3.6f, 0.04f, 0.0f}, {0.12f, 0.08f, 9.2f},
+                 {1.0f, 0.72f, 0.18f}, {0.18f, 0.07f, 0.01f});
+
+    world.projectileField.bounds = {
+        .min = {centerX - 5.2f, 0.02f, -5.2f},
+        .max = {centerX + 5.0f, 5.2f, 5.2f}};
+    world.projectileField.gravity = {0.0f, -9.81f, 0.0f};
+    world.projectileField.linearDampingPerSecond = 0.08f;
+    world.projectileField.restitution = 0.58f;
+    world.projectileField.resolvePropContacts = true;
+
+    constexpr int targetCount = 18;
+    constexpr int projectileCount = 32;
+    world.projectilePropNodes.reserve(targetCount + projectileCount);
+    world.projectileProps.reserve(targetCount + projectileCount);
+    for (int index = 0; index < targetCount; ++index) {
+        const int column = index % 6;
+        const int row = index / 6;
+        const ri::math::Vec3 position{
+            centerX + 2.0f + static_cast<float>(row) * 0.55f,
+            0.27f + static_cast<float>(column) * 0.52f,
+            -1.3f + static_cast<float>(row) * 1.3f};
+        const ri::math::Vec3 color{
+            0.72f + static_cast<float>(column % 2) * 0.16f,
+            0.22f + static_cast<float>(row) * 0.16f,
+            0.14f + static_cast<float>((column + row) % 3) * 0.13f};
+        const int node = AddMarkerBox(
+            world.scene, world.projectileRoomRoot,
+            "CubeTest_ProjectileTarget_" + std::to_string(index),
+            position, {0.48f, 0.48f, 0.48f}, color, color * 0.06f);
+        world.projectilePropNodes.push_back(node);
+        world.projectileProps.push_back({
+            .id = "projectile-target-" + std::to_string(index),
+            .position = position,
+            .halfExtents = {0.24f, 0.24f, 0.24f},
+            .inverseMass = 0.72f});
+    }
+    for (int index = 0; index < projectileCount; ++index) {
+        const ri::math::Vec3 color = index % 2 == 0
+            ? ri::math::Vec3{0.20f, 0.72f, 1.0f}
+            : ri::math::Vec3{1.0f, 0.42f, 0.14f};
+        const int node = AddMarkerBox(
+            world.scene, world.projectileRoomRoot,
+            "CubeTest_PooledProjectile_" + std::to_string(index),
+            {centerX, -10.0f, 0.0f}, {0.24f, 0.24f, 0.24f}, color, color * 0.12f);
+        world.scene.GetNode(node).localTransform.scale = {};
+        world.projectilePropNodes.push_back(node);
+        world.projectileProps.push_back({
+            .id = "pooled-projectile-" + std::to_string(index),
+            .position = {centerX, -10.0f, 0.0f},
+            .halfExtents = {0.12f, 0.12f, 0.12f},
+            .inverseMass = 1.8f,
+            .active = false});
+    }
+}
+
+void AddTeleportCapabilityRoom(CubeTestWorld& world) {
+    const float centerX = kCapabilityRoomSpacing * 6.0f;
+    AddCapabilityPlatform(
+        world.scene, world.rootNode, "CubeTest_TeleportRoomPlatform", centerX, {0.20f, 0.28f, 0.48f});
+    world.teleportRoomRoot = world.scene.CreateNode("CubeTest_TeleportRoom", world.rootNode);
+    const struct Pad {
+        const char* name;
+        ri::math::Vec3 position;
+        ri::math::Vec3 scale;
+        ri::math::Vec3 color;
+    } pads[]{
+        {"CubeTest_TeleportPadLow", {centerX + 1.8f, 0.25f, -2.6f}, {2.8f, 0.50f, 2.8f}, {0.16f, 0.72f, 0.92f}},
+        {"CubeTest_TeleportPadHigh", {centerX + 3.6f, 0.75f, 1.8f}, {3.0f, 1.50f, 3.0f}, {0.82f, 0.34f, 0.96f}},
+        {"CubeTest_TeleportPadCenter", {centerX - 0.2f, 0.45f, 2.7f}, {2.4f, 0.90f, 2.4f}, {0.24f, 0.92f, 0.52f}},
+    };
+    for (const Pad& pad : pads) {
+        AddMarkerBox(
+            world.scene, world.teleportRoomRoot, pad.name,
+            pad.position, pad.scale, pad.color, pad.color * 0.08f);
+        world.colliders.push_back({
+            .id = std::string(pad.name) + "-p-mesh",
+            .bounds = {
+                .min = pad.position - pad.scale * 0.5f,
+                .max = pad.position + pad.scale * 0.5f},
+            .structural = true,
+            .dynamic = false,
+            .simulationTags = {"structural", "teleport-landing", "p-mesh"},
+            .simulationFlags = 1U});
+    }
+    AddMarkerBox(
+        world.scene, world.teleportRoomRoot, "CubeTest_TeleportClearanceReject",
+        {centerX + 3.6f, 2.45f, 1.8f}, {2.2f, 0.25f, 2.2f},
+        {1.0f, 0.18f, 0.20f}, {0.24f, 0.01f, 0.01f});
+    world.colliders.push_back({
+        .id = "cube-test-teleport-clearance-reject",
+        .bounds = {
+            .min = {centerX + 2.5f, 2.325f, 0.7f},
+            .max = {centerX + 4.7f, 2.575f, 2.9f}},
+        .structural = true,
+        .dynamic = false,
+        .simulationTags = {"structural", "teleport-clearance-reject", "p-mesh"},
+        .simulationFlags = 1U});
 }
 
 } // namespace
@@ -324,6 +823,26 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName, const fs::pat
         }
     }
 
+    AddSpriteCapabilityRoom(world, workspaceRoot);
+    AddNormalsCapabilityRoom(world, workspaceRoot);
+    AddExporterCapabilityRoom(world, workspaceRoot);
+    AddInteractionCapabilityRoom(world);
+    AddProjectileCapabilityRoom(world);
+    AddTeleportCapabilityRoom(world);
+
+    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_BaselineToSprites", 7.25f, {0.18f, 0.72f, 1.0f});
+    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_SpritesToBaseline", 18.75f, {0.96f, 0.48f, 0.20f});
+    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_SpritesToNormals", 33.25f, {0.62f, 0.30f, 1.0f});
+    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_NormalsToSprites", 44.75f, {0.18f, 0.72f, 1.0f});
+    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_NormalsToExporter", 59.25f, {1.0f, 0.68f, 0.18f});
+    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_ExporterToNormals", 70.75f, {0.62f, 0.30f, 1.0f});
+    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_ExporterToInteraction", 85.25f, {0.18f, 0.92f, 0.72f});
+    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_InteractionToExporter", 96.75f, {1.0f, 0.42f, 0.16f});
+    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_InteractionToProjectile", 111.25f, {0.22f, 0.72f, 1.0f});
+    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_ProjectileToInteraction", 122.75f, {1.0f, 0.32f, 0.14f});
+    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_ProjectileToTeleport", 137.25f, {0.32f, 0.84f, 1.0f});
+    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_TeleportToProjectile", 148.75f, {0.88f, 0.28f, 1.0f});
+
     ri::scene::LightNodeOptions sun{};
     sun.nodeName = "CubeTest_Sun";
     sun.parent = world.rootNode;
@@ -409,6 +928,66 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName, const fs::pat
         .simulationFlags = 2U,
     });
 
+    for (int room = 1; room <= 6; ++room) {
+        const float centerX = kCapabilityRoomSpacing * static_cast<float>(room);
+        world.colliders.push_back(ri::trace::TraceCollider{
+            .id = "cube-test-capability-platform-" + std::to_string(room),
+            .bounds = {.min = {centerX - 8.0f, -0.24f, -8.0f}, .max = {centerX + 8.0f, 0.02f, 8.0f}},
+            .structural = true,
+            .dynamic = false,
+            .simulationTags = {"structural", "walkable", "capability-room", "p-mesh"},
+            .simulationFlags = 1U,
+        });
+    }
+
+    world.colliders.push_back(ri::trace::TraceCollider{
+        .id = "cube-test-export-parent-cube",
+        .bounds = {.min = {77.1f, 0.3f, -0.9f}, .max = {78.9f, 2.1f, 0.9f}},
+        .structural = true,
+        .dynamic = false,
+        .simulationTags = {"structural", "export-test", "hierarchy"},
+        .simulationFlags = 2U,
+    });
+
+    world.portals = {
+        {.id = "baseline-to-sprites",
+         .triggerBounds = {.min = {6.78f, 0.02f, -0.92f}, .max = {7.72f, 2.25f, 0.92f}},
+         .destinationFeet = {19.65f, 0.20f, 0.0f}, .destinationYawDegrees = 90.0f},
+        {.id = "sprites-to-baseline",
+         .triggerBounds = {.min = {18.28f, 0.02f, -0.92f}, .max = {19.22f, 2.25f, 0.92f}},
+         .destinationFeet = {6.25f, 0.20f, 0.0f}, .destinationYawDegrees = -90.0f},
+        {.id = "sprites-to-normals",
+         .triggerBounds = {.min = {32.78f, 0.02f, -0.92f}, .max = {33.72f, 2.25f, 0.92f}},
+         .destinationFeet = {45.65f, 0.20f, 0.0f}, .destinationYawDegrees = 90.0f},
+        {.id = "normals-to-sprites",
+         .triggerBounds = {.min = {44.28f, 0.02f, -0.92f}, .max = {45.22f, 2.25f, 0.92f}},
+         .destinationFeet = {32.25f, 0.20f, 0.0f}, .destinationYawDegrees = -90.0f},
+        {.id = "normals-to-exporter",
+         .triggerBounds = {.min = {58.78f, 0.02f, -0.92f}, .max = {59.72f, 2.25f, 0.92f}},
+         .destinationFeet = {71.65f, 0.20f, 0.0f}, .destinationYawDegrees = 90.0f},
+        {.id = "exporter-to-normals",
+         .triggerBounds = {.min = {70.28f, 0.02f, -0.92f}, .max = {71.22f, 2.25f, 0.92f}},
+         .destinationFeet = {58.25f, 0.20f, 0.0f}, .destinationYawDegrees = -90.0f},
+        {.id = "exporter-to-interaction",
+         .triggerBounds = {.min = {84.78f, 0.02f, -0.92f}, .max = {85.72f, 2.25f, 0.92f}},
+         .destinationFeet = {97.65f, 0.20f, 0.0f}, .destinationYawDegrees = 90.0f},
+        {.id = "interaction-to-exporter",
+         .triggerBounds = {.min = {96.28f, 0.02f, -0.92f}, .max = {97.22f, 2.25f, 0.92f}},
+         .destinationFeet = {84.25f, 0.20f, 0.0f}, .destinationYawDegrees = -90.0f},
+        {.id = "interaction-to-projectile",
+         .triggerBounds = {.min = {110.78f, 0.02f, -0.92f}, .max = {111.72f, 2.25f, 0.92f}},
+         .destinationFeet = {123.65f, 0.20f, 0.0f}, .destinationYawDegrees = 90.0f},
+        {.id = "projectile-to-interaction",
+         .triggerBounds = {.min = {122.28f, 0.02f, -0.92f}, .max = {123.22f, 2.25f, 0.92f}},
+         .destinationFeet = {110.25f, 0.20f, 0.0f}, .destinationYawDegrees = -90.0f},
+        {.id = "projectile-to-teleport",
+         .triggerBounds = {.min = {136.78f, 0.02f, -0.92f}, .max = {137.72f, 2.25f, 0.92f}},
+         .destinationFeet = {149.65f, 0.20f, 0.0f}, .destinationYawDegrees = 90.0f},
+        {.id = "teleport-to-projectile",
+         .triggerBounds = {.min = {148.28f, 0.02f, -0.92f}, .max = {149.22f, 2.25f, 0.92f}},
+         .destinationFeet = {136.25f, 0.20f, 0.0f}, .destinationYawDegrees = -90.0f},
+    };
+
     return world;
 }
 
@@ -422,6 +1001,85 @@ void AnimateCubeTestWorld(CubeTestWorld& world, const double elapsedSeconds) {
         28.0f + static_cast<float>(elapsedSeconds * 38.0),
         5.0f,
     };
+
+    if (world.spriteNode != ri::scene::kInvalidHandle && !world.spriteFrameMeshes.empty()) {
+        constexpr double layoutSeconds = 6.0;
+        constexpr double transitionSeconds = 4.0;
+        const std::size_t fromLayout = static_cast<std::size_t>(std::floor(elapsedSeconds / layoutSeconds)) % world.spriteLayouts.size();
+        const double localSeconds = std::fmod(std::max(elapsedSeconds, 0.0), layoutSeconds);
+        constexpr std::size_t framesPerTransition = 8U;
+        const float progress = static_cast<float>(std::clamp(localSeconds / transitionSeconds, 0.0, 1.0));
+        const std::size_t localFrame = std::min(
+            static_cast<std::size_t>(std::lround(progress * static_cast<float>(framesPerTransition - 1U))),
+            framesPerTransition - 1U);
+        world.scene.GetNode(world.spriteNode).mesh =
+            world.spriteFrameMeshes[fromLayout * framesPerTransition + localFrame];
+    }
+
+    if (!world.interactionProps.empty()
+        && world.interactionProps.size() == world.interactionPropNodes.size()) {
+        const float deltaSeconds = world.interactionSimulationTime <= 0.0
+            ? 1.0f / 60.0f
+            : static_cast<float>(std::clamp(elapsedSeconds - world.interactionSimulationTime, 0.0, 0.10));
+        world.interactionSimulationTime = elapsedSeconds;
+        const ri::world::InteractivePropStepReport report = ri::world::StepInteractivePropField(
+            world.interactionProps, deltaSeconds, world.interactionField);
+        for (std::size_t index = 0; index < world.interactionProps.size(); ++index) {
+            const ri::world::InteractivePropState& prop = world.interactionProps[index];
+            ri::scene::Transform& transform =
+                world.scene.GetNode(world.interactionPropNodes[index]).localTransform;
+            transform.position = prop.position;
+            transform.rotationDegrees = transform.rotationDegrees
+                + prop.angularVelocityDegrees * deltaSeconds;
+        }
+        (void)report;
+    }
+
+    if (!world.projectileProps.empty()
+        && world.projectileProps.size() == world.projectilePropNodes.size()) {
+        const float deltaSeconds = world.projectileSimulationTime <= 0.0
+            ? 1.0f / 60.0f
+            : static_cast<float>(std::clamp(elapsedSeconds - world.projectileSimulationTime, 0.0, 0.10));
+        world.projectileSimulationTime = elapsedSeconds;
+        (void)ri::world::StepInteractivePropField(
+            world.projectileProps, deltaSeconds, world.projectileField);
+        for (std::size_t index = 0; index < world.projectileProps.size(); ++index) {
+            const ri::world::InteractivePropState& prop = world.projectileProps[index];
+            ri::scene::Transform& transform =
+                world.scene.GetNode(world.projectilePropNodes[index]).localTransform;
+            transform.position = prop.position;
+            transform.scale = prop.active
+                ? prop.halfExtents * 2.0f
+                : ri::math::Vec3{};
+            if (prop.active) {
+                transform.rotationDegrees = transform.rotationDegrees
+                    + prop.angularVelocityDegrees * deltaSeconds;
+            }
+        }
+    }
+}
+
+ri::world::InteractivePropEmissionResult EmitCubeTestProjectile(
+    CubeTestWorld& world,
+    const ri::math::Vec3& origin,
+    const ri::math::Vec3& direction) {
+    if (world.projectileProps.size() <= 18U) return {};
+    if (origin.x < world.projectileField.bounds.min.x
+        || origin.x > world.projectileField.bounds.max.x
+        || origin.y < world.projectileField.bounds.min.y
+        || origin.y > world.projectileField.bounds.max.y
+        || origin.z < world.projectileField.bounds.min.z
+        || origin.z > world.projectileField.bounds.max.z) return {};
+    ri::world::InteractivePropEmissionResult result = ri::world::EmitInteractiveProp(
+        std::span<ri::world::InteractivePropState>(world.projectileProps).subspan(18U),
+        {.position = origin,
+         .direction = direction,
+         .angularVelocityDegrees = {180.0f, 240.0f, 120.0f},
+         .speed = 11.5f,
+         .lifetimeSeconds = 8.0f,
+         .recycleOldest = true});
+    if (result.propIndex >= 0) result.propIndex += 18;
+    return result;
 }
 
 void AnimateCubeTestWorldJiggle(CubeTestWorld& world, const double elapsedSeconds) {

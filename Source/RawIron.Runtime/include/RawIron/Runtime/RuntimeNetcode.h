@@ -41,6 +41,22 @@ enum class HostMigrationState : std::uint8_t {
     Failed,
 };
 
+/// Game-owned authority contract mounted into the transport layer. The runtime retains packet
+/// limits, session agreement, baselines and resynchronisation; games own their domain payloads.
+class IAuthoritativeSimulationBridge {
+public:
+    virtual ~IAuthoritativeSimulationBridge() = default;
+
+    [[nodiscard]] virtual std::optional<SnapshotBlob> CaptureSnapshot(std::uint32_t tick) = 0;
+    /// Must leave the world unchanged when returning false.
+    virtual bool ApplySnapshot(const SnapshotBlob& snapshot, std::string* error) = 0;
+    /// `peerId` originates at the transport and is the only trusted ownership identity.
+    virtual bool HandleCommand(std::size_t peerId,
+                               std::uint32_t channel,
+                               std::span<const std::uint8_t> payload,
+                               std::string* error) = 0;
+};
+
 struct AuthoritativeNetConfig {
     NetMode mode = NetMode::ClientOnly;
     NetRole role = NetRole::None;
@@ -67,6 +83,9 @@ struct AuthoritativeNetConfig {
     /// before it can send gameplay commands or receive simulation snapshots.
     bool requireSessionExtensionAgreement = false;
     ri::core::SessionExtensionContract sessionExtensionContract{};
+    /// Optional domain bridge. Without it the legacy deterministic position stream remains for
+    /// the networking sandbox and its compatibility tests.
+    std::shared_ptr<IAuthoritativeSimulationBridge> simulationBridge{};
 };
 
 struct PredictionTelemetry {

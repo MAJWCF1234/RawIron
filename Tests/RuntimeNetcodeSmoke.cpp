@@ -4,8 +4,12 @@
 #include "RawIron/Runtime/RuntimeNetcode.h"
 
 #include <cstdlib>
+#include <cstdint>
 #include <iostream>
 #include <memory>
+#include <optional>
+#include <span>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -69,6 +73,47 @@ private:
     ri::runtime::NetTransportStats stats_{};
 };
 
+class TestAuthorityBridge final : public ri::runtime::IAuthoritativeSimulationBridge {
+public:
+    explicit TestAuthorityBridge(const bool authority) : authority_(authority) {}
+
+    [[nodiscard]] std::optional<ri::runtime::SnapshotBlob> CaptureSnapshot(const std::uint32_t tick) override {
+        if (!authority_) return std::nullopt;
+        return ri::runtime::SnapshotBlob{.tick = tick, .bytes = {0x52U, 0x49U, static_cast<std::uint8_t>(tick)}};
+    }
+
+    bool ApplySnapshot(const ri::runtime::SnapshotBlob& snapshot, std::string* error) override {
+        if (snapshot.bytes.size() != 3U || snapshot.bytes[0] != 0x52U || snapshot.bytes[1] != 0x49U) {
+            if (error != nullptr) *error = "bad test authority snapshot";
+            return false;
+        }
+        appliedSnapshotCount_ += 1U;
+        lastAppliedTick_ = snapshot.tick;
+        return true;
+    }
+
+    bool HandleCommand(const std::size_t peerId,
+                       const std::uint32_t channel,
+                       const std::span<const std::uint8_t> payload,
+                       std::string* error) override {
+        if (!authority_ || peerId != 7U || channel != 0U || payload.size() != 3U || payload[0] != 1U) {
+            if (error != nullptr) *error = "bad test authority command";
+            return false;
+        }
+        acceptedCommandCount_ += 1U;
+        return true;
+    }
+
+    [[nodiscard]] std::uint32_t AppliedSnapshotCount() const noexcept { return appliedSnapshotCount_; }
+    [[nodiscard]] std::uint32_t AcceptedCommandCount() const noexcept { return acceptedCommandCount_; }
+
+private:
+    bool authority_ = false;
+    std::uint32_t appliedSnapshotCount_ = 0U;
+    std::uint32_t acceptedCommandCount_ = 0U;
+    std::uint32_t lastAppliedTick_ = 0U;
+};
+
 ri::core::FrameContext Frame(const int index) {
     return ri::core::FrameContext{
         .frameIndex = index,
@@ -120,6 +165,8 @@ int main() {
     serverConfig.rendezvousProvider = ri::runtime::RendezvousProviderKind::DirectToken;
     serverConfig.requireSessionExtensionAgreement = true;
     serverConfig.sessionExtensionContract = MakeSessionExtensions();
+    auto serverBridge = std::make_shared<TestAuthorityBridge>(true);
+    serverConfig.simulationBridge = serverBridge;
     ri::runtime::AuthoritativeNetModule server(serverConfig, std::make_unique<TestTransport>(link, true));
 
     ri::runtime::AuthoritativeNetConfig clientConfig{};
@@ -127,6 +174,8 @@ int main() {
     clientConfig.rendezvousProvider = ri::runtime::RendezvousProviderKind::DirectToken;
     clientConfig.requireSessionExtensionAgreement = true;
     clientConfig.sessionExtensionContract = MakeSessionExtensions();
+    auto clientBridge = std::make_shared<TestAuthorityBridge>(false);
+    clientConfig.simulationBridge = clientBridge;
     ri::runtime::AuthoritativeNetModule client(clientConfig, std::make_unique<TestTransport>(link, false));
 
     ri::runtime::RuntimeContext serverContext({}, {});
@@ -163,11 +212,21 @@ int main() {
 
     if (!Check(server.OnRuntimeFrame(serverContext, Frame(3)), "server command frame failed")
         || !Check(server.ServerStats().inboundPackets >= 2U, "server did not receive acknowledgement and command")
+        || !Check(serverBridge->AcceptedCommandCount() == 1U, "domain bridge did not accept command")
         || !Check(server.ServerStats().outboundPackets > 0U, "server sent no snapshots")
         || !Check(!link->serverToClient.empty(), "client did not receive snapshots")) {
         return EXIT_FAILURE;
     }
     if (!Check(client.OnRuntimeFrame(clientContext, Frame(3)), "client snapshot frame failed")) {
+        return EXIT_FAILURE;
+    }
+    for (int frameIndex = 4; frameIndex <= 10 && clientBridge->AppliedSnapshotCount() == 0U; ++frameIndex) {
+        if (!Check(server.OnRuntimeFrame(serverContext, Frame(frameIndex)), "server domain snapshot frame failed")
+            || !Check(client.OnRuntimeFrame(clientContext, Frame(frameIndex)), "client domain snapshot frame failed")) {
+            return EXIT_FAILURE;
+        }
+    }
+    if (!Check(clientBridge->AppliedSnapshotCount() > 0U, "domain bridge did not apply snapshot")) {
         return EXIT_FAILURE;
     }
 

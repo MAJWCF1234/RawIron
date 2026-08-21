@@ -1056,10 +1056,11 @@ void DrawPrimitiveNode(SoftwareImage& image,
                                        const ri::math::Vec2& uvC,
                                        const ri::math::Vec3* localNormalA = nullptr,
                                        const ri::math::Vec3* localNormalB = nullptr,
-                                       const ri::math::Vec3* localNormalC = nullptr) {
-        const ri::math::Vec3 worldA = ri::math::TransformPoint(world, localA);
-        const ri::math::Vec3 worldB = ri::math::TransformPoint(world, localB);
-        const ri::math::Vec3 worldC = ri::math::TransformPoint(world, localC);
+                                       const ri::math::Vec3* localNormalC = nullptr,
+                                       const bool positionsAreWorld = false) {
+        const ri::math::Vec3 worldA = positionsAreWorld ? localA : ri::math::TransformPoint(world, localA);
+        const ri::math::Vec3 worldB = positionsAreWorld ? localB : ri::math::TransformPoint(world, localB);
+        const ri::math::Vec3 worldC = positionsAreWorld ? localC : ri::math::TransformPoint(world, localC);
         ClipVertex ca{};
         ca.p = ToCameraSpace(camera, worldA);
         ca.uv = ri::math::Vec2{uvA.x * tiling.x, uvA.y * tiling.y};
@@ -1124,6 +1125,10 @@ void DrawPrimitiveNode(SoftwareImage& image,
             }
             const bool hasIndices = mesh.indices.size() >= 3U;
             const bool hasUv = mesh.texCoords.size() == mesh.positions.size();
+            const bool cameraFacingSprites =
+                mesh.geometryMode == ri::scene::MeshGeometryMode::CameraFacingSpriteQuads
+                && mesh.billboardOffsets.size() == mesh.positions.size();
+            const ri::math::Vec3 worldScale = ri::math::ExtractScale(world);
             const int triangleCount = hasIndices
                 ? static_cast<int>(mesh.indices.size() / 3U)
                 : static_cast<int>(mesh.positions.size() / 3U);
@@ -1157,16 +1162,27 @@ void DrawPrimitiveNode(SoftwareImage& image,
                     uvc = mesh.texCoords[static_cast<std::size_t>(ic)];
                 }
 
+                const auto resolvedPosition = [&](const int vertexIndex) {
+                    const std::size_t index = static_cast<std::size_t>(vertexIndex);
+                    if (!cameraFacingSprites) {
+                        return mesh.positions[index];
+                    }
+                    const ri::math::Vec3 center = ri::math::TransformPoint(world, mesh.positions[index]);
+                    const ri::math::Vec2 offset = mesh.billboardOffsets[index];
+                    return center + camera.right * (offset.x * worldScale.x)
+                        + camera.up * (offset.y * worldScale.y);
+                };
                 drawTriangleWorld(
-                    mesh.positions[static_cast<std::size_t>(ia)],
-                    mesh.positions[static_cast<std::size_t>(ib)],
-                    mesh.positions[static_cast<std::size_t>(ic)],
+                    resolvedPosition(ia),
+                    resolvedPosition(ib),
+                    resolvedPosition(ic),
                     uva,
                     uvb,
                     uvc,
-                    vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ia)],
-                    vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ib)],
-                    vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ic)]);
+                    cameraFacingSprites || vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ia)],
+                    cameraFacingSprites || vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ib)],
+                    cameraFacingSprites || vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ic)],
+                    cameraFacingSprites);
             }
             break;
         }
@@ -1244,6 +1260,7 @@ void RenderScenePreviewInto(const ri::scene::Scene& scene,
     }
 
     const CameraBasis camera = BuildCameraBasis(scene, cameraNodeHandle, options);
+    const ri::math::Mat4 cameraWorld = scene.ComputeWorldMatrix(cameraNodeHandle);
     const std::vector<ResolvedLight> lights = ResolveLights(scene);
     std::vector<float> localDepthBuffer{};
     std::vector<float>& depthBuffer = cache != nullptr ? cache->depthBuffer : localDepthBuffer;
@@ -1343,7 +1360,12 @@ void RenderScenePreviewInto(const ri::scene::Scene& scene,
         const ScenePreviewMeshCullBounds& cull = *meshCullCache[batch.mesh];
         for (std::size_t transformIndex = 0; transformIndex < batch.transforms.size(); ++transformIndex) {
             const ri::scene::Transform& transform = batch.transforms[transformIndex];
-            const ri::math::Mat4 world = ri::math::Multiply(parentWorld, transform.LocalMatrix());
+            const ri::math::Mat4 authoredWorld = ri::math::Multiply(parentWorld, transform.LocalMatrix());
+            const ri::math::Mat4 world = batch.facingMode == ri::scene::MeshInstanceFacingMode::Camera
+                ? ri::math::CameraFacingMatrix(authoredWorld, cameraWorld, false)
+                : batch.facingMode == ri::scene::MeshInstanceFacingMode::CameraYawOnly
+                    ? ri::math::CameraFacingMatrix(authoredWorld, cameraWorld, true)
+                    : authoredWorld;
             float sortDepth = ToCameraSpace(camera, ri::math::TransformPoint(world, {})).z;
             if (cull.valid) {
                 const ri::math::Vec3 worldCullCenter = ri::math::TransformPoint(world, cull.center);

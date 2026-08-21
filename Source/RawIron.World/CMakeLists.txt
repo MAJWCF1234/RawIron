@@ -12,9 +12,12 @@ add_library(RawIron.World
   src/NavMesh.cpp
   src/InteractionPromptState.cpp
   src/InventoryState.cpp
+  src/InteractivePropField.cpp
+  src/InteractivePropReplication.cpp
   src/NpcAgentState.cpp
   src/PickupFeedbackState.cpp
   src/PlayerVitality.cpp
+  src/PortalTravel.cpp
   src/PresentationState.cpp
   src/RuntimeClipQuery.cpp
   src/RuntimeState.cpp
@@ -47,6 +50,9 @@ target_link_libraries(RawIron.World
 target_compile_features(RawIron.World PUBLIC cxx_std_20)
 
 if (RAWIRON_BUILD_TESTS)
+  add_executable(InteractivePropFieldSmoke ${CMAKE_SOURCE_DIR}/Tests/InteractivePropFieldSmoke.cpp)
+  target_link_libraries(InteractivePropFieldSmoke PRIVATE RawIron::World)
+  add_test(NAME RawIron.World.InteractivePropFieldSmoke COMMAND InteractivePropFieldSmoke)
   add_executable(WorldVolumeSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/WorldVolumeSafetySmoke.cpp)
   target_link_libraries(WorldVolumeSafetySmoke PRIVATE RawIron::World)
   add_test(NAME RawIron.World.VolumeSafetySmoke COMMAND WorldVolumeSafetySmoke)
@@ -65,4 +71,8 @@ if (RAWIRON_BUILD_TESTS)
     NAME RawIron.World.NavMeshPathfindingSmoke
     COMMAND NavMeshPathfindingSmoke ${CMAKE_SOURCE_DIR}
   )
+
+  add_executable(PortalTravelSmoke ${CMAKE_SOURCE_DIR}/Tests/PortalTravelSmoke.cpp)
+  target_link_libraries(PortalTravelSmoke PRIVATE RawIron::World)
+  add_test(NAME RawIron.World.PortalTravelSmoke COMMAND PortalTravelSmoke)
 endif()

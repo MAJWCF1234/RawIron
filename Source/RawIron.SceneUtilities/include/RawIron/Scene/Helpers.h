@@ -7,6 +7,7 @@
 #include "RawIron/Scene/Transform.h"
 
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -128,6 +129,12 @@ struct ProceduralTerrainOptions {
 
 /// Unit quad in the XY plane (normal +Z), UV 0–1 — used for camera-facing particle billboards.
 [[nodiscard]] Mesh MakeBillboardQuadMesh(const std::string& name);
+
+/// Packs many camera-facing quads into one mesh/draw. Each center gets four vertices and an explicit
+/// billboard-offset stream; materials remain independent of geometry interpretation.
+[[nodiscard]] Mesh MakeBillboardCloudMesh(const std::string& name,
+                                          std::span<const ri::math::Vec3> centers,
+                                          std::span<const float> sizes);
 
 int AddPrimitiveNode(Scene& scene, const PrimitiveNodeOptions& options);
 int AddProceduralTerrainNode(Scene& scene, const ProceduralTerrainOptions& options);

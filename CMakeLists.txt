@@ -22,6 +22,7 @@ option(RAWIRON_BUILD_LIMINAL_GAME "Build the Liminal Hall game application" ON)
 option(RAWIRON_BUILD_FOREST_RUINS_GAME "Build the Wilderness Ruins game application" ON)
 option(RAWIRON_BUILD_MULTIPLAYER_SANDBOX_GAME "Build the RawIron Multiplayer Sandbox game application" ON)
 option(RAWIRON_BUILD_CUBE_TEST_GAME "Build the Cube Test game application" ON)
+option(RAWIRON_BUILD_VR_SHOWCASE "Build the OpenXR/SteamVR capability showcase" ON)
 cmake_dependent_option(RAWIRON_EDITOR_LINK_LIMINAL
   "Link the Liminal Hall game module into the editor (registers editor preview id liminal-hall). Turn OFF for a shipping editor with no bundled games."
   ON
@@ -33,7 +34,7 @@ option(RAWIRON_BUILD_DEDICATED_SERVER "Build RawIron.DedicatedServer headless au
 option(RAWIRON_BUILD_TOOLS "Build ri_tool and other CLI tools" OFF)
 option(RAWIRON_BUILD_TESTS "Enable CTest and lightweight app smoke tests (no giant native suites)" OFF)
 option(RAWIRON_BUILD_DEV_INSPECTOR "Build RawIron.DevInspector (development observability channel)" OFF)
-option(RAWIRON_USE_ENET "Enable ENet UDP networking backend for RawIron runtime net transport" OFF)
+option(RAWIRON_USE_ENET "Enable ENet UDP networking backend for RawIron runtime net transport" ON)
 option(RAWIRON_USE_EOS "Enable Epic Online Services rendezvous/provider hooks" OFF)
 option(RAWIRON_ENABLE_SANITIZERS "Enable supported memory/undefined-behavior sanitizers" OFF)
 set(EOS_SDK_ROOT "${CMAKE_SOURCE_DIR}/ThirdParty/EOS/SDK" CACHE PATH "Path to Epic Online Services SDK root")
@@ -101,6 +102,7 @@ add_subdirectory(Source/RawIron.Trace)
 add_subdirectory(Source/RawIron.Validation)
 add_subdirectory(Source/RawIron.SceneUtilities)
 add_subdirectory(Source/RawIron.EditorPreview)
+add_subdirectory(Source/RawIron.XR.OpenXR)
 
 set(RAWIRON_BUILD_LIMINAL_HALL_MODULE OFF)
 if(RAWIRON_BUILD_LIMINAL_GAME)
@@ -158,6 +160,10 @@ endif()
 
 if (RAWIRON_BUILD_PARTICLE_SHOWCASE)
   add_subdirectory(Apps/RawIron.ParticleShowcase)
+endif()
+
+if (RAWIRON_BUILD_VR_SHOWCASE)
+  add_subdirectory(Apps/RawIron.VRShowcase)
 endif()
 
 if (RAWIRON_BUILD_VISUAL_SHELL)

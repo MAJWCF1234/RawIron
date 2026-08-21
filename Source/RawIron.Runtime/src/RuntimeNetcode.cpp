@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <limits>
 #include <unordered_set>
 
@@ -468,6 +469,16 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
         }
         if (config_.requireSessionExtensionAgreement) {
             if (config_.role == NetRole::Client) {
+                // Only extension control packets belong to the preflight decoder. Once the
+                // host has accepted this client, gameplay snapshots share the same authority
+                // transport and must flow through to the snapshot decoder below.
+                if (!session_protocol::IsControlPacket(*ready)) {
+                    if (localSessionExtensionState_ != SessionExtensionPeerState::Accepted) {
+                        emitIgnoredPacket(ready->peerId, ready->payload.size(),
+                                          "session_extension_preflight_pending");
+                        continue;
+                    }
+                } else {
                 ri::core::SessionExtensionContract offered{};
                 if (!session_protocol::DecodeOffer(*ready, offered)) {
                     emitIgnoredPacket(ready->peerId, ready->payload.size(), "session_extension_offer_invalid");
@@ -490,8 +501,10 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
                 context.Events().Emit(accepted ? "net.session_extensions.accepted"
                                                : "net.session_extensions.rejected", std::move(event));
                 continue;
+                }
             }
 
+            if (config_.role != NetRole::Client) {
             bool accepted = false;
             std::string fingerprint;
             if (session_protocol::DecodeAcknowledgement(*ready, accepted, fingerprint)) {
@@ -514,6 +527,7 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
             if (PeerSessionExtensionState(ready->peerId) != SessionExtensionPeerState::Accepted) {
                 emitIgnoredPacket(ready->peerId, ready->payload.size(), "session_extension_preflight_pending");
                 continue;
+            }
             }
         }
         if (config_.role == NetRole::Client) {
@@ -543,26 +557,44 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
                 requestForceFullResync(snapshotPacket->targetTick, "apply_failed");
                 continue;
             }
-            std::uint32_t authTick = 0U;
+            std::uint32_t authTick = rebuilt->tick;
             float authX = 0.0f;
-            if (!DecodeAuthoritativePosition(rebuilt->bytes, authTick, authX)) {
+            if (config_.simulationBridge != nullptr) {
+                std::string applyError;
+                bool applied = false;
+                try {
+                    applied = config_.simulationBridge->ApplySnapshot(*rebuilt, &applyError);
+                } catch (const std::exception& exception) {
+                    applyError = exception.what();
+                } catch (...) {
+                    applyError = "simulation bridge threw an unknown exception";
+                }
+                if (!applied) {
+                    requestForceFullResync(
+                        rebuilt->tick,
+                        applyError.empty() ? "simulation_snapshot_apply_failed" : applyError.c_str());
+                    continue;
+                }
+            } else if (!DecodeAuthoritativePosition(rebuilt->bytes, authTick, authX)) {
                 requestForceFullResync(rebuilt->tick, "authoritative_position_decode_failed");
                 continue;
             }
             // Commit baseline only after the domain payload validates.
             snapshotReplicator_.RememberPeerBaseline(ready->peerId, *rebuilt);
-            auto it = std::find_if(predictedHistory_.begin(), predictedHistory_.end(),
-                                   [authTick](const auto& state) { return state.first == authTick; });
-            if (it != predictedHistory_.end()) {
-                const double error = std::abs(static_cast<double>(it->second - authX));
-                predictionTelemetry_.avgPositionError =
-                    (predictionTelemetry_.avgPositionError * 0.9) + (error * 0.1);
-                predictionTelemetry_.maxPositionError = std::max(predictionTelemetry_.maxPositionError, error);
-                if (error > 0.01) {
-                    ++predictionTelemetry_.correctionCount;
-                    predictedPositionX_ = authX;
+            if (config_.simulationBridge == nullptr) {
+                auto it = std::find_if(predictedHistory_.begin(), predictedHistory_.end(),
+                                       [authTick](const auto& state) { return state.first == authTick; });
+                if (it != predictedHistory_.end()) {
+                    const double error = std::abs(static_cast<double>(it->second - authX));
+                    predictionTelemetry_.avgPositionError =
+                        (predictionTelemetry_.avgPositionError * 0.9) + (error * 0.1);
+                    predictionTelemetry_.maxPositionError = std::max(predictionTelemetry_.maxPositionError, error);
+                    if (error > 0.01) {
+                        ++predictionTelemetry_.correctionCount;
+                        predictedPositionX_ = authX;
+                    }
+                    ++predictionTelemetry_.reconciledFrames;
                 }
-                ++predictionTelemetry_.reconciledFrames;
             }
             RuntimeEvent applied{};
             applied.fields["peer"] = std::to_string(ready->peerId);
@@ -588,6 +620,30 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
             resync.fields["reason"] = "client_resync_request";
             context.Events().Emit("net.snapshot.resync_requested", std::move(resync));
         } else {
+            if (config_.simulationBridge != nullptr) {
+                std::string commandError;
+                bool accepted = false;
+                try {
+                    accepted = config_.simulationBridge->HandleCommand(
+                        ready->peerId, ready->channel, ready->payload, &commandError);
+                } catch (const std::exception& exception) {
+                    commandError = exception.what();
+                } catch (...) {
+                    commandError = "simulation bridge threw an unknown exception";
+                }
+                RuntimeEvent commandResult{};
+                commandResult.fields["peer"] = std::to_string(ready->peerId);
+                commandResult.fields["channel"] = std::to_string(ready->channel);
+                commandResult.fields["bytes"] = std::to_string(ready->payload.size());
+                if (!commandError.empty()) {
+                    commandResult.fields["reason"] = std::move(commandError);
+                }
+                context.Events().Emit(accepted ? "net.command.accepted" : "net.command.rejected",
+                                      std::move(commandResult));
+                if (!accepted) {
+                    continue;
+                }
+            }
             RuntimeEvent command{};
             command.fields["peer"] = std::to_string(ready->peerId);
             command.fields["channel"] = std::to_string(ready->channel);
@@ -644,10 +700,44 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
             snapshotCadenceAccumulatorSeconds_ -= snapshotStep;
             lastBroadcastTick_ = static_cast<std::uint32_t>(frame.frameIndex);
             serverTelemetry_.lastSnapshotTick = lastBroadcastTick_;
-            SnapshotBlob snapshot{};
-            snapshot.tick = static_cast<std::uint32_t>(frame.frameIndex);
-            const float authorityX = static_cast<float>(std::sin(static_cast<float>(frame.frameIndex) * 0.05f) * 10.0f);
-            snapshot.bytes = EncodeAuthoritativePosition(snapshot.tick, authorityX);
+            const std::uint32_t snapshotTick = static_cast<std::uint32_t>(frame.frameIndex);
+            std::optional<SnapshotBlob> domainSnapshot{};
+            if (config_.simulationBridge != nullptr) {
+                try {
+                    domainSnapshot = config_.simulationBridge->CaptureSnapshot(snapshotTick);
+                } catch (const std::exception& exception) {
+                    RuntimeEvent rejected{};
+                    rejected.fields["tick"] = std::to_string(snapshotTick);
+                    rejected.fields["reason"] = exception.what();
+                    context.Events().Emit("net.snapshot.rejected", std::move(rejected));
+                } catch (...) {
+                    RuntimeEvent rejected{};
+                    rejected.fields["tick"] = std::to_string(snapshotTick);
+                    rejected.fields["reason"] = "simulation bridge threw an unknown exception";
+                    context.Events().Emit("net.snapshot.rejected", std::move(rejected));
+                }
+                if (!domainSnapshot.has_value()
+                    || domainSnapshot->tick != snapshotTick
+                    || domainSnapshot->bytes.size() > kMaxSnapshotPayloadBytes) {
+                    RuntimeEvent rejected{};
+                    rejected.fields["tick"] = std::to_string(snapshotTick);
+                    rejected.fields["reason"] = !domainSnapshot.has_value()
+                        ? "simulation_snapshot_unavailable"
+                        : (domainSnapshot->tick != snapshotTick
+                            ? "simulation_snapshot_tick_mismatch"
+                            : "simulation_snapshot_too_large");
+                    context.Events().Emit("net.snapshot.rejected", std::move(rejected));
+                    continue;
+                }
+            } else {
+                SnapshotBlob fallback{};
+                fallback.tick = snapshotTick;
+                const float authorityX = static_cast<float>(
+                    std::sin(static_cast<float>(frame.frameIndex) * 0.05f) * 10.0f);
+                fallback.bytes = EncodeAuthoritativePosition(fallback.tick, authorityX);
+                domainSnapshot = std::move(fallback);
+            }
+            const SnapshotBlob& snapshot = *domainSnapshot;
             bool usedDelta = false;
             bool broadcasted = false;
             for (const std::size_t peerId : connectedPeers) {

@@ -1,6 +1,7 @@
 #include "RawIron/Scene/Helpers.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <string>
 
@@ -75,6 +76,37 @@ Mesh MakeBillboardQuadMesh(const std::string& name) {
         ri::math::Vec2{0.0f, 1.0f},
     };
     mesh.indices = {0, 1, 2, 0, 2, 3};
+    mesh.vertexCount = static_cast<int>(mesh.positions.size());
+    mesh.indexCount = static_cast<int>(mesh.indices.size());
+    return mesh;
+}
+
+Mesh MakeBillboardCloudMesh(const std::string& name,
+                            const std::span<const ri::math::Vec3> centers,
+                            const std::span<const float> sizes) {
+    Mesh mesh{};
+    mesh.name = name;
+    mesh.primitive = PrimitiveType::Custom;
+    mesh.geometryMode = MeshGeometryMode::CameraFacingSpriteQuads;
+    const std::size_t count = std::min(centers.size(), sizes.size());
+    mesh.positions.reserve(count * 4U);
+    mesh.normals.reserve(count * 4U);
+    mesh.texCoords.reserve(count * 4U);
+    mesh.billboardOffsets.reserve(count * 4U);
+    mesh.indices.reserve(count * 6U);
+    constexpr std::array<ri::math::Vec2, 4> corners{{{-1,-1},{1,-1},{1,1},{-1,1}}};
+    constexpr std::array<ri::math::Vec2, 4> uv{{{0,0},{1,0},{1,1},{0,1}}};
+    for (std::size_t index = 0; index < count; ++index) {
+        const float halfSize = std::max(std::isfinite(sizes[index]) ? sizes[index] * 0.5f : 0.0f, 0.0f);
+        const int base = static_cast<int>(mesh.positions.size());
+        for (std::size_t corner = 0; corner < corners.size(); ++corner) {
+            mesh.positions.push_back(centers[index]);
+            mesh.normals.push_back({0.0f, 0.0f, 1.0f});
+            mesh.texCoords.push_back(uv[corner]);
+            mesh.billboardOffsets.push_back(corners[corner] * halfSize);
+        }
+        mesh.indices.insert(mesh.indices.end(), {base,base+1,base+2,base,base+2,base+3});
+    }
     mesh.vertexCount = static_cast<int>(mesh.positions.size());
     mesh.indexCount = static_cast<int>(mesh.indices.size());
     return mesh;

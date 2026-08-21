@@ -15,6 +15,7 @@ add_library(RawIron.Trace
   src/SweptAabbContact.cpp
   src/SweptVolumeContactSolver.cpp
   src/TraceScene.cpp
+  src/TeleportTargeting.cpp
 )
 
 add_library(RawIron::Trace ALIAS RawIron.Trace)
@@ -52,4 +53,10 @@ if (RAWIRON_BUILD_TESTS)
   )
   target_link_libraries(MovementControllerDurationSmoke PRIVATE RawIron::Trace)
   add_test(NAME RawIron.Trace.MovementControllerDurationSmoke COMMAND MovementControllerDurationSmoke)
+
+  add_executable(TeleportTargetingSmoke
+    ${CMAKE_SOURCE_DIR}/Tests/TeleportTargetingSmoke.cpp
+  )
+  target_link_libraries(TeleportTargetingSmoke PRIVATE RawIron::Trace)
+  add_test(NAME RawIron.Trace.TeleportTargetingSmoke COMMAND TeleportTargetingSmoke)
 endif()

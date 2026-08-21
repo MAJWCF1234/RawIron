@@ -3,6 +3,7 @@
 #include "RawIron/Math/Mat4.h"
 
 #include <cgltf.h>
+#include <meshoptimizer.h>
 
 #include <filesystem>
 #include <cmath>
@@ -15,6 +16,105 @@
 namespace ri::scene {
 
 namespace {
+
+bool DecodeMeshoptBufferViews(cgltf_data& data, std::string& error) {
+    for (cgltf_size viewIndex = 0; viewIndex < data.buffer_views_count; ++viewIndex) {
+        cgltf_buffer_view& view = data.buffer_views[viewIndex];
+        if (!view.has_meshopt_compression) {
+            continue;
+        }
+
+        const cgltf_meshopt_compression& compression = view.meshopt_compression;
+        if (compression.buffer == nullptr || compression.buffer->data == nullptr) {
+            error = "EXT_meshopt_compression references an unloaded source buffer.";
+            return false;
+        }
+        if (compression.offset > compression.buffer->size
+            || compression.size > compression.buffer->size - compression.offset) {
+            error = "EXT_meshopt_compression source range exceeds its buffer.";
+            return false;
+        }
+        if (compression.count == 0U || compression.stride == 0U
+            || compression.count > std::numeric_limits<std::size_t>::max() / compression.stride) {
+            error = "EXT_meshopt_compression declares an invalid decoded size.";
+            return false;
+        }
+
+        const auto* source = static_cast<const unsigned char*>(compression.buffer->data)
+            + compression.offset;
+        const std::size_t decodedSize = compression.count * compression.stride;
+        auto* decoded = static_cast<unsigned char*>(
+            data.memory.alloc_func(data.memory.user_data, decodedSize));
+        if (decoded == nullptr) {
+            error = "Could not allocate an EXT_meshopt_compression decode buffer.";
+            return false;
+        }
+
+        int decodeResult = -1;
+        switch (compression.mode) {
+            case cgltf_meshopt_compression_mode_attributes:
+                decodeResult = meshopt_decodeVertexBuffer(decoded,
+                                                          compression.count,
+                                                          compression.stride,
+                                                          source,
+                                                          compression.size);
+                break;
+            case cgltf_meshopt_compression_mode_triangles:
+                decodeResult = meshopt_decodeIndexBuffer(decoded,
+                                                         compression.count,
+                                                         compression.stride,
+                                                         source,
+                                                         compression.size);
+                break;
+            case cgltf_meshopt_compression_mode_indices:
+                decodeResult = meshopt_decodeIndexSequence(decoded,
+                                                           compression.count,
+                                                           compression.stride,
+                                                           source,
+                                                           compression.size);
+                break;
+            default:
+                data.memory.free_func(data.memory.user_data, decoded);
+                error = "EXT_meshopt_compression uses an unsupported mode.";
+                return false;
+        }
+        if (decodeResult != 0) {
+            data.memory.free_func(data.memory.user_data, decoded);
+            error = "meshoptimizer rejected an EXT_meshopt_compression payload in buffer view "
+                + std::to_string(viewIndex) + ".";
+            return false;
+        }
+
+        switch (compression.filter) {
+            case cgltf_meshopt_compression_filter_none:
+                break;
+            case cgltf_meshopt_compression_filter_octahedral:
+                meshopt_decodeFilterOct(decoded, compression.count, compression.stride);
+                break;
+            case cgltf_meshopt_compression_filter_quaternion:
+                meshopt_decodeFilterQuat(decoded, compression.count, compression.stride);
+                break;
+            case cgltf_meshopt_compression_filter_exponential:
+                meshopt_decodeFilterExp(decoded, compression.count, compression.stride);
+                break;
+            case cgltf_meshopt_compression_filter_color:
+                meshopt_decodeFilterColor(decoded, compression.count, compression.stride);
+                break;
+            default:
+                data.memory.free_func(data.memory.user_data, decoded);
+                error = "EXT_meshopt_compression uses an unsupported decode filter.";
+                return false;
+        }
+
+        // cgltf_buffer_view_data prefers this decoded pointer over the original buffer range,
+        // and cgltf_free releases it through the same allocator used above.
+        view.data = decoded;
+        view.size = decodedSize;
+        view.stride = compression.stride;
+    }
+
+    return true;
+}
 
 std::string_view CgltfResultMessage(cgltf_result result) {
     switch (result) {
@@ -74,7 +174,8 @@ float Clamp01(cgltf_float value) {
     return std::clamp(static_cast<float>(value), 0.0f, 1.0f);
 }
 
-std::string ResolveTextureUri(const cgltf_texture_view* textureView) {
+std::string ResolveTextureUri(const cgltf_texture_view* textureView,
+                              const std::filesystem::path& sourceDirectory) {
     if (textureView == nullptr || textureView->texture == nullptr || textureView->texture->image == nullptr) {
         return {};
     }
@@ -82,7 +183,13 @@ std::string ResolveTextureUri(const cgltf_texture_view* textureView) {
     if (image->uri == nullptr || image->uri[0] == '\0') {
         return {};
     }
-    return std::filesystem::path(image->uri).lexically_normal().generic_string();
+    const std::string_view uri = image->uri;
+    if (uri.starts_with("data:")) {
+        return std::string(uri);
+    }
+    const std::filesystem::path texturePath(image->uri);
+    return (texturePath.is_absolute() ? texturePath : sourceDirectory / texturePath)
+        .lexically_normal().string();
 }
 
 Transform LocalTransformFromGltfNode(const cgltf_node* node) {
@@ -154,6 +261,36 @@ bool BuildMeshFromPrimitive(const cgltf_primitive& primitive,
                                            positionFloats[vertexIndex + 2]});
     }
 
+    std::vector<ri::math::Vec3> normals;
+    std::vector<ri::math::Vec2> texCoords;
+    for (cgltf_size attributeIndex = 0; attributeIndex < primitive.attributes_count; ++attributeIndex) {
+        const cgltf_attribute& attribute = primitive.attributes[attributeIndex];
+        if (attribute.data == nullptr || attribute.index != 0) {
+            continue;
+        }
+        if (attribute.type == cgltf_attribute_type_normal && attribute.data->type == cgltf_type_vec3) {
+            const cgltf_size count = cgltf_accessor_unpack_floats(attribute.data, nullptr, 0);
+            if (count == positions.size() * 3U) {
+                std::vector<float> unpacked(count);
+                cgltf_accessor_unpack_floats(attribute.data, unpacked.data(), count);
+                normals.reserve(positions.size());
+                for (cgltf_size value = 0; value < count; value += 3) {
+                    normals.push_back({unpacked[value], unpacked[value + 1], unpacked[value + 2]});
+                }
+            }
+        } else if (attribute.type == cgltf_attribute_type_texcoord && attribute.data->type == cgltf_type_vec2) {
+            const cgltf_size count = cgltf_accessor_unpack_floats(attribute.data, nullptr, 0);
+            if (count == positions.size() * 2U) {
+                std::vector<float> unpacked(count);
+                cgltf_accessor_unpack_floats(attribute.data, unpacked.data(), count);
+                texCoords.reserve(positions.size());
+                for (cgltf_size value = 0; value < count; value += 2) {
+                    texCoords.push_back({unpacked[value], unpacked[value + 1]});
+                }
+            }
+        }
+    }
+
     std::vector<int> indices;
     if (primitive.indices != nullptr) {
         indices.reserve(primitive.indices->count);
@@ -188,13 +325,16 @@ bool BuildMeshFromPrimitive(const cgltf_primitive& primitive,
         .vertexCount = static_cast<int>(positions.size()),
         .indexCount = static_cast<int>(indices.size()),
         .positions = std::move(positions),
+        .normals = std::move(normals),
+        .texCoords = std::move(texCoords),
         .indices = std::move(indices),
     };
     error.clear();
     return true;
 }
 
-Material MaterialFromGltf(const cgltf_material* material) {
+Material MaterialFromGltf(const cgltf_material* material,
+                          const std::filesystem::path& sourceDirectory) {
     if (material == nullptr) {
         return Material{
             .name = "GltfDefaultMaterial",
@@ -230,14 +370,14 @@ Material MaterialFromGltf(const cgltf_material* material) {
     const bool transparent = material->alpha_mode == cgltf_alpha_mode_blend;
     const bool alphaMasked = material->alpha_mode == cgltf_alpha_mode_mask;
     const std::string baseColorTexture = material->has_pbr_metallic_roughness
-        ? ResolveTextureUri(&material->pbr_metallic_roughness.base_color_texture)
+        ? ResolveTextureUri(&material->pbr_metallic_roughness.base_color_texture, sourceDirectory)
         : std::string{};
     const std::string ormTexture = material->has_pbr_metallic_roughness
-        ? ResolveTextureUri(&material->pbr_metallic_roughness.metallic_roughness_texture)
+        ? ResolveTextureUri(&material->pbr_metallic_roughness.metallic_roughness_texture, sourceDirectory)
         : std::string{};
-    const std::string normalTexture = ResolveTextureUri(&material->normal_texture);
-    const std::string emissiveTexture = ResolveTextureUri(&material->emissive_texture);
-    const std::string occlusionTexture = ResolveTextureUri(&material->occlusion_texture);
+    const std::string normalTexture = ResolveTextureUri(&material->normal_texture, sourceDirectory);
+    const std::string emissiveTexture = ResolveTextureUri(&material->emissive_texture, sourceDirectory);
+    const std::string occlusionTexture = ResolveTextureUri(&material->occlusion_texture, sourceDirectory);
     const std::string opacityTexture =
         (!baseColorTexture.empty() && (transparent || alphaMasked || opacity < 0.999f)) ? baseColorTexture : std::string{};
     std::string materialName = "GltfMaterial";
@@ -324,9 +464,14 @@ int ImportGltfNodeRecursive(Scene& scene,
                             const cgltf_node* node,
                             int parentHandle,
                             const GltfImportOptions& importOptions,
+                            const std::filesystem::path& sourceDirectory,
                             std::string& error);
 
-bool ImportMeshesForGltfNode(Scene& scene, const cgltf_node* node, int parentHandle, std::string& error) {
+bool ImportMeshesForGltfNode(Scene& scene,
+                             const cgltf_node* node,
+                             int parentHandle,
+                             const std::filesystem::path& sourceDirectory,
+                             std::string& error) {
     if (node->mesh == nullptr) {
         error.clear();
         return true;
@@ -343,7 +488,7 @@ bool ImportMeshesForGltfNode(Scene& scene, const cgltf_node* node, int parentHan
             return false;
         }
 
-        const int materialHandle = scene.AddMaterial(MaterialFromGltf(primitive.material));
+        const int materialHandle = scene.AddMaterial(MaterialFromGltf(primitive.material, sourceDirectory));
         const int meshHandle = scene.AddMesh(std::move(builtMesh));
         const int primitiveNode = scene.CreateNode(meshPieceName + "_Node", parentHandle);
         scene.GetNode(primitiveNode).localTransform = Transform{};
@@ -358,6 +503,7 @@ int ImportGltfNodeRecursive(Scene& scene,
                             const cgltf_node* node,
                             int parentHandle,
                             const GltfImportOptions& importOptions,
+                            const std::filesystem::path& sourceDirectory,
                             std::string& error) {
     if (node == nullptr) {
         error = "Null glTF node.";
@@ -386,13 +532,14 @@ int ImportGltfNodeRecursive(Scene& scene,
         scene.AttachLight(groupHandle, lightHandle);
     }
 
-    if (!ImportMeshesForGltfNode(scene, node, groupHandle, error)) {
+    if (!ImportMeshesForGltfNode(scene, node, groupHandle, sourceDirectory, error)) {
         return kInvalidHandle;
     }
 
     for (cgltf_size childIndex = 0; childIndex < node->children_count; ++childIndex) {
         const int childHandle =
-            ImportGltfNodeRecursive(scene, node->children[childIndex], groupHandle, importOptions, error);
+            ImportGltfNodeRecursive(
+                scene, node->children[childIndex], groupHandle, importOptions, sourceDirectory, error);
         if (childHandle == kInvalidHandle) {
             return kInvalidHandle;
         }
@@ -429,6 +576,11 @@ int ImportGltfToScene(Scene& targetScene,
         std::ostringstream stream;
         stream << "cgltf_load_buffers failed (" << CgltfResultMessage(parseResult) << ").";
         error = stream.str();
+        return kInvalidHandle;
+    }
+
+    if (!DecodeMeshoptBufferViews(*data, error)) {
+        cgltf_free(data);
         return kInvalidHandle;
     }
 
@@ -470,7 +622,8 @@ int ImportGltfToScene(Scene& targetScene,
     int firstRoot = kInvalidHandle;
     for (cgltf_size nodeIndex = 0; nodeIndex < gltfScene->nodes_count; ++nodeIndex) {
         const int rootHandle =
-            ImportGltfNodeRecursive(targetScene, gltfScene->nodes[nodeIndex], importParent, options, error);
+            ImportGltfNodeRecursive(
+                targetScene, gltfScene->nodes[nodeIndex], importParent, options, path.parent_path(), error);
         if (rootHandle == kInvalidHandle) {
             return failClosed();
         }

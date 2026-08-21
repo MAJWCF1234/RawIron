@@ -15,6 +15,7 @@ layout(push_constant) uniform DrawData {
     layout(offset = 112) vec3 emissiveColor;
     layout(offset = 124) float qualityTier;
     layout(offset = 128) float alphaCutoff;
+    layout(offset = 136) vec2 normalScale;
 } drawData;
 
 layout(set = 1, binding = 0) uniform sampler2D albedoTex;

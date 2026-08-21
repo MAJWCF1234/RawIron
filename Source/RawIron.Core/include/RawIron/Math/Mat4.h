@@ -144,6 +144,46 @@ inline Vec3 ExtractForward(const Mat4& matrix) {
     return Normalize(Vec3{matrix.m[0][2], matrix.m[1][2], matrix.m[2][2]});
 }
 
+/// Builds a world transform whose local XY plane follows the camera orientation.
+/// Translation and non-uniform scale come from `authoredWorld`; its authored rotation is replaced.
+/// `yawOnly` keeps world-up fixed for vegetation-style cylindrical billboards.
+inline Mat4 CameraFacingMatrix(const Mat4& authoredWorld, const Mat4& cameraWorld, bool yawOnly = false) {
+    const Vec3 position = ExtractTranslation(authoredWorld);
+    const Vec3 scale = ExtractScale(authoredWorld);
+
+    Vec3 right = ExtractRight(cameraWorld);
+    Vec3 up = ExtractUp(cameraWorld);
+    Vec3 forward = ExtractForward(cameraWorld);
+    if (yawOnly) {
+        forward.y = 0.0f;
+        if (LengthSquared(forward) <= 1.0e-12f) {
+            forward = Vec3{0.0f, 0.0f, 1.0f};
+        } else {
+            forward = Normalize(forward);
+        }
+        up = Vec3{0.0f, 1.0f, 0.0f};
+        right = Normalize(Cross(up, forward));
+        if (LengthSquared(right) <= 1.0e-12f) {
+            right = Vec3{1.0f, 0.0f, 0.0f};
+        }
+    }
+
+    Mat4 out = IdentityMatrix();
+    out.m[0][0] = right.x * scale.x;
+    out.m[1][0] = right.y * scale.x;
+    out.m[2][0] = right.z * scale.x;
+    out.m[0][1] = up.x * scale.y;
+    out.m[1][1] = up.y * scale.y;
+    out.m[2][1] = up.z * scale.y;
+    out.m[0][2] = forward.x * scale.z;
+    out.m[1][2] = forward.y * scale.z;
+    out.m[2][2] = forward.z * scale.z;
+    out.m[0][3] = position.x;
+    out.m[1][3] = position.y;
+    out.m[2][3] = position.z;
+    return out;
+}
+
 /// Inverts an affine transform whose last row is `[0 0 0 1]` (typical scene node world matrices).
 /// Returns false if the linear 3×3 part is singular.
 [[nodiscard]] inline bool TryInvertAffineMat4(const Mat4& m, Mat4& out) {

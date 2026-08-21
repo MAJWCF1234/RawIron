@@ -42,11 +42,20 @@ struct Node {
     int cameraConfinementVolume = kInvalidHandle;
 };
 
+enum class MeshInstanceFacingMode {
+    Authored,
+    Camera,
+    CameraYawOnly,
+};
+
 struct MeshInstanceBatch {
     std::string name;
     int parent = kInvalidHandle;
     int mesh = kInvalidHandle;
     int material = kInvalidHandle;
+    /// Optional renderer-resolved orientation. Camera modes preserve authored position/scale
+    /// while replacing rotation, allowing one batch to represent sprites without per-frame CPU yaw updates.
+    MeshInstanceFacingMode facingMode = MeshInstanceFacingMode::Authored;
     std::vector<Transform> transforms;
 };
 

@@ -194,6 +194,8 @@ struct Material {
     bool additiveBlend = false;
     /// Optional tangent-space normal map under the texture root.
     std::string normalTexture{};
+    /// Tangent-space XY strength and convention. Negative Y converts DirectX-style green channels.
+    ri::math::Vec2 normalScale{1.0f, 1.0f};
     /// Optional packed occlusion/roughness/metallic map (ORM in glTF convention).
     std::string ormTexture{};
     /// Optional standalone roughness map when no packed ORM map is present.
@@ -214,6 +216,13 @@ struct Material {
     bool albedoAlphaIsSmoothness = false;
 };
 
+enum class MeshGeometryMode {
+    SurfaceTriangles,
+    /// Positions are sprite centers and `billboardOffsets` are signed camera-plane offsets.
+    /// Four vertices and six triangle indices represent each sprite while retaining one draw call.
+    CameraFacingSpriteQuads,
+};
+
 struct Mesh {
     std::string name;
     PrimitiveType primitive = PrimitiveType::Custom;
@@ -224,7 +233,10 @@ struct Mesh {
     std::vector<ri::math::Vec3> normals;
     /// When non-empty, must match `positions.size()` for textured custom meshes in the software preview.
     std::vector<ri::math::Vec2> texCoords;
+    /// Per-vertex camera-plane offset for `CameraFacingSpriteQuads`; parallel to `positions`.
+    std::vector<ri::math::Vec2> billboardOffsets;
     std::vector<int> indices;
+    MeshGeometryMode geometryMode = MeshGeometryMode::SurfaceTriangles;
 };
 
 struct Camera {
