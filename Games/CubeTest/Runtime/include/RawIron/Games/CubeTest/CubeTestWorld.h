@@ -15,6 +15,7 @@ namespace ri::games::cubetest {
 
 struct CubeTestWorld {
     ri::scene::Scene scene;
+    bool materialCalibration = false;
     int rootNode = ri::scene::kInvalidHandle;
     int platformNode = ri::scene::kInvalidHandle;
     int cubeNode = ri::scene::kInvalidHandle;
@@ -49,7 +50,9 @@ struct CubeTestWorld {
 [[nodiscard]] CubeTestWorld BuildCubeTestWorld(
     std::string_view sceneName = "Cube Test",
     const std::filesystem::path& workspaceRoot = {});
-void AnimateCubeTestWorld(CubeTestWorld& world, double elapsedSeconds);
+// Isolated static renderer fixture; no gallery assets, portals, or dynamic props.
+[[nodiscard]] CubeTestWorld BuildCubeTestCalibrationWorld(const std::filesystem::path& workspaceRoot, bool normalComparison = false);
+void AnimateCubeTestWorld(CubeTestWorld& world, double elapsedSeconds, bool simulateDynamicProps = true);
 void AnimateCubeTestWorldJiggle(CubeTestWorld& world, double elapsedSeconds);
 void ConfigureCookedTextureCube(CubeTestWorld& world,
                                 std::vector<std::string> logicalTexturePaths,

@@ -170,6 +170,8 @@ const StructuralTypeSet kRuntimeTypes = {
     "torus_slice",
     "spline_sweep",
     "revolve",
+    "mobius",
+    "parametric_patch",
     "dome_vault",
     "loft_primitive",
     "voronoi_fracture_primitive",

@@ -35,10 +35,19 @@ struct StructuralPrimitiveOptions {
     float bevelRadius = 0.0f;
     int bevelSegments = 0;
     bool centerColumn = true;
+    /// Revolve retains its closed-profile legacy behavior by default. False uses
+    /// an open positive-radius, increasing-height profile with smooth arc-length UVs.
+    bool closedProfile = true;
+    /// Spline sweep uses a circular section and parallel-transport frames.
+    bool closedPath = false;
+    bool capEnds = true;
+    int pathSegments = 64;
     std::string archStyle = "round";
     std::string latticeStyle = "x_brace";
     std::vector<ri::math::Vec3> points;
     std::vector<ri::math::Vec3> vertices;
+    // For parametric_patch, vertices is a row-major (cellsX+1)*(cellsY+1) surface
+    // lattice. An empty lattice selects the native unit saddle preset (depth).
     /// Row-major height samples on the unit XZ patch \([-0.5,0.5]^2\) for `heightmap_patch` / `displacement` / `terrain_quad`.
     /// When non-empty, length must equal \((cellsX+1)(cellsZ+1)\) with `cellsX`,`cellsZ` > 0 (else ignored).
     std::vector<float> heightfieldSamples{};

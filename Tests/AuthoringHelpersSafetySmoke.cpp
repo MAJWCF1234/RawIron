@@ -1,10 +1,12 @@
 #include "RawIron/Scene/Helpers.h"
+#include "RawIron/Scene/MaterialCalibration.h"
 #include "RawIron/Scene/ModelLoader.h"
 #include "RawIron/Scene/SceneRenderSubmission.h"
 
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <stdexcept>
 
 namespace {
 
@@ -34,6 +36,50 @@ bool IsFinite(const ri::math::Mat4& matrix) {
 } // namespace
 
 int main() {
+    // Calibration construction accepts package IDs without coupling to game files.
+    for (const ri::scene::MaterialCalibrationTextures textures : {
+            ri::scene::MaterialCalibrationTextures{}, {"albedo", "", "dx"}, {"", "normal", "dx"}, {"albedo", "normal", ""}}) {
+        try {
+            (void)ri::scene::BuildMaterialCalibrationScene(textures);
+            return EXIT_FAILURE;
+        } catch (const std::invalid_argument&) {
+        }
+    }
+    const auto calibration = ri::scene::BuildMaterialCalibrationScene({"package/albedo", "package/normal", "package/directx"});
+    const auto calibrationSubmission = ri::scene::BuildSceneRenderSubmission(calibration.scene, calibration.camera);
+    if (calibrationSubmission.stats.drawCommandCount != 24U) return EXIT_FAILURE;
+    for (const auto& node : calibration.scene.Nodes()) {
+        if (node.light != ri::scene::kInvalidHandle
+            && ri::math::ExtractForward(ri::math::RotationXYZDegrees(node.localTransform.rotationDegrees)).y >= 0.0f)
+            return EXIT_FAILURE; // Sun must emit downward, not light the underside of the floor.
+        if (node.material == ri::scene::kInvalidHandle) continue;
+        const auto& material = calibration.scene.GetMaterial(node.material);
+        if (!material.baseColorTextureFrames.empty() || material.materialStyle != ri::scene::MaterialStyle::Standard
+            || material.materialWorkflow != ri::scene::MaterialWorkflow::MetalRough) return EXIT_FAILURE;
+        if (node.name == "Calibration_sRGB" && material.baseColorTexture != "package/albedo") return EXIT_FAILURE;
+        if (node.name == "Calibration_NormalMap" && material.normalTexture != "package/normal") return EXIT_FAILURE;
+        if (node.name == "Calibration_NormalMapDirectX"
+            && (material.normalTexture != "package/directx" || material.normalScale.y != -0.5f)) return EXIT_FAILURE;
+        if (node.name == "Calibration_BlendFront" && (!material.transparent || material.opacity != 0.5f)) return EXIT_FAILURE;
+    }
+
+    const auto normalComparison = ri::scene::BuildNormalMappingComparisonScene({{},"package/gl","package/dx"});
+    const auto comparisonSubmission=ri::scene::BuildSceneRenderSubmission(normalComparison.scene,normalComparison.camera);
+    if (comparisonSubmission.stats.drawCommandCount!=6U) return EXIT_FAILURE;
+    int convertedCount=0, mirroredCount=0;
+    for (const auto& node:normalComparison.scene.Nodes()) {
+        if (node.material==ri::scene::kInvalidHandle) continue;
+        const auto& material=normalComparison.scene.GetMaterial(node.material);
+        const auto& mesh=normalComparison.scene.GetMesh(node.mesh);
+        const bool mirrored=node.name.find("MirrorU")!=std::string::npos;
+        const bool converted=node.name.find("DirectXConverted")!=std::string::npos;
+        if (material.normalScale.y!=(converted ? .5f : -.5f)
+            || material.emissiveColor.x!=0 || material.baseColor.x!=.45f
+            || mesh.texCoords[0].x!=(mirrored ? 1.f : 0.f)) return EXIT_FAILURE;
+        convertedCount+=converted; mirroredCount+=mirrored;
+    }
+    if (convertedCount!=2 || mirroredCount!=3) return EXIT_FAILURE;
+
     const float nan = std::numeric_limits<float>::quiet_NaN();
     const float infinity = std::numeric_limits<float>::infinity();
 

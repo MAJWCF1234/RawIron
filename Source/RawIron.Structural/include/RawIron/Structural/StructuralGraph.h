@@ -90,6 +90,9 @@ struct StructuralNode {
     float projectionDistance = 0.0f;
     bool structuralOnly = true;
     bool centerColumn = false;
+    bool closedProfile = true;
+    bool closedPath = false;
+    bool capEnds = true;
     ri::math::Vec3 offsetStepPosition{};
     ri::math::Vec3 offsetStepRotation{};
     ri::math::Vec3 offsetStepScale{1.0f, 1.0f, 1.0f};

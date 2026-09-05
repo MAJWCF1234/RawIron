@@ -8,7 +8,7 @@ set(RAWIRON_AUDIO_SOURCES
 )
 
 if (RAWIRON_AUDIO_MINIAUDIO)
-  set(RAWIRON_MINIAUDIO_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio/miniaudio.h")
+  set(RAWIRON_MINIAUDIO_HEADER "${PROJECT_SOURCE_DIR}/ThirdParty/miniaudio/miniaudio.h")
   if (NOT EXISTS "${RAWIRON_MINIAUDIO_HEADER}")
     message(FATAL_ERROR
       "miniaudio.h missing at ${RAWIRON_MINIAUDIO_HEADER}. "
@@ -34,7 +34,7 @@ target_include_directories(RawIron.Audio
 if (RAWIRON_AUDIO_MINIAUDIO)
   target_include_directories(RawIron.Audio
     PRIVATE
-      "${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio"
+      "${PROJECT_SOURCE_DIR}/ThirdParty/miniaudio"
   )
   target_compile_definitions(RawIron.Audio PUBLIC RAWIRON_AUDIO_HAS_MINIAUDIO=1)
 else ()

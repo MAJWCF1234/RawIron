@@ -12,25 +12,32 @@
 #include "RawIron/Games/GameRuntimeCore.h"
 #include "RawIron/Games/CubeTest/CubeTestAuthority.h"
 #include "RawIron/Games/CubeTest/CubeTestWorld.h"
+#include "RawIron/Render/SceneTextureAudit.h"
+#include "RawIron/Games/CubeTest/CubeTestGallery.h"
 #include "RawIron/Math/Mat4.h"
 #include "RawIron/Render/ScenePreview.h"
+#include "RawIron/Render/PreviewTexture.h"
 #include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
 #include "RawIron/Scene/GltfExporter.h"
 #include "RawIron/Runtime/HostChrome.h"
 #include "RawIron/Runtime/HostInputService.h"
+#include "RawIron/Runtime/DesktopMouseLook.h"
 #include "RawIron/Runtime/RuntimeCore.h"
 #include "RawIron/Scene/SceneUtils.h"
 #include "RawIron/Spatial/Aabb.h"
 #include "RawIron/Trace/KeyboardMovementInput.h"
 #include "RawIron/Trace/MovementController.h"
 #include "RawIron/Trace/TeleportTargeting.h"
+#include "RawIron/World/InteractivePropGrab.h"
 
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -80,7 +87,7 @@ std::shared_ptr<const ri::content::CookedTexturePack> TryMountRawIronX32(
             ri::core::LogInfo("Cube Test could not mount " + candidate.string() + ": " + mountError.what());
         }
     }
-    ri::core::LogInfo("Cube Test RAWIRONX32 mount unavailable; retaining loose LRT cube textures.");
+    ri::core::LogInfo("Cube Test RAWIRONX32 mount unavailable; retaining project-owned Three.js reference textures.");
     return nullptr;
 }
 
@@ -124,6 +131,13 @@ bool SavePreview(const CubeTestWorld& world,
     options.previewContrast = 1.08f;
     options.previewSaturation = 1.0f;
     options.animationTimeSeconds = animationSeconds;
+    if (world.materialCalibration) {
+        options.clearTop = options.clearBottom = {0.12f, 0.12f, 0.12f};
+        options.fogStrength = 0.0f;
+        options.ambientLight = {0.12f, 0.12f, 0.12f};
+        options.previewExposure = options.previewContrast = options.previewSaturation = 1.0f;
+        options.orderedDither = false;
+    }
     if (!hiddenNodeName.empty()) {
         const std::optional<int> hiddenNode = ri::scene::FindNodeByName(world.scene, hiddenNodeName);
         if (hiddenNode.has_value()) {
@@ -189,12 +203,11 @@ bool SaveJigglePreviewSequence(const fs::path& textureRoot,
 struct PlayState {
     CubeTestWorld world{};
     HWND hwnd = nullptr;
-    bool mouseCaptured = false;
-    bool cursorHidden = false;
-    float rawMouseAccumX = 0.0f;
-    float rawMouseAccumY = 0.0f;
+    ri::runtime::DesktopMouseLook mouseLook;
     float yawDegrees = 0.0f;
     float pitchDegrees = -5.0f;
+    float spawnYawDegrees = 0.0f;
+    float spawnPitchDegrees = -5.0f;
     std::chrono::steady_clock::time_point lastTick{};
     float elapsedSeconds = 0.0f;
     float lastDeltaSeconds = 1.0f / 60.0f;
@@ -207,11 +220,7 @@ struct PlayState {
     ri::trace::MovementControllerOptions movementOptions{};
     ri::trace::KeyboardMovementEdges movementEdges{};
     ri::world::PortalTravelerState portalTraveler{};
-    int grabbedInteractionProp = -1;
-    float interactionGrabDistance = 1.0f;
-    ri::math::Vec3 previousInteractionTarget{};
-    ri::math::Vec3 interactionReleaseVelocity{};
-    bool hasPreviousInteractionTarget = false;
+    ri::world::InteractivePropGrab interactionGrab{};
     bool interactionUseHeldLastFrame = false;
     bool primaryActionRequested = false;
     /// Mounted HostInput service — games query, engine owns Update.
@@ -252,56 +261,9 @@ void RequestDesktopProjectile(PlayState& state,
 }
 
 void ReleaseDesktopMouseCapture(PlayState& state) {
-    ClipCursor(nullptr);
-    state.mouseCaptured = false;
-    state.rawMouseAccumX = 0.0f;
-    state.rawMouseAccumY = 0.0f;
-    if (state.cursorHidden) {
-        ShowCursor(TRUE);
-        state.cursorHidden = false;
-    }
+    state.mouseLook.Release();
+    state.primaryActionRequested = false;
 }
-
-void RegisterDesktopRawMouse(HWND hwnd) {
-    RAWINPUTDEVICE device{};
-    device.usUsagePage = 0x01;
-    device.usUsage = 0x02;
-    device.hwndTarget = hwnd;
-    RegisterRawInputDevices(&device, 1, sizeof(device));
-}
-
-void UpdateDesktopMouseLook(PlayState& state) {
-    if (state.hwnd == nullptr || GetForegroundWindow() != state.hwnd) {
-        ReleaseDesktopMouseCapture(state);
-        return;
-    }
-    RECT client{};
-    if (!GetClientRect(state.hwnd, &client)) return;
-    POINT upperLeft{client.left, client.top};
-    POINT lowerRight{client.right, client.bottom};
-    ClientToScreen(state.hwnd, &upperLeft);
-    ClientToScreen(state.hwnd, &lowerRight);
-    const RECT clip{upperLeft.x, upperLeft.y, lowerRight.x, lowerRight.y};
-    if (!state.mouseCaptured) {
-        ClipCursor(&clip);
-        state.mouseCaptured = true;
-        state.rawMouseAccumX = 0.0f;
-        state.rawMouseAccumY = 0.0f;
-        if (!state.cursorHidden) {
-            ShowCursor(FALSE);
-            state.cursorHidden = true;
-        }
-        return;
-    }
-    state.yawDegrees += state.rawMouseAccumX * state.mouseSensitivity;
-    state.pitchDegrees = std::clamp(
-        state.pitchDegrees + state.rawMouseAccumY * state.mouseSensitivity * 0.84f,
-        -80.0f,
-        78.0f);
-    state.rawMouseAccumX = 0.0f;
-    state.rawMouseAccumY = 0.0f;
-}
-
 ri::spatial::Aabb BuildPlayerBounds(const ri::math::Vec3& feet) {
     return ri::spatial::Aabb{
         .min = {feet.x - 0.25f, feet.y, feet.z - 0.25f},
@@ -334,32 +296,13 @@ ri::math::Vec3 CameraPosition(const PlayState& state) {
 
 void BeginDesktopInteractionGrab(PlayState& state) {
     if (IsRemoteAuthorityClient(state)) return;
-    if (state.grabbedInteractionProp >= 0) return;
-    const ri::world::InteractivePropSelection selection = ri::world::SelectInteractiveProp(
-        state.world.interactionProps, CameraPosition(state), CameraForward(state), 4.5f);
-    constexpr std::uint32_t desktopOwner = 100U;
-    if (selection.propIndex < 0 || !ri::world::BeginInteractivePropGrab(
-            state.world.interactionProps, selection.propIndex, desktopOwner)) return;
-    state.grabbedInteractionProp = selection.propIndex;
-    state.interactionGrabDistance = std::clamp(selection.distance, 0.25f, 4.5f);
-    state.hasPreviousInteractionTarget = false;
-    state.interactionReleaseVelocity = {};
+    (void)ri::world::BeginRayPropGrab(state.interactionGrab, state.world.interactionProps,
+        100U, CameraPosition(state), CameraForward(state));
 }
 
-void EndDesktopInteractionGrab(PlayState& state) {
-    if (IsRemoteAuthorityClient(state)) return;
-    if (state.grabbedInteractionProp < 0) return;
-    constexpr std::uint32_t desktopOwner = 100U;
-    (void)ri::world::EndInteractivePropGrab(
-        state.world.interactionProps,
-        state.grabbedInteractionProp,
-        desktopOwner,
-        state.interactionReleaseVelocity);
-    state.grabbedInteractionProp = -1;
-    state.hasPreviousInteractionTarget = false;
-    state.interactionReleaseVelocity = {};
+void EndDesktopInteractionGrab(PlayState& state, bool throwProp = true) {
+    ri::world::ReleaseRayPropGrab(state.interactionGrab, state.world.interactionProps, throwProp);
 }
-
 void UpdateCameraNodes(PlayState& state) {
     const ri::math::Vec3 feet = FeetFromBounds(state.movement.body.bounds);
     ri::scene::Node& rig = state.world.scene.GetNode(state.world.playerRig);
@@ -388,14 +331,20 @@ void TickPlayState(PlayState& state) {
         PostMessageW(state.hwnd, WM_CLOSE, 0, 0);
     }
     const ri::core::KeyboardFocusGate& focus = state.hostInput->Focus();
-    UpdateDesktopMouseLook(state);
+    state.mouseLook.Update(state.hwnd, state.yawDegrees, state.pitchDegrees, state.mouseSensitivity);
 
     // Camera rotation is deliberately event-driven. Polling global virtual-key state here made
     // a stuck/synthetic arrow key rotate the view forever even though Cube Test had no camera
     // input event to consume. Mouse-look below is the sole source of continuous camera rotation.
     if (state.hostInput->ConsumeKeyPress(VK_HOME)) {
-        state.yawDegrees = 0.0f;
-        state.pitchDegrees = -5.0f;
+        EndDesktopInteractionGrab(state, false);
+        state.movement = {};
+        state.movement.body.bounds = BuildPlayerBounds(state.spawnFeet);
+        state.movement.onGround = true;
+        state.portalTraveler = {};
+        state.respawnFeet = state.spawnFeet;
+        state.yawDegrees = state.spawnYawDegrees;
+        state.pitchDegrees = state.spawnPitchDegrees;
     }
     const bool interactionUseHeld = focus.IsKeyDownSettled('E');
     if (interactionUseHeld && !state.interactionUseHeldLastFrame) {
@@ -404,12 +353,12 @@ void TickPlayState(PlayState& state) {
         EndDesktopInteractionGrab(state);
     }
     state.interactionUseHeldLastFrame = interactionUseHeld;
-    if (state.primaryActionRequested) {
+    if (state.primaryActionRequested && focus.Focused()) {
         const ri::math::Vec3 forward = CameraForward(state);
         RequestDesktopProjectile(state, CameraPosition(state) + forward * 1.4f, forward);
         state.primaryActionRequested = false;
     }
-    if (state.hostInput->ConsumeKeyPress('T') && CameraPosition(state).x >= 148.0f) {
+    if (state.hostInput->ConsumeKeyPress('T') && CubeTestRoomAt(CameraPosition(state).x).id == "teleport") {
         const ri::trace::TeleportTargetingResult teleport = ri::trace::ResolveTeleportTarget(
             state.traceScene, CameraPosition(state), CameraForward(state));
         if (teleport.validLanding) {
@@ -448,31 +397,10 @@ void TickPlayState(PlayState& state) {
         state.movement.onGround = true;
     }
 
-    if (state.grabbedInteractionProp >= 0) {
-        const ri::math::Vec3 target = CameraPosition(state)
-            + CameraForward(state) * state.interactionGrabDistance;
-        if (state.hasPreviousInteractionTarget && deltaSeconds > 1.0e-4f) {
-            state.interactionReleaseVelocity =
-                (target - state.previousInteractionTarget) / deltaSeconds;
-            const float speed = ri::math::Length(state.interactionReleaseVelocity);
-            if (speed > 12.0f) {
-                state.interactionReleaseVelocity = state.interactionReleaseVelocity * (12.0f / speed);
-            }
-        }
-        constexpr std::uint32_t desktopOwner = 100U;
-        if (!ri::world::MoveInteractivePropGrab(
-                state.world.interactionProps,
-                state.grabbedInteractionProp,
-                desktopOwner,
-                target)) {
-            state.grabbedInteractionProp = -1;
-            state.hasPreviousInteractionTarget = false;
-        } else {
-            state.previousInteractionTarget = target;
-            state.hasPreviousInteractionTarget = true;
-        }
+    if (state.interactionGrab.propIndex >= 0) {
+        (void)ri::world::UpdateRayPropGrab(state.interactionGrab, state.world.interactionProps,
+            CameraPosition(state), CameraForward(state), deltaSeconds);
     }
-
     UpdateCameraNodes(state);
     (void)ri::games::TickGamePluginRuntime(state.pluginHost, static_cast<double>(state.elapsedSeconds));
 }
@@ -487,38 +415,44 @@ void CubeTestWin32Hook(void* user,
         return;
     }
     state->hwnd = static_cast<HWND>(hwnd);
-    switch (message) {
-    case WM_LBUTTONDOWN:
-        state->primaryActionRequested = true;
-        break;
-    case WM_CREATE:
-        RegisterDesktopRawMouse(state->hwnd);
-        break;
-    case WM_INPUT: {
-        if (GetForegroundWindow() != state->hwnd) break;
-        const HRAWINPUT handle = reinterpret_cast<HRAWINPUT>(lParam);
-        UINT byteSize = 0;
-        if (GetRawInputData(handle, RID_INPUT, nullptr, &byteSize, sizeof(RAWINPUTHEADER))
-            == static_cast<UINT>(-1)) break;
-        std::vector<std::uint8_t> bytes(byteSize);
-        if (GetRawInputData(handle, RID_INPUT, bytes.data(), &byteSize, sizeof(RAWINPUTHEADER))
-            == static_cast<UINT>(-1)) break;
-        const auto* raw = reinterpret_cast<const RAWINPUT*>(bytes.data());
-        if (raw->header.dwType != RIM_TYPEMOUSE
-            || (raw->data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE) != 0) break;
-        state->rawMouseAccumX += static_cast<float>(raw->data.mouse.lLastX);
-        state->rawMouseAccumY += static_cast<float>(raw->data.mouse.lLastY);
-        break;
+    if (state->world.materialCalibration) {
+        if (message == WM_KEYDOWN && wParam == VK_ESCAPE) PostMessageW(state->hwnd, WM_CLOSE, 0, 0);
+        return;
     }
+    state->mouseLook.HandleMessage(hwnd,message,wParam,lParam);
+    switch (message) {
+    case WM_KEYDOWN:
+        if (wParam == VK_F2 && (lParam & (1LL << 30)) == 0) {
+            const auto feet = FeetFromBounds(state->movement.body.bounds);
+            ri::core::LogInfo("Input state: feet=" + std::to_string(feet.x) + "," + std::to_string(feet.y)
+                + "," + std::to_string(feet.z) + " yaw=" + std::to_string(state->yawDegrees)
+                + " pitch=" + std::to_string(state->pitchDegrees) + " grab=" + std::to_string(state->interactionGrab.propIndex));
+        }
+        if (wParam == VK_F1 && (lParam & (1LL << 30)) == 0) {
+            ReleaseDesktopMouseCapture(*state);
+            EndDesktopInteractionGrab(*state, false);
+            const auto& room = CubeTestRoomAt(FeetFromBounds(state->movement.body.bounds).x);
+            std::string guide = DescribeCubeTestRoom(room) + "\nPortals from this room:\n";
+            for (const auto& portal : state->world.portals) {
+                if (portal.id.starts_with(std::string(room.id) + "-to-"))
+                    guide += portal.label + " [" + portal.id + "]\n";
+            }
+            MessageBoxA(state->hwnd, guide.c_str(), "Cube Test room guide", MB_OK | MB_ICONINFORMATION);
+            state->mouseLook.Release();
+        }
+        break;
+    case WM_LBUTTONDOWN:
+        state->primaryActionRequested = GetForegroundWindow() == state->hwnd;
+        break;
     case WM_KILLFOCUS:
     case WM_CANCELMODE:
         ReleaseDesktopMouseCapture(*state);
-        EndDesktopInteractionGrab(*state);
+        EndDesktopInteractionGrab(*state, false);
         break;
     case WM_ACTIVATEAPP:
         if (wParam == FALSE) {
             ReleaseDesktopMouseCapture(*state);
-            EndDesktopInteractionGrab(*state);
+            EndDesktopInteractionGrab(*state, false);
         }
         break;
     default:
@@ -536,14 +470,15 @@ bool RunNativeLoop(const StandaloneOptions& options,
                    const ri::core::CommandLine& commandLine,
                    std::string* error) {
     PlayState state{};
-    state.world = BuildCubeTestWorld(
-        "Cube Test", ri::content::DetectWorkspaceRoot(manifest.rootPath));
+    const fs::path workspaceRoot = ri::content::DetectWorkspaceRoot(manifest.rootPath);
+    state.world = options.materialCalibration ? BuildCubeTestCalibrationWorld(workspaceRoot, options.normalComparison)
+        : BuildCubeTestWorld("Cube Test", workspaceRoot);
     state.netcode = netcode;
     if (authorityBridge != nullptr) {
         authorityBridge->SetWorld(&state.world);
     }
     // Interactive play exercises range-read cooked animation. Batch glTF export instead
-    // keeps the world-authored loose source maps so the exporter can copy portable files;
+    // keeps the project-owned reference maps so the exporter can copy portable files;
     // package logical IDs are not filesystem URIs.
     if (cookedTexturePack && options.exportGltfPath.empty()) {
         ConfigureCookedTextureCube(state.world, CubeTestCookedTextureSequence());
@@ -623,25 +558,14 @@ bool RunNativeLoop(const StandaloneOptions& options,
         gameplay, "spawn_yaw", state.yawDegrees, -180.0f, 180.0f);
     state.pitchDegrees = ri::content::ScriptScalarOrClamped(
         gameplay, "spawn_pitch", state.pitchDegrees, -80.0f, 78.0f);
-    if (options.startRoom == "sprites") {
-        state.spawnFeet = {19.65f, 0.20f, 0.0f};
-        state.yawDegrees = 90.0f;
-    } else if (options.startRoom == "normals") {
-        state.spawnFeet = {45.65f, 0.20f, 0.0f};
-        state.yawDegrees = 90.0f;
-    } else if (options.startRoom == "exporter") {
-        state.spawnFeet = {71.65f, 0.20f, 0.0f};
-        state.yawDegrees = 90.0f;
-    } else if (options.startRoom == "interaction") {
-        state.spawnFeet = {97.65f, 0.20f, 0.0f};
-        state.yawDegrees = 90.0f;
-    } else if (options.startRoom == "projectile") {
-        state.spawnFeet = {123.65f, 0.20f, 0.0f};
-        state.yawDegrees = 90.0f;
-    } else if (options.startRoom == "teleport") {
-        state.spawnFeet = {149.65f, 0.20f, 0.0f};
-        state.yawDegrees = 90.0f;
+    if (options.startRoom != "baseline") {
+        if (const auto* room = FindCubeTestRoom(options.startRoom)) {
+            state.spawnFeet = CubeTestRoomArrival(*room);
+            state.yawDegrees = 90.0f;
+        }
     }
+    state.spawnYawDegrees = state.yawDegrees;
+    state.spawnPitchDegrees = state.pitchDegrees;
     state.respawnFeet = state.spawnFeet;
     state.traceScene = ri::trace::TraceScene(state.world.colliders);
     state.movement.body.bounds = BuildPlayerBounds(state.spawnFeet);
@@ -681,14 +605,15 @@ bool RunNativeLoop(const StandaloneOptions& options,
             .exposure = &state.renderExposure,
             .ambientLight = &state.ambientLight,
         });
-    UpdateCameraNodes(state);
+    if (!options.materialCalibration) UpdateCameraNodes(state);
 
     if (!ri::games::AttachGameSimulationTick(runtime, [&state, &options](const ri::core::FrameContext&) {
+            if (options.materialCalibration) return; // Fixed authored camera and static fixtures.
             TickPlayState(state);
             if (options.jiggleTest) {
                 AnimateCubeTestWorldJiggle(state.world, state.elapsedSeconds);
             } else {
-                AnimateCubeTestWorld(state.world, state.elapsedSeconds);
+                AnimateCubeTestWorld(state.world, state.elapsedSeconds, !IsRemoteAuthorityClient(state));
             }
         })) {
         if (error != nullptr) {
@@ -704,12 +629,15 @@ bool RunNativeLoop(const StandaloneOptions& options,
     int frameCount = 0;
     ri::render::ShaderPresentationConfig shaderPresentation{};
     std::vector<std::string> shaderManifestErrors;
-    if (!ri::content::TryLoadRawIronShaderPresentation(
+    if (!options.materialCalibration && !ri::content::TryLoadRawIronShaderPresentation(
             manifest.rootPath, &shaderPresentation, &shaderManifestErrors)
         && !shaderManifestErrors.empty()) {
         ri::core::LogInfo("Cube Test native shader manifest: " + shaderManifestErrors.front());
     }
+    std::vector<double> presentIntervals;
+    if (!options.frameTimesPath.empty()) presentIntervals.reserve(static_cast<std::size_t>(options.benchmarkFrames));
     const ri::render::vulkan::VulkanPreviewWindowOptions windowOptions{
+        .captureFirstFramePath = options.nativeCapturePath,
         .windowTitle = "RawIron Cube Test",
         .presentModePreference = ri::render::vulkan::VulkanPresentModePreference::Auto,
         .textureRoot = textureRoot,
@@ -720,13 +648,16 @@ bool RunNativeLoop(const StandaloneOptions& options,
         .showWindow = !options.backgroundWindow,
         .enableHybridHdrPresentation = options.hybridHdr,
         .enableExtendedPostProcessShader = options.extendedPostProcess,
-        .initialRenderQualityTier = state.renderQualityTier,
+        .initialRenderQualityTier = options.materialCalibration ? 1 : state.renderQualityTier,
         .shaderPresentation = shaderPresentation,
+        .onPresentInterval = options.frameTimesPath.empty() ? std::function<void(double)>{}
+            : [&presentIntervals](double milliseconds) { presentIntervals.push_back(milliseconds); },
     };
 
     int runtimeFrameIndex = 0;
+    std::string previousGalleryTitle;
     const ri::render::vulkan::VulkanNativeSceneFrameCallback buildFrame =
-        [&state, &textureRoot, &cookedTexturePack, &options, &frameCount, &runtimeFrameIndex, &runtime](
+        [&state, &textureRoot, &cookedTexturePack, &options, &frameCount, &runtimeFrameIndex, &runtime, &previousGalleryTitle](
             ri::render::vulkan::VulkanNativeSceneFrame& frame,
             std::string* frameError) {
             const ri::core::FrameContext runtimeFrame = ri::games::BuildGameRuntimeFrameContext(
@@ -744,6 +675,21 @@ bool RunNativeLoop(const StandaloneOptions& options,
                 return false;
             }
 
+            if (!options.materialCalibration && state.hwnd != nullptr) {
+                const auto feet = FeetFromBounds(state.movement.body.bounds);
+                const auto& room = CubeTestRoomAt(feet.x);
+                std::string title = "Cube Test | " + std::string(room.title) + " | F1: room guide";
+                for (const auto& portal : state.world.portals) {
+                    const auto center = (portal.triggerBounds.min + portal.triggerBounds.max) * 0.5f;
+                    if (std::abs(center.x - feet.x) < 2.5f && std::abs(center.z - feet.z) < 2.5f)
+                        title += " | " + portal.label;
+                }
+                if (title != previousGalleryTitle) {
+                    SetWindowTextA(state.hwnd, title.c_str());
+                    ri::core::LogInfo("Gallery location: " + title);
+                    previousGalleryTitle = std::move(title);
+                }
+            }
             frame.scene = &state.world.scene;
             frame.suppressUnchangedFrames = false;
             frame.cameraNode = state.world.playerCameraNode;
@@ -762,6 +708,14 @@ bool RunNativeLoop(const StandaloneOptions& options,
             frame.environmentClearTop = state.clearTop;
             frame.environmentClearBottom = state.clearBottom;
             frame.nativeAmbientLight = state.ambientLight;
+            if (options.materialCalibration) {
+                frame.animationTimeSeconds = 0.0;
+                frame.renderQualityTier = 1;
+                frame.renderExposure = frame.renderContrast = frame.renderSaturation = 1.0f;
+                frame.renderFogDensity = frame.renderFogStrength = 0.0f;
+                frame.environmentClearTop = frame.environmentClearBottom = {0.12f, 0.12f, 0.12f};
+                frame.nativeAmbientLight = {0.12f, 0.12f, 0.12f};
+            }
 
             if (options.benchmarkFrames > 0 && ++frameCount >= options.benchmarkFrames && state.hwnd != nullptr) {
                 PostMessageW(state.hwnd, WM_CLOSE, 0, 0);
@@ -776,6 +730,21 @@ bool RunNativeLoop(const StandaloneOptions& options,
         windowOptions,
         error);
     ReleaseDesktopMouseCapture(state);
+    if (ok && !options.frameTimesPath.empty()) {
+        if (!options.frameTimesPath.parent_path().empty()) fs::create_directories(options.frameTimesPath.parent_path());
+        std::ofstream output(options.frameTimesPath);
+        output.imbue(std::locale::classic());
+        output << "interval,cpu_present_ms\n" << std::setprecision(10);
+        for (std::size_t i = 0; i < presentIntervals.size(); ++i) output << i << ',' << presentIntervals[i] << '\n';
+        output.flush();
+        if (!output) { if (error) *error = "Could not write present interval CSV"; return false; }
+    }
+    if (options.materialCalibration) {
+        const auto position = ri::math::ExtractTranslation(state.world.scene.ComputeWorldMatrix(state.world.playerCameraNode));
+        ri::core::LogInfo("Cube Test calibration final: fixed camera=(" + std::to_string(position.x)
+            + "," + std::to_string(position.y) + "," + std::to_string(position.z) + ")");
+        return ok;
+    }
     const ri::math::Vec3 finalFeet = FeetFromBounds(state.movement.body.bounds);
     ri::core::LogInfo(
         "Cube Test camera final: feet=(" + std::to_string(finalFeet.x) + ","
@@ -790,6 +759,31 @@ bool RunNativeLoop(const StandaloneOptions& options,
 bool RunStandalone(const StandaloneOptions& options,
                    const ri::core::CommandLine& commandLine,
                    std::string* error) {
+    if (!options.frameTimesPath.empty() && (options.benchmarkFrames < 2 || options.benchmarkFrames > 100000
+        || !options.nativeCapturePath.empty() || commandLine.HasFlag("--save-preview") || !options.exportGltfPath.empty())) {
+        if (error) *error = "--frame-times requires 2..100000 benchmark frames without capture/export/preview";
+        return false;
+    }
+    if (!options.nativeCapturePath.empty()
+        && (options.nativeCapturePath.extension() != ".bmp" || commandLine.HasFlag("--save-preview")
+            || commandLine.HasFlag("--save-jiggle-preview") || options.jigglePreviewFrames > 0
+            || !options.exportGltfPath.empty())) {
+        if (error) *error = "Native GPU capture requires a .bmp path and cannot be combined with software preview or glTF export.";
+        return false;
+    }
+    if (options.materialCalibration && (options.cookedTextureDemo || options.jiggleTest || options.jigglePreviewFrames > 0
+            || commandLine.HasFlag("--save-jiggle-preview") || options.extendedPostProcess
+            || options.startRoom != "baseline"
+            || commandLine.GetValue("--net-mode").value_or("offline") != "offline")) {
+        if (error) *error = "Material calibration requires a static offline scene; omit cooked-texture-demo, jiggle, extended-post, start-room and network modes.";
+        return false;
+    }
+    if (std::none_of(CubeTestRoomGuides().begin(), CubeTestRoomGuides().end(), [&](const auto& room) {
+            return room.id == options.startRoom;
+        })) {
+        if (error) *error = "Unknown Cube Test start room: " + options.startRoom + "; use --gallery-help for valid room IDs.";
+        return false;
+    }
     fs::path executablePath{};
 #if defined(_WIN32)
     wchar_t moduleWide[MAX_PATH]{};
@@ -807,9 +801,48 @@ bool RunStandalone(const StandaloneOptions& options,
             }
         }
     }
+    workspaceRoot = fs::absolute(workspaceRoot).lexically_normal();
     const fs::path textureRoot = ri::content::PickEngineTexturesDirectory(workspaceRoot, executablePath);
     const std::shared_ptr<const ri::content::CookedTexturePack> cookedTexturePack =
-        TryMountRawIronX32(workspaceRoot, textureRoot);
+        options.cookedTextureDemo ? TryMountRawIronX32(workspaceRoot, textureRoot) : nullptr;
+    if (!options.materialCalibration) {
+        const auto referenceRoot = workspaceRoot / "Games/CubeTest/assets/reference/threejs-r185";
+        // Check accepted fixtures before model import can omit a failed subtree. No alternate
+        // extensions, procedural replacements, or external checkout are permitted in this lane.
+        for (const char* relative : {"textures/hardwood2_diffuse.jpg", "textures/uv_grid_opengl.jpg",
+                "textures/sprite.png", "textures/NormalMapOpenGL.png", "textures/NormalMapDirectX.png",
+                "models/gltf/LeePerrySmith/Map-COL.jpg", "models/gltf/LeePerrySmith/Map-SPEC.jpg",
+                "models/gltf/LeePerrySmith/Infinite-Level_02_Tangent_SmoothUV.jpg"}) {
+            const auto path = referenceRoot / relative;
+            if (!ri::render::software::LoadRgbaImageFile(path).Valid()) {
+                if (error) *error = "Cube Test fixture missing, invalid, or undecodable: " + path.string() + "; fallback forbidden";
+                return false;
+            }
+        }
+        for (const char* relative : {"models/gltf/ShaderBall.glb", "models/gltf/coffeemat.glb",
+                "models/gltf/LeePerrySmith/LeePerrySmith.glb"}) {
+            if (!fs::is_regular_file(referenceRoot / relative)) {
+                if (error) *error = "Cube Test model fixture missing: " + (referenceRoot / relative).string();
+                return false;
+            }
+        }
+    }
+    if (options.materialCalibration) {
+        for (const char* name : {"hardwood2_diffuse.jpg", "NormalMapOpenGL.png", "NormalMapDirectX.png"}) {
+            const fs::path path = workspaceRoot / "Games" / "CubeTest" / "assets" / "reference" / "threejs-r185" / "textures" / name;
+            const auto image = ri::render::software::LoadRgbaImageFile(path);
+            if (!image.Valid()) {
+                if (error) *error = "Calibration texture missing, invalid, or undecodable: " + path.string();
+                return false;
+            }
+            ri::core::LogInfo("Calibration texture: " + path.string() + " | "
+                + std::to_string(image.width) + "x" + std::to_string(image.height) + " | "
+                + (std::string_view(name) == "hardwood2_diffuse.jpg" ? "sRGB albedo" : "linear normal data"));
+        }
+        ri::core::LogInfo("Material calibration: static camera; white directional light; exposure/contrast/saturation=1; fog=0; ambient=0.12; "
+            + std::string(options.hybridHdr ? "hybrid HDR (experimental)" : "direct native Vulkan")
+            + "; software --save-preview is not GPU evidence.");
+    }
 
     const std::optional<ri::content::GameManifest> manifest =
         ResolveStandaloneGameManifest(options, workspaceRoot);
@@ -845,9 +878,17 @@ bool RunStandalone(const StandaloneOptions& options,
         ri::content::LoadGameRuntimeSupportData(manifest->rootPath));
     ri::games::LogGameRuntimeSupportSummary(*supportService);
 
-    CubeTestWorld previewWorld = BuildCubeTestWorld("Cube Test", workspaceRoot);
+    CubeTestWorld previewWorld = options.materialCalibration ? BuildCubeTestCalibrationWorld(workspaceRoot, options.normalComparison)
+        : BuildCubeTestWorld("Cube Test", workspaceRoot);
     if (cookedTexturePack) {
         ConfigureCookedTextureCube(previewWorld, CubeTestCookedTextureSequence());
+    }
+    for (const auto& entry : ri::render::software::AuditSceneTextures(previewWorld.scene, textureRoot, cookedTexturePack)) {
+        ri::core::LogInfo(ri::render::software::DescribeSceneTexture(entry));
+        if (!entry.error.empty()) {
+            if (error) *error = ri::render::software::DescribeSceneTexture(entry);
+            return false;
+        }
     }
     const std::string hiddenPreviewNode =
         commandLine.GetValue("--preview-hide-node").value_or(std::string{});

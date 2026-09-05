@@ -45,12 +45,14 @@ endif()
 
 add_library(RawIron.XR.OpenXR
   src/OpenXrRuntime.cpp
+  src/HardwareSceneBuilder.cpp
 )
 add_library(RawIron::XrOpenXR ALIAS RawIron.XR.OpenXR)
 
 target_include_directories(RawIron.XR.OpenXR PUBLIC include)
 target_link_libraries(RawIron.XR.OpenXR
   PUBLIC RawIron::Core
+  PRIVATE RawIron::RenderSoftware
   PRIVATE OpenXR::openxr_loader Vulkan::Vulkan
 )
 target_compile_features(RawIron.XR.OpenXR PUBLIC cxx_std_20)
@@ -66,6 +68,6 @@ endif()
 
 if(RAWIRON_BUILD_TESTS)
   add_executable(OpenXrRuntimeSmoke tests/OpenXrRuntimeSmoke.cpp)
-  target_link_libraries(OpenXrRuntimeSmoke PRIVATE RawIron::XrOpenXR)
+  target_link_libraries(OpenXrRuntimeSmoke PRIVATE RawIron::XrOpenXR RawIron::SceneUtilities)
   add_test(NAME RawIron.XR.OpenXR.RuntimeSmoke COMMAND OpenXrRuntimeSmoke)
 endif()

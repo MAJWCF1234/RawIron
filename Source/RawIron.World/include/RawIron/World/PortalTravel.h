@@ -18,6 +18,9 @@ struct PortalTravelVolume {
     float reentryCooldownSeconds = 0.35f;
     bool preserveVelocity = false;
     bool enabled = true;
+    /// Authored destination/label for UI and tools; travel uses the pose above.
+    std::string destinationId{};
+    std::string label{};
 };
 
 struct PortalTravelerState {

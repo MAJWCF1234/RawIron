@@ -38,6 +38,9 @@ struct StructuralPrimitivePreset {
     float bevelRadius = 0.08f;
     int bevelSegments = 3;
     bool centerColumn = true;
+    bool closedProfile = true;
+    bool closedPath = false;
+    bool capEnds = true;
 };
 
 /// Curated structural primitive presets (editor + game assembly).
@@ -91,6 +94,10 @@ inline constexpr auto kStructuralPrimitivePresets = std::to_array<StructuralPrim
     {.label = "k_brace_lattice", .structuralType = "lattice_volume", .radialSegments = 3, .sides = 3, .detail = 3, .cellsX = 3, .cellsY = 3, .cellsZ = 3, .strutRadius = 0.024f, .latticeStyle = "k_brace"},
     {.label = "spline_sweep", .structuralType = "spline_sweep", .thickness = 0.045f},
     {.label = "revolve", .structuralType = "revolve", .radialSegments = 24, .sweepDegrees = 360.0f},
+    {.label = "revolve_open", .structuralType = "revolve", .radialSegments = 64, .closedProfile = false},
+    {.label = "spline_loop", .structuralType = "spline_sweep", .sides = 24, .thickness = 0.045f, .closedPath = true},
+    {.label = "mobius", .structuralType = "mobius", .radialSegments = 96, .sides = 16, .thickness = 0.12f},
+    {.label = "parametric_patch", .structuralType = "parametric_patch", .cellsX = 32, .cellsY = 32, .depth = 0.4f},
     {.label = "loft_primitive", .structuralType = "loft_primitive"},
     {.label = "spline_ribbon", .structuralType = "spline_ribbon", .thickness = 0.08f},
     {.label = "catenary", .structuralType = "catenary_primitive", .radialSegments = 20, .thickness = 0.025f, .depth = 0.28f},

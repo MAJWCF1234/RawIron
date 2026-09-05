@@ -46,6 +46,9 @@ InteractivePropStepReport StepInteractivePropField(
     const InteractivePropFieldOptions& options) {
     InteractivePropStepReport report{};
     if (!std::isfinite(deltaSeconds) || deltaSeconds <= 0.0f
+        || !std::isfinite(options.maximumStepSeconds)
+        || !std::isfinite(options.linearDampingPerSecond) || !std::isfinite(options.restitution)
+        || !IsFinite(options.gravity) || !IsFinite(options.bounds.min) || !IsFinite(options.bounds.max)
         || ri::spatial::IsEmpty(options.bounds)) return report;
     const float maxStep = std::clamp(options.maximumStepSeconds, 1.0f / 1000.0f, 0.1f);
     const std::uint32_t maxSubsteps = std::clamp(options.maximumSubsteps, 1U, 64U);
@@ -65,7 +68,8 @@ InteractivePropStepReport StepInteractivePropField(
                 prop.velocity = {};
                 continue;
             }
-            if (prop.grabbed || !IsFinite(prop.position) || !IsFinite(prop.velocity)) continue;
+            if (prop.grabbed || !IsFinite(prop.position) || !IsFinite(prop.velocity)
+                || !IsFinite(prop.halfExtents)) continue;
             prop.velocity = (prop.velocity + options.gravity * step) * damping;
             prop.position = prop.position + prop.velocity * step;
             float* positions[]{&prop.position.x, &prop.position.y, &prop.position.z};
@@ -76,6 +80,13 @@ InteractivePropStepReport StepInteractivePropField(
             for (int axis = 0; axis < 3; ++axis) {
                 const float minimum = minimums[axis] + std::max(extents[axis], 0.001f);
                 const float maximum = maximums[axis] - std::max(extents[axis], 0.001f);
+                if (minimum > maximum) {
+                    // A prop larger than the field cannot fit on this axis. Keep it centered
+                    // instead of passing reversed bounds to std::clamp.
+                    *positions[axis] = minimums[axis] * 0.5f + maximums[axis] * 0.5f;
+                    *velocities[axis] = 0.0f;
+                    continue;
+                }
                 if (*positions[axis] < minimum || *positions[axis] > maximum) {
                     const float impactSpeed = std::fabs(*velocities[axis]);
                     *positions[axis] = std::clamp(*positions[axis], minimum, maximum);
@@ -140,8 +151,10 @@ InteractivePropSelection SelectInteractiveProp(
     const ri::math::Vec3& rayDirection,
     const float maximumDistance) {
     InteractivePropSelection selection{};
+    const float directionLengthSquared = ri::math::LengthSquared(rayDirection);
     if (!IsFinite(rayOrigin) || !IsFinite(rayDirection) || !std::isfinite(maximumDistance)
-        || maximumDistance <= 0.0f || ri::math::LengthSquared(rayDirection) <= 1.0e-10f) return selection;
+        || maximumDistance <= 0.0f || !std::isfinite(directionLengthSquared)
+        || directionLengthSquared <= 1.0e-10f) return selection;
     const ri::math::Vec3 direction = ri::math::Normalize(rayDirection);
     float nearest = maximumDistance;
     for (std::size_t index = 0; index < props.size(); ++index) {
@@ -200,11 +213,12 @@ InteractivePropEmissionResult EmitInteractiveProp(
     const std::span<InteractivePropState> props,
     const InteractivePropEmission& emission) {
     InteractivePropEmissionResult result{};
+    const float directionLengthSquared = ri::math::LengthSquared(emission.direction);
     if (!IsFinite(emission.position) || !IsFinite(emission.direction)
         || !IsFinite(emission.angularVelocityDegrees) || !std::isfinite(emission.speed)
         || !std::isfinite(emission.lifetimeSeconds)
         || emission.speed < 0.0f || emission.lifetimeSeconds < 0.0f
-        || ri::math::LengthSquared(emission.direction) <= 1.0e-10f) return result;
+        || !std::isfinite(directionLengthSquared) || directionLengthSquared <= 1.0e-10f) return result;
     for (std::size_t index = 0; index < props.size(); ++index) {
         if (!props[index].active) {
             result.propIndex = static_cast<int>(index);

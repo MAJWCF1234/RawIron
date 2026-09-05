@@ -1,6 +1,8 @@
 #pragma once
 
 #include "RawIron/Math/Vec3.h"
+#include "RawIron/Math/Vec2.h"
+#include "RawIron/Math/Mat4.h"
 
 #include <optional>
 #include <string_view>
@@ -35,6 +37,9 @@ struct CompiledMesh {
     bool hasBounds = false;
     ri::math::Vec3 boundsMin{};
     ri::math::Vec3 boundsMax{};
+    /// Optional authored surface UVs, parallel to triangle-soup positions. Empty
+    /// on CSG-generated surfaces, which use the scene adapter's planar projection.
+    std::vector<ri::math::Vec2> texCoords;
 };
 
 struct ConvexPolygonClipResult {
@@ -72,6 +77,9 @@ struct ConvexSolidClipResult {
 /// Empty inputs yield an empty mesh; a single non-empty input is returned verbatim. Mismatched
 /// `positions.size()` vs `normals.size()` per input is treated as malformed and skipped.
 [[nodiscard]] CompiledMesh MergeCompiledMeshes(const std::vector<CompiledMesh>& meshes);
+/// Preserves authored UVs and smooth normals, recomputes bounds, and reverses
+/// triangle corner order for reflections so outward normals and winding agree.
+[[nodiscard]] CompiledMesh TransformCompiledMesh(const CompiledMesh& mesh, const ri::math::Mat4& matrix);
 /// Stabilizes mesh-derived plane soups before CSG (duplicate / opposite-facing planes within epsilon).
 [[nodiscard]] std::vector<Plane> DedupeConvexPlanes(const std::vector<Plane>& planes, float epsilon = 1e-4f);
 

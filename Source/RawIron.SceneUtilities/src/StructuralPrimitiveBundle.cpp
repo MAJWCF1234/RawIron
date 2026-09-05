@@ -98,6 +98,10 @@ void ApplyNonDefaultOverrides(ri::structural::StructuralPrimitiveOptions& target
     if (overrides.bevelRadius != defaults.bevelRadius) target.bevelRadius = overrides.bevelRadius;
     if (overrides.bevelSegments != defaults.bevelSegments) target.bevelSegments = overrides.bevelSegments;
     if (overrides.centerColumn != defaults.centerColumn) target.centerColumn = overrides.centerColumn;
+    if (overrides.closedProfile != defaults.closedProfile) target.closedProfile = overrides.closedProfile;
+    if (overrides.closedPath != defaults.closedPath) target.closedPath = overrides.closedPath;
+    if (overrides.capEnds != defaults.capEnds) target.capEnds = overrides.capEnds;
+    if (overrides.pathSegments != defaults.pathSegments) target.pathSegments = overrides.pathSegments;
     if (overrides.archStyle != defaults.archStyle) target.archStyle = overrides.archStyle;
     if (overrides.latticeStyle != defaults.latticeStyle) target.latticeStyle = overrides.latticeStyle;
     if (!overrides.points.empty()) target.points = overrides.points;
@@ -156,7 +160,7 @@ StructuralPrimitiveBundleResult SpawnStructuralPrimitiveBundle(Scene& scene,
     brush.roughness = params.material.roughness;
     brush.opacity = params.material.opacity;
     brush.alphaCutoff = params.material.alphaCutoff;
-    brush.doubleSided = params.material.doubleSided;
+    brush.doubleSided = params.material.doubleSided || structuralType == "mobius";
     brush.transparent = params.material.transparent;
     brush.additiveBlend = params.material.additiveBlend;
 

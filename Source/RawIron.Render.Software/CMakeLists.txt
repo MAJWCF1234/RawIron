@@ -1,5 +1,6 @@
 add_library(RawIron.Render.Software
   src/PreviewTexture.cpp
+  src/SceneTextureAudit.cpp
   src/RgbaImagePathCache.cpp
   src/ScenePreview.cpp
   src/ScenePreviewPlacement.cpp
@@ -14,7 +15,7 @@ target_include_directories(RawIron.Render.Software
   PUBLIC
     include
   PRIVATE
-    third_party
+    "${PROJECT_SOURCE_DIR}/ThirdParty"
 )
 
 target_link_libraries(RawIron.Render.Software

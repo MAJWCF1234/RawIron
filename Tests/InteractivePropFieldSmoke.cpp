@@ -1,9 +1,11 @@
 #include "RawIron/World/InteractivePropField.h"
 #include "RawIron/World/InteractivePropReplication.h"
+#include "RawIron/World/InteractivePropGrab.h"
 
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -19,6 +21,54 @@ int main() {
         .position = {0.0f, 1.0f, 0.0f},
         .halfExtents = {0.1f, 0.1f, 0.1f}}};
     bool ok = true;
+    {
+        auto invalidProps = props;
+        ri::world::InteractivePropFieldOptions invalidOptions;
+        invalidOptions.maximumStepSeconds = std::numeric_limits<float>::quiet_NaN();
+        const auto rejected = ri::world::StepInteractivePropField(invalidProps, .016f, invalidOptions);
+        ok &= Require(rejected.substeps == 0 && invalidProps[0].ageSeconds == 0,
+                      "non-finite step options must be rejected without mutating props");
+        invalidOptions = {};
+        invalidProps[0].halfExtents = {10, 10, 10};
+        (void)ri::world::StepInteractivePropField(invalidProps, .016f, invalidOptions);
+        ok &= Require(invalidProps[0].position.x == 0 && invalidProps[0].position.y == 1.5f
+                      && invalidProps[0].position.z == 0 && ri::math::LengthSquared(invalidProps[0].velocity) == 0,
+                      "props larger than the field must be centered without reversed clamp bounds");
+    }
+    const ri::math::Vec3 oversizedDirection{std::numeric_limits<float>::max(), 0, 0};
+    ok &= Require(ri::world::SelectInteractiveProp(props, props[0].position, oversizedDirection, 5).propIndex < 0,
+                  "overflowing ray direction must not select a prop containing the origin");
+    {
+        auto invalidPool = props;
+        invalidPool[0].active = false;
+        const auto rejected = ri::world::EmitInteractiveProp(invalidPool,
+            {.direction = oversizedDirection, .speed = 4});
+        ok &= Require(rejected.propIndex < 0 && !invalidPool[0].active,
+                      "overflowing emission direction must not consume a pool slot");
+    }
+    {
+        auto grabbedProps = props;
+        ri::world::InteractivePropGrab desktop, headset;
+        ok &= Require(ri::world::BeginRayPropGrab(desktop, grabbedProps, 100U, {0,1,-2}, {0,0,1}), "desktop ray grab");
+        ok &= Require(!ri::world::BeginRayPropGrab(headset, grabbedProps, 1U, {0,1,-2}, {0,0,1}), "headset cannot steal desktop ownership");
+        ok &= Require(ri::world::UpdateRayPropGrab(desktop, grabbedProps, {0,1,-2}, {0,0,1}, .016f), "grab first sample");
+        ok &= Require(ri::world::UpdateRayPropGrab(desktop, grabbedProps, {10,1,-2}, {0,0,1}, .016f), "grab moved sample");
+        ri::world::ReleaseRayPropGrab(desktop, grabbedProps);
+        ok &= Require(std::abs(ri::math::Length(grabbedProps[0].velocity)-12.0f)<.001f && !grabbedProps[0].grabbed,
+            "throw velocity bounded to 12 m/s");
+        grabbedProps = props;
+        ok &= Require(ri::world::BeginRayPropGrab(headset, grabbedProps, 1U, {0,1,-2}, {0,0,1}), "headset uses same grab implementation");
+        (void)ri::world::UpdateRayPropGrab(headset, grabbedProps, {0,1,-2}, {0,0,1}, .016f);
+        (void)ri::world::UpdateRayPropGrab(headset, grabbedProps, {1,1,-2}, {0,0,1}, .016f);
+        ri::world::ReleaseRayPropGrab(headset, grabbedProps, false);
+        ok &= Require(ri::math::LengthSquared(grabbedProps[0].velocity)==0 && grabbedProps[0].owner==0,
+            "focus/tracking loss releases without throwing");
+        grabbedProps = props;
+        (void)ri::world::BeginRayPropGrab(headset, grabbedProps, 1U, {0,1,-2}, {0,0,1});
+        ok &= Require(!ri::world::UpdateRayPropGrab(headset, grabbedProps,
+            {std::numeric_limits<float>::quiet_NaN(),0,0}, {0,0,1}, .016f) && !grabbedProps[0].grabbed,
+            "non-finite tracking releases safely");
+    }
     const ri::world::InteractivePropSelection hit = ri::world::SelectInteractiveProp(
         props, {0.0f, 1.0f, -2.0f}, {0.0f, 0.0f, 1.0f}, 5.0f);
     ok &= Require(hit.propIndex == 0 && hit.distance > 1.8f && hit.distance < 2.0f,

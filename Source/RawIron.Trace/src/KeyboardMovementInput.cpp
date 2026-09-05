@@ -22,21 +22,32 @@ MovementInput BuildKeyboardMovementInput(const ri::core::KeyboardFocusGate& focu
                                          const float yawDegrees,
                                          KeyboardMovementEdges& edges,
                                          const KeyboardMovementBindings& bindings) {
+    return BuildKeyboardMovementInput(KeyboardMovementSample{
+        .focused = focus.Focused(),
+        .forward = focus.IsKeyDown(bindings.forward), .back = focus.IsKeyDown(bindings.back),
+        .right = focus.IsKeyDown(bindings.right), .left = focus.IsKeyDown(bindings.left),
+        .jump = focus.IsKeyDownSettled(bindings.jump), .sprint = focus.IsKeyDown(bindings.sprint)}, yawDegrees, edges);
+}
+
+MovementInput BuildKeyboardMovementInput(const KeyboardMovementSample& sampled,
+    const float yawDegrees, KeyboardMovementEdges& edges) {
+    const auto sample = sampled.focused ? sampled : KeyboardMovementSample{};
+    if (!std::isfinite(yawDegrees)) { edges = {}; return {}; }
     const float yawRadians = ri::math::DegreesToRadians(yawDegrees);
     const ri::math::Vec3 forward{std::sin(yawRadians), 0.0f, std::cos(yawRadians)};
     const ri::math::Vec3 right =
         ri::math::Normalize(ri::math::Cross(ri::math::Vec3{0.0f, 1.0f, 0.0f}, forward));
 
-    const bool jumpHeldNow = focus.IsKeyDownSettled(bindings.jump);
+    const bool jumpHeldNow = sample.jump;
     const bool jumpPressedEdge = jumpHeldNow && !edges.jumpHeldLastFrame;
     edges.jumpHeldLastFrame = jumpHeldNow;
 
     return MovementInput{
-        .moveForward = KeyboardAxis(focus, bindings.forward, bindings.back),
-        .moveRight = KeyboardAxis(focus, bindings.right, bindings.left),
+        .moveForward = static_cast<float>(sample.forward) - static_cast<float>(sample.back),
+        .moveRight = static_cast<float>(sample.right) - static_cast<float>(sample.left),
         .viewForwardWorld = forward,
         .viewRightWorld = right,
-        .sprintHeld = focus.IsKeyDown(bindings.sprint),
+        .sprintHeld = sample.sprint,
         .jumpPressed = jumpPressedEdge,
         .applyShortJumpGravity = !jumpHeldNow,
     };

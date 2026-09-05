@@ -153,6 +153,10 @@ StructuralPrimitiveOptions BuildPrimitiveOptionsFromNode(const StructuralNode& n
         options.ridgeRatio = node.ridgeRatio;
     }
     options.centerColumn = node.centerColumn;
+    options.closedProfile = node.closedProfile;
+    options.closedPath = node.closedPath;
+    options.capEnds = node.capEnds;
+    if (node.segments > 0) options.pathSegments = node.segments;
     if (!node.archStyle.empty()) {
         options.archStyle = node.archStyle;
     }
@@ -165,35 +169,6 @@ StructuralPrimitiveOptions BuildPrimitiveOptionsFromNode(const StructuralNode& n
     return options;
 }
 
-CompiledMesh TransformCompiledMesh(const CompiledMesh& mesh, const ri::math::Mat4& matrix) {
-    CompiledMesh transformed{};
-    transformed.positions.reserve(mesh.positions.size());
-    transformed.normals.reserve(mesh.normals.size());
-    transformed.triangleCount = mesh.triangleCount;
-
-    for (const ri::math::Vec3& position : mesh.positions) {
-        const ri::math::Vec3 transformedPosition = ri::math::TransformPoint(matrix, position);
-        transformed.positions.push_back(transformedPosition);
-        if (!transformed.hasBounds) {
-            transformed.hasBounds = true;
-            transformed.boundsMin = transformedPosition;
-            transformed.boundsMax = transformedPosition;
-        } else {
-            transformed.boundsMin.x = std::min(transformed.boundsMin.x, transformedPosition.x);
-            transformed.boundsMin.y = std::min(transformed.boundsMin.y, transformedPosition.y);
-            transformed.boundsMin.z = std::min(transformed.boundsMin.z, transformedPosition.z);
-            transformed.boundsMax.x = std::max(transformed.boundsMax.x, transformedPosition.x);
-            transformed.boundsMax.y = std::max(transformed.boundsMax.y, transformedPosition.y);
-            transformed.boundsMax.z = std::max(transformed.boundsMax.z, transformedPosition.z);
-        }
-    }
-
-    for (const ri::math::Vec3& normal : mesh.normals) {
-        transformed.normals.push_back(ri::math::Normalize(ri::math::TransformVector(matrix, normal)));
-    }
-
-    return transformed;
-}
 
 ri::math::Vec3 GetSafeScale(const ri::math::Vec3& scale) {
     return {
@@ -243,24 +218,8 @@ ri::math::Mat4 CreateOrientationMatrixFromForward(const ri::math::Vec3& forwardV
 }
 
 CompiledMesh CreateLocalMeshFromNode(const CompiledGeometryNode& node) {
-    if (node.compiledMesh.positions.empty()) {
-        return {};
-    }
-
-    const ri::math::Mat4 inverse = CreateInverseNodeTransformMatrix(node.node);
-    std::vector<ri::math::Vec3> positions;
-    std::vector<ri::math::Vec3> normals;
-    positions.reserve(node.compiledMesh.positions.size());
-    normals.reserve(node.compiledMesh.normals.size());
-
-    for (const ri::math::Vec3& position : node.compiledMesh.positions) {
-        positions.push_back(ri::math::TransformPoint(inverse, position));
-    }
-    for (const ri::math::Vec3& normal : node.compiledMesh.normals) {
-        normals.push_back(ri::math::Normalize(ri::math::TransformVector(inverse, normal)));
-    }
-
-    return BuildCompiledMeshFromTriangles(positions, normals);
+    if (!node.compiledWorldSpace) return node.compiledMesh;
+    return TransformCompiledMesh(node.compiledMesh, CreateInverseNodeTransformMatrix(node.node));
 }
 
 ri::math::Vec3 SampleCatmullRomPoint(const std::vector<ri::math::Vec3>& points, float t) {
@@ -423,6 +382,9 @@ CompiledMesh ApplyTerrainHoleCutoutToMesh(const CompiledMesh& mesh, const Struct
     std::vector<ri::math::Vec3> keptNormals;
     keptPositions.reserve(mesh.positions.size());
     keptNormals.reserve(mesh.normals.size());
+    std::vector<ri::math::Vec2> keptTexCoords;
+    const bool hasUvs=mesh.texCoords.size()==mesh.positions.size();
+    if (hasUvs) keptTexCoords.reserve(mesh.texCoords.size());
 
     for (std::size_t index = 0; index + 2 < mesh.positions.size(); index += 3U) {
         const ri::math::Vec3& a = mesh.positions[index];
@@ -436,6 +398,7 @@ CompiledMesh ApplyTerrainHoleCutoutToMesh(const CompiledMesh& mesh, const Struct
         keptPositions.push_back(a);
         keptPositions.push_back(b);
         keptPositions.push_back(c);
+        if (hasUvs) keptTexCoords.insert(keptTexCoords.end(),mesh.texCoords.begin()+index,mesh.texCoords.begin()+index+3);
 
         if (mesh.normals.size() == mesh.positions.size()) {
             keptNormals.push_back(mesh.normals[index]);
@@ -451,7 +414,9 @@ CompiledMesh ApplyTerrainHoleCutoutToMesh(const CompiledMesh& mesh, const Struct
         }
     }
 
-    return BuildCompiledMeshFromTriangles(keptPositions, keptNormals);
+    auto result=BuildCompiledMeshFromTriangles(keptPositions, keptNormals);
+    result.texCoords=std::move(keptTexCoords);
+    return result;
 }
 
 std::vector<CompiledGeometryNode> BuildSurfaceScatterCompiledNodes(

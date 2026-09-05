@@ -1,6 +1,7 @@
 #include "RawIron/Scene/GltfLoader.h"
 
 #include "RawIron/Math/Mat4.h"
+#include "RawIron/Core/Log.h"
 
 #include <cgltf.h>
 #include <meshoptimizer.h>
@@ -384,6 +385,32 @@ Material MaterialFromGltf(const cgltf_material* material,
     if (material->name != nullptr && material->name[0] != '\0') {
         materialName = material->name;
     }
+    const auto reportUnsupportedSlot = [&](const char* slot, const cgltf_texture_view& view,
+                                            const std::string& resolved, const char* colorSpace) {
+        if (view.texture == nullptr || !resolved.empty()) return;
+        const auto* sampler = view.texture->sampler;
+        ri::core::LogInfo("glTF material fallback: material=" + materialName + " slot=" + slot
+            + " colorSpace=" + colorSpace + " sourceDirectory=" + sourceDirectory.generic_string()
+            + " sampler.min=" + std::to_string(sampler ? sampler->min_filter : 0)
+            + " sampler.mag=" + std::to_string(sampler ? sampler->mag_filter : 0)
+            + " sampler.wrapS=" + std::to_string(sampler ? sampler->wrap_s : 10497)
+            + " sampler.wrapT=" + std::to_string(sampler ? sampler->wrap_t : 10497)
+            + " reason=unsupported image source; see glTF texture fallback blob record");
+    };
+    reportUnsupportedSlot("albedo", material->pbr_metallic_roughness.base_color_texture, baseColorTexture, "sRGB");
+    reportUnsupportedSlot("orm", material->pbr_metallic_roughness.metallic_roughness_texture, ormTexture, "linear");
+    reportUnsupportedSlot("normal", material->normal_texture, normalTexture, "linear");
+    reportUnsupportedSlot("emissive", material->emissive_texture, emissiveTexture, "sRGB");
+    reportUnsupportedSlot("occlusion", material->occlusion_texture, occlusionTexture, "linear");
+    // Keep geometry inspection available, but never disguise an unsupported authored
+    // base-color image (e.g. embedded KTX2/BasisU) as an ordinary white material.
+    if (material->has_pbr_metallic_roughness
+        && material->pbr_metallic_roughness.base_color_texture.texture != nullptr && baseColorTexture.empty()) {
+        baseColor = {1.0f, 0.0f, 1.0f};
+        metallic = 0.0f;
+        roughness = 1.0f;
+        materialName += " [UNSUPPORTED TEXTURE]";
+    }
 
     return Material{
         .name = std::move(materialName),
@@ -582,6 +609,24 @@ int ImportGltfToScene(Scene& targetScene,
     if (!DecodeMeshoptBufferViews(*data, error)) {
         cgltf_free(data);
         return kInvalidHandle;
+    }
+
+    // Embedded/extension image payloads are not supported by this URI-only importer.
+    // Identify every source blob rather than silently dropping material dependencies.
+    for (cgltf_size index = 0; index < data->textures_count; ++index) {
+        const auto& texture = data->textures[index];
+        const auto* image = texture.image ? texture.image : texture.basisu_image;
+        if (image == nullptr) image = texture.webp_image;
+        if (image == nullptr || (image->uri != nullptr && image->uri[0] != '\0')) continue;
+        const auto* view = image->buffer_view;
+        ri::core::LogInfo("glTF texture fallback: source=" + path.generic_string()
+            + "#image=" + std::to_string(image - data->images)
+            + " texture=" + std::to_string(index)
+            + " byteOffset=" + std::to_string(view ? view->offset : 0)
+            + " byteLength=" + std::to_string(view ? view->size : 0)
+            + " format=" + std::string(image->mime_type ? image->mime_type : "unknown")
+            + " dimensions=unavailable colorSpace=slot-dependent sampler=not-created"
+              " reason=unsupported embedded/extension image; base-color marker=magenta, data slots=scalar defaults");
     }
 
     const cgltf_scene* gltfScene = nullptr;

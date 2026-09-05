@@ -5,7 +5,7 @@ RawIron package files use `.ripak`, a ZIP-compatible container with a RawIron ex
 `ri_tool` now reads and extracts `.ripak` itself. Its bounded classic-ZIP parser is in
 `Tools/ri_tool/src/SecureRipakArchive.cpp`; raw DEFLATE decoding reuses the pinned
 public-domain/MIT `stb_image` implementation already vendored under
-`Source/RawIron.Render.Software/third_party/stb`. No extractor or dependency is fetched
+`ThirdParty/stb`. No extractor or dependency is fetched
 at runtime. Windows package creation still invokes PowerShell `Compress-Archive`; archive
 creation is not an untrusted-input boundary, but it remains a portability item.
 

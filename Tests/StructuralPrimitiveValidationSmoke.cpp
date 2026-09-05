@@ -5,6 +5,32 @@
 #include <limits>
 
 int main() {
+    // Enhanced surfaces use the same canonical primitive API and diagnostics.
+    for (const auto type : {"spline_sweep","torus","mobius","parametric_patch"}) {
+        const auto report=ri::structural::ValidateStructuralPrimitive(type);
+        const auto mesh=ri::structural::BuildPrimitiveMesh(type);
+        if (!report.valid || report.convexSolidSupported || mesh.positions.empty()
+            || mesh.texCoords.size()!=mesh.positions.size() || !mesh.hasBounds) return EXIT_FAILURE;
+        for (std::size_t i=0;i<mesh.positions.size();i+=3) {
+            const auto face=ri::math::Cross(mesh.positions[i+1]-mesh.positions[i],mesh.positions[i+2]-mesh.positions[i]);
+            if (ri::math::Dot(face,mesh.normals[i]+mesh.normals[i+1]+mesh.normals[i+2])<=0) return EXIT_FAILURE;
+        }
+    }
+    ri::structural::StructuralPrimitiveOptions patch;
+    patch.cellsX=2; patch.cellsY=2;
+    for (int x=0;x<3;++x) for (int y=0;y<3;++y) patch.vertices.push_back({float(x),0,-float(y)});
+    const auto lattice=ri::structural::BuildPrimitiveMesh("parametric_patch",patch);
+    if (lattice.triangleCount!=8 || lattice.boundsMax.x!=2 || lattice.boundsMin.z!=-2) return EXIT_FAILURE;
+    patch.vertices.pop_back();
+    if (ri::structural::ValidateStructuralPrimitive("parametric_patch",patch).valid) return EXIT_FAILURE;
+    ri::structural::StructuralPrimitiveOptions openProfile;
+    openProfile.closedProfile=false; openProfile.points={{.5f,0,0},{.6f,1,0}};
+    if (!ri::structural::ValidateStructuralPrimitive("revolve",openProfile).valid) return EXIT_FAILURE;
+    openProfile.points[1].y=0;
+    if (ri::structural::ValidateStructuralPrimitive("revolve",openProfile).valid) return EXIT_FAILURE;
+    ri::structural::StructuralPrimitiveOptions badSweep;
+    badSweep.points={{0,0,0},{0,0,0}};
+    if (ri::structural::ValidateStructuralPrimitive("spline_sweep",badSweep).valid) return EXIT_FAILURE;
     if (!ri::structural::IsNativeStructuralPrimitive(" Rounded_Box ")) {
         return EXIT_FAILURE;
     }

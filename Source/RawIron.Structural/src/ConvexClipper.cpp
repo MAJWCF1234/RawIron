@@ -326,6 +326,7 @@ CompiledMesh BuildCompiledMeshFromConvexSolid(const ConvexSolid& solid) {
 CompiledMesh MergeCompiledMeshes(const std::vector<CompiledMesh>& meshes) {
     CompiledMesh out{};
     std::size_t totalPositions = 0;
+    bool completeUvs = true;
     std::size_t totalTriangles = 0;
     for (const CompiledMesh& part : meshes) {
         if (part.positions.size() != part.normals.size()) {
@@ -334,6 +335,7 @@ CompiledMesh MergeCompiledMeshes(const std::vector<CompiledMesh>& meshes) {
         if (part.positions.size() < 3 || (part.positions.size() % 3) != 0) {
             continue;
         }
+        completeUvs = completeUvs && part.texCoords.size()==part.positions.size();
         totalPositions += part.positions.size();
         totalTriangles += part.triangleCount;
     }
@@ -342,11 +344,13 @@ CompiledMesh MergeCompiledMeshes(const std::vector<CompiledMesh>& meshes) {
     }
     out.positions.reserve(totalPositions);
     out.normals.reserve(totalPositions);
+    if (completeUvs) out.texCoords.reserve(totalPositions);
     for (const CompiledMesh& part : meshes) {
         if (part.positions.size() != part.normals.size()) continue;
         if (part.positions.size() < 3 || (part.positions.size() % 3) != 0) continue;
         out.positions.insert(out.positions.end(), part.positions.begin(), part.positions.end());
         out.normals.insert(out.normals.end(), part.normals.begin(), part.normals.end());
+        if (completeUvs) out.texCoords.insert(out.texCoords.end(),part.texCoords.begin(),part.texCoords.end());
         if (!part.hasBounds) continue;
         if (!out.hasBounds) {
             out.boundsMin = part.boundsMin;
@@ -363,6 +367,31 @@ CompiledMesh MergeCompiledMeshes(const std::vector<CompiledMesh>& meshes) {
     }
     out.triangleCount = totalTriangles;
     return out;
+}
+
+CompiledMesh TransformCompiledMesh(const CompiledMesh& mesh, const ri::math::Mat4& matrix) {
+    CompiledMesh transformed = mesh;
+    transformed.hasBounds = false;
+    const ri::math::NormalTransform normalTransform(matrix);
+    for (auto& position : transformed.positions) {
+        position = ri::math::TransformPoint(matrix,position);
+        if (!transformed.hasBounds) {
+            transformed.boundsMin = transformed.boundsMax = position;
+            transformed.hasBounds = true;
+        } else {
+            transformed.boundsMin = {std::min(transformed.boundsMin.x,position.x),std::min(transformed.boundsMin.y,position.y),std::min(transformed.boundsMin.z,position.z)};
+            transformed.boundsMax = {std::max(transformed.boundsMax.x,position.x),std::max(transformed.boundsMax.y,position.y),std::max(transformed.boundsMax.z,position.z)};
+        }
+    }
+    for (auto& normal : transformed.normals) normal = normalTransform.Apply(normal);
+    if (ri::math::LinearDeterminant(matrix) < 0) {
+        for (std::size_t i=0; i+2<transformed.positions.size(); i+=3) {
+            std::swap(transformed.positions[i+1],transformed.positions[i+2]);
+            if (transformed.normals.size()==transformed.positions.size()) std::swap(transformed.normals[i+1],transformed.normals[i+2]);
+            if (transformed.texCoords.size()==transformed.positions.size()) std::swap(transformed.texCoords[i+1],transformed.texCoords[i+2]);
+        }
+    }
+    return transformed;
 }
 
 } // namespace ri::structural

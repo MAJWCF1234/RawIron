@@ -6,6 +6,7 @@ add_library(RawIron.Runtime
   src/ExperiencePresets.cpp
   src/HostChrome.cpp
   src/HostInputService.cpp
+  src/DesktopMouseLook.cpp
   src/JobSystemService.cpp
   src/LagCompensation.cpp
   src/LatencyTools.cpp

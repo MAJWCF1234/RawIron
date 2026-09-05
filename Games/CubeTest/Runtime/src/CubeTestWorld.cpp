@@ -1,4 +1,7 @@
 #include "RawIron/Games/CubeTest/CubeTestWorld.h"
+#include "RawIron/Scene/MaterialCalibration.h"
+#include "RawIron/Games/CubeTest/CubeTestGallery.h"
+#include "RawIron/Scene/StructuralPrimitiveBundle.h"
 
 #include "RawIron/Content/GameManifest.h"
 #include "RawIron/Core/Log.h"
@@ -9,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -18,12 +22,6 @@ namespace ri::games::cubetest {
 namespace {
 
 namespace fs = std::filesystem;
-
-constexpr const char* kLrtPackageRelativePath = "Assets\\Packages\\LRT - Texture Pack - RT28.8 - 128x";
-
-std::string PackageTexture(const fs::path& workspaceRoot, const std::string_view relativePath) {
-    return (workspaceRoot / fs::path(kLrtPackageRelativePath) / fs::path(relativePath)).lexically_normal().string();
-}
 
 fs::path ThreeJsReferenceAsset(const fs::path& workspaceRoot, const fs::path& relativePath) {
     return (workspaceRoot / "Games" / "CubeTest" / "assets" / "reference" / "threejs-r185" / relativePath)
@@ -38,14 +36,12 @@ ri::scene::PrimitiveNodeOptions CubeMaterialOptions(const int parent, const fs::
     options.transform.position = {0.0f, 0.72f, 0.0f};
     options.transform.rotationDegrees = {0.0f, 28.0f, 0.0f};
     options.transform.scale = {1.2f, 1.2f, 1.2f};
-    options.materialName = "cube-test-chiseled-quartz-full-map";
+    options.materialName = "cube-test-threejs-hardwood";
     options.materialStyle = ri::scene::MaterialStyle::Standard;
-    options.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
+    options.materialWorkflow = ri::scene::MaterialWorkflow::MetalRough;
     options.baseColor = {1.0f, 1.0f, 1.0f};
-    options.baseColorTexture = PackageTexture(workspaceRoot, "tile/RT_chiseled_quartz_block.png");
-    options.normalTexture = PackageTexture(workspaceRoot, "tile/RT_chiseled_quartz_block_n.png");
-    options.ormTexture = PackageTexture(workspaceRoot, "tile/RT_chiseled_quartz_block_s.png");
-    options.detailTexture = options.baseColorTexture;
+    options.baseColorTexture = ThreeJsReferenceAsset(workspaceRoot, "textures/hardwood2_diffuse.jpg").string();
+    // Do not reinterpret unrelated bump/specular images as normal/ORM data.
     options.textureTiling = {1.0f, 1.0f};
     options.metallic = 0.02f;
     options.roughness = 0.48f;
@@ -55,12 +51,12 @@ ri::scene::PrimitiveNodeOptions CubeMaterialOptions(const int parent, const fs::
 ri::scene::PrimitiveNodeOptions MaterialSampleOptions(const int parent,
                                                       const fs::path& workspaceRoot,
                                                       const std::string_view name,
-                                                      const std::string_view textureStem,
+                                                      const ri::math::Vec3& baseTint,
                                                       const ri::math::Vec3& position,
                                                       const ri::math::Vec3& scale,
                                                       const float metallic,
                                                       const float roughness) {
-    const std::string stem(textureStem);
+    // Same upstream UV grid for each sample: only authored PBR values/tint vary.
     ri::scene::PrimitiveNodeOptions options{};
     options.nodeName = std::string(name);
     options.parent = parent;
@@ -68,14 +64,11 @@ ri::scene::PrimitiveNodeOptions MaterialSampleOptions(const int parent,
     options.transform.position = position;
     options.transform.rotationDegrees = {0.0f, -18.0f, 0.0f};
     options.transform.scale = scale;
-    options.materialName = std::string(name) + "-full-map";
+    options.materialName = std::string(name) + "-threejs-uv-grid";
     options.materialStyle = ri::scene::MaterialStyle::Standard;
-    options.materialWorkflow = ri::scene::MaterialWorkflow::SpecGloss;
-    options.baseColor = {1.0f, 1.0f, 1.0f};
-    options.baseColorTexture = PackageTexture(workspaceRoot, "tile/" + stem + ".png");
-    options.normalTexture = PackageTexture(workspaceRoot, "tile/" + stem + "_n.png");
-    options.ormTexture = PackageTexture(workspaceRoot, "tile/" + stem + "_s.png");
-    options.detailTexture = options.baseColorTexture;
+    options.materialWorkflow = ri::scene::MaterialWorkflow::MetalRough;
+    options.baseColor = baseTint;
+    options.baseColorTexture = ThreeJsReferenceAsset(workspaceRoot, "textures/uv_grid_opengl.jpg").string();
     options.textureTiling = {1.0f, 1.0f};
     options.metallic = metallic;
     options.roughness = roughness;
@@ -166,6 +159,72 @@ int AddCapabilityPlatform(ri::scene::Scene& scene,
     platform.baseColor = color;
     platform.roughness = 0.78f;
     return ri::scene::AddPrimitiveNode(scene, platform);
+}
+
+void AddGeometryExhibit(CubeTestWorld& world, const fs::path& workspaceRoot,
+                        std::string name, std::string type, const ri::structural::StructuralPrimitiveOptions& shape,
+                        ri::math::Vec3 position, ri::math::Vec3 rotation = {}, ri::math::Vec3 scale = {1,1,1}) {
+    ri::scene::StructuralPrimitiveBundleParams params;
+    params.nodeName = name;
+    params.parent = world.rootNode;
+    params.primitiveTypeField = std::move(type);
+    params.shape = shape;
+    params.transform.position = position;
+    params.transform.rotationDegrees = rotation;
+    params.transform.scale = scale;
+    params.material.materialName = name + "-UV-grid";
+    params.material.baseColorTexture = ThreeJsReferenceAsset(workspaceRoot, "textures/uv_grid_opengl.jpg").string();
+    params.material.roughness = .48f;
+    params.material.metallic = .08f;
+    params.material.doubleSided = true;
+    const int node = ri::scene::SpawnStructuralPrimitiveBundle(world.scene,params).node;
+    if (node == ri::scene::kInvalidHandle) throw std::runtime_error("Structural exhibit failed: " + name);
+    AddMarkerBox(world.scene,world.rootNode,name+"_Plinth",{position.x,.15f,position.z},
+                 {3.6f,.3f,3.6f},{.20f,.25f,.30f});
+    // Conservative exhibit collision; all gallery travel lanes remain clear.
+    if (const auto bounds = ri::scene::ComputeNodeWorldBounds(world.scene,node)) {
+        world.colliders.push_back({.id=name+"-display",.bounds={.min=bounds->min,.max=bounds->max},.structural=true,.dynamic=false,
+            .simulationTags={"exhibit","procedural"},.simulationFlags=2U});
+    }
+    world.colliders.push_back({.id=name+"-plinth",.bounds={.min={position.x-1.8f,0,position.z-1.8f},
+        .max={position.x+1.8f,.3f,position.z+1.8f}},.structural=true,.dynamic=false,
+        .simulationTags={"exhibit","plinth"},.simulationFlags=2U});
+}
+
+void AddProceduralCapabilityRooms(CubeTestWorld& world, const fs::path& workspaceRoot) {
+    // Only authoring data lives here: every exhibit goes through the existing
+    // structural primitive dispatcher, bundle, brush metadata and scene adapter.
+    ri::structural::StructuralPrimitiveOptions shape;
+    const float latheX = FindCubeTestRoom("lathe")->centerX;
+    AddCapabilityPlatform(world.scene,world.rootNode,"CubeTest_LathePlatform",latheX,{.14f,.24f,.28f});
+    shape.closedProfile = false;
+    for (int i=0;i<50;++i) shape.points.push_back({(std::sin(i*.2f)*std::sin(i*.1f)*15+50)*.024f,i*.048f,0});
+    shape.radialSegments=20;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_Lathe20","revolve",shape,{latheX-1.8f,.35f,-3});
+    shape.radialSegments=96;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_Lathe96","revolve",shape,{latheX-1.8f,.35f,3});
+    shape.radialSegments=64; shape.sweepDegrees=258;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_LatheCutaway","revolve",shape,{latheX+2.5f,.35f,3});
+
+    const float tubeX = FindCubeTestRoom("tubes")->centerX;
+    AddCapabilityPlatform(world.scene,world.rootNode,"CubeTest_TubePlatform",tubeX,{.21f,.16f,.28f});
+    shape={}; shape.pathSegments=96; shape.sides=20; shape.thickness=.18f;
+    shape.points={{-1.2f,.4f,-1},{-.7f,1.5f,.8f},{0,2.5f,0},{.8f,1.4f,-1},{1.2f,.5f,1}};
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_OpenTube","spline_sweep",shape,{tubeX-1.8f,.35f,-3});
+    shape.points={{1.25f,1.3f,0},{0,2.5f,1},{-1.25f,1.3f,0},{0,.3f,-1}};
+    shape.pathSegments=128; shape.thickness=.22f; shape.closedPath=true; shape.sides=6;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_ClosedTube6","spline_sweep",shape,{tubeX-1.8f,.35f,3});
+    shape.sides=24;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_ClosedTube24","spline_sweep",shape,{tubeX+2.5f,.35f,3});
+
+    const float surfaceX = FindCubeTestRoom("surfaces")->centerX;
+    AddCapabilityPlatform(world.scene,world.rootNode,"CubeTest_SurfacePlatform",surfaceX,{.18f,.27f,.19f});
+    shape={}; shape.radialSegments=64; shape.sides=24; shape.thickness=.124f;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_Torus","torus",shape,{surfaceX-1.8f,1.8f,-3},{52,0,0},{3.06f,3.06f,3.06f});
+    shape.radialSegments=96; shape.sides=16; shape.thickness=.137f;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_Mobius","mobius",shape,{surfaceX-1.8f,1.8f,3},{48,0,0},{3.28f,3.28f,3.28f});
+    shape={}; shape.cellsX=40; shape.cellsY=40; shape.depth=1.12f;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_Saddle","parametric_patch",shape,{surfaceX+2.5f,1.5f,3},{},{2.8f,2.8f,2.8f});
 }
 
 void AddPortalGate(ri::scene::Scene& scene,
@@ -339,9 +398,9 @@ void AddNormalsCapabilityRoom(CubeTestWorld& world, const fs::path& workspaceRoo
             .wrapperNodeName = "CubeTest_ThreeJsLeePerrySmithHead",
             .parent = world.rootNode,
             .transform = ri::scene::Transform{
-                .position = {centerX, 1.65f, 0.0f},
+                .position = {centerX, 1.65f, -5.2f},
                 .rotationDegrees = {0.0f, 180.0f, 0.0f},
-                .scale = {1.65f, 1.65f, 1.65f},
+                .scale = {0.6f, 0.6f, 0.6f},
             },
         },
         &headImportError);
@@ -356,38 +415,13 @@ void AddNormalsCapabilityRoom(CubeTestWorld& world, const fs::path& workspaceRoo
         }
     }
 
-    for (int panelIndex = 0; panelIndex < 2; ++panelIndex) {
-        ri::scene::Mesh panel = ri::scene::MakeBillboardQuadMesh(
-            panelIndex == 0 ? "CubeTest_OpenGLNormalPanelMesh" : "CubeTest_InvertedNormalPanelMesh");
-        // The geometry convention is identical for both panels. DirectX-vs-OpenGL normal
-        // interpretation belongs exclusively to Material::normalScale, not vertex winding.
-        panel.normals.assign(panel.positions.size(), ri::math::Vec3{0,0,1});
-        const int mesh = world.scene.AddMesh(std::move(panel));
-        const int material = world.scene.AddMaterial(ri::scene::Material{
-            .name = panelIndex == 0 ? "gltf-normal-positive" : "gltf-normal-inverted",
-            .baseColor = panelIndex == 0 ? ri::math::Vec3{0.28f,0.72f,1.0f} : ri::math::Vec3{1.0f,0.38f,0.52f},
-            .emissiveColor = panelIndex == 0 ? ri::math::Vec3{0.03f,0.12f,0.24f} : ri::math::Vec3{0.18f,0.03f,0.06f},
-            .metallic = 0.05f,
-            .roughness = 0.32f,
-            .doubleSided = true,
-            .normalTexture = ThreeJsReferenceAsset(
-                workspaceRoot,
-                panelIndex == 0 ? "textures/NormalMapOpenGL.png" : "textures/NormalMapDirectX.png").string(),
-            .normalScale = panelIndex == 0 ? ri::math::Vec2{0.5f, 0.5f} : ri::math::Vec2{0.5f, -0.5f},
-        });
-        const int node = world.scene.CreateNode(panelIndex == 0 ? "CubeTest_OpenGLNormalPanel" : "CubeTest_InvertedNormalPanel", world.rootNode);
-        auto& transform = world.scene.GetNode(node).localTransform;
-        transform.position = {centerX + 1.2f, 2.2f, panelIndex == 0 ? -2.5f : 2.5f};
-        transform.rotationDegrees = {0.0f, -90.0f, 0.0f};
-        transform.scale = {3.5f, 3.5f, 3.5f};
-        world.scene.AttachMesh(node, mesh, material);
-        AddMarkerBox(world.scene, world.rootNode,
-                     panelIndex == 0 ? "CubeTest_PositiveNormalVector" : "CubeTest_NegativeNormalVector",
-                     {centerX + (panelIndex == 0 ? -1.0f : 3.4f), 2.2f, panelIndex == 0 ? -2.5f : 2.5f},
-                     {4.2f, 0.08f, 0.08f},
-                     panelIndex == 0 ? ri::math::Vec3{0.20f,0.82f,1.0f} : ri::math::Vec3{1.0f,0.25f,0.36f},
-                     panelIndex == 0 ? ri::math::Vec3{0.08f,0.42f,0.72f} : ri::math::Vec3{0.62f,0.05f,0.10f});
-    }
+    const int comparison=ri::scene::AddNormalMappingComparisonPanels(world.scene, {
+        {}, ThreeJsReferenceAsset(workspaceRoot,"textures/NormalMapOpenGL.png").string(),
+        ThreeJsReferenceAsset(workspaceRoot,"textures/NormalMapDirectX.png").string()},world.rootNode);
+    auto& comparisonTransform=world.scene.GetNode(comparison).localTransform;
+    comparisonTransform.position={centerX+3.0f,3.4f,0};
+    comparisonTransform.rotationDegrees={0,90,0};
+
 }
 
 void AddExporterCapabilityRoom(CubeTestWorld& world, const fs::path& workspaceRoot) {
@@ -468,9 +502,11 @@ void AddExporterCapabilityRoom(CubeTestWorld& world, const fs::path& workspaceRo
             .wrapperNodeName = "CubeTest_ThreeJsCompressedCoffee",
             .parent = hierarchyRoot,
             .transform = ri::scene::Transform{
-                .position = {-2.7f, 1.0f, -2.5f},
+                .position = {-2.7f, 0.12f, -2.5f},
                 .rotationDegrees = {0.0f, 35.0f, 0.0f},
-                .scale = {1.1f, 1.1f, 1.1f},
+                // Source model is about 209 units tall. A ~3 m exhibit must not
+                // enclose/shadow neighboring 16 m rooms or the entire gallery.
+                .scale = {0.014f, 0.014f, 0.014f},
             },
         },
         &coffeeError);
@@ -680,7 +716,7 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName, const fs::pat
         MaterialSampleOptions(world.rootNode,
                               workspaceRoot,
                               "CubeTest_GoldSpecSample",
-                              "rt2_gold_block",
+                              {0.95f, 0.72f, 0.18f},
                               {-3.35f, 0.55f, 1.85f},
                               {0.95f, 0.95f, 0.95f},
                               0.82f,
@@ -695,7 +731,7 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName, const fs::pat
         MaterialSampleOptions(world.rootNode,
                               workspaceRoot,
                               "CubeTest_CopperNormalSample",
-                              "rt2_chiseled_copper",
+                              {0.86f, 0.42f, 0.26f},
                               {3.35f, 0.55f, 1.85f},
                               {0.95f, 0.95f, 0.95f},
                               0.64f,
@@ -710,7 +746,7 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName, const fs::pat
         MaterialSampleOptions(world.rootNode,
                               workspaceRoot,
                               "CubeTest_IronRoughnessSample",
-                              "rt2_iron_block",
+                              {0.54f, 0.59f, 0.64f},
                               {0.0f, 0.45f, 3.85f},
                               {0.78f, 0.78f, 0.78f},
                               0.72f,
@@ -726,7 +762,7 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName, const fs::pat
         MaterialSampleOptions(world.rootNode,
                               workspaceRoot,
                               "CubeTest_CrystalGlassSample",
-                              "rt2_diamond_block",
+                              {0.28f, 0.82f, 0.96f},
                               {-3.35f, 0.45f, -2.15f},
                               {0.82f, 0.82f, 0.82f},
                               0.08f,
@@ -830,27 +866,25 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName, const fs::pat
     AddProjectileCapabilityRoom(world);
     AddTeleportCapabilityRoom(world);
 
-    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_BaselineToSprites", 7.25f, {0.18f, 0.72f, 1.0f});
-    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_SpritesToBaseline", 18.75f, {0.96f, 0.48f, 0.20f});
-    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_SpritesToNormals", 33.25f, {0.62f, 0.30f, 1.0f});
-    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_NormalsToSprites", 44.75f, {0.18f, 0.72f, 1.0f});
-    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_NormalsToExporter", 59.25f, {1.0f, 0.68f, 0.18f});
-    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_ExporterToNormals", 70.75f, {0.62f, 0.30f, 1.0f});
-    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_ExporterToInteraction", 85.25f, {0.18f, 0.92f, 0.72f});
-    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_InteractionToExporter", 96.75f, {1.0f, 0.42f, 0.16f});
-    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_InteractionToProjectile", 111.25f, {0.22f, 0.72f, 1.0f});
-    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_ProjectileToInteraction", 122.75f, {1.0f, 0.32f, 0.14f});
-    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_ProjectileToTeleport", 137.25f, {0.32f, 0.84f, 1.0f});
-    AddPortalGate(world.scene, world.rootNode, "CubeTest_Portal_TeleportToProjectile", 148.75f, {0.88f, 0.28f, 1.0f});
+    AddProceduralCapabilityRooms(world, workspaceRoot);
+    const auto rooms = CubeTestRoomGuides();
+    for (std::size_t i=1; i<rooms.size(); ++i) {
+        AddPortalGate(world.scene,world.rootNode,"CubeTest_Portal_"+std::string(rooms[i-1].id)+"To"+std::string(rooms[i].id),
+                      rooms[i-1].centerX+7.25f,{.18f,.72f,1});
+        AddPortalGate(world.scene,world.rootNode,"CubeTest_Portal_"+std::string(rooms[i].id)+"To"+std::string(rooms[i-1].id),
+                      rooms[i].centerX-7.25f,{.96f,.48f,.20f});
+    }
 
     ri::scene::LightNodeOptions sun{};
     sun.nodeName = "CubeTest_Sun";
     sun.parent = world.rootNode;
-    sun.transform.rotationDegrees = {-48.0f, -34.0f, 0.0f};
+    sun.transform.rotationDegrees = {48.0f, -34.0f, 0.0f};
     sun.light.name = "CubeTest_Sun";
     sun.light.type = ri::scene::LightType::Directional;
     sun.light.color = {1.0f, 0.96f, 0.88f};
-    sun.light.intensity = 3.8f;
+    // Keep the neutral material gallery below the clipping shoulder.  This maps to
+    // the engine's calibrated directional-light range, rather than a raw HDR value.
+    sun.light.intensity = 1.0f;
     ri::scene::AddLightNode(world.scene, sun);
 
     ri::scene::LightNodeOptions fill{};
@@ -928,8 +962,8 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName, const fs::pat
         .simulationFlags = 2U,
     });
 
-    for (int room = 1; room <= 6; ++room) {
-        const float centerX = kCapabilityRoomSpacing * static_cast<float>(room);
+    for (std::size_t room = 1; room < rooms.size(); ++room) {
+        const float centerX = rooms[room].centerX;
         world.colliders.push_back(ri::trace::TraceCollider{
             .id = "cube-test-capability-platform-" + std::to_string(room),
             .bounds = {.min = {centerX - 8.0f, -0.24f, -8.0f}, .max = {centerX + 8.0f, 0.02f, 8.0f}},
@@ -949,49 +983,41 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName, const fs::pat
         .simulationFlags = 2U,
     });
 
-    world.portals = {
-        {.id = "baseline-to-sprites",
-         .triggerBounds = {.min = {6.78f, 0.02f, -0.92f}, .max = {7.72f, 2.25f, 0.92f}},
-         .destinationFeet = {19.65f, 0.20f, 0.0f}, .destinationYawDegrees = 90.0f},
-        {.id = "sprites-to-baseline",
-         .triggerBounds = {.min = {18.28f, 0.02f, -0.92f}, .max = {19.22f, 2.25f, 0.92f}},
-         .destinationFeet = {6.25f, 0.20f, 0.0f}, .destinationYawDegrees = -90.0f},
-        {.id = "sprites-to-normals",
-         .triggerBounds = {.min = {32.78f, 0.02f, -0.92f}, .max = {33.72f, 2.25f, 0.92f}},
-         .destinationFeet = {45.65f, 0.20f, 0.0f}, .destinationYawDegrees = 90.0f},
-        {.id = "normals-to-sprites",
-         .triggerBounds = {.min = {44.28f, 0.02f, -0.92f}, .max = {45.22f, 2.25f, 0.92f}},
-         .destinationFeet = {32.25f, 0.20f, 0.0f}, .destinationYawDegrees = -90.0f},
-        {.id = "normals-to-exporter",
-         .triggerBounds = {.min = {58.78f, 0.02f, -0.92f}, .max = {59.72f, 2.25f, 0.92f}},
-         .destinationFeet = {71.65f, 0.20f, 0.0f}, .destinationYawDegrees = 90.0f},
-        {.id = "exporter-to-normals",
-         .triggerBounds = {.min = {70.28f, 0.02f, -0.92f}, .max = {71.22f, 2.25f, 0.92f}},
-         .destinationFeet = {58.25f, 0.20f, 0.0f}, .destinationYawDegrees = -90.0f},
-        {.id = "exporter-to-interaction",
-         .triggerBounds = {.min = {84.78f, 0.02f, -0.92f}, .max = {85.72f, 2.25f, 0.92f}},
-         .destinationFeet = {97.65f, 0.20f, 0.0f}, .destinationYawDegrees = 90.0f},
-        {.id = "interaction-to-exporter",
-         .triggerBounds = {.min = {96.28f, 0.02f, -0.92f}, .max = {97.22f, 2.25f, 0.92f}},
-         .destinationFeet = {84.25f, 0.20f, 0.0f}, .destinationYawDegrees = -90.0f},
-        {.id = "interaction-to-projectile",
-         .triggerBounds = {.min = {110.78f, 0.02f, -0.92f}, .max = {111.72f, 2.25f, 0.92f}},
-         .destinationFeet = {123.65f, 0.20f, 0.0f}, .destinationYawDegrees = 90.0f},
-        {.id = "projectile-to-interaction",
-         .triggerBounds = {.min = {122.28f, 0.02f, -0.92f}, .max = {123.22f, 2.25f, 0.92f}},
-         .destinationFeet = {110.25f, 0.20f, 0.0f}, .destinationYawDegrees = -90.0f},
-        {.id = "projectile-to-teleport",
-         .triggerBounds = {.min = {136.78f, 0.02f, -0.92f}, .max = {137.72f, 2.25f, 0.92f}},
-         .destinationFeet = {149.65f, 0.20f, 0.0f}, .destinationYawDegrees = 90.0f},
-        {.id = "teleport-to-projectile",
-         .triggerBounds = {.min = {148.28f, 0.02f, -0.92f}, .max = {149.22f, 2.25f, 0.92f}},
-         .destinationFeet = {136.25f, 0.20f, 0.0f}, .destinationYawDegrees = -90.0f},
-    };
+    for (std::size_t i=1; i<rooms.size(); ++i) {
+        const auto& from = rooms[i-1];
+        const auto& to = rooms[i];
+        world.portals.push_back({.id=std::string(from.id)+"-to-"+std::string(to.id),
+            .triggerBounds={.min={from.centerX+6.78f,.02f,-.92f},.max={from.centerX+7.72f,2.25f,.92f}},
+            .destinationFeet=CubeTestRoomArrival(to),.destinationYawDegrees=90,
+            .destinationId=std::string(to.id),.label="To "+std::string(to.title)});
+        world.portals.push_back({.id=std::string(to.id)+"-to-"+std::string(from.id),
+            .triggerBounds={.min={to.centerX-7.72f,.02f,-.92f},.max={to.centerX-6.78f,2.25f,.92f}},
+            .destinationFeet={from.centerX+6.25f,.20f,0},.destinationYawDegrees=-90,
+            .destinationId=std::string(from.id),.label="To "+std::string(from.title)});
+    }
 
     return world;
 }
 
-void AnimateCubeTestWorld(CubeTestWorld& world, const double elapsedSeconds) {
+CubeTestWorld BuildCubeTestCalibrationWorld(const std::filesystem::path& workspaceRoot, bool normalComparison) {
+    const ri::scene::MaterialCalibrationTextures textures{
+        ThreeJsReferenceAsset(workspaceRoot, "textures/hardwood2_diffuse.jpg").string(),
+        ThreeJsReferenceAsset(workspaceRoot, "textures/NormalMapOpenGL.png").string(),
+        ThreeJsReferenceAsset(workspaceRoot, "textures/NormalMapDirectX.png").string(),
+    };
+    auto fixture = normalComparison ? ri::scene::BuildNormalMappingComparisonScene(textures)
+                                    : ri::scene::BuildMaterialCalibrationScene(textures);
+    CubeTestWorld world;
+    world.scene = std::move(fixture.scene);
+    world.materialCalibration = true;
+    world.rootNode = fixture.root;
+    world.platformNode = fixture.floor;
+    world.playerRig = fixture.cameraRig;
+    world.playerCameraNode = fixture.camera;
+    return world;
+}
+
+void AnimateCubeTestWorld(CubeTestWorld& world, const double elapsedSeconds, const bool simulateDynamicProps) {
     if (world.cubeNode == ri::scene::kInvalidHandle) {
         return;
     }
@@ -1023,7 +1049,7 @@ void AnimateCubeTestWorld(CubeTestWorld& world, const double elapsedSeconds) {
             : static_cast<float>(std::clamp(elapsedSeconds - world.interactionSimulationTime, 0.0, 0.10));
         world.interactionSimulationTime = elapsedSeconds;
         const ri::world::InteractivePropStepReport report = ri::world::StepInteractivePropField(
-            world.interactionProps, deltaSeconds, world.interactionField);
+            world.interactionProps, simulateDynamicProps ? deltaSeconds : 0.0f, world.interactionField);
         for (std::size_t index = 0; index < world.interactionProps.size(); ++index) {
             const ri::world::InteractivePropState& prop = world.interactionProps[index];
             ri::scene::Transform& transform =
@@ -1042,7 +1068,7 @@ void AnimateCubeTestWorld(CubeTestWorld& world, const double elapsedSeconds) {
             : static_cast<float>(std::clamp(elapsedSeconds - world.projectileSimulationTime, 0.0, 0.10));
         world.projectileSimulationTime = elapsedSeconds;
         (void)ri::world::StepInteractivePropField(
-            world.projectileProps, deltaSeconds, world.projectileField);
+            world.projectileProps, simulateDynamicProps ? deltaSeconds : 0.0f, world.projectileField);
         for (std::size_t index = 0; index < world.projectileProps.size(); ++index) {
             const ri::world::InteractivePropState& prop = world.projectileProps[index];
             ri::scene::Transform& transform =

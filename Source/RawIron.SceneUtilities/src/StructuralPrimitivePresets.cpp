@@ -27,6 +27,9 @@ ri::structural::StructuralPrimitiveOptions ShapeFromStructuralPreset(const Struc
     shape.archStyle = preset.archStyle;
     shape.latticeStyle = preset.latticeStyle;
     shape.centerColumn = preset.centerColumn;
+    shape.closedProfile = preset.closedProfile;
+    shape.closedPath = preset.closedPath;
+    shape.capEnds = preset.capEnds;
     if (preset.structuralType == std::string_view("stairs") || preset.structuralType == std::string_view("spiral_stairs")) {
         shape.steps = preset.steps > 0 ? preset.steps : 8;
     }

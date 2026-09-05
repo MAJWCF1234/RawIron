@@ -184,6 +184,9 @@ Other switches:
 Start here:
 
 - `Documentation/00 Home.md`
+- [`docs/THREEJS_NATIVE_SHOWCASE_ROADMAP.md`](docs/THREEJS_NATIVE_SHOWCASE_ROADMAP.md) — native C++ Three.js-reference showcase strategy and quality gates
+- [`docs/THREEJS_NATIVE_SHOWCASE_TODOS.md`](docs/THREEJS_NATIVE_SHOWCASE_TODOS.md) — current showcase execution tracker and coverage matrix
+- [`docs/THREEJS_EXAMPLES_INVENTORY_R185.md`](docs/THREEJS_EXAMPLES_INVENTORY_R185.md) — pinned r185 inventory of all 589 upstream HTML examples
 - `Documentation/01 Product/RawIron.md`
 - `Documentation/02 Engine/00 Engine Home.md`
 - `Documentation/02 Engine/01 Runtime Core.md`

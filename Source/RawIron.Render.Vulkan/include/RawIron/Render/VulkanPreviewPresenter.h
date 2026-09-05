@@ -66,6 +66,9 @@ struct VulkanNativeSceneResourceStats {
 };
 
 struct VulkanPreviewWindowOptions {
+    /// Optional diagnostic readback of the first rendered swapchain image as an RGB BMP.
+    /// Works for hidden windows; stalls the GPU once. Unsupported surface formats/usages fail explicitly.
+    std::filesystem::path captureFirstFramePath{};
     std::string windowTitle = "RawIron Vulkan Preview";
     VulkanPresentModePreference presentModePreference = VulkanPresentModePreference::Auto;
     /// Optional FOV overrides for Scene Kit preview (software path + Vulkan bridge); inactive overrides are ignored.
@@ -111,6 +114,9 @@ struct VulkanPreviewWindowOptions {
     std::filesystem::path pipelineWarmupCachePath{};
     /// Reports material/texture pressure whenever counters change. Callback failures are isolated.
     std::function<void(const VulkanNativeSceneResourceStats&)> onResourceStats{};
+    /// CPU wall time between successful presents, in milliseconds (not GPU execution time).
+    /// First present establishes the origin; resize/skipped frames contribute to the next interval.
+    std::function<void(double)> onPresentInterval{};
 };
 
 struct VulkanNativeSceneFrame {

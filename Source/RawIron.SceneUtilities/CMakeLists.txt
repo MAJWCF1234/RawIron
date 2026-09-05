@@ -44,6 +44,7 @@ add_library(RawIron.SceneUtilities
   src/LevelObjectRegistry.cpp
   src/LoftPrimitiveStack.cpp
   src/ModelLoader.cpp
+  src/MaterialCalibration.cpp
   src/PhysicsPropSpawn.cpp
   src/PrimitiveTypeCanonical.cpp
   src/StructuralAssemblyIO.cpp

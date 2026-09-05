@@ -269,6 +269,10 @@ StructuralPrimitiveOptions BuildPrimitiveOptionsFromNode(const StructuralNode& n
         options.ridgeRatio = node.ridgeRatio;
     }
     options.centerColumn = node.centerColumn;
+    options.closedProfile = node.closedProfile;
+    options.closedPath = node.closedPath;
+    options.capEnds = node.capEnds;
+    if (node.segments > 0) options.pathSegments = node.segments;
     if (!node.archStyle.empty()) {
         options.archStyle = node.archStyle;
     }
@@ -465,32 +469,6 @@ void ApplySuppressedTargetIds(std::vector<StructuralBooleanTarget>& remainingTar
                            remainingTargets.end());
 }
 
-CompiledMesh TransformCompiledMesh(const CompiledMesh& mesh, const ri::math::Mat4& matrix) {
-    CompiledMesh transformed{};
-    transformed.positions.reserve(mesh.positions.size());
-    transformed.normals.reserve(mesh.normals.size());
-    transformed.triangleCount = mesh.triangleCount;
-    for (const ri::math::Vec3& position : mesh.positions) {
-        const ri::math::Vec3 transformedPosition = ri::math::TransformPoint(matrix, position);
-        transformed.positions.push_back(transformedPosition);
-        if (!transformed.hasBounds) {
-            transformed.hasBounds = true;
-            transformed.boundsMin = transformedPosition;
-            transformed.boundsMax = transformedPosition;
-        } else {
-            transformed.boundsMin.x = std::min(transformed.boundsMin.x, transformedPosition.x);
-            transformed.boundsMin.y = std::min(transformed.boundsMin.y, transformedPosition.y);
-            transformed.boundsMin.z = std::min(transformed.boundsMin.z, transformedPosition.z);
-            transformed.boundsMax.x = std::max(transformed.boundsMax.x, transformedPosition.x);
-            transformed.boundsMax.y = std::max(transformed.boundsMax.y, transformedPosition.y);
-            transformed.boundsMax.z = std::max(transformed.boundsMax.z, transformedPosition.z);
-        }
-    }
-    for (const ri::math::Vec3& normal : mesh.normals) {
-        transformed.normals.push_back(ri::math::Normalize(ri::math::TransformVector(matrix, normal)));
-    }
-    return transformed;
-}
 
 ri::math::Vec3 ExtractRotationXYZDegrees(const ri::math::Mat4& matrix) {
     const ri::math::Vec3 scale = ri::math::ExtractScale(matrix);
@@ -1500,6 +1478,9 @@ std::uint64_t BuildStructuralCompileSignature(const std::vector<StructuralNode>&
         signature = HashCombine(signature, HashValue(node.startDegrees));
         signature = HashCombine(signature, HashValue(node.length));
         signature = HashCombine(signature, HashValue(node.centerColumn));
+        signature = HashCombine(signature, HashValue(node.closedProfile));
+        signature = HashCombine(signature, HashValue(node.closedPath));
+        signature = HashCombine(signature, HashValue(node.capEnds));
         signature = HashCombine(signature, HashValue(node.latticeStyle));
         signature = HashCombine(signature, HashValue(node.points.size()));
         for (const ri::math::Vec3& point : node.points) {

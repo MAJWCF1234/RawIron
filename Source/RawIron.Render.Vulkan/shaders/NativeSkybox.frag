@@ -147,9 +147,13 @@ void main() {
         float texWeight = 0.38 * smoothstep(0.03, 0.22, texLuma);
         vec3 blendedBase = mix(baseGradient, foggyTexture, texWeight);
         blendedBase = applySunDisc(d, blendedBase);
-        fragColor = vec4(volumetricSky(d, blendedBase), 1.0);
+        // Procedural clouds remain an opt-in atmosphere feature.  Their old default
+        // march could collapse into high-contrast black/white masses on real GPUs,
+        // obscuring material validation scenes.  The native base sky is stable and
+        // correctly authored from the scene's environment gradient.
+        fragColor = vec4(blendedBase, 1.0);
     } else {
         vec3 withSun = applySunDisc(d, baseGradient);
-        fragColor = vec4(volumetricSky(d, withSun), 1.0);
+        fragColor = vec4(withSun, 1.0);
     }
 }

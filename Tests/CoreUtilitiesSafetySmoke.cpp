@@ -1,13 +1,45 @@
 #include "RawIron/Core/ActionBindings.h"
 #include "RawIron/Core/Detail/JsonScan.h"
 #include "RawIron/Core/InputLabelFormat.h"
+#include "RawIron/Math/Mat4.h"
 
 #include <cstdlib>
 #include <limits>
 #include <string>
 #include <vector>
+#include <cstdio>
+
+bool TestNormalTransforms() {
+    using namespace ri::math;
+    const Vec3 tangentA{1,0,1}, tangentB{0,1,1};
+    const Vec3 normal=Normalize(Cross(tangentA,tangentB));
+    for (const Vec3 scale : {Vec3{2,3,.5f},Vec3{-2,3,.5f},Vec3{1.e-20f,2.e-20f,3.e-20f},Vec3{1.e20f,2.e20f,3.e20f}}) {
+        const auto matrix=TRS({17,22,13},{21,37,13},scale);
+        const auto actual=TransformNormal(matrix,normal);
+        const float magnitude=std::abs(scale.x);
+        const auto relativeScale=scale/magnitude;
+        // Analytic inverse scale then rotation, independent of cofactor implementation.
+        const auto expected=Normalize(TransformVector(RotationXYZDegrees({21,37,13}),
+            Normalize({normal.x/relativeScale.x,normal.y/relativeScale.y,normal.z/relativeScale.z})));
+        if (!std::isfinite(actual.x) || std::abs(Length(actual)-1)>1.e-5f) return false;
+        if (Distance(actual,expected)>1.e-5f) return false;
+        const auto shape=TRS({}, {21,37,13},relativeScale);
+        if (std::abs(Dot(actual,Normalize(TransformVector(shape,tangentA))))>1.e-5f
+            || std::abs(Dot(actual,Normalize(TransformVector(shape,tangentB))))>1.e-5f) return false;
+    }
+    auto shear=IdentityMatrix(); shear.m[0][1]=.75f; shear.m[2][0]=-.3f;
+    const auto sheared=TransformNormal(shear,normal);
+    if (std::abs(Dot(sheared,TransformVector(shear,tangentA)))>1.e-5f
+        || std::abs(Dot(sheared,TransformVector(shear,tangentB)))>1.e-5f) return false;
+    auto invalid=IdentityMatrix(); invalid.m[0][0]=std::numeric_limits<float>::infinity();
+    return LengthSquared(TransformNormal(ScaleMatrix({0,1,1}),normal))==0
+        && LengthSquared(TransformNormal(invalid,normal))==0
+        && LengthSquared(TransformNormal(IdentityMatrix(),{}))==0
+        && LengthSquared(TransformNormal(IdentityMatrix(),{std::numeric_limits<float>::quiet_NaN(),0,1}))==0;
+}
 
 int main() {
+    if (!TestNormalTransforms()) { std::fprintf(stderr,"Affine normal transform regression\n"); return EXIT_FAILURE; }
     using ri::core::ActionBinding;
     using ri::core::ActionBindings;
     using ri::core::BindingSlot;

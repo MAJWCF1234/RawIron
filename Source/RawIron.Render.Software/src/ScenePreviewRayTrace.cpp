@@ -283,7 +283,7 @@ ri::math::Vec3 PerturbNormal(const ri::math::Vec3& geometricNormal,
     const ri::math::Vec3 mapped = ri::math::Normalize(tangent * tangentSpaceNormal.x
                                                       + bitangent * tangentSpaceNormal.y
                                                       + geometricNormal * tangentSpaceNormal.z);
-    return mapped;
+    return IsFinite(mapped) && ri::math::LengthSquared(mapped)>1e-8f ? mapped : geometricNormal;
 }
 
 ri::math::Vec3 CosineHemisphereDirection(const ri::math::Vec3& normal,
@@ -556,9 +556,9 @@ void AppendMeshTriangles(ScenePreviewRayTraceScene& accel,
         ri::math::Vec3 n1 = n0;
         ri::math::Vec3 n2 = n0;
         if (localNormalA != nullptr && localNormalB != nullptr && localNormalC != nullptr) {
-            n0 = ri::math::Normalize(ri::math::TransformVector(world, *localNormalA));
-            n1 = ri::math::Normalize(ri::math::TransformVector(world, *localNormalB));
-            n2 = ri::math::Normalize(ri::math::TransformVector(world, *localNormalC));
+            n0 = ri::math::TransformNormal(world, *localNormalA);
+            n1 = ri::math::TransformNormal(world, *localNormalB);
+            n2 = ri::math::TransformNormal(world, *localNormalC);
             if (!IsFinite(n0) || ri::math::LengthSquared(n0) <= 1e-8f) {
                 n0 = faceNormal;
             }
@@ -1050,16 +1050,18 @@ float ResolveMaterialRoughness(const ri::scene::Material& material, const RgbaIm
     return roughness;
 }
 
-ri::math::Vec3 SampleTangentSpaceNormal(const RgbaImage* texture, const ri::math::Vec2& uv) {
+ri::math::Vec3 SampleTangentSpaceNormal(const RgbaImage* texture, const ri::math::Vec2& uv,
+                                         const ri::math::Vec2& strength) {
+    if (!std::isfinite(strength.x) || !std::isfinite(strength.y)) return {0,0,1};
     const ri::math::Vec3 sampled = SampleTexture(texture, uv);
     return ri::math::Normalize(ri::math::Vec3{
-        sampled.x * 2.0f - 1.0f,
-        sampled.y * 2.0f - 1.0f,
+        (sampled.x * 2.0f - 1.0f) * strength.x,
+        (sampled.y * 2.0f - 1.0f) * strength.y,
         sampled.z * 2.0f - 1.0f,
     });
 }
 
-void BuildTriangleTangentFrame(const ScenePreviewRayTraceScene& accel,
+bool BuildTriangleTangentFrame(const ScenePreviewRayTraceScene& accel,
                                const RayHit& hit,
                                const ri::math::Vec3& geometricNormal,
                                ri::math::Vec3& tangent,
@@ -1070,15 +1072,17 @@ void BuildTriangleTangentFrame(const ScenePreviewRayTraceScene& accel,
     const ri::math::Vec2 duv1 = accel.triUv1[index] - accel.triUv0[index];
     const ri::math::Vec2 duv2 = accel.triUv2[index] - accel.triUv0[index];
     const float determinant = duv1.x * duv2.y - duv1.y * duv2.x;
-    if (std::fabs(determinant) <= 1e-8f) {
-        BuildTangentFrame(geometricNormal, tangent, bitangent);
-        return;
-    }
+    const float uvMagnitude=std::max(duv1.x*duv1.x+duv1.y*duv1.y,duv2.x*duv2.x+duv2.y*duv2.y);
+    if (std::fabs(determinant) <= std::max(uvMagnitude*1e-6f,1e-30f)) return false;
     const float invDeterminant = 1.0f / determinant;
     tangent = ri::math::Normalize((edge1 * duv2.y - edge2 * duv1.y) * invDeterminant);
     bitangent = ri::math::Normalize((edge2 * duv1.x - edge1 * duv2.x) * invDeterminant);
     tangent = ri::math::Normalize(tangent - geometricNormal * ri::math::Dot(geometricNormal, tangent));
-    bitangent = ri::math::Normalize(ri::math::Cross(geometricNormal, tangent));
+    // UV orientation can be mirrored independently of the geometric normal.
+    const auto perpendicular = ri::math::Normalize(ri::math::Cross(geometricNormal, tangent));
+    bitangent = perpendicular * (ri::math::Dot(perpendicular, bitangent) < 0.0f ? -1.0f : 1.0f);
+    return IsFinite(tangent) && IsFinite(bitangent) && ri::math::LengthSquared(tangent)>1e-8f
+        && ri::math::LengthSquared(bitangent)>1e-8f;
 }
 
 ri::math::Vec3 InterpolateHit(const ScenePreviewRayTraceScene& accel, const RayHit& hit) {
@@ -1185,14 +1189,13 @@ ri::math::Vec3 ShadeHit(const ri::scene::Scene& scene,
     const ri::math::Vec2 surfaceUv = InterpolateUv(accel, hit);
     if (options.rayTracingNormalMaps && !material.normalTexture.empty() && !textureRoot.empty()) {
         const RgbaImage* normalTexture = ResolveNormalTexture(textureCache, textureRoot, material);
-        if (normalTexture != nullptr) {
+        if (normalTexture != nullptr && normalTexture->Valid()) {
             ri::math::Vec3 tangent{};
             ri::math::Vec3 bitangent{};
-            BuildTriangleTangentFrame(accel, hit, normal, tangent, bitangent);
-            normal = PerturbNormal(normal,
+            if (BuildTriangleTangentFrame(accel, hit, normal, tangent, bitangent)) normal = PerturbNormal(normal,
                                    tangent,
                                    bitangent,
-                                   SampleTangentSpaceNormal(normalTexture, surfaceUv));
+                                   SampleTangentSpaceNormal(normalTexture, surfaceUv, material.normalScale));
         }
     }
     const ri::math::Vec3 viewDirection = ri::math::Normalize(camera.position - position);

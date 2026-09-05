@@ -291,27 +291,35 @@ mat3 CotangentFrame(vec3 n, vec3 positionWs, vec2 uv) {
     vec3 dp2 = dFdy(positionWs);
     vec2 duv1 = dFdx(uv);
     vec2 duv2 = dFdy(uv);
-    vec3 tangent = dp1 * duv2.y - dp2 * duv1.y;
-    vec3 bitangent = dp2 * duv1.x - dp1 * duv2.x;
-    tangent -= n * dot(n, tangent);
-    float tangentLen = length(tangent);
-    if (tangentLen <= 1e-5) {
-        tangent = normalize(abs(n.z) < 0.999 ? cross(n, vec3(0.0, 0.0, 1.0)) : cross(n, vec3(0.0, 1.0, 0.0)));
-    } else {
-        tangent /= tangentLen;
+    float determinant = duv1.x * duv2.y - duv1.y * duv2.x;
+    float uvMagnitude = max(dot(duv1, duv1), dot(duv2, duv2));
+    // A relative UV degeneracy test must not change the frame with screen resolution.
+    if (abs(determinant) <= max(uvMagnitude * 1e-6, 1e-30)) {
+        return mat3(vec3(0.0), vec3(0.0), n);
     }
-    bitangent = normalize(cross(n, tangent));
+    vec3 tangent = (dp1 * duv2.y - dp2 * duv1.y) * sign(determinant);
+    vec3 bitangent = (dp2 * duv1.x - dp1 * duv2.x) * sign(determinant);
+    tangent -= n * dot(n, tangent);
+    float tangentLengthSquared = dot(tangent, tangent);
+    if (tangentLengthSquared <= 1e-30 || isnan(tangentLengthSquared) || isinf(tangentLengthSquared)) {
+        return mat3(vec3(0.0), vec3(0.0), n);
+    }
+    tangent *= inversesqrt(tangentLengthSquared);
+    vec3 perpendicular = cross(n, tangent);
+    bitangent = perpendicular * (dot(perpendicular, bitangent) < 0.0 ? -1.0 : 1.0);
     return mat3(tangent, bitangent, n);
 }
 
 vec3 ApplyNormalMap(vec3 baseNormal, vec2 uv) {
     vec3 tangentNormal = texture(normalTex, uv).xyz * 2.0 - 1.0;
-    float tier = clamp(drawData.qualityTier, 0.0, 2.0);
-    float normalStrength = mix(0.95, 1.22, tier * 0.5);
-    tangentNormal.xy *= drawData.normalScale * normalStrength;
+    // Quality tiers change sampling budgets, not the authored bump amplitude.
+    tangentNormal.xy *= drawData.normalScale;
     tangentNormal = normalize(tangentNormal);
     mat3 tbn = CotangentFrame(normalize(baseNormal), worldPositionWs - cameraData.cameraWorldPosition.xyz, uv);
-    return normalize(tbn * tangentNormal);
+    vec3 mapped = tbn * tangentNormal;
+    float mappedLengthSquared = dot(mapped, mapped);
+    return mappedLengthSquared > 1e-20 && !isnan(mappedLengthSquared) && !isinf(mappedLengthSquared)
+        ? mapped * inversesqrt(mappedLengthSquared) : normalize(baseNormal);
 }
 
 vec3 ComputePseudoReflection(vec3 normal,
@@ -320,6 +328,9 @@ vec3 ComputePseudoReflection(vec3 normal,
                              vec3 lightColor,
                              float roughness,
                              vec3 ambientBoost) {
+    // The caller broadens rough surfaces beyond 1. Without this clamp the sun-lobe
+    // exponent becomes negative: pow(0, negative) then poisons even a zero-weight mix.
+    roughness = clamp(roughness, 0.0, 1.0);
     vec3 reflected = reflect(-viewDir, normal);
     float horizon = clamp(reflected.y * 0.5 + 0.5, 0.0, 1.0);
     vec3 fogNear = max(cameraData.sweetFxTonemapFogColorDefog.xyz, vec3(0.02));
@@ -331,7 +342,7 @@ vec3 ComputePseudoReflection(vec3 normal,
     vec3 ground = mix(groundLow, groundHigh, 1.0 - horizon);
     vec3 env = mix(ground, sky, horizon);
     float reflectStrength = clamp(1.0 - roughness, 0.0, 1.0);
-    float horizonGlow = pow(1.0 - abs(reflected.y), 3.0) * (0.18 + reflectStrength * 0.28);
+    float horizonGlow = pow(clamp(1.0 - abs(reflected.y), 0.0, 1.0), 3.0) * (0.18 + reflectStrength * 0.28);
     float sunLobePower = mix(220.0, 26.0, roughness);
     float sunLobe = pow(max(dot(reflected, lightDir), 0.0), sunLobePower);
     vec3 sunGlint = lightColor * sunLobe * (1.6 + reflectStrength * 4.2);
@@ -393,6 +404,9 @@ vec3 ApplySweetFxLumaCurve(vec3 rgb, float strength) {
     if (s < 1e-6) {
         return rgb;
     }
+    // Contrast can push dark LDR values below zero. A negative luma divided by
+    // epsilon would reverse their sign and amplify them into clipped highlights.
+    rgb = clamp(rgb, 0.0, 1.0);
     float lum = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
     float curved = SweetFxSrgbLumaCurve(lum);
     float newLum = mix(lum, curved, s);
@@ -519,6 +533,18 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir, vec3 worldPos) {
     // Shadow map is rendered with a flipped viewport (negative height); flip V to match texel lookup.
     uv.y = 1.0 - uv.y;
     float receiverDepth = ndc.z;
+    // Each PCF tap samples a different point on the receiver plane. Comparing all
+    // of them to the center depth shadows the receiver itself on sloped surfaces.
+    // Evaluate derivatives before the coverage branches so every quad participates.
+    vec3 receiverDx = dFdx(vec3(uv, receiverDepth));
+    vec3 receiverDy = dFdy(vec3(uv, receiverDepth));
+    float receiverDet = receiverDx.x * receiverDy.y - receiverDx.y * receiverDy.x;
+    vec2 receiverDepthGradient = vec2(0.0);
+    if (abs(receiverDet) > 1e-10) {
+        receiverDepthGradient = vec2(
+            receiverDx.z * receiverDy.y - receiverDx.y * receiverDy.z,
+            receiverDx.x * receiverDy.z - receiverDx.z * receiverDy.x) / receiverDet;
+    }
     if (receiverDepth < -0.04 || receiverDepth > 1.04) {
         return 1.0;
     }
@@ -550,8 +576,11 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir, vec3 worldPos) {
         float angle = tap * goldenAngle;
         vec2 offset = vec2(cos(angle), sin(angle)) * r * texel;
         vec2 sampleUv = clamp(uv + offset, texel * 0.5, vec2(1.0) - texel * 0.5);
+        // The sampler is nearest: use the actual texel center in the plane equation.
+        sampleUv = (floor(sampleUv / texel) + 0.5) * texel;
         float sampleDepth = texture(shadowMapTex, sampleUv).r;
-        float visibility = sampleDepth >= (receiverDepth - bias) ? 1.0 : 0.0;
+        float tapReceiverDepth = receiverDepth + dot(receiverDepthGradient, sampleUv - uv);
+        float visibility = sampleDepth >= (tapReceiverDepth - bias) ? 1.0 : 0.0;
         lit += visibility;
         weightSum += 1.0;
     }
@@ -781,7 +810,8 @@ void main() {
         specColor = mix(vec3(0.04), albedo, metallic);
     }
     float normalVariance = clamp(length(fwidth(normal)), 0.0, 1.0);
-    float normalRelief = hasNormalMap ? clamp((1.0 - dot(normal, geomNormal)) * 2.6 + normalVariance * 0.55, 0.0, 1.0) : 0.0;
+    // Artificial relief belongs to explicit stylized materials, not standard PBR normal maps.
+    float normalRelief = hasNormalMap && (layeredStyle || mixedMediaStyle) ? clamp((1.0 - dot(normal, geomNormal)) * 2.6 + normalVariance * 0.55, 0.0, 1.0) : 0.0;
     float microOcclusion = mix(1.0, mix(0.92, 0.78, tier * 0.5), normalRelief * (1.0 - metallic * 0.45));
     float microSurfaceShadow = mix(1.0, mix(0.94, 0.84, tier * 0.5), normalRelief * (1.0 - metallic * 0.35));
     ao = clamp(ao * microOcclusion, 0.18, 1.0);

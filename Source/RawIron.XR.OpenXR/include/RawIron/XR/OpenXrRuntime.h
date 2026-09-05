@@ -1,5 +1,7 @@
 #pragma once
 
+#include "RawIron/XR/HapticPolicy.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -116,6 +118,7 @@ struct HardwareInteractionFrameOutput {
     std::size_t vertexCount = 0;
     float hapticAmplitude[2]{};
     float hapticDurationSeconds[2]{};
+    HapticEvent hapticEvent[2]{};
     bool teleportRequested = false;
     float teleportDestinationFeet[3]{};
 };

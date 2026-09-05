@@ -2,14 +2,71 @@
 #include "RawIron/Scene/SceneStructuralTraceFeed.h"
 #include "RawIron/Scene/StructuralAssemblyIO.h"
 #include "RawIron/Scene/StructuralBrush.h"
+#include "RawIron/Scene/StructuralPrimitiveBundle.h"
+#include "RawIron/Scene/StructuralPrimitivePresets.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <cmath>
+#include <iostream>
+
+bool TestSurfaceCollection() {
+    using namespace ri::scene;
+    for (const auto key : {"revolve_open", "spline_sweep", "spline_loop", "torus", "mobius", "parametric_patch"}) {
+        const auto preset=FindStructuralPreset(key);
+        if (!preset) return false;
+        const auto shape=ShapeFromStructuralPreset(*preset);
+        const auto source=ri::structural::BuildPrimitiveMesh(preset->structuralType,shape);
+        if (source.positions.empty() || source.texCoords.size()!=source.positions.size()) return false;
+        Scene scene("structural surface integration");
+        const int root=scene.CreateNode("root");
+        StructuralPrimitiveBundleParams params;
+        params.parent=root; params.presetField=key;
+        const auto result=SpawnStructuralPrimitiveBundle(scene,params);
+        if (result.node==kInvalidHandle) return false;
+        const auto& node=scene.GetNode(result.node);
+        const auto mesh=scene.GetMesh(result.mesh);
+        if (node.structuralBrush.brushId.empty() || node.structuralBrush.physicsMesh.meshId.empty()
+            || node.structuralBrush.queryMesh.meshId.empty() || mesh.texCoords.size()!=source.texCoords.size()) return false;
+        for (std::size_t i=0;i<mesh.texCoords.size();++i)
+            if (mesh.texCoords[i].x!=source.texCoords[i].x || mesh.texCoords[i].y!=source.texCoords[i].y) return false;
+        // The graph/assembly route must retain options and the exact UV stream too.
+        auto graphNode=MakeStructuralPrimitiveGraphNode("surface",preset->structuralType,{2,1,3},{1,1,1},shape);
+        StructuralPrimitiveAssemblyOptions assembly;
+        assembly.parent=root; assembly.nodes={graphNode};
+        const auto assembled=AddStructuralPrimitiveAssembly(scene,assembly);
+        if (assembled.meshNodes.size()!=1) return false;
+        const auto& assembledMesh=scene.GetMesh(scene.GetNode(assembled.meshNodes[0]).mesh);
+        if (assembledMesh.texCoords.size()!=mesh.texCoords.size()) return false;
+        for (std::size_t i=0;i<assembledMesh.texCoords.size();++i)
+            if (assembledMesh.texCoords[i].x!=source.texCoords[i].x || assembledMesh.texCoords[i].y!=source.texCoords[i].y) return false;
+        const auto signature=ri::structural::BuildStructuralCompileSignature({graphNode});
+        graphNode.closedPath=!graphNode.closedPath;
+        if (signature==ri::structural::BuildStructuralCompileSignature({graphNode})) return false;
+    }
+    // Custom samples cannot silently become the catalog default when passed through an assembly.
+    Scene scene("authored spline graph");
+    const int root=scene.CreateNode("root");
+    ri::structural::StructuralPrimitiveOptions shape;
+    shape.points={{2,0,0},{3,1,0},{4,0,0}}; shape.sides=12; shape.pathSegments=32; shape.capEnds=false;
+    StructuralPrimitiveAssemblyOptions assembly;
+    assembly.parent=root;
+    assembly.nodes={MakeStructuralPrimitiveGraphNode("custom", "spline_sweep",{},{1,1,1},shape)};
+    const auto output=AddStructuralPrimitiveAssembly(scene,assembly);
+    const auto expected=ri::structural::BuildPrimitiveMesh("spline_sweep",shape);
+    if (output.meshNodes.size()!=1) return false;
+    const auto& actual=scene.GetMesh(scene.GetNode(output.meshNodes[0]).mesh);
+    if (actual.positions.size()!=expected.positions.size()) return false;
+    for (std::size_t i=0;i<actual.positions.size();++i)
+        if (ri::math::Distance(actual.positions[i],expected.positions[i])>1.e-5f) return false;
+    return true;
+}
 
 int main() {
+    if (!TestSurfaceCollection()) { std::cerr << "Structural surface collection integration failed\n"; return EXIT_FAILURE; }
     ri::scene::Scene scene{"StructuralBrushMetadataSmoke"};
     const int root = scene.CreateNode("Root");
 

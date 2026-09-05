@@ -62,3 +62,27 @@ Use `RawIron.Render.Vulkan.FrameSchedulingSmoke` and `RawIron.Render.Vulkan.Devi
 ## Engine goal
 
 The engine owns the render path. Game projects author the data and choose values through validated config and script contracts.
+
+## Authored normal-map contract
+
+Native Vulkan and the software ray tracer preserve the handedness of the mesh UV
+frame, including mirrored charts. Degenerate UVs and invalid sampled normals
+retain the geometric normal. Software tracing honours `Material::normalScale`;
+a missing normal image does not invent a white-vector normal.
+
+Normal textures are linear data. `normalScale` composes authored strength, green
+channel convention and any required source-image basis correction. Converting
+image V from bottom-first to top-first must also account for the normal basis;
+flipping image rows and flipping the green channel are distinct operations.
+
+Native quality tiers change rendering budgets, not authored normal amplitude.
+Standard PBR normal maps do not implicitly enable artificial micro-occlusion;
+that relief remains limited to explicit layered/mixed-media styles.
+
+`SceneUtilities::AddNormalMappingComparisonPanels` and
+`BuildNormalMappingComparisonScene` accept caller-owned texture IDs. Cube Test
+provides licensed local assets and placement. See
+[normal comparison evidence](../../docs/NORMAL_MAPPING_COMPARISON_VALIDATION.md)
+and `Scripts/Test-NormalMapping.ps1 -IncludeDemo` for the analytic GPU cases and
+actual source-map controls. These checks do not certify physical VR or complete
+Three.js material parity.

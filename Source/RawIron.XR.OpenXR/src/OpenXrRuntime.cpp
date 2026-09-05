@@ -1672,7 +1672,7 @@ bool OpenXrVulkanSession::RunFrames(const std::uint32_t maximumFrames,
     XrSessionState sessionState = XR_SESSION_STATE_UNKNOWN;
     bool sessionRunning = false;
     // Haptic requests are edge feedback, not a per-render-frame effect.
-    std::array<XrTime, 2> nextHapticTime{};
+    HapticPolicy hapticPolicy;
     bool exitRequested = false;
     std::uint32_t idlePolls = 0;
     std::vector<XrView> locatedViews(2, {XR_TYPE_VIEW});
@@ -2060,29 +2060,26 @@ bool OpenXrVulkanSession::RunFrames(const std::uint32_t maximumFrames,
                 ++report.teleportCount;
             }
             for (std::size_t handIndex = 0; handIndex < handPaths.size(); ++handIndex) {
-                const float amplitude = std::clamp(
-                    interactionOutput.hapticAmplitude[handIndex], 0.0f, 1.0f);
-                const float durationSeconds = std::clamp(
-                    interactionOutput.hapticDurationSeconds[handIndex], 0.0f, 1.0f);
-                if (!(amplitude > 0.0f) || !(durationSeconds > 0.0f)
-                    || sessionState != XR_SESSION_STATE_FOCUSED
-                    || frameState.predictedDisplayTime < nextHapticTime[handIndex]) continue;
+                const auto pulse = hapticPolicy.Request(handIndex,
+                    interactionOutput.hapticEvent[handIndex], sessionState == XR_SESSION_STATE_FOCUSED,
+                    interactionInput.hands[handIndex].tracked,
+                    static_cast<double>(frameState.predictedDisplayTime) / 1.0e9,
+                    interactionOutput.hapticAmplitude[handIndex], interactionOutput.hapticDurationSeconds[handIndex]);
+                if (pulse.amplitude <= 0.0f) continue;
                 const XrHapticActionInfo hapticInfo{
                     XR_TYPE_HAPTIC_ACTION_INFO, nullptr, runtime.haptic, handPaths[handIndex]};
                 const XrHapticVibration vibration{
                     XR_TYPE_HAPTIC_VIBRATION,
                     nullptr,
-                    static_cast<XrDuration>(durationSeconds * 1.0e9f),
+                    static_cast<XrDuration>(pulse.durationSeconds * 1.0e9f),
                     XR_FREQUENCY_UNSPECIFIED,
-                    amplitude};
+                    pulse.amplitude};
                 if (XR_SUCCEEDED(xrApplyHapticFeedback(
                         resources.session,
                         &hapticInfo,
                         reinterpret_cast<const XrHapticBaseHeader*>(&vibration)))) {
                     ++report.hapticPulseCount;
-                    const float cooldownSeconds = std::max(0.060f, durationSeconds);
-                    nextHapticTime[handIndex] = frameState.predictedDisplayTime
-                        + static_cast<XrDuration>(cooldownSeconds * 1.0e9f);
+
                 }
             }
         }

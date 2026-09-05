@@ -223,8 +223,9 @@ Mesh MeshFromStructuralCompiledMesh(const ri::structural::CompiledMesh& compiled
     if (compiled.normals.size() == compiled.positions.size()) {
         mesh.normals = compiled.normals;
     }
+    if (compiled.texCoords.size() == compiled.positions.size()) mesh.texCoords = compiled.texCoords;
     mesh.texCoords.reserve(mesh.positions.size());
-    for (std::size_t index = 0; index < mesh.positions.size(); index += 3U) {
+    for (std::size_t index = 0; compiled.texCoords.size() != compiled.positions.size() && index < mesh.positions.size(); index += 3U) {
         const ri::math::Vec3 a = mesh.positions[index];
         const ri::math::Vec3 b = (index + 1U) < mesh.positions.size() ? mesh.positions[index + 1U] : a;
         const ri::math::Vec3 c = (index + 2U) < mesh.positions.size() ? mesh.positions[index + 2U] : a;
@@ -523,6 +524,14 @@ int SpawnPassthroughPrimitiveFromNode(Scene& scene,
         shape.latticeStyle = node.latticeStyle;
     }
 
+    shape.closedProfile = node.closedProfile;
+    shape.closedPath = node.closedPath;
+    shape.capEnds = node.capEnds;
+    shape.points = node.points;
+    shape.vertices = node.vertices;
+    if (node.sweepDegrees > 0) shape.sweepDegrees = node.sweepDegrees;
+    shape.startDegrees = node.startDegrees;
+    if (node.segments > 0) shape.pathSegments = node.segments;
     StructuralBrushSpawnOptions spawn = SpawnOptionsFromAssemblyNode(assembly, node);
     spawn.structuralType = resolvedType;
     spawn.shape = shape;
@@ -618,6 +627,14 @@ ri::structural::StructuralNode MakeStructuralPrimitiveGraphNode(const std::strin
     if (!shape.latticeStyle.empty()) {
         node.latticeStyle = shape.latticeStyle;
     }
+    node.closedProfile = shape.closedProfile;
+    node.closedPath = shape.closedPath;
+    node.capEnds = shape.capEnds;
+    node.segments = shape.pathSegments;
+    node.points = shape.points;
+    node.vertices = shape.vertices;
+    node.sweepDegrees = shape.sweepDegrees;
+    node.startDegrees = shape.startDegrees;
     return node;
 }
 

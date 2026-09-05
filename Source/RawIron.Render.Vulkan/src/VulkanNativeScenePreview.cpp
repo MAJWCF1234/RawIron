@@ -1,8 +1,10 @@
 #include "RawIron/Render/VulkanPreviewPresenter.h"
+#include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/HybridPresentationTargets.h"
 #include "RawIron/Render/VulkanDeviceFeaturePolicy.h"
 #include "RawIron/Render/VulkanFrameScheduling.h"
 #include "RawIron/Render/VulkanScenePreviewBridge.h"
+#include "RawIron/Render/VulkanShadowProjection.h"
 
 #if defined(_WIN32)
 #include "RawIron/Core/Log.h"
@@ -32,6 +34,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -1554,9 +1557,12 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
     float sunIntensityMultiplier = kEngineDefaultSunIntensity;
     bool foundSun = false;
 
-    ri::math::Vec3 bestFillPos = ri::math::Vec3{cameraWorldPos.x, cameraWorldPos.y + 0.15f, cameraWorldPos.z};
-    ri::math::Vec3 bestFillRgb = ri::math::Vec3{1.0f, 0.93f, 0.84f};
-    float bestFillRange = 24.0f;
+    // A renderer must never invent a white point light at the camera.  It masks
+    // authored material albedo and turns isolated test rooms into white silhouettes.
+    // Ambient/environment terms already provide a stable no-local-light baseline.
+    ri::math::Vec3 bestFillPos{};
+    ri::math::Vec3 bestFillRgb{};
+    float bestFillRange = 1.0f;
     float bestFillStrength = -1.0f;
     int bestFillNode = ri::scene::kInvalidHandle;
 
@@ -1686,22 +1692,8 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
     ri::math::Mat4 lightProjection =
         BuildOrthographicMatrix(-orthoRadius, orthoRadius, -orthoRadius, orthoRadius, 6.0f, 180.0f);
 
-    // Stabilise the camera-following shadow map by snapping its projection to the
-    // shadow-map texel grid at the follow center (not world origin). Without this,
-    // the ortho slides continuously with the camera and shadow texels crawl across
-    // surfaces, which reads as geometry shifting when the view moves.
-    const float shadowMapResolutionF = static_cast<float>(std::max(shadowMapResolution, 1U));
-    const float halfResolution = shadowMapResolutionF * 0.5f;
-    {
-        const ri::math::Mat4 unsnapped = ri::math::Multiply(lightProjection, lightView);
-        const ri::math::Vec3 shadowNdc = ri::math::TransformPoint(unsnapped, shadowCenter);
-        const float snappedX = std::round(shadowNdc.x * halfResolution) / halfResolution;
-        const float snappedY = std::round(shadowNdc.y * halfResolution) / halfResolution;
-        lightProjection.m[0][3] += (snappedX - shadowNdc.x);
-        lightProjection.m[1][3] += (snappedY - shadowNdc.y);
-    }
-
-    const ri::math::Mat4 lightViewProjection = ri::math::Multiply(lightProjection, lightView);
+    const ri::math::Mat4 lightViewProjection = StabilizeOrthographicShadowMatrix(
+        ri::math::Multiply(lightProjection, lightView), shadowMapResolution);
     StoreMat4ColumnMajorGlsl(lightViewProjection, data.lightViewProjection.data());
 
     data.lightDirectionIntensity = {
@@ -1717,9 +1709,14 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
         1.0f,
     };
 
-    data.localLightPositionRange = {bestFillPos.x, bestFillPos.y, bestFillPos.z, bestFillRange};
-    const float fillW = std::max(bestFillStrength, 0.25f);
-    data.localLightColorIntensity = {bestFillRgb.x, bestFillRgb.y, bestFillRgb.z, fillW};
+    if (bestFillNode == ri::scene::kInvalidHandle) {
+        data.localLightPositionRange = {0.0f, 0.0f, 0.0f, 1.0f};
+        data.localLightColorIntensity = {0.0f, 0.0f, 0.0f, 0.0f};
+    } else {
+        data.localLightPositionRange = {bestFillPos.x, bestFillPos.y, bestFillPos.z, bestFillRange};
+        const float fillW = std::max(bestFillStrength, 0.25f);
+        data.localLightColorIntensity = {bestFillRgb.x, bestFillRgb.y, bestFillRgb.z, fillW};
+    }
 }
 
 void SetNativeVertex(NativeSceneVertex& vertex,
@@ -2160,7 +2157,9 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                     color.x,
                     color.y,
                     color.z,
-                    material.transparent ? std::clamp(material.opacity, 0.0f, 1.0f) : 1.0f,
+                    (material.transparent || material.additiveBlend)
+                        ? std::clamp(material.opacity, 0.0f, 1.0f)
+                        : 1.0f,
                 };
                 if (material.alphaCutoff > 0.01f && material.alphaCutoff < 0.99f && !material.transparent) {
                     draw.alphaCutout = true;
@@ -4200,6 +4199,84 @@ void SubmitOneTimeCommands(VkDevice device,
     vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
 
+void CaptureSwapchainImage(VkPhysicalDevice physicalDevice, VkDevice device,
+                           VkCommandPool commandPool, VkQueue queue, VkImage image,
+                           VkFormat format, VkExtent2D extent, const fs::path& outputPath) {
+    const bool bgra = format == VK_FORMAT_B8G8R8A8_SRGB || format == VK_FORMAT_B8G8R8A8_UNORM;
+    if (!bgra && format != VK_FORMAT_R8G8B8A8_SRGB && format != VK_FORMAT_R8G8B8A8_UNORM) {
+        throw std::runtime_error("Native capture requires an RGBA8 or BGRA8 swapchain.");
+    }
+    const VkDeviceSize byteSize = static_cast<VkDeviceSize>(extent.width) * extent.height * 4U;
+    BufferResource readback = CreateBuffer(physicalDevice, device, byteSize,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    try {
+        SubmitOneTimeCommands(device, commandPool, queue, [&](VkCommandBuffer commandBuffer) {
+            VkImageMemoryBarrier barrier{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+                .oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = image,
+                .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+            };
+            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+            const VkBufferImageCopy region{
+                .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                .imageExtent = {extent.width, extent.height, 1},
+            };
+            vkCmdCopyImageToBuffer(commandBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                readback.buffer, 1, &region);
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            barrier.dstAccessMask = 0;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+            const VkBufferMemoryBarrier hostBarrier{
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_HOST_READ_BIT,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .buffer = readback.buffer,
+                .size = byteSize,
+            };
+            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &hostBarrier, 0, nullptr);
+        });
+        ri::render::software::SoftwareImage capture{};
+        capture.width = static_cast<int>(extent.width);
+        capture.height = static_cast<int>(extent.height);
+        capture.pixels.resize(static_cast<std::size_t>(extent.width) * extent.height * 3U);
+        void* mapped = nullptr;
+        ExpectVk(vkMapMemory(device, readback.memory, 0, byteSize, 0, &mapped), "vkMapMemory(native-capture)");
+        const auto* bytes = static_cast<const std::uint8_t*>(mapped);
+        for (std::size_t pixel = 0; pixel < capture.pixels.size() / 3U; ++pixel) {
+            // Preserve encoded swapchain bytes; never apply a second color conversion.
+            capture.pixels[pixel * 3U] = bytes[pixel * 4U + (bgra ? 2U : 0U)];
+            capture.pixels[pixel * 3U + 1U] = bytes[pixel * 4U + 1U];
+            capture.pixels[pixel * 3U + 2U] = bytes[pixel * 4U + (bgra ? 0U : 2U)];
+        }
+        vkUnmapMemory(device, readback.memory);
+        if (!outputPath.parent_path().empty()) fs::create_directories(outputPath.parent_path());
+        if (!ri::render::software::SaveBmp(capture, outputPath.string())) {
+            throw std::runtime_error("Could not write native GPU capture: " + outputPath.string());
+        }
+        ri::core::LogInfo("Native GPU capture saved: " + outputPath.string() + " | "
+            + std::to_string(extent.width) + "x" + std::to_string(extent.height)
+            + " | swapchain format=" + std::to_string(format));
+    } catch (...) {
+        DestroyBuffer(device, readback);
+        throw;
+    }
+    DestroyBuffer(device, readback);
+}
+
 // Uploads an RGBA8 texture. `format` selects the colour-space interpretation: colour
 // maps (albedo/emissive/detail) use VK_FORMAT_R8G8B8A8_SRGB so they are gamma-decoded on
 // sample, while data maps (normal/ORM/opacity) MUST use VK_FORMAT_R8G8B8A8_UNORM so their
@@ -4958,9 +5035,20 @@ struct NativeAlbedoTextureCache {
 
     void recordMissingTexture(const fs::path& path, const VkFormat format) {
         if (!path.empty()) {
-            missingTextureKeys.emplace(
-                path.lexically_normal().generic_string() + "|fmt=" + std::to_string(static_cast<int>(format)));
+            const std::string key = path.lexically_normal().generic_string() + "|fmt=" + std::to_string(static_cast<int>(format));
+            if (missingTextureKeys.emplace(key).second)
+                ri::core::LogInfo("Vulkan texture fallback: " + key + " reason=decode/upload failed; using slot default");
         }
+    }
+
+    void logTextureUpload(const std::string& requested, const std::string& source,
+                          int width, int height, VkFormat format) const {
+        ri::core::LogInfo("Vulkan texture upload: requested=" + requested + " source=" + source
+            + " dimensions=" + std::to_string(width) + "x" + std::to_string(height)
+            + " format=" + std::to_string(static_cast<int>(format))
+            + " colorSpace=" + (format == kColorTextureFormat ? "sRGB" : "linear")
+            + " sampler=linear/mipmap-linear/repeat"
+            + " fallback=" + (requested == source ? "none" : "alternate-source"));
     }
 
     [[nodiscard]] VulkanNativeSceneResourceStats resourceStats() const {
@@ -4986,6 +5074,7 @@ struct NativeAlbedoTextureCache {
             return &it->second;
         }
 
+        fs::path resolvedPath = absolutePath;
         std::shared_ptr<const ri::render::software::RgbaImage> rgba = decodedWarmupCache.Load(absolutePath);
         if (!rgba || !rgba->Valid()) {
             static const std::array<const char*, 4> kAlternateExtensions{".png", ".tif", ".tiff", ".jpg"};
@@ -5002,6 +5091,7 @@ struct NativeAlbedoTextureCache {
                 }
                 rgba = decodedWarmupCache.Load(alternate);
                 if (rgba && rgba->Valid()) {
+                    resolvedPath = alternate;
                     break;
                 }
             }
@@ -5015,6 +5105,7 @@ struct NativeAlbedoTextureCache {
         if (gpuImage.view == VK_NULL_HANDLE) {
             return nullptr;
         }
+        logTextureUpload(absolutePath.generic_string(), resolvedPath.generic_string(), rgba->width, rgba->height, format);
         const auto [it, _] = imagesByKey.emplace(key, std::move(gpuImage));
         return &it->second;
     }
@@ -5048,6 +5139,7 @@ struct NativeAlbedoTextureCache {
             return nullptr;
         }
         const auto [inserted, _] = imagesByKey.emplace(key, std::move(gpuImage));
+        logTextureUpload(key, key, rgba.width, rgba.height, format);
         return &inserted->second;
     }
 
@@ -6524,6 +6616,12 @@ bool RunVulkanNativeSceneLoop(const int width,
         }
         const VkSurfaceFormatKHR surfaceFormat = ChooseSurfaceFormat(formats);
         const VkPresentModeKHR presentMode = ChoosePresentMode(presentModes, options.presentModePreference);
+        const bool swapchainUsesSrgbTransfer =
+            surfaceFormat.format == VK_FORMAT_B8G8R8A8_SRGB || surfaceFormat.format == VK_FORMAT_R8G8B8A8_SRGB;
+        ri::core::LogInfo(
+            "Vulkan swapchain: format=" + std::to_string(static_cast<int>(surfaceFormat.format))
+            + " colorspace=" + std::to_string(static_cast<int>(surfaceFormat.colorSpace))
+            + " transfer=" + (swapchainUsesSrgbTransfer ? "sRGB" : "linear"));
         ri::core::LogInfo(std::string("Vulkan present mode: ") + PresentModeName(presentMode));
 
         VkExtent2D extent = capabilities.currentExtent;
@@ -6539,6 +6637,10 @@ bool RunVulkanNativeSceneLoop(const int width,
 
         if ((capabilities.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) == 0U) {
             throw std::runtime_error("Swapchain images do not support color attachments on this device.");
+        }
+        if (!options.captureFirstFramePath.empty()
+            && (capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) == 0U) {
+            throw std::runtime_error("Native capture requires swapchain transfer-source support.");
         }
 
         VkSwapchainCreateInfoKHR swapchainInfo{
@@ -6561,7 +6663,8 @@ bool RunVulkanNativeSceneLoop(const int width,
             .preTransform = capabilities.currentTransform,
             .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
             .presentMode = presentMode,
-            .clipped = VK_TRUE,
+            // Diagnostic readback must retain pixels even when the window is hidden/occluded.
+            .clipped = options.captureFirstFramePath.empty() ? VK_TRUE : VK_FALSE,
         };
 
         VkSwapchainKHR swapchain = VK_NULL_HANDLE;
@@ -7835,6 +7938,8 @@ bool RunVulkanNativeSceneLoop(const int width,
         };
         VkSampler linearSampler = VK_NULL_HANDLE;
         ExpectVk(vkCreateSampler(device, &samplerInfo, nullptr, &linearSampler), "vkCreateSampler(albedo)");
+        ri::core::LogInfo("Vulkan material sampler: min/mag=linear mip=linear address=repeat anisotropy="
+            + std::to_string(samplerInfo.anisotropyEnable ? samplerInfo.maxAnisotropy : 1.0f));
 
         if (enableHybridHdr) {
             VkSamplerCreateInfo depthNearestSamplerInfo = samplerInfo;
@@ -8160,6 +8265,7 @@ bool RunVulkanNativeSceneLoop(const int width,
         std::uint32_t currentFrame = 0U;
         std::uint64_t lastFrameSequence = 0;
         bool hasPresentedFrame = false;
+        std::optional<std::chrono::steady_clock::time_point> previousPresentTime;
         bool resourceStatsReported = false;
         bool resourceStatsCallbackFailed = false;
         VulkanNativeSceneResourceStats lastResourceStats{};
@@ -8932,6 +9038,12 @@ bool RunVulkanNativeSceneLoop(const int width,
             };
             ExpectVk(vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameFence), "vkQueueSubmit");
 
+            if (!hasPresentedFrame && !options.captureFirstFramePath.empty()) {
+                ExpectVk(vkWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX), "vkWaitForFences(native-capture)");
+                CaptureSwapchainImage(selection.physicalDevice, device, commandPool, graphicsQueue,
+                    swapchainImages[imageIndex], surfaceFormat.format, extent, options.captureFirstFramePath);
+            }
+
             const VkPresentInfoKHR presentInfo{
                 .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
                 .waitSemaphoreCount = 1,
@@ -8960,6 +9072,10 @@ bool RunVulkanNativeSceneLoop(const int width,
             if (presentResult != VK_SUCCESS && presentResult != VK_SUBOPTIMAL_KHR) {
                 ExpectVk(presentResult, "vkQueuePresentKHR");
             }
+            const auto presentedAt = std::chrono::steady_clock::now();
+            if (previousPresentTime.has_value() && options.onPresentInterval)
+                options.onPresentInterval(std::chrono::duration<double, std::milli>(presentedAt - *previousPresentTime).count());
+            previousPresentTime = presentedAt;
             lastFrameSequence = frame.frameSequence;
             hasPresentedFrame = true;
             currentFrame = (currentFrame + 1U) % kFramesInFlight;

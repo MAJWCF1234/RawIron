@@ -447,6 +447,9 @@ vec3 ApplySweetFxLumaCurve(vec3 rgb, float strength) {
     if (s < 1e-6) {
         return rgb;
     }
+    // Luma curves operate on LDR colors; contrast may have produced negative RGB.
+    // Bound it before dividing by luma to prevent black-to-white sign reversal.
+    rgb = clamp(rgb, 0.0, 1.0);
     float lum = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
     float curved = SweetFxSrgbLumaCurve(lum);
     float newLum = mix(lum, curved, s);
@@ -6559,5 +6562,8 @@ void main() {
     mapped = ApplyRiColorQuantize(sampleUv, mapped);
     mapped = ApplyRiUiMask(sampleUv, beforeSplit, mapped);
     mapped *= mix(1.0, cropCoverage, clamp(cameraData.cropScaleFinalFilterStrength.w, 0.0, 1.0));
-    fragColor = vec4(clamp(mapped, 0.0, 1.0), 1.0);
+    // `mapped` is display-referred after the extended post stack. The default
+    // swapchain is sRGB, so hand Vulkan linear values rather than encoding a second
+    // time during attachment write.
+    fragColor = vec4(pow(clamp(mapped, 0.0, 1.0), vec3(2.2)), 1.0);
 }

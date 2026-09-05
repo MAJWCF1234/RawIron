@@ -1073,9 +1073,9 @@ void DrawPrimitiveNode(SoftwareImage& image,
 
         ri::math::Vec3 worldNormal = ri::math::Cross(worldB - worldA, worldC - worldA);
         if (localNormalA != nullptr && localNormalB != nullptr && localNormalC != nullptr) {
-            const ri::math::Vec3 worldNormalA = ri::math::Normalize(ri::math::TransformVector(world, *localNormalA));
-            const ri::math::Vec3 worldNormalB = ri::math::Normalize(ri::math::TransformVector(world, *localNormalB));
-            const ri::math::Vec3 worldNormalC = ri::math::Normalize(ri::math::TransformVector(world, *localNormalC));
+            const ri::math::Vec3 worldNormalA = ri::math::TransformNormal(world, *localNormalA);
+            const ri::math::Vec3 worldNormalB = ri::math::TransformNormal(world, *localNormalB);
+            const ri::math::Vec3 worldNormalC = ri::math::TransformNormal(world, *localNormalC);
             const ri::math::Vec3 blendedNormal = worldNormalA + worldNormalB + worldNormalC;
             if (ri::math::LengthSquared(blendedNormal) > 1e-8f) {
                 worldNormal = ri::math::Normalize(blendedNormal);

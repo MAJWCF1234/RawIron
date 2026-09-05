@@ -13,6 +13,8 @@ add_library(RawIron.World
   src/InteractionPromptState.cpp
   src/InventoryState.cpp
   src/InteractivePropField.cpp
+  src/InteractivePropGrab.cpp
+  src/InteractivePropAuthority.cpp
   src/InteractivePropReplication.cpp
   src/NpcAgentState.cpp
   src/PickupFeedbackState.cpp

@@ -1,5 +1,6 @@
 #include "RawIron/Structural/ConvexClipper.h"
 #include "RawIron/Structural/StructuralCompiler.h"
+#include "RawIron/Structural/StructuralDeferredOperations.h"
 
 #include <cmath>
 #include <cstdio>
@@ -55,8 +56,65 @@ std::vector<ri::structural::Plane> CollectPlanes(const ri::structural::ConvexSol
 
 } // namespace
 
+bool TestDeferredSurfacePayload() {
+    using namespace ri::structural;
+    using namespace ri::math;
+    bool ok = true;
+    const auto check = [&](bool condition, const char* message) {
+        if (!condition) { std::fprintf(stderr, "%s\n", message); ok = false; }
+    };
+    CompiledGeometryNode source;
+    source.node.id = "textured-source";
+    source.node.scale = {-2,3,.5f};
+    const std::vector<Vec3> local{{1,0,0},{2,0,0},{1,1,1}, {4,0,0},{5,0,0},{4,1,1}};
+    const Vec3 normal = Normalize({0,-1,1});
+    const Vec3 transformedNormal = Normalize({0,-1.f/3,2});
+    std::vector<Vec3> world;
+    for (auto p : local) world.push_back(TransformPoint(ScaleMatrix(source.node.scale),p));
+    source.compiledMesh.positions = world;
+    source.compiledMesh.normals = std::vector<Vec3>(6,transformedNormal);
+    source.compiledMesh.triangleCount = 2;
+    source.compiledMesh.hasBounds = true;
+    source.compiledMesh.boundsMin = {-10,0,0}; source.compiledMesh.boundsMax = {-2,3,.5f};
+    source.compiledMesh.texCoords = {{0,0},{1,0},{0,1},{.2f,.3f},{.8f,.3f},{.2f,.9f}};
+    source.compiledWorldSpace = true;
+    StructuralDeferredTargetOperation op;
+    op.node.id = "spline-copy"; op.node.count = 2; op.node.points = {{0,0,0},{0,0,10}};
+    const auto copies = BuildSplineMeshDeformerCompiledNodes(op,{source});
+    check(copies.size()==2,"deferred copy count");
+    if (copies.size()==2) {
+        check(copies[0].compiledMesh.texCoords.size()==6,"deferred spline loses authored UVs");
+        check(Distance(copies[0].compiledMesh.positions[0],world[0])<1.e-5f,"deferred spline loses mirrored scale");
+        check(Distance(copies[0].compiledMesh.normals[0],transformedNormal)<1.e-5f,"deferred spline corrupts scaled normals");
+    }
+    source.compiledMesh.positions = local;
+    source.compiledMesh.normals = std::vector<Vec3>(6,normal);
+    source.compiledMesh.boundsMin = {1,0,0}; source.compiledMesh.boundsMax = {5,1,1};
+    source.compiledMesh.texCoords = {{0,0},{1,0},{0,1},{.2f,.3f},{.8f,.3f},{.2f,.9f}};
+    source.compiledWorldSpace = false;
+    const auto reflected = TransformCompiledMesh(source.compiledMesh,ScaleMatrix(source.node.scale));
+    const auto face=Normalize(Cross(reflected.positions[1]-reflected.positions[0],reflected.positions[2]-reflected.positions[0]));
+    check(Distance(face,reflected.normals[0])<1.e-5f,"structural reflected winding and normal disagree");
+    check(reflected.texCoords[1].y==1 && reflected.texCoords[2].x==1,"reflected winding must swap UV corners too");
+    const auto merged = MergeCompiledMeshes({source.compiledMesh,source.compiledMesh});
+    check(merged.texCoords.size()==12,"structural mesh merge loses authored UVs");
+    if (merged.texCoords.size()==12) check(merged.texCoords[9].x==.2f && merged.texCoords[11].y==.9f,"merged UV order");
+    auto noUvs=source.compiledMesh; noUvs.texCoords.clear();
+    check(MergeCompiledMeshes({source.compiledMesh,noUvs}).texCoords.empty(),"mixed UV streams require complete projection fallback");
+    const auto localCopies = BuildSplineMeshDeformerCompiledNodes(op,{source});
+    check(localCopies.size()==2 && Distance(localCopies[0].compiledMesh.positions[0],world[0])<1.e-5f,
+          "deferred spline inversely transforms an already-local mesh");
+    StructuralNode cut;
+    cut.position = {1.33f,.33f,.33f}; cut.scale = {1,1,1};
+    const auto clipped = ApplyTerrainHoleCutoutToMesh(source.compiledMesh,cut);
+    check(clipped.positions.size()==3 && clipped.texCoords.size()==3,"terrain cutout loses retained triangle UVs");
+    if (clipped.texCoords.size()==3) check(clipped.texCoords[0].x==.2f && clipped.texCoords[2].y==.9f,"terrain cutout mismatches UV corners");
+    return ok;
+}
+
 int main() {
     using namespace ri::structural;
+    RI_REQUIRE(TestDeferredSurfacePayload());
 
     // Unit box solid: 6 polygons, 12 triangles, volume 1.
     const ConvexSolid unitBox = CreateAxisAlignedBoxSolid();

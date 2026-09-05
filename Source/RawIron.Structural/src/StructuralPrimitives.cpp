@@ -1,3 +1,4 @@
+#include "ProceduralSurfaceMesh.h"
 #include "RawIron/Structural/StructuralPrimitives.h"
 
 #include <algorithm>
@@ -251,6 +252,9 @@ void AppendMesh(CompiledMesh& destination, const CompiledMesh& source) {
         return;
     }
 
+    if (destination.texCoords.size() == destination.positions.size() && source.texCoords.size() == source.positions.size())
+        destination.texCoords.insert(destination.texCoords.end(), source.texCoords.begin(), source.texCoords.end());
+    else destination.texCoords.clear();
     destination.positions.insert(destination.positions.end(), source.positions.begin(), source.positions.end());
     destination.normals.insert(destination.normals.end(), source.normals.begin(), source.normals.end());
     destination.triangleCount += source.triangleCount;
@@ -1192,30 +1196,11 @@ CompiledMesh CreateTorusArcMesh(const StructuralPrimitiveOptions& options, float
 }
 
 CompiledMesh CreateSplineSweepMesh(const StructuralPrimitiveOptions& options) {
-    std::vector<ri::math::Vec3> path;
-    path.reserve(options.points.size());
-    for (const ri::math::Vec3& point : options.points) {
-        if (std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z)) {
-            path.push_back({
-                std::clamp(point.x, -0.5f, 0.5f),
-                std::clamp(point.y, -0.5f, 0.5f),
-                std::clamp(point.z, -0.5f, 0.5f),
-            });
-        }
-    }
-    if (path.size() < 2U) {
-        path = {{-0.5f, 0.0f, -0.5f}, {0.5f, 0.0f, 0.5f}};
-    }
-
-    const float radius = std::clamp(std::fabs(options.thickness), 0.01f, 0.12f);
-    std::vector<ri::math::Vec3> triangles;
-    for (std::size_t index = 1; index < path.size(); ++index) {
-        AppendBeamMesh(triangles, path[index - 1U], path[index], radius);
-    }
-    return BuildMeshFromTriangles(triangles);
+    return detail::BuildSmoothStructuralSurface("spline_sweep", options);
 }
 
 CompiledMesh CreateRevolveMesh(const StructuralPrimitiveOptions& options) {
+    if (!options.closedProfile) return detail::BuildSmoothStructuralSurface("revolve", options);
     const int segments = ClampRange(options.radialSegments, 6, 128);
     const float sweep = ClampDegrees(options.sweepDegrees > 0.0f ? options.sweepDegrees : options.spanDegrees,
                                      360.0f,
@@ -1664,6 +1649,7 @@ CompiledMesh CreateTubeMesh(const StructuralPrimitiveOptions& options) {
 }
 
 CompiledMesh CreateTorusMesh(const StructuralPrimitiveOptions& options) {
+    if (options.sweepDegrees == 360.0f) return detail::BuildSmoothStructuralSurface("torus", options);
     const int ringSegments = ClampRange(options.radialSegments, 8, 192);
     const int tubeSegments = ClampRange(options.sides, 6, 64);
     const float sweep = std::clamp(std::fabs(options.sweepDegrees), 30.0f, 360.0f) * (kPi / 180.0f);
@@ -2186,6 +2172,8 @@ bool IsNativeStructuralPrimitive(std::string_view type) {
         || type == "torus_slice"
         || type == "spline_sweep"
         || type == "revolve"
+        || type == "mobius"
+        || type == "parametric_patch"
         || type == "dome_vault"
         || type == "loft_primitive"
         || type == "spline_ribbon"
@@ -2305,6 +2293,7 @@ CompiledMesh BuildPrimitiveMesh(std::string_view type, const StructuralPrimitive
     const std::string normalizedType = NormalizeStructuralPrimitiveTypeKey(type);
     type = normalizedType;
     const StructuralPrimitiveOptions options = SanitizeStructuralPrimitiveOptions(rawOptions);
+    if (type == "mobius" || type == "parametric_patch") return detail::BuildSmoothStructuralSurface(type, options);
     if (type == "rounded_box") {
         return CreateRoundedBoxMesh(options);
     }

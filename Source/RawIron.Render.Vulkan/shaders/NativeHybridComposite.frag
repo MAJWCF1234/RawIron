@@ -433,6 +433,8 @@ vec3 ApplyLiteLumaCurve(vec3 color, float strength) {
     if (amount <= 1e-5) {
         return color;
     }
+    // Bound contrast-produced negative LDR values before the luma ratio.
+    color = clamp(color, 0.0, 1.0);
     float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
     float curved = luma * (luma * (1.5 - luma) + 0.5);
     return clamp(color * (mix(luma, curved, amount) / max(luma, 1e-5)), 0.0, 1.0);
@@ -496,6 +498,15 @@ vec3 ApplyLitePresentationFx(vec3 color, vec2 uv) {
 vec3 LinearToSrgb(vec3 color) {
     vec3 c = max(color, vec3(0.0));
     return pow(c, vec3(1.0 / 2.2));
+}
+
+// The desktop presenter deliberately prefers an sRGB swapchain. Vulkan performs the
+// final linear-to-sRGB transfer when a fragment is written to that attachment, so the
+// compositor must convert any display-referred sRGB-domain effects back to linear
+// first. Writing `srgb` directly caused a second transfer and washed the whole scene
+// out (especially bright skies, portals, and unlit surfaces).
+vec3 SrgbToLinearForSwapchain(vec3 color) {
+    return pow(clamp(color, 0.0, 1.0), vec3(2.2));
 }
 
 vec3 ApplyCasSharpen(vec2 uv, vec2 texel, vec3 center, float amount, float contrastAdaptation) {
@@ -1153,5 +1164,5 @@ void main() {
     }
     srgb = ApplyRiUiMask(sampleUv, uiBackup, srgb);
     srgb *= mix(1.0, cropCoverage, clamp(cameraData.cropScaleFinalFilterStrength.w, 0.0, 1.0));
-    fragColor = vec4(clamp(srgb, 0.0, 1.0), 1.0);
+    fragColor = vec4(SrgbToLinearForSwapchain(srgb), 1.0);
 }

@@ -19,6 +19,15 @@ struct KeyboardMovementBindings {
     int sprint = 0x10; // VK_SHIFT
 };
 
+// Sampled by HostInput; also usable by replay and deterministic control tests.
+struct KeyboardMovementSample {
+    bool focused = false;
+    bool forward = false, back = false, right = false, left = false;
+    bool jump = false, sprint = false;
+};
+[[nodiscard]] MovementInput BuildKeyboardMovementInput(const KeyboardMovementSample& sample,
+    float yawDegrees, KeyboardMovementEdges& edges);
+
 /// Build a standard WASD + jump/sprint \ref MovementInput from an engine focus gate.
 /// Games supply yaw and edge latch state; they do not poll GetAsyncKeyState themselves.
 [[nodiscard]] MovementInput BuildKeyboardMovementInput(const ri::core::KeyboardFocusGate& focus,

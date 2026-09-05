@@ -92,6 +92,20 @@ Use a broader game-specific suite when editing Liminal Hall or other project dat
 
 ## Active Backlog
 
+### 2026-09-04 engine maintenance increment — completed
+
+Reproduced and corrected UV loss in deferred spline copies, retained terrain
+triangles and merged meshes; already-local spline input now respects its flag.
+Shared Core inverse-transpose math replaces vector-normal transforms in
+structural, software and XR consumers. Structural mesh transforms are
+consolidated in the existing compiler API and correct reflected winding while
+keeping UV corners aligned. No experience-owned primitive implementation was added.
+
+Five focused tests passed after reproducing the old failures. The full configured
+RelWithDebInfo workspace rebuild and all 159 registered tests passed. This is
+working-tree evidence, not a clean-checkout or physical-headset certification.
+See `docs/ENGINE_MAINTENANCE_2026-09-04.md` for logs and limits.
+
 ### 1. Harden the Runtime Structural Contract
 
 - Replace hot-path string comparisons for semantic fields with compact runtime ids or handles, while retaining strings for authoring and diagnostics.

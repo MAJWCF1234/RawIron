@@ -8,7 +8,7 @@ add_executable(ri_tool
 target_include_directories(ri_tool
   PRIVATE
     ${PROJECT_SOURCE_DIR}/Apps/RawIron.Editor/src
-    ${PROJECT_SOURCE_DIR}/Source/RawIron.Render.Software/third_party
+    ${PROJECT_SOURCE_DIR}/ThirdParty
 )
 
 target_link_libraries(ri_tool

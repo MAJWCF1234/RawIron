@@ -144,6 +144,51 @@ inline Vec3 ExtractForward(const Mat4& matrix) {
     return Normalize(Vec3{matrix.m[0][2], matrix.m[1][2], matrix.m[2][2]});
 }
 
+inline double LinearDeterminant(const Mat4& matrix) {
+    const auto& a = matrix.m;
+    return double(a[0][0]) * (double(a[1][1])*a[2][2] - double(a[1][2])*a[2][1])
+         - double(a[0][1]) * (double(a[1][0])*a[2][2] - double(a[1][2])*a[2][0])
+         + double(a[0][2]) * (double(a[1][0])*a[2][1] - double(a[1][1])*a[2][0]);
+}
+
+/// Precomputed inverse-transpose direction transform for affine surface normals.
+/// Translation is ignored. Double intermediates preserve tiny/large finite scales;
+/// determinant magnitude cancels during normalization, but its sign must remain.
+/// Singular/non-finite transforms or normals produce zero for caller face fallback.
+class NormalTransform {
+public:
+    explicit NormalTransform(const Mat4& matrix) {
+        for (int row=0; row<3; ++row) for (int col=0; col<3; ++col)
+            if (!std::isfinite(matrix.m[row][col])) return;
+        const double determinant = LinearDeterminant(matrix);
+        if (!std::isfinite(determinant) || determinant == 0.0) return;
+        const double sign = determinant < 0 ? -1.0 : 1.0;
+        for (int row=0; row<3; ++row) for (int col=0; col<3; ++col) {
+            const int r1=(row+1)%3, r2=(row+2)%3, c1=(col+1)%3, c2=(col+2)%3;
+            cofactor_[row][col] = sign * (double(matrix.m[r1][c1])*matrix.m[r2][c2]
+                                       - double(matrix.m[r1][c2])*matrix.m[r2][c1]);
+        }
+        valid_ = true;
+    }
+
+    [[nodiscard]] Vec3 Apply(const Vec3& normal) const {
+        if (!valid_ || !std::isfinite(normal.x) || !std::isfinite(normal.y) || !std::isfinite(normal.z)) return {};
+        const double x=cofactor_[0][0]*normal.x+cofactor_[0][1]*normal.y+cofactor_[0][2]*normal.z;
+        const double y=cofactor_[1][0]*normal.x+cofactor_[1][1]*normal.y+cofactor_[1][2]*normal.z;
+        const double z=cofactor_[2][0]*normal.x+cofactor_[2][1]*normal.y+cofactor_[2][2]*normal.z;
+        const double length=std::hypot(x,y,z);
+        if (!std::isfinite(length) || length == 0.0) return {};
+        return {static_cast<float>(x/length),static_cast<float>(y/length),static_cast<float>(z/length)};
+    }
+private:
+    double cofactor_[3][3]{};
+    bool valid_ = false;
+};
+
+[[nodiscard]] inline Vec3 TransformNormal(const Mat4& matrix, const Vec3& normal) {
+    return NormalTransform(matrix).Apply(normal);
+}
+
 /// Builds a world transform whose local XY plane follows the camera orientation.
 /// Translation and non-uniform scale come from `authoredWorld`; its authored rotation is replaced.
 /// `yawOnly` keeps world-up fixed for vegetation-style cylindrical billboards.
