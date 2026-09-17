@@ -1,0 +1,40 @@
+{
+  "formatVersion": 1,
+  "modelId": "primitive_model",
+  "displayName": "Primitive Model",
+  "rigPath": "",
+  "bake": {"cullInternalFaces": true, "weldEpsilon": 9.99999975e-05},
+  "groups": [
+    {
+      "id": "root",
+      "name": "Root",
+      "parentId": "",
+      "boneName": "",
+      "transform": {
+        "translation": {"x": 0, "y": 0, "z": 0},
+        "rotationDegrees": {"x": 0, "y": 0, "z": 0},
+        "scale": {"x": 1, "y": 1, "z": 1}
+      }
+    }
+  ],
+  "parts": [
+    {
+      "id": "body",
+      "name": "Body",
+      "groupId": "root",
+      "primitivePreset": "rounded_box",
+      "materialId": "default",
+      "boneName": "",
+      "enabled": true,
+      "roughness": 0.620000005,
+      "metallic": 0.0399999991,
+      "albedoTexture": "",
+      "albedoColor": {"x": 0.620000005, "y": 0.550000012, "z": 0.460000008},
+      "transform": {
+        "translation": {"x": 0, "y": 0, "z": 0},
+        "rotationDegrees": {"x": 0, "y": 0, "z": 0},
+        "scale": {"x": 1, "y": 1, "z": 1}
+      }
+    }
+  ]
+}

@@ -225,6 +225,64 @@ void AddProceduralCapabilityRooms(CubeTestWorld& world, const fs::path& workspac
     AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_Mobius","mobius",shape,{surfaceX-1.8f,1.8f,3},{48,0,0},{3.28f,3.28f,3.28f});
     shape={}; shape.cellsX=40; shape.cellsY=40; shape.depth=1.12f;
     AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_Saddle","parametric_patch",shape,{surfaceX+2.5f,1.5f,3},{},{2.8f,2.8f,2.8f});
+
+    // Eight further rooms reuse the same structural collection and experience-owned texture.
+    const auto platform = [&](const char* id) {
+        const float x = FindCubeTestRoom(id)->centerX;
+        AddCapabilityPlatform(world.scene,world.rootNode,std::string("CubeTest_")+id+"Platform",x,{.18f,.23f,.28f});
+        return x;
+    };
+    float x=platform("knots");
+    shape={}; shape.pathSegments=192; shape.sides=20; shape.thickness=.075f;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_Trefoil","torus_knot",shape,{x-1.8f,1.9f,-3},{30,20,0},{2,2,2});
+    shape.knotP=3; shape.knotQ=5; shape.pathSegments=256; shape.thickness=.055f;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_Cinquefoil","torus_knot",shape,{x-1.8f,1.9f,3},{30,20,0},{2,2,2});
+
+    x=platform("helices");
+    shape={}; shape.pathSegments=192; shape.sides=20; shape.thickness=.09f; shape.bottomRadius=.8f; shape.length=2.4f; shape.curveTurns=3;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_Helix3","helix",shape,{x-1.8f,1.7f,-3});
+    shape.curveTurns=5; shape.pathSegments=256;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_Helix5","helix",shape,{x-1.8f,1.7f,3});
+
+    x=platform("lathe-poles");
+    shape={}; shape.closedProfile=false; shape.radialSegments=64;
+    shape.points={{0,-1.2f,0},{.5f,-.7f,0},{.8f,0,0},{.5f,.7f,0},{0,1.2f,0}};
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_Spindle","revolve",shape,{x-1.8f,1.7f,-3});
+    shape.points={{0,-1.2f,0},{.7f,-.9f,0},{.85f,-.1f,0},{.4f,.5f,0},{.3f,.9f,0},{0,1.2f,0}};
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_PointedVessel","revolve",shape,{x-1.8f,1.7f,3});
+
+    x=platform("extrusion");
+    shape={}; shape.depth=.65f;
+    shape.points={{-.8f,-.8f,0},{.8f,-.8f,0},{.8f,-.2f,0},{-.2f,-.2f,0},{-.2f,.8f,0},{-.8f,.8f,0}};
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_ConcaveL","extrude_along_normal_primitive",shape,{x-1.8f,1.7f,-3},{0,70,0},{1.5f,1.5f,1.5f});
+    shape.points={{-.3f,-.9f,0},{.3f,-.9f,0},{.3f,-.3f,0},{.9f,-.3f,0},{.9f,.3f,0},{.3f,.3f,0},
+                  {.3f,.9f,0},{-.3f,.9f,0},{-.3f,.3f,0},{-.9f,.3f,0},{-.9f,-.3f,0},{-.3f,-.3f,0}};
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_ConcaveCross","extrude_along_normal_primitive",shape,{x-1.8f,1.7f,3},{0,70,0},{1.4f,1.4f,1.4f});
+
+    x=platform("rounded");
+    shape={}; shape.radialSegments=48; shape.sides=64; shape.bevelRadius=.06f;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_RoundedSharp","rounded_box",shape,{x-1.8f,1.8f,-3},{15,25,0},{2.4f,2.4f,2.4f});
+    shape.bevelRadius=.24f;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_RoundedSoft","rounded_box",shape,{x-1.8f,1.8f,3},{15,25,0},{2.4f,2.4f,2.4f});
+
+    x=platform("superellipsoids");
+    shape={}; shape.radialSegments=48; shape.sides=64; shape.exponentX=.55f; shape.exponentY=.55f; shape.exponentZ=.55f;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_SuperBox","superellipsoid",shape,{x-1.8f,1.8f,-3},{15,25,0},{2.4f,2.4f,2.4f});
+    shape.exponentX=1.5f; shape.exponentY=.8f; shape.exponentZ=1.5f;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_SuperPinch","superellipsoid",shape,{x-1.8f,1.8f,3},{15,25,0},{2.4f,2.4f,2.4f});
+
+    x=platform("hulls");
+    shape={}; shape.points={{-1,0,0},{1,0,0},{0,-1,0},{0,1,0},{0,0,-1},{0,0,1}};
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_OctaHull","convex_hull",shape,{x-1.8f,1.7f,-3},{0,20,0},{1.2f,1.2f,1.2f});
+    shape.points={{-.8f,-.7f,-.6f},{.7f,-.8f,-.5f},{.9f,-.4f,.5f},{.3f,-.9f,.8f},{-.7f,-.5f,.7f},
+                  {-.5f,.5f,-.7f},{.5f,.7f,-.6f},{.8f,.5f,.4f},{-.4f,.8f,.6f},{0,1.1f,0}};
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_CloudHull","convex_hull",shape,{x-1.8f,1.7f,3},{0,20,0},{1.2f,1.2f,1.2f});
+
+    x=platform("heightfields");
+    shape={}; shape.cellsX=8; shape.cellsZ=8; shape.depth=.28f;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_Height8","heightmap_patch",shape,{x-1.8f,1.25f,-3},{},{3,2,3});
+    shape.cellsX=48; shape.cellsZ=48;
+    AddGeometryExhibit(world,workspaceRoot,"CubeTest_Procedural_Height48","heightmap_patch",shape,{x-1.8f,1.25f,3},{},{3,2,3});
 }
 
 void AddPortalGate(ri::scene::Scene& scene,

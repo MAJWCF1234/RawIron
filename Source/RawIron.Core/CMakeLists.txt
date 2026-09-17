@@ -20,6 +20,7 @@ add_library(RawIron.Core
   src/Scene.cpp
   src/SessionExtensions.cpp
   src/ShaderConfig.cpp
+  src/ProcessingStack.cpp
 )
 
 add_library(RawIron::Core ALIAS RawIron.Core)
@@ -42,6 +43,9 @@ if (WIN32)
 endif()
 
 if (RAWIRON_BUILD_TESTS)
+  add_executable(ProcessingStackSmoke ${CMAKE_SOURCE_DIR}/Tests/ProcessingStackSmoke.cpp)
+  target_link_libraries(ProcessingStackSmoke PRIVATE RawIron::Core)
+  add_test(NAME RawIron.Render.ProcessingStackSmoke COMMAND ProcessingStackSmoke ${CMAKE_SOURCE_DIR})
   add_executable(ImageComparisonSmoke ${CMAKE_SOURCE_DIR}/Tests/ImageComparisonSmoke.cpp)
   target_link_libraries(ImageComparisonSmoke PRIVATE RawIron::Core)
   add_test(NAME RawIron.Core.ImageComparisonSmoke COMMAND ImageComparisonSmoke)

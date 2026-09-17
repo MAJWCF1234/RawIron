@@ -273,18 +273,14 @@ void ValidateRigBindings(const ri::content::PrimitiveModelDocument& document,
         result.errors.push_back("Primitive model has bone bindings but no rigPath.");
         return;
     }
-    std::filesystem::path rigPath(document.rigPath);
-    if (rigPath.is_relative()) {
-        rigPath = documentDirectory / rigPath;
-    }
-    const auto rig = LoadRigDefinition(rigPath);
+    const auto rig = LoadSidecarRigDefinition(document.rigPath, documentDirectory);
     if (!rig.has_value()) {
-        result.errors.push_back("Primitive model rig could not be loaded: " + rigPath.string());
+        result.errors.push_back("Primitive model rig could not be loaded: " + document.rigPath);
         return;
     }
     const RigValidationReport validation = ValidateRigDefinition(*rig);
     if (!validation.valid) {
-        result.errors.push_back("Primitive model rig is invalid: " + rigPath.string());
+        result.errors.push_back("Primitive model rig is invalid: " + document.rigPath);
         return;
     }
     std::set<std::string> bones{};
@@ -631,6 +627,7 @@ PrimitiveModelInstantiationResult InstantiatePrimitiveModel(
             scene.GetNode(handle).localTransform = SceneTransform(group.transform);
             groupHandles[group.id] = handle;
             result.groupNodes.push_back(handle);
+            result.groupIds.push_back(group.id);
             --remaining;
             progressed = true;
         }
@@ -665,6 +662,14 @@ PrimitiveModelInstantiationResult InstantiatePrimitiveModel(
         options.parent = parent;
         options.transform = SceneTransform(part.transform);
         options.materialName = part.materialId.empty() ? "default" : part.materialId;
+        options.baseColor = {
+            part.albedoColor.x,
+            part.albedoColor.y,
+            part.albedoColor.z,
+        };
+        options.roughness = part.roughness;
+        options.metallic = part.metallic;
+        options.baseColorTexture = part.albedoTexture;
         options.metadata.brushId = document.modelId + "/" + part.id;
         options.metadata.region = "forge-model";
         std::string effectiveBone = part.boneName;
@@ -677,9 +682,145 @@ PrimitiveModelInstantiationResult InstantiatePrimitiveModel(
         options.metadata.informationLayer.gameplayMeaning =
             effectiveBone.empty() ? "primitive-model-part" : "bone:" + effectiveBone;
         result.partNodes.push_back(AddStructuralBrushNode(scene, options));
+        result.partIds.push_back(part.id);
     }
     result.valid = result.errors.empty();
     return result;
+}
+
+std::string EffectivePrimitivePartBone(
+    const ri::content::PrimitiveModelDocument& document,
+    const std::string_view partId) {
+    const ri::content::PrimitiveModelPart* part = nullptr;
+    for (const auto& candidate : document.parts) {
+        if (candidate.id == partId) {
+            part = &candidate;
+            break;
+        }
+    }
+    if (part == nullptr) {
+        return {};
+    }
+    if (!part->boneName.empty()) {
+        return part->boneName;
+    }
+    if (part->groupId.empty()) {
+        return {};
+    }
+    std::vector<std::string> errors{};
+    const auto groupBindings = BuildGroupBoneBindings(document, errors);
+    const auto found = groupBindings.find(part->groupId);
+    if (found == groupBindings.end()) {
+        return {};
+    }
+    return found->second;
+}
+
+std::vector<BoundPrimitivePartRest> CaptureBoundPrimitivePartRest(
+    const Scene& scene,
+    const std::vector<int>& partNodes,
+    const std::vector<std::string>& partIds,
+    const ri::content::PrimitiveModelDocument& document) {
+    std::vector<BoundPrimitivePartRest> captured{};
+    const std::size_t count = (std::min)(partNodes.size(), partIds.size());
+    for (std::size_t index = 0; index < count; ++index) {
+        const int node = partNodes[index];
+        if (node == kInvalidHandle || node < 0
+            || static_cast<std::size_t>(node) >= scene.NodeCount()) {
+            continue;
+        }
+        const std::string boneName = EffectivePrimitivePartBone(document, partIds[index]);
+        if (boneName.empty()) {
+            continue;
+        }
+        const Node& sceneNode = scene.GetNode(node);
+        if (sceneNode.mesh == kInvalidHandle) {
+            continue;
+        }
+        const Mesh& mesh = scene.GetMesh(sceneNode.mesh);
+        BoundPrimitivePartRest part{};
+        part.node = node;
+        part.boneName = boneName;
+        part.restNodeWorld = scene.ComputeWorldMatrix(node);
+        part.restPositions = mesh.positions;
+        part.restNormals = mesh.normals;
+        captured.push_back(std::move(part));
+    }
+    return captured;
+}
+
+void RestoreBoundPrimitiveParts(Scene& scene, const std::vector<BoundPrimitivePartRest>& parts) {
+    for (const BoundPrimitivePartRest& part : parts) {
+        if (part.node == kInvalidHandle || part.node < 0
+            || static_cast<std::size_t>(part.node) >= scene.NodeCount()) {
+            continue;
+        }
+        Node& node = scene.GetNode(part.node);
+        if (node.mesh == kInvalidHandle) {
+            continue;
+        }
+        Mesh& mesh = scene.GetMesh(node.mesh);
+        mesh.positions = part.restPositions;
+        if (part.restNormals.size() == part.restPositions.size()) {
+            mesh.normals = part.restNormals;
+        }
+        mesh.vertexCount = static_cast<int>(mesh.positions.size());
+        mesh.indexCount = static_cast<int>(mesh.indices.size());
+    }
+}
+
+std::size_t PoseBoundPrimitiveParts(
+    Scene& scene,
+    const std::vector<BoundPrimitivePartRest>& parts,
+    const std::unordered_map<std::string, ri::math::Mat4>& restBoneWorld,
+    const std::unordered_map<std::string, ri::math::Mat4>& posedBoneWorld) {
+    std::size_t posed = 0;
+    for (const BoundPrimitivePartRest& part : parts) {
+        if (part.node == kInvalidHandle || part.node < 0
+            || static_cast<std::size_t>(part.node) >= scene.NodeCount()
+            || part.restPositions.empty()) {
+            continue;
+        }
+        Node& node = scene.GetNode(part.node);
+        if (node.mesh == kInvalidHandle) {
+            continue;
+        }
+        const auto restBone = restBoneWorld.find(part.boneName);
+        const auto posedBone = posedBoneWorld.find(part.boneName);
+        if (restBone == restBoneWorld.end() || posedBone == posedBoneWorld.end()) {
+            continue;
+        }
+        ri::math::Mat4 inverseRestBone{};
+        ri::math::Mat4 inverseRestNode{};
+        if (!ri::math::TryInvertMat4(restBone->second, inverseRestBone)
+            || !ri::math::TryInvertMat4(part.restNodeWorld, inverseRestNode)) {
+            continue;
+        }
+        const ri::math::Mat4 skin = ri::math::Multiply(posedBone->second, inverseRestBone);
+        Mesh& mesh = scene.GetMesh(node.mesh);
+        mesh.positions = part.restPositions;
+        if (part.restNormals.size() == part.restPositions.size()) {
+            mesh.normals = part.restNormals;
+        }
+        for (std::size_t vertex = 0; vertex < part.restPositions.size(); ++vertex) {
+            const ri::math::Vec3 restWorld =
+                ri::math::TransformPoint(part.restNodeWorld, part.restPositions[vertex]);
+            const ri::math::Vec3 posedWorld = ri::math::TransformPoint(skin, restWorld);
+            mesh.positions[vertex] = ri::math::TransformPoint(inverseRestNode, posedWorld);
+            if (vertex < mesh.normals.size()) {
+                const ri::math::Vec3 restWorldNormal =
+                    ri::math::TransformVector(part.restNodeWorld, part.restNormals[vertex]);
+                const ri::math::Vec3 posedWorldNormal =
+                    ri::math::TransformVector(skin, restWorldNormal);
+                mesh.normals[vertex] = ri::math::Normalize(
+                    ri::math::TransformVector(inverseRestNode, posedWorldNormal));
+            }
+        }
+        mesh.vertexCount = static_cast<int>(mesh.positions.size());
+        mesh.indexCount = static_cast<int>(mesh.indices.size());
+        ++posed;
+    }
+    return posed;
 }
 
 } // namespace ri::scene

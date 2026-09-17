@@ -10,13 +10,48 @@ set(RAWIRON_VULKAN_SHADER_OUTPUTS)
 
 if(RAWIRON_GLSLANG_VALIDATOR)
   file(MAKE_DIRECTORY "${RAWIRON_VULKAN_SHADER_DIR}")
-  foreach(shader_name IN ITEMS NativeScenePreview.vert NativeScenePreview.frag NativeSkybox.vert NativeSkybox.frag NativeShadowDepth.vert NativeShadowDepth.frag NativeComposite.vert NativeComposite.frag NativeHybridComposite.vert NativeHybridComposite.frag NativeHybridScreenSpace.vert NativeHybridScreenSpace.frag ProceduralMaps.comp)
-    set(shader_input "${CMAKE_CURRENT_SOURCE_DIR}/shaders/${shader_name}")
+  set(RAWIRON_NATIVE_SHADER_NAMES
+    NativeScenePreview.vert NativeScenePreview.frag
+    NativeSkybox.vert NativeSkybox.frag
+    NativeShadowDepth.vert NativeShadowDepth.frag
+    NativeComposite.vert NativeComposite.frag
+    NativeHybridComposite.vert NativeHybridComposite.frag
+    NativeHybridScreenSpace.vert NativeHybridScreenSpace.frag
+    ProceduralMaps.comp
+  )
+  set(RAWIRON_SERENITY_SHADER_NAMES SerenityExposure.frag SerenityToneMap.vert SerenityToneMap.frag SerenityComposite.frag)
+  set(RAWIRON_SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+  set(RAWIRON_SERENITY_SHADER_LIBS
+    "${RAWIRON_SHADER_SOURCE_DIR}/SerenityColorCommon.glsl"
+    "${RAWIRON_SHADER_SOURCE_DIR}/SerenityColorTransforms.glsl"
+    "${RAWIRON_SHADER_SOURCE_DIR}/SerenityColorDither.glsl"
+    "${RAWIRON_SHADER_SOURCE_DIR}/SerenityRadiance.glsl"
+    "${RAWIRON_SHADER_SOURCE_DIR}/SerenityTemporal.glsl"
+    "${RAWIRON_SHADER_SOURCE_DIR}/SerenityCloudNoise.glsl"
+    "${RAWIRON_SHADER_SOURCE_DIR}/SerenityExposure.glsl"
+  )
+  foreach(shader_name IN LISTS RAWIRON_NATIVE_SHADER_NAMES)
+    set(shader_input "${RAWIRON_SHADER_SOURCE_DIR}/${shader_name}")
+    set(shader_output "${RAWIRON_VULKAN_SHADER_DIR}/${shader_name}.spv")
+    set(_native_extra_depends)
+    if(shader_name STREQUAL "NativeSkybox.frag" OR shader_name STREQUAL "NativeScenePreview.frag")
+      list(APPEND _native_extra_depends "${RAWIRON_SHADER_SOURCE_DIR}/SerenityCloudNoise.glsl")
+    endif()
+    add_custom_command(
+      OUTPUT "${shader_output}"
+      COMMAND "${RAWIRON_GLSLANG_VALIDATOR}" "-I${RAWIRON_SHADER_SOURCE_DIR}" -V "${shader_input}" -o "${shader_output}"
+      DEPENDS "${shader_input}" ${_native_extra_depends}
+      VERBATIM
+    )
+    list(APPEND RAWIRON_VULKAN_SHADER_OUTPUTS "${shader_output}")
+  endforeach()
+  foreach(shader_name IN LISTS RAWIRON_SERENITY_SHADER_NAMES)
+    set(shader_input "${RAWIRON_SHADER_SOURCE_DIR}/${shader_name}")
     set(shader_output "${RAWIRON_VULKAN_SHADER_DIR}/${shader_name}.spv")
     add_custom_command(
       OUTPUT "${shader_output}"
-      COMMAND "${RAWIRON_GLSLANG_VALIDATOR}" -V "${shader_input}" -o "${shader_output}"
-      DEPENDS "${shader_input}"
+      COMMAND "${RAWIRON_GLSLANG_VALIDATOR}" "-I${RAWIRON_SHADER_SOURCE_DIR}" -V "${shader_input}" -o "${shader_output}"
+      DEPENDS "${shader_input}" ${RAWIRON_SERENITY_SHADER_LIBS}
       VERBATIM
     )
     list(APPEND RAWIRON_VULKAN_SHADER_OUTPUTS "${shader_output}")
@@ -101,6 +136,12 @@ if(RAWIRON_BUILD_TESTS)
     # by validation-layer lanes and local renderer reviews.
     add_executable(VulkanNativeValidationProbe ${CMAKE_SOURCE_DIR}/Tests/VulkanNativeValidationProbe.cpp)
     target_link_libraries(VulkanNativeValidationProbe PRIVATE RawIron::RenderVulkan)
+    add_executable(VulkanSerenityExposureProbe ${CMAKE_SOURCE_DIR}/Tests/VulkanSerenityExposureProbe.cpp)
+    target_link_libraries(VulkanSerenityExposureProbe PRIVATE Vulkan::Vulkan)
+    target_compile_features(VulkanSerenityExposureProbe PRIVATE cxx_std_20)
+    if(TARGET RawIron.Render.Vulkan.Shaders)
+      add_dependencies(VulkanSerenityExposureProbe RawIron.Render.Vulkan.Shaders)
+    endif()
   endif()
   add_executable(VulkanHybridPostProcessSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/VulkanHybridPostProcessSafetySmoke.cpp)
   target_link_libraries(VulkanHybridPostProcessSafetySmoke PRIVATE RawIron::RenderVulkan)
@@ -139,6 +180,13 @@ if(RAWIRON_BUILD_TESTS)
       -P ${CMAKE_SOURCE_DIR}/Tests/VerifyExtendedCompositeWiring.cmake
   )
 
+  add_test(
+    NAME RawIron.Render.Vulkan.NativeSerenityColorStageSmoke
+    COMMAND ${CMAKE_COMMAND}
+      -DRAWIRON_WORKSPACE=${CMAKE_SOURCE_DIR}
+      -DRAWIRON_BINARY_SHADER_DIR=${RAWIRON_VULKAN_SHADER_DIR}
+      -P ${CMAKE_SOURCE_DIR}/Tests/VerifyNativeSerenityColorStage.cmake
+  )
   add_test(
     NAME RawIron.Render.Vulkan.ReferenceShaderMigrationSmoke
     COMMAND ${CMAKE_COMMAND}

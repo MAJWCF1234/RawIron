@@ -68,6 +68,15 @@ int main() {
         fs::remove_all(root, error);
         return 6;
     }
+    const fs::path rigCopy = ri::forge::DuplicateRig(root, first, &createError);
+    if (rigCopy.empty() || rigCopy == first || !fs::exists(rigCopy) || !createError.empty()) {
+        fs::remove_all(root, error);
+        return 6;
+    }
+    if (!ri::forge::DeleteRig(rigCopy, &createError) || fs::exists(rigCopy) || !createError.empty()) {
+        fs::remove_all(root, error);
+        return 6;
+    }
 
     const fs::path primitiveModel = ri::forge::CreateUniquePrimitiveModel(root, &createError);
     std::string groupId;
@@ -81,9 +90,31 @@ int main() {
         fs::remove_all(root, error);
         return 7;
     }
+    const fs::path modelCopy = ri::forge::DuplicatePrimitiveModel(root, primitiveModel, &createError);
+    if (modelCopy.empty() || modelCopy == primitiveModel || !fs::exists(modelCopy)
+        || !createError.empty()) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    if (!ri::forge::DeletePrimitiveModel(modelCopy, &createError) || fs::exists(modelCopy)
+        || !createError.empty()) {
+        fs::remove_all(root, error);
+        return 7;
+    }
     if (ri::forge::AppendPrimitiveToModel(
             primitiveModel, "missing_preset", "root", nullptr, &createError)
         || createError.empty()) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    std::string duplicatedPartId;
+    if (!ri::forge::DuplicatePrimitiveModelElement(primitiveModel, partId, &duplicatedPartId, &createError)
+        || duplicatedPartId.empty() || duplicatedPartId == partId || !createError.empty()) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    if (!ri::forge::RemovePrimitiveModelElement(primitiveModel, duplicatedPartId, &createError)
+        || !createError.empty()) {
         fs::remove_all(root, error);
         return 7;
     }
@@ -91,6 +122,57 @@ int main() {
         ri::forge::BakePrimitiveModelAsset(primitiveModel);
     if (!bake.valid || !fs::is_regular_file(bake.outputPath)
         || bake.inputPartCount != 2U || bake.outputTriangleCount == 0U) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    const fs::path sculpt = ri::forge::CreateUniqueNativeSculpt(root, "sphere", &createError);
+    if (sculpt.empty() || !createError.empty()) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    const fs::path sculptCopy = ri::forge::DuplicateNativeSculpt(root, sculpt, &createError);
+    if (sculptCopy.empty() || sculptCopy == sculpt || !fs::exists(sculptCopy) || !createError.empty()) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    if (!ri::forge::DeleteNativeSculpt(sculptCopy, &createError) || fs::exists(sculptCopy)
+        || !createError.empty()) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    if (ri::forge::DeleteNativeSculpt(sculptCopy, &createError) || createError.empty()) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    if (!ri::forge::BindSculptToRig(sculpt, first, root, &createError)
+        || !ri::forge::BindPrimitiveModelToRig(primitiveModel, first, root, &createError)
+        || !ri::forge::BindPrimitiveElementToBone(primitiveModel, groupId, "left_upper_arm", &createError)) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    const fs::path clip = ri::forge::CreateUniqueNativeAnimation(root, first, &createError);
+    if (clip.empty() || !createError.empty()) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    const fs::path clipTwo = ri::forge::CreateUniqueNativeAnimation(root, first, &createError);
+    const fs::path clipOther = ri::forge::CreateUniqueNativeAnimation(root, second, &createError);
+    if (clipTwo.empty() || clipOther.empty() || clipTwo == clip || clipOther == clip
+        || !createError.empty()) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    const fs::path clipCopy = ri::forge::DuplicateNativeAnimation(root, clip, &createError);
+    if (clipCopy.empty() || clipCopy == clip || !fs::exists(clipCopy) || !createError.empty()) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    if (!ri::forge::DeleteNativeAnimation(clipCopy, &createError) || fs::exists(clipCopy)
+        || !createError.empty()) {
+        fs::remove_all(root, error);
+        return 7;
+    }
+    if (ri::forge::DeleteNativeAnimation(clipCopy, &createError) || createError.empty()) {
         fs::remove_all(root, error);
         return 7;
     }
@@ -112,32 +194,85 @@ int main() {
         ri::forge::BuildForgePreviewScene(
             root / "Assets" / "Source" / "models" / "crate.blend",
             ri::forge::AssetKind::ModelSource);
+    const ri::forge::ForgePreviewBuildResult rigPreview =
+        ri::forge::BuildForgePreviewScene(first, ri::forge::AssetKind::Rig);
+    const ri::forge::ForgePreviewBuildResult brokenRigPreview =
+        ri::forge::BuildForgePreviewScene(
+            source / "broken.ri_rig.json",
+            ri::forge::AssetKind::Rig);
+    const ri::forge::ForgePreviewBuildResult sculptPreview =
+        ri::forge::BuildForgePreviewScene(sculpt, ri::forge::AssetKind::Sculpt);
+    const ri::forge::ForgePreviewBuildResult clipPreview =
+        ri::forge::BuildForgePreviewScene(clip, ri::forge::AssetKind::Animation);
     if (!sourcePreview.assetLoaded || sourcePreview.renderableNodeCount == 0U
         || sourcePreview.camera.cameraNode == ri::scene::kInvalidHandle
+        || sourcePreview.gridNode == ri::scene::kInvalidHandle
+        || sourcePreview.axesNode == ri::scene::kInvalidHandle
         || !primitivePreview.assetLoaded || primitivePreview.renderableNodeCount == 0U
+        || primitivePreview.partIds.size() + primitivePreview.boneCount
+            != primitivePreview.frameNodes.size()
+        || primitivePreview.partIds.empty()
+        || primitivePreview.groupIds.size() != primitivePreview.groupNodes.size()
+        || primitivePreview.boneCount == 0U
+        || primitivePreview.boneNodes.empty()
+        || primitivePreview.status.find("rig") == std::string::npos
         || primitivePreview.camera.cameraNode == ri::scene::kInvalidHandle
         || oversizedPreview.assetLoaded
         || oversizedPreview.status.find("size limit") == std::string::npos
         || blendPreview.assetLoaded
-        || blendPreview.status.find("requires export") == std::string::npos) {
+        || blendPreview.status.find("requires export") == std::string::npos
+        || !rigPreview.assetLoaded || rigPreview.boneCount == 0U
+        || rigPreview.renderableNodeCount == 0U
+        || rigPreview.frameNodes.empty()
+        || rigPreview.status.find("skeleton") == std::string::npos
+        || brokenRigPreview.assetLoaded
+        || brokenRigPreview.status.find("could not be loaded") == std::string::npos
+        || !sculptPreview.assetLoaded || sculptPreview.sculptNode == ri::scene::kInvalidHandle
+        || sculptPreview.sculptWireframeNode == ri::scene::kInvalidHandle
+        || sculptPreview.sculptNormalsNode == ri::scene::kInvalidHandle
+        || sculptPreview.sculptCollisionNode == ri::scene::kInvalidHandle
+        || sculptPreview.sculptBrushCursorNode == ri::scene::kInvalidHandle
+        || sculptPreview.boneCount == 0U
+        || sculptPreview.boneNodes.empty()
+        || sculptPreview.status.find("Native sculpt") == std::string::npos
+        || sculptPreview.status.find("rig") == std::string::npos
+        || !clipPreview.assetLoaded || clipPreview.boneNodes.empty()
+        || clipPreview.status.find("Motion clip") == std::string::npos) {
         fs::remove_all(root, error);
         return 8;
     }
 
     const ri::forge::AssetCatalog finalCatalog = ri::forge::ScanAssetCatalog(root);
     if (finalCatalog.modelCount != 3U || finalCatalog.primitiveModelCount != 1U
+        || finalCatalog.sculptCount != 1U || finalCatalog.invalidSculptCount != 0U
         || finalCatalog.rigCount != 4U || finalCatalog.invalidRigCount != 1U
+        || finalCatalog.animationCount != 3U || finalCatalog.invalidAnimationCount != 0U
         || finalCatalog.invalidPrimitiveModelCount != 0U) {
         fs::remove_all(root, error);
         return 9;
     }
     const std::vector<std::size_t> primitiveMatches =
         ri::forge::FilterAssetCatalogIndices(finalCatalog, "PRIMITIVE FORGE");
+    const std::vector<std::size_t> sculptMatches =
+        ri::forge::FilterAssetCatalogIndices(finalCatalog, "native sculpt");
+    const std::vector<std::size_t> clipMatches =
+        ri::forge::FilterAssetCatalogIndices(finalCatalog, "animation clip");
     const std::vector<std::size_t> rockMatches =
         ri::forge::FilterAssetCatalogIndices(finalCatalog, "crate.OBJ");
     const std::vector<std::size_t> noMatches =
         ri::forge::FilterAssetCatalogIndices(finalCatalog, "definitely-not-an-asset");
-    if (primitiveMatches.size() != 1U || rockMatches.size() != 1U || !noMatches.empty()) {
+    if (primitiveMatches.size() != 1U || sculptMatches.size() != 1U || clipMatches.size() != 3U
+        || rockMatches.size() != 1U || !noMatches.empty()) {
+        fs::remove_all(root, error);
+        return 10;
+    }
+    const std::vector<std::size_t> firstClips = ri::forge::AnimationIndicesForRig(
+        finalCatalog, ri::forge::RelativeSourcePath(root, first), first);
+    const std::vector<std::size_t> secondClips = ri::forge::AnimationIndicesForRig(
+        finalCatalog, ri::forge::RelativeSourcePath(root, second), second);
+    const std::vector<std::size_t> missingClips = ri::forge::AnimationIndicesForRig(
+        finalCatalog, "rigs/missing.ri_rig.json", {});
+    if (firstClips.size() != 2U || secondClips.size() != 1U || !missingClips.empty()) {
         fs::remove_all(root, error);
         return 10;
     }
@@ -194,6 +329,27 @@ int main() {
             || preview->renderableNodeCount == 0U || backgroundPreview.Busy()) {
             fs::remove_all(root, error);
             return 12;
+        }
+    }
+
+    {
+        std::error_code writeError{};
+        const auto firstWrite = fs::last_write_time(sculpt, writeError);
+        if (writeError) {
+            fs::remove_all(root, error);
+            return 14;
+        }
+        const auto laterWrite = firstWrite + std::chrono::seconds(2);
+        if (!ri::forge::ShouldReuseForgePreview(
+                sculpt, true, firstWrite, sculpt, true, firstWrite, false)
+            || ri::forge::ShouldReuseForgePreview(
+                sculpt, true, firstWrite, sculpt, true, laterWrite, false)
+            || !ri::forge::ShouldReuseForgePreview(
+                sculpt, true, firstWrite, sculpt, true, laterWrite, true)
+            || ri::forge::ShouldReuseForgePreview(
+                sculpt, true, firstWrite, primitiveModel, true, firstWrite, true)) {
+            fs::remove_all(root, error);
+            return 14;
         }
     }
 

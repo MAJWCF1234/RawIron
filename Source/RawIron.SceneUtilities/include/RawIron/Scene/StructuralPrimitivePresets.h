@@ -41,6 +41,9 @@ struct StructuralPrimitivePreset {
     bool closedProfile = true;
     bool closedPath = false;
     bool capEnds = true;
+    int knotP = 2;
+    int knotQ = 3;
+    float curveTurns = 1.0f;
 };
 
 /// Curated structural primitive presets (editor + game assembly).
@@ -73,6 +76,8 @@ inline constexpr auto kStructuralPrimitivePresets = std::to_array<StructuralPrim
     {.label = "hipped_roof_flat", .structuralType = "hipped_roof", .ridgeRatio = 0.48f},
     {.label = "arch_round_wide", .structuralType = "arch", .thickness = 0.12f, .spanDegrees = 240.0f, .archStyle = "round"},
     {.label = "arch_round_thick", .structuralType = "arch", .thickness = 0.30f, .spanDegrees = 180.0f, .archStyle = "round"},
+    {.label = "torus_knot", .structuralType = "torus_knot", .sides = 20, .thickness = .08f},
+    {.label = "helix", .structuralType = "helix", .sides = 20, .thickness = .08f, .length = 2.4f, .curveTurns = 3},
     {.label = "torus", .structuralType = "torus", .radialSegments = 20, .sides = 12},
     {.label = "tube", .structuralType = "tube", .radialSegments = 24, .thickness = 0.18f, .topRadius = 0.32f},
     {.label = "corner", .structuralType = "corner", .radialSegments = 18, .thickness = 0.18f},

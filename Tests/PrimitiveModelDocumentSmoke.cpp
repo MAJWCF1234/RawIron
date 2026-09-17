@@ -1,6 +1,7 @@
 #include "RawIron/Content/PrimitiveModelDocument.h"
 
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -31,6 +32,10 @@ int main() {
 
     document.parts[1].transform.translation.x = -0.75F;
     document.parts[1].transform.scale = {0.35F, 0.35F, 0.35F};
+    document.parts[0].albedoColor = {0.82F, 0.28F, 0.16F};
+    document.parts[0].roughness = 0.35F;
+    document.parts[0].metallic = 0.2F;
+    document.parts[0].albedoTexture = "iron_plate.png";
     const ri::content::PrimitiveModelValidationReport valid =
         ri::content::ValidatePrimitiveModelDocument(document);
     if (!require(
@@ -44,8 +49,33 @@ int main() {
     if (!require(
             parsed.has_value() && ri::content::ValidatePrimitiveModelDocument(*parsed).valid
                 && parsed->groups.size() == 3U && parsed->parts.size() == 2U
-                && parsed->parts[1].transform.translation.x == -0.75F,
+                && parsed->parts[1].transform.translation.x == -0.75F
+                && parsed->parts[0].albedoColor.x == 0.82F && parsed->parts[0].roughness == 0.35F
+                && parsed->parts[0].metallic == 0.2F && parsed->parts[0].albedoTexture == "iron_plate.png",
             "Serialized document did not round trip.")) {
+        return EXIT_FAILURE;
+    }
+
+    const std::string duplicatedPart =
+        ri::content::DuplicatePrimitiveModelPart(document, shoulder);
+    const std::string duplicatedGroup =
+        ri::content::DuplicatePrimitiveModelGroup(document, arm);
+    if (!require(
+            !duplicatedPart.empty() && document.parts.size() == 3U
+                && document.parts.back().primitivePreset == "uv_sphere"
+                && document.parts.back().groupId == arm
+                && std::abs(document.parts.back().transform.translation.x + 0.50F) < 0.0001F
+                && !duplicatedGroup.empty() && document.groups.size() == 4U,
+            "Could not duplicate part or group.")) {
+        return EXIT_FAILURE;
+    }
+    if (!require(
+            ri::content::RemovePrimitiveModelPart(document, duplicatedPart)
+                && document.parts.size() == 2U
+                && !ri::content::RemovePrimitiveModelGroup(document, torso)
+                && ri::content::RemovePrimitiveModelGroup(document, duplicatedGroup)
+                && document.groups.size() == 3U,
+            "Could not delete duplicated part or empty copied group.")) {
         return EXIT_FAILURE;
     }
 

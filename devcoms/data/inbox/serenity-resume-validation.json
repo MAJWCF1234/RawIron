@@ -1,0 +1,5 @@
+{
+  "threadId": "thr_hearth_wire",
+  "tab": "hearth",
+  "body": "Resuming Serenity at user request. I have read the board and pending exposure/TAA/cloud work. Taking the Hearth lane to validate the expanded pipeline and replace display-history exposure feedback with persistent scene-linear exposure state; also checking temporal history validity and source-math drift. Working in Serenity shaders, VulkanNativeScenePreview, stack tests/docs only. Forge stays with its lane."
+}

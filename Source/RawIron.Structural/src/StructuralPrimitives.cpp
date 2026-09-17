@@ -1001,24 +1001,7 @@ std::vector<ri::math::Vec3> SanitizeProfileLoop3d(const std::vector<ri::math::Ve
 }
 
 CompiledMesh CreateExtrudeAlongNormalMesh(const StructuralPrimitiveOptions& options) {
-    const std::vector<ri::math::Vec3> loop = SanitizeProfileLoop3d(options.points);
-    const float halfDepth = std::clamp(std::fabs(options.depth), 0.01f, 2.0f) * 0.5f;
-    std::vector<ri::math::Vec3> triangles;
-    triangles.reserve(loop.size() * 12U);
-
-    const ri::math::Vec3 frontCenter{0.0f, 0.0f, halfDepth};
-    const ri::math::Vec3 backCenter{0.0f, 0.0f, -halfDepth};
-    for (std::size_t i = 0; i < loop.size(); ++i) {
-        const std::size_t next = (i + 1U) % loop.size();
-        const ri::math::Vec3 frontA{loop[i].x, loop[i].y, halfDepth};
-        const ri::math::Vec3 frontB{loop[next].x, loop[next].y, halfDepth};
-        const ri::math::Vec3 backA{loop[i].x, loop[i].y, -halfDepth};
-        const ri::math::Vec3 backB{loop[next].x, loop[next].y, -halfDepth};
-        AppendQuadFacing(triangles, frontA, backA, backB, frontB, ri::math::Normalize(frontA + frontB));
-        AppendTriangle(triangles, frontCenter, frontA, frontB);
-        AppendTriangle(triangles, backCenter, backB, backA);
-    }
-    return BuildMeshFromTriangles(triangles);
+    return detail::BuildSmoothStructuralSurface("extrude_along_normal_primitive", options);
 }
 
 std::tuple<int, int, int> QuantizedPointKey(const ri::math::Vec3& point) {
@@ -2172,6 +2155,7 @@ bool IsNativeStructuralPrimitive(std::string_view type) {
         || type == "torus_slice"
         || type == "spline_sweep"
         || type == "revolve"
+        || type == "torus_knot" || type == "helix"
         || type == "mobius"
         || type == "parametric_patch"
         || type == "dome_vault"
@@ -2293,7 +2277,7 @@ CompiledMesh BuildPrimitiveMesh(std::string_view type, const StructuralPrimitive
     const std::string normalizedType = NormalizeStructuralPrimitiveTypeKey(type);
     type = normalizedType;
     const StructuralPrimitiveOptions options = SanitizeStructuralPrimitiveOptions(rawOptions);
-    if (type == "mobius" || type == "parametric_patch") return detail::BuildSmoothStructuralSurface(type, options);
+    if (type == "torus_knot" || type == "helix" || type == "mobius" || type == "parametric_patch") return detail::BuildSmoothStructuralSurface(type, options);
     if (type == "rounded_box") {
         return CreateRoundedBoxMesh(options);
     }
@@ -2521,6 +2505,7 @@ StructuralPrimitiveOptions SanitizeStructuralPrimitiveOptions(const StructuralPr
         return std::clamp(finiteOr(value, fallback), -kMaxAuthoringMagnitude, kMaxAuthoringMagnitude);
     };
 
+    sanitized.curveTurns = boundedFiniteOr(options.curveTurns, defaults.curveTurns);
     sanitized.thickness = boundedFiniteOr(options.thickness, defaults.thickness);
     sanitized.depth = boundedFiniteOr(options.depth, defaults.depth);
     sanitized.strutRadius = boundedFiniteOr(options.strutRadius, defaults.strutRadius);
@@ -2577,6 +2562,7 @@ StructuralPrimitiveValidationReport ValidateStructuralPrimitive(
             report.errors.push_back(std::string(field) + " must be finite.");
         }
     };
+    requireFinite(options.curveTurns, "curveTurns");
     requireFinite(options.thickness, "thickness");
     requireFinite(options.depth, "depth");
     requireFinite(options.strutRadius, "strutRadius");

@@ -104,6 +104,11 @@ struct VulkanPreviewWindowOptions {
     int initialRenderQualityTier = 1;
     /// Optional `shader.cfg` layer applied after each `VulkanNativeSceneFrameCallback` (see `ShaderConfig.h`).
     ShaderPresentationConfig shaderPresentation{};
+    /// Optional named processing-stack library selector. Enables HDR intermediates
+    /// and transactional live config reload. Empty keeps the existing renderer path.
+    std::filesystem::path processingStackConfigPath{};
+    std::string processingStackName{};
+    std::function<void(std::string_view)> onProcessingStackChanged{};
     /// Parallel CPU decode staging used before the first native Vulkan upload. Burst mode uses
     /// the available logical CPUs (reserving one when possible) within maxDecodedBytes.
     VulkanWarmupCacheOptions warmupCache{};
@@ -120,6 +125,8 @@ struct VulkanPreviewWindowOptions {
 };
 
 struct VulkanNativeSceneFrame {
+    /// Non-empty overrides the library's active.cfg selection (e.g. user cycling).
+    std::string processingStackName{};
     /// Optional owner that keeps an immutable scene snapshot alive through submission.
     std::shared_ptr<const ri::scene::Scene> sceneOwner{};
     const ri::scene::Scene* scene = nullptr;

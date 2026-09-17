@@ -1,4 +1,5 @@
 #include "RawIron/Render/VulkanPreviewPresenter.h"
+#include "RawIron/Render/ProcessingStack.h"
 #include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/HybridPresentationTargets.h"
 #include "RawIron/Render/VulkanDeviceFeaturePolicy.h"
@@ -533,13 +534,13 @@ struct NativeScenePreviewData {
 struct alignas(16) SkyUniformStd140 {
     std::int32_t hasSkyTexture = 0;
     std::int32_t useAuthoredGradient = 0;
-    std::int32_t pad0 = 0;
+    std::int32_t volumetricClouds = 0;
     std::int32_t pad1 = 0;
     float clipFromLocal[16]{};
     float eyeToWorldRotation[16]{};
     /// xyz = world-space direction toward the sun; w = visible sun strength.
     float sunDirection[4]{};
-    /// rgb = sun disc tint (normalized); w unused.
+    /// rgb = sun disc tint (normalized); w = cloud animation time (seconds).
     float sunColor[4]{1.0f, 0.94f, 0.82f, 1.0f};
     /// rgb = horizon / `clear_bottom`; w unused.
     float horizonColor[4]{0.82f, 0.82f, 0.80f, 1.0f};
@@ -813,9 +814,24 @@ struct alignas(16) CameraUniformStd140 {
     float riColorQuantizePack2[4]{};
     float riKaleidoscopePack0[4]{};
     float riKaleidoscopePack1[4]{};
+    float serenityControls[9][4]{};
+    float previousViewProjection[16]{};
+    float invViewProjection[16]{};
+    float serenityTemporalState[4]{};
+    float serenityExposureTuning[4]{};
+    float serenityPurkinjeColor[4]{};
 };
 
-static_assert(sizeof(CameraUniformStd140) == 4304, "Must match NativeScenePreview shader CameraData std140 layout.");
+static_assert(offsetof(CameraUniformStd140, cameraWorldPosition) == 64, "Must match SerenityColorCommon.glsl camera position.");
+static_assert(offsetof(CameraUniformStd140, lightDirectionIntensity) == 208, "Must match SerenityColorCommon.glsl sun direction.");
+static_assert(offsetof(CameraUniformStd140, directionalLightColorIntensity) == 256, "Must match SerenityColorCommon.glsl sun tint.");
+static_assert(offsetof(CameraUniformStd140, serenityControls) == 4304, "Must match SerenityColorCommon.glsl offset.");
+static_assert(offsetof(CameraUniformStd140, previousViewProjection) == 4448, "Must match SerenityColorCommon.glsl previous VP.");
+static_assert(offsetof(CameraUniformStd140, invViewProjection) == 4512, "Must match SerenityColorCommon.glsl inverse VP.");
+static_assert(offsetof(CameraUniformStd140, serenityTemporalState) == 4576, "Must match Serenity temporal state.");
+static_assert(offsetof(CameraUniformStd140, serenityExposureTuning) == 4592, "Must match Serenity exposure tuning.");
+static_assert(offsetof(CameraUniformStd140, serenityPurkinjeColor) == 4608, "Must match Serenity rod color.");
+static_assert(sizeof(CameraUniformStd140) == 4624, "CameraData prefix plus Serenity controls and temporal state.");
 
 void StoreMat4ColumnMajorGlsl(const ri::math::Mat4& matrix, float destination[16]) {
     for (int column = 0; column < 4; ++column) {
@@ -827,6 +843,16 @@ void StoreMat4ColumnMajorGlsl(const ri::math::Mat4& matrix, float destination[16
 
 void StoreMat4ColumnMajorGlsl(const ri::math::Mat4& matrix, std::array<float, 16>& destination) {
     StoreMat4ColumnMajorGlsl(matrix, destination.data());
+}
+
+ri::math::Mat4 LoadMat4ColumnMajorGlsl(const float source[16]) {
+    ri::math::Mat4 matrix{};
+    for (int column = 0; column < 4; ++column) {
+        for (int row = 0; row < 4; ++row) {
+            matrix.m[row][column] = source[column * 4 + row];
+        }
+    }
+    return matrix;
 }
 
 struct WindowState {
@@ -960,6 +986,8 @@ struct ImageResource {
     VkImage image = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkImageView view = VK_NULL_HANDLE;
+    VkImageView attachmentView = VK_NULL_HANDLE;
+    std::uint32_t mipLevels = 1;
 };
 
 BufferResource CreateBuffer(VkPhysicalDevice physicalDevice,
@@ -1294,13 +1322,19 @@ VkFormat FindHdrSceneColorFormat(VkPhysicalDevice physicalDevice) {
         VK_FORMAT_R16G16B16A16_SFLOAT,
         VK_FORMAT_R32G32B32A32_SFLOAT,
     };
-    for (const VkFormat format : formats) {
-        VkFormatProperties properties{};
-        vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &properties);
-        constexpr VkFormatFeatureFlags required =
-            VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
-        if ((properties.optimalTilingFeatures & required) == required) {
-            return format;
+    constexpr VkFormatFeatureFlags kBlitSampled =
+        VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT
+        | VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT
+        | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    constexpr VkFormatFeatureFlags kAttachmentSampled =
+        VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+    for (const VkFormatFeatureFlags required : {kBlitSampled, kAttachmentSampled}) {
+        for (const VkFormat format : formats) {
+            VkFormatProperties properties{};
+            vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &properties);
+            if ((properties.optimalTilingFeatures & required) == required) {
+                return format;
+            }
         }
     }
     throw std::runtime_error("No Vulkan HDR scene color format (RGBA16F or RGBA32F with attachment + sampling).");
@@ -3959,22 +3993,43 @@ ImageResource CreateDepthImage(VkPhysicalDevice physicalDevice,
     return resource;
 }
 
+std::uint32_t CountHdrSceneColorMips(std::uint32_t width, std::uint32_t height) {
+    const std::uint32_t largest = std::max(width, height);
+    return largest > 0U ? static_cast<std::uint32_t>(std::floor(std::log2(static_cast<float>(largest)))) + 1U : 1U;
+}
+
 ImageResource CreateHdrSceneColorImage(VkPhysicalDevice physicalDevice,
                                        VkDevice device,
                                        VkFormat format,
                                        std::uint32_t width,
-                                       std::uint32_t height) {
+                                       std::uint32_t height,
+                                       std::uint32_t mipLevels = 1,
+                                       VkImageUsageFlags extraUsage = 0) {
     ImageResource resource{};
+    mipLevels = std::max(1U, mipLevels);
+    VkFormatProperties properties{};
+    vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &properties);
+    constexpr VkFormatFeatureFlags kBlitLinear =
+        VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT
+        | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    if (mipLevels > 1 && (properties.optimalTilingFeatures & kBlitLinear) != kBlitLinear) {
+        mipLevels = 1;
+    }
+    resource.mipLevels = mipLevels;
+    VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | extraUsage;
+    if (mipLevels > 1) {
+        usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    }
     const VkImageCreateInfo imageInfo{
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .imageType = VK_IMAGE_TYPE_2D,
         .format = format,
         .extent = {width, height, 1},
-        .mipLevels = 1,
+        .mipLevels = mipLevels,
         .arrayLayers = 1,
         .samples = VK_SAMPLE_COUNT_1_BIT,
         .tiling = VK_IMAGE_TILING_OPTIMAL,
-        .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        .usage = usage,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
     };
@@ -3998,12 +4053,18 @@ ImageResource CreateHdrSceneColorImage(VkPhysicalDevice physicalDevice,
         .subresourceRange = {
             .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
             .baseMipLevel = 0,
-            .levelCount = 1,
+            .levelCount = mipLevels,
             .baseArrayLayer = 0,
             .layerCount = 1,
         },
     };
     ExpectVk(vkCreateImageView(device, &hdrViewInfo, nullptr, &resource.view), "vkCreateImageView(hdr-scene)");
+    if (mipLevels > 1) {
+        VkImageViewCreateInfo attachmentViewInfo = hdrViewInfo;
+        attachmentViewInfo.subresourceRange.levelCount = 1;
+        ExpectVk(vkCreateImageView(device, &attachmentViewInfo, nullptr, &resource.attachmentView),
+                 "vkCreateImageView(hdr-scene-mip0)");
+    }
     return resource;
 }
 
@@ -4081,6 +4142,123 @@ void TransitionImageLayout(VkCommandBuffer commandBuffer,
         },
     };
     vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+}
+
+void RecordHdrColorMipChain(VkCommandBuffer commandBuffer,
+                            VkImage image,
+                            VkExtent2D extent,
+                            std::uint32_t mipLevels) {
+    if (commandBuffer == VK_NULL_HANDLE || image == VK_NULL_HANDLE || mipLevels <= 1) {
+        return;
+    }
+    VkImageMemoryBarrier barrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = image,
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+    };
+    barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    vkCmdPipelineBarrier(commandBuffer,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0,
+                         0,
+                         nullptr,
+                         0,
+                         nullptr,
+                         1,
+                         &barrier);
+
+    std::uint32_t mipWidth = extent.width;
+    std::uint32_t mipHeight = extent.height;
+    for (std::uint32_t level = 1; level < mipLevels; ++level) {
+        const std::uint32_t nextWidth = std::max(1U, mipWidth / 2U);
+        const std::uint32_t nextHeight = std::max(1U, mipHeight / 2U);
+        barrier.subresourceRange.baseMipLevel = level;
+        barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0,
+                             0,
+                             nullptr,
+                             0,
+                             nullptr,
+                             1,
+                             &barrier);
+
+        const VkImageBlit blit{
+            .srcSubresource = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .mipLevel = level - 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+            .srcOffsets = {{0, 0, 0}, {static_cast<std::int32_t>(mipWidth), static_cast<std::int32_t>(mipHeight), 1}},
+            .dstSubresource = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .mipLevel = level,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+            .dstOffsets = {{0, 0, 0}, {static_cast<std::int32_t>(nextWidth), static_cast<std::int32_t>(nextHeight), 1}},
+        };
+        vkCmdBlitImage(commandBuffer,
+                       image,
+                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                       image,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       1,
+                       &blit,
+                       VK_FILTER_LINEAR);
+
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0,
+                             0,
+                             nullptr,
+                             0,
+                             nullptr,
+                             1,
+                             &barrier);
+        mipWidth = nextWidth;
+        mipHeight = nextHeight;
+    }
+
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = mipLevels;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    vkCmdPipelineBarrier(commandBuffer,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                         0,
+                         0,
+                         nullptr,
+                         0,
+                         nullptr,
+                         1,
+                         &barrier);
 }
 
 void RecordFakeMotionBlurHistoryCopy(VkCommandBuffer commandBuffer,
@@ -5881,7 +6059,13 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
                               VkDescriptorSet hybridBundleDescriptorSet,
                               VkImage swapchainImage,
                               VkImage fakeMotionBlurHistoryImage,
-                              float fakeMotionBlurRecall) {
+                              float fakeMotionBlurRecall,
+                              VkImage hdrBloomImage = VK_NULL_HANDLE,
+                              std::uint32_t hdrBloomMipLevels = 1,
+                              VkPipeline serenityExposurePipeline = VK_NULL_HANDLE,
+                              VkFramebuffer serenityExposureFramebuffer = VK_NULL_HANDLE,
+                              VkImage serenityExposureOutput = VK_NULL_HANDLE,
+                              VkImage serenityExposureHistory = VK_NULL_HANDLE) {
     const VkCommandBufferBeginInfo beginInfo{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     ExpectVk(vkBeginCommandBuffer(commandBuffer, &beginInfo), "vkBeginCommandBuffer");
 
@@ -6195,6 +6379,33 @@ void RecordSceneCommandBuffer(VkCommandBuffer commandBuffer,
         vkCmdDrawIndexed(commandBuffer, indexCount, std::max(draw.instanceCount, 1U), firstIndex, 0, 0);
     }
     vkCmdEndRenderPass(commandBuffer);
+    RecordHdrColorMipChain(commandBuffer, hdrBloomImage, extent, hdrBloomMipLevels);
+    if (serenityExposurePipeline != VK_NULL_HANDLE) {
+        // One fragment meters the HDR image once; tone mapping reads the resulting persistent texel.
+        RecordHybridScreenSpaceBundle(commandBuffer, hybridBundleRenderPass, serenityExposureFramebuffer,
+            VkExtent2D{1, 1}, serenityExposurePipeline, hybridBundlePipelineLayout,
+            cameraDescriptorSet, hybridBundleDescriptorSet);
+        TransitionImageLayout(commandBuffer, serenityExposureOutput, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        TransitionImageLayout(commandBuffer, serenityExposureHistory, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        const VkImageCopy copy{
+            .srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+            .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+            .extent = {1, 1, 1},
+        };
+        vkCmdCopyImage(commandBuffer, serenityExposureOutput, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            serenityExposureHistory, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        TransitionImageLayout(commandBuffer, serenityExposureHistory, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        // The next meter render discards this output, but must finish the copy before its write.
+        TransitionImageLayout(commandBuffer, serenityExposureOutput, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+    }
     RecordHybridScreenSpaceBundle(commandBuffer,
                                   hybridBundleRenderPass,
                                   hybridBundleFramebuffer,
@@ -6777,7 +6988,8 @@ bool RunVulkanNativeSceneLoop(const int width,
         const VkSubpassDependency dependency{
             .srcSubpass = VK_SUBPASS_EXTERNAL,
             .dstSubpass = 0,
-            .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+            .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
             .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
             .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
         };
@@ -6946,7 +7158,9 @@ bool RunVulkanNativeSceneLoop(const int width,
         ExpectVk(vkCreateDescriptorSetLayout(device, &skyCameraSetLayoutInfo, nullptr, &skyCameraSetLayout),
                  "vkCreateDescriptorSetLayout(sky-camera)");
 
-        const bool enableHybridHdr = options.enableHybridHdrPresentation;
+        const bool enableProcessingStacks = !options.processingStackConfigPath.empty();
+        const bool enableHybridHdr = options.enableHybridHdrPresentation || enableProcessingStacks;
+        ri::render::ProcessingStackReloader processingStacks(options.processingStackConfigPath, options.processingStackName);
         VkFormat hdrSceneFormat = VK_FORMAT_UNDEFINED;
         ImageResource hdrSceneColorImage{};
         VkRenderPass hdrSceneRenderPass = VK_NULL_HANDLE;
@@ -6957,6 +7171,15 @@ bool RunVulkanNativeSceneLoop(const int width,
         VkPipelineLayout compositePipelineLayout = VK_NULL_HANDLE;
         VkShaderModule compositeVertShader = VK_NULL_HANDLE;
         VkShaderModule compositeFragShader = VK_NULL_HANDLE;
+        VkShaderModule serenityToneVertShader = VK_NULL_HANDLE;
+        VkShaderModule serenityToneShader = VK_NULL_HANDLE;
+        VkShaderModule serenityCompositeShader = VK_NULL_HANDLE;
+        ImageResource serenityExposureOutput{}, serenityExposureHistory{};
+        VkFramebuffer serenityExposureFramebuffer = VK_NULL_HANDLE;
+        VkShaderModule serenityExposureShader = VK_NULL_HANDLE;
+        VkPipeline serenityExposurePipeline = VK_NULL_HANDLE;
+        VkPipeline serenityTonePipeline = VK_NULL_HANDLE;
+        VkPipeline serenityCompositePipeline = VK_NULL_HANDLE;
         VkPipeline pipelineHdrScene = VK_NULL_HANDLE;
         VkPipeline pipelineHdrSceneTransparent = VK_NULL_HANDLE;
         VkPipeline pipelineHdrSceneAdditive = VK_NULL_HANDLE;
@@ -6980,7 +7203,8 @@ bool RunVulkanNativeSceneLoop(const int width,
         if (enableHybridHdr) {
             hdrSceneFormat = FindHdrSceneColorFormat(selection.physicalDevice);
             hdrSceneColorImage =
-                CreateHdrSceneColorImage(selection.physicalDevice, device, hdrSceneFormat, extent.width, extent.height);
+                CreateHdrSceneColorImage(selection.physicalDevice, device, hdrSceneFormat, extent.width, extent.height,
+                                         CountHdrSceneColorMips(extent.width, extent.height));
 
             const VkAttachmentDescription hdrSceneColorAttachmentDesc{
                 .format = hdrSceneFormat,
@@ -7042,7 +7266,8 @@ bool RunVulkanNativeSceneLoop(const int width,
                      "vkCreateRenderPass(hdr-scene)");
 
             const std::array<VkImageView, 4> hdrSceneFbAttachments = {
-                hdrSceneColorImage.view,
+                hdrSceneColorImage.attachmentView != VK_NULL_HANDLE ? hdrSceneColorImage.attachmentView
+                                                                    : hdrSceneColorImage.view,
                 gbufferNormalRoughnessImage.view,
                 gbufferMaterialImage.view,
                 depthImage.view,
@@ -7191,14 +7416,23 @@ bool RunVulkanNativeSceneLoop(const int width,
                 .srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
                 .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
             };
+            const VkSubpassDependency hybridBundleToSampleDependency{
+                .srcSubpass = 0,
+                .dstSubpass = VK_SUBPASS_EXTERNAL,
+                .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+                .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT,
+            };
+            const std::array hybridBundleDependencies{hybridBundlePassDependency, hybridBundleToSampleDependency};
             const VkRenderPassCreateInfo hybridBundleRenderPassInfo{
                 .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
                 .attachmentCount = 1,
                 .pAttachments = &hybridBundleColorAttachmentDesc,
                 .subpassCount = 1,
                 .pSubpasses = &hybridBundleSubpassDesc,
-                .dependencyCount = 1,
-                .pDependencies = &hybridBundlePassDependency,
+                .dependencyCount = static_cast<std::uint32_t>(hybridBundleDependencies.size()),
+                .pDependencies = hybridBundleDependencies.data(),
             };
             ExpectVk(vkCreateRenderPass(device, &hybridBundleRenderPassInfo, nullptr, &hybridBundleRenderPass),
                      "vkCreateRenderPass(hybrid-bundle)");
@@ -7216,30 +7450,50 @@ bool RunVulkanNativeSceneLoop(const int width,
             ExpectVk(vkCreateFramebuffer(device, &hybridBundleFramebufferInfo, nullptr, &hybridBundleFramebuffer),
                      "vkCreateFramebuffer(hybrid-bundle)");
 
-            const std::array<VkDescriptorSetLayoutBinding, 4> hybridBundleTextureBindings = {{
+            if (enableProcessingStacks) {
+                serenityExposureOutput = CreateHdrSceneColorImage(selection.physicalDevice, device, hdrSceneFormat,
+                    1, 1, 1, VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+                serenityExposureHistory = CreateHdrSceneColorImage(selection.physicalDevice, device, hdrSceneFormat,
+                    1, 1, 1, VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+                auto meterFramebufferInfo = hybridBundleFramebufferInfo;
+                meterFramebufferInfo.pAttachments = &serenityExposureOutput.view;
+                meterFramebufferInfo.width = meterFramebufferInfo.height = 1;
+                ExpectVk(vkCreateFramebuffer(device, &meterFramebufferInfo, nullptr, &serenityExposureFramebuffer),
+                         "vkCreateFramebuffer(serenity-exposure)");
+            }
+
+            const VkShaderStageFlags hybridBundleTextureStages =
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+            const std::array<VkDescriptorSetLayoutBinding, 5> hybridBundleTextureBindings = {{
                 VkDescriptorSetLayoutBinding{
                     .binding = 0,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .descriptorCount = 1,
-                    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                    .stageFlags = hybridBundleTextureStages,
                 },
                 VkDescriptorSetLayoutBinding{
                     .binding = 1,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .descriptorCount = 1,
-                    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                    .stageFlags = hybridBundleTextureStages,
                 },
                 VkDescriptorSetLayoutBinding{
                     .binding = 2,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .descriptorCount = 1,
-                    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                    .stageFlags = hybridBundleTextureStages,
                 },
                 VkDescriptorSetLayoutBinding{
                     .binding = 3,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .descriptorCount = 1,
-                    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                    .stageFlags = hybridBundleTextureStages,
+                },
+                VkDescriptorSetLayoutBinding{
+                    .binding = 4,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .descriptorCount = 1,
+                    .stageFlags = hybridBundleTextureStages,
                 },
             }};
             const VkDescriptorSetLayoutCreateInfo hybridBundleTexturesLayoutInfo{
@@ -7717,6 +7971,31 @@ bool RunVulkanNativeSceneLoop(const int width,
             hybridBundlePipelineInfo.renderPass = hybridBundleRenderPass;
             ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &hybridBundlePipelineInfo, nullptr, &hybridBundlePipeline),
                      "vkCreateGraphicsPipelines(hybrid-bundle)");
+            if (enableProcessingStacks) {
+                serenityExposureShader = CreateShaderModule(device, shaderDir / "SerenityExposure.frag.spv");
+                auto meterStages = hybridBundleStages;
+                meterStages[1].module = serenityExposureShader;
+                auto meterInfo = hybridBundlePipelineInfo;
+                meterInfo.pStages = meterStages.data();
+                ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &meterInfo, nullptr, &serenityExposurePipeline),
+                         "vkCreateGraphicsPipelines(serenity-exposure)");
+                serenityToneVertShader = CreateShaderModule(device, shaderDir / "SerenityToneMap.vert.spv");
+                serenityToneShader = CreateShaderModule(device, shaderDir / "SerenityToneMap.frag.spv");
+                serenityCompositeShader = CreateShaderModule(device, shaderDir / "SerenityComposite.frag.spv");
+                auto toneStages = hybridBundleStages;
+                toneStages[0].module = serenityToneVertShader;
+                toneStages[1].module = serenityToneShader;
+                auto toneInfo = hybridBundlePipelineInfo;
+                toneInfo.pStages = toneStages.data();
+                ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &toneInfo, nullptr, &serenityTonePipeline),
+                         "vkCreateGraphicsPipelines(serenity-tone)");
+                auto finalStages = compositeStages;
+                finalStages[1].module = serenityCompositeShader;
+                auto finalInfo = compositePipelineInfo;
+                finalInfo.pStages = finalStages.data();
+                ExpectVk(vkCreateGraphicsPipelines(device, pipelineCache, 1, &finalInfo, nullptr, &serenityCompositePipeline),
+                         "vkCreateGraphicsPipelines(serenity-composite)");
+            }
         }
 
         const VkPipelineShaderStageCreateInfo shadowVertStage{
@@ -7982,9 +8261,24 @@ bool RunVulkanNativeSceneLoop(const int width,
                                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
             });
 
+            if (enableProcessingStacks) {
+                SubmitOneTimeCommands(device, commandPool, graphicsQueue, [&](VkCommandBuffer cmd) {
+                    TransitionImageLayout(cmd, serenityExposureHistory.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT,
+                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                    const VkClearColorValue zero{};
+                    const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+                    vkCmdClearColorImage(cmd, serenityExposureHistory.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                         &zero, 1, &range);
+                    TransitionImageLayout(cmd, serenityExposureHistory.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                });
+            }
+
             const std::array<VkDescriptorPoolSize, 1> hybridBundlePoolSizes{VkDescriptorPoolSize{
                 .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = 4,
+                .descriptorCount = 5,
             }};
             const VkDescriptorPoolCreateInfo hybridBundlePoolInfo{
                 .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -8024,7 +8318,12 @@ bool RunVulkanNativeSceneLoop(const int width,
                 .imageView = gbufferMaterialImage.view,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             };
-            const std::array<VkWriteDescriptorSet, 4> writeHybridBundle = {{
+            const VkDescriptorImageInfo serenityExposureHistoryImageInfo{
+                .sampler = linearSampler,
+                .imageView = enableProcessingStacks ? serenityExposureHistory.view : fakeMotionBlurHistory.view,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            };
+            const std::array<VkWriteDescriptorSet, 5> writeHybridBundle = {{
                 VkWriteDescriptorSet{
                     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     .dstSet = hybridBundleDescriptorSet,
@@ -8056,6 +8355,14 @@ bool RunVulkanNativeSceneLoop(const int width,
                     .descriptorCount = 1,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .pImageInfo = &sceneMaterialImageInfo,
+                },
+                VkWriteDescriptorSet{
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = hybridBundleDescriptorSet,
+                    .dstBinding = 4,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .pImageInfo = &serenityExposureHistoryImageInfo,
                 },
             }};
             vkUpdateDescriptorSets(device,
@@ -8273,6 +8580,13 @@ bool RunVulkanNativeSceneLoop(const int width,
         constexpr std::uint32_t kMaxConsecutiveOutOfDateFrames = 600U;
         std::uint32_t consecutiveOutOfDateFrames = 0U;
         std::string frameLoopError;
+        std::array<float, 16> previousViewProjection{};
+        bool hasPreviousViewProjection = false;
+        bool serenityHistoryValid = false;
+        std::uint64_t submittedStackRevision = 0;
+        const void* submittedSceneIdentity = nullptr;
+        double previousSubmitClock = 0;
+        std::uint32_t submittedFrameCounter = 0;
 
         if (!usingExistingClient && options.showWindow) {
             ShowWindow(hwnd, SW_SHOW);
@@ -8304,7 +8618,21 @@ bool RunVulkanNativeSceneLoop(const int width,
             if (!buildFrame(frame, &frameError)) {
                 throw std::runtime_error(frameError.empty() ? "Native Vulkan frame callback failed." : frameError);
             }
-            if (!ShouldRenderVulkanNativeSceneFrame(
+            if (!frame.processingStackName.empty()) processingStacks.Select(frame.processingStackName);
+            const double stackClock = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            std::string stackError;
+            const bool stackChanged = processingStacks.Poll(stackClock, &stackError);
+            if (!stackError.empty()) {
+                if (processingStacks.Revision() == 0) throw std::runtime_error(stackError);
+                ri::core::LogInfo("Processing stack edit rejected; keeping " + processingStacks.Current().name + ": " + stackError);
+            }
+            if (stackChanged) {
+                ri::core::LogInfo("Processing stack active: " + processingStacks.Current().name);
+                if (options.onProcessingStackChanged) options.onProcessingStackChanged(processingStacks.Current().name);
+            }
+            const auto& selectedStack = processingStacks.Current();
+            const bool serenityActive = enableProcessingStacks && selectedStack.backend == ri::render::ProcessingStackBackend::SerenityColor;
+            if (!stackChanged && !ShouldRenderVulkanNativeSceneFrame(
                     frame.frameSequence,
                     frame.suppressUnchangedFrames,
                     hasPresentedFrame,
@@ -8314,6 +8642,15 @@ bool RunVulkanNativeSceneLoop(const int width,
             }
             if (options.shaderPresentation.loaded) {
                 ri::render::ApplyShaderConfig(frame.postProcess, options.shaderPresentation);
+            }
+            if (serenityActive) {
+                frame.postProcess = {};
+                // Tone mapping owns exposure/grade. Feed it scene-linear radiance
+                // without the game's display look or the existing post stack.
+                frame.renderExposure = frame.renderContrast = frame.renderSaturation = 1;
+            } else if (enableProcessingStacks && selectedStack.backend == ri::render::ProcessingStackBackend::Post) {
+                frame.postProcess = {};
+                ri::render::ApplyShaderConfig(frame.postProcess, selectedStack.post);
             }
             if (frame.textureRoot.empty() && !options.textureRoot.empty()) {
                 frame.textureRoot = options.textureRoot;
@@ -8363,7 +8700,38 @@ bool RunVulkanNativeSceneLoop(const int width,
             }
 
             CameraUniformStd140 cameraUniform{};
+            if (serenityActive) {
+                std::memcpy(cameraUniform.serenityControls, selectedStack.serenity.data(), sizeof(cameraUniform.serenityControls));
+                std::memcpy(cameraUniform.serenityExposureTuning, selectedStack.exposureTuning.data(), sizeof(cameraUniform.serenityExposureTuning));
+                std::memcpy(cameraUniform.serenityPurkinjeColor, selectedStack.purkinjeColor.data(), sizeof(cameraUniform.serenityPurkinjeColor));
+            }
+            cameraUniform.serenityTemporalState[0] = previousSubmitClock > 0
+                ? static_cast<float>(std::clamp(stackClock - previousSubmitClock, 0.0, 1.0)) : 1.f / 60.f;
+            cameraUniform.serenityTemporalState[1] = serenityHistoryValid
+                && submittedStackRevision == processingStacks.Revision() && submittedSceneIdentity == sceneIdentity ? 1.f : 0.f;
+            cameraUniform.serenityTemporalState[2] = static_cast<float>(submittedFrameCounter % 2000);
+            cameraUniform.serenityControls[6][0] = 1.f / static_cast<float>(extent.width);
+            cameraUniform.serenityControls[6][1] = 1.f / static_cast<float>(extent.height);
+            cameraUniform.serenityControls[6][2] = std::isfinite(frame.animationTimeSeconds)
+                ? static_cast<float>(std::fmod(frame.animationTimeSeconds, 4096.0)) : 0.f;
             std::memcpy(cameraUniform.viewProjection, sceneData.viewProjection.data(), sizeof(cameraUniform.viewProjection));
+            if (hasPreviousViewProjection) {
+                std::memcpy(cameraUniform.previousViewProjection,
+                            previousViewProjection.data(),
+                            sizeof(cameraUniform.previousViewProjection));
+            } else {
+                std::memcpy(cameraUniform.previousViewProjection,
+                            cameraUniform.viewProjection,
+                            sizeof(cameraUniform.previousViewProjection));
+            }
+            {
+                const ri::math::Mat4 currentViewProjection = LoadMat4ColumnMajorGlsl(cameraUniform.viewProjection);
+                ri::math::Mat4 invertedViewProjection = ri::math::IdentityMatrix();
+                if (!ri::math::TryInvertMat4(currentViewProjection, invertedViewProjection)) {
+                    invertedViewProjection = ri::math::IdentityMatrix();
+                }
+                StoreMat4ColumnMajorGlsl(invertedViewProjection, cameraUniform.invViewProjection);
+            }
             std::memcpy(cameraUniform.cameraWorldPosition,
                         sceneData.cameraWorldPosition.data(),
                         sizeof(cameraUniform.cameraWorldPosition));
@@ -8867,6 +9235,8 @@ bool RunVulkanNativeSceneLoop(const int width,
             SkyUniformStd140 skyUniform{};
             skyUniform.hasSkyTexture = sceneData.skyUseTextureFile;
             skyUniform.useAuthoredGradient = sceneData.skyUseAuthoredGradient;
+            skyUniform.volumetricClouds =
+                (serenityActive && (static_cast<int>(selectedStack.serenity[6][3] + 0.5f) & 4) != 0) ? 1 : 0;
             std::memcpy(skyUniform.clipFromLocal, sceneData.skyClipFromLocal.data(), sizeof(skyUniform.clipFromLocal));
             std::memcpy(skyUniform.eyeToWorldRotation, sceneData.skyEyeToWorld.data(), sizeof(skyUniform.eyeToWorldRotation));
             std::memcpy(skyUniform.horizonColor, sceneData.skyHorizonColor.data(), sizeof(skyUniform.horizonColor));
@@ -8885,7 +9255,7 @@ bool RunVulkanNativeSceneLoop(const int width,
                 skyUniform.sunColor[0] = sceneData.directionalLightColorIntensity[0] / sunTintMax;
                 skyUniform.sunColor[1] = sceneData.directionalLightColorIntensity[1] / sunTintMax;
                 skyUniform.sunColor[2] = sceneData.directionalLightColorIntensity[2] / sunTintMax;
-                skyUniform.sunColor[3] = 1.0f;
+                skyUniform.sunColor[3] = cameraUniform.serenityControls[6][2];
             }
             std::memcpy(mappedSkyUniformMemories[currentFrame], &skyUniform, sizeof(SkyUniformStd140));
 
@@ -9007,7 +9377,7 @@ bool RunVulkanNativeSceneLoop(const int width,
                                      sceneData,
                                      enableHybridHdr ? compositeFramebuffers[imageIndex] : VK_NULL_HANDLE,
                                      enableHybridHdr ? compositeRenderPass : VK_NULL_HANDLE,
-                                     enableHybridHdr ? compositePipeline : VK_NULL_HANDLE,
+                                     enableHybridHdr ? (serenityActive ? serenityCompositePipeline : compositePipeline) : VK_NULL_HANDLE,
                                      enableHybridHdr ? compositePipelineLayout : VK_NULL_HANDLE,
                                      enableHybridHdr ? compositeHdrDescriptorSet : VK_NULL_HANDLE,
                                      enableHybridHdr ? sweetFxLayerTextureSet : VK_NULL_HANDLE,
@@ -9018,12 +9388,24 @@ bool RunVulkanNativeSceneLoop(const int width,
                                      enableHybridHdr ? nativePostTextureSet : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundleFramebuffer : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundleRenderPass : VK_NULL_HANDLE,
-                                     enableHybridHdr ? hybridBundlePipeline : VK_NULL_HANDLE,
+                                     enableHybridHdr ? (serenityActive ? serenityTonePipeline : hybridBundlePipeline) : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundlePipelineLayout : VK_NULL_HANDLE,
                                      enableHybridHdr ? hybridBundleDescriptorSet : VK_NULL_HANDLE,
                                      enableHybridHdr ? swapchainImages[imageIndex] : VK_NULL_HANDLE,
                                      enableHybridHdr ? fakeMotionBlurHistory.image : VK_NULL_HANDLE,
-                                     sceneData.creatorFakeMotionBlurPack0[0]);
+                                     enableHybridHdr
+                                         ? std::max(sceneData.creatorFakeMotionBlurPack0[0],
+                                                    (serenityActive
+                                                     && (static_cast<int>(selectedStack.serenity[6][3] + 0.5f) & 2) != 0)
+                                                        ? 1.0f
+                                                        : 0.0f)
+                                         : 0.0f,
+                                     enableHybridHdr ? hdrSceneColorImage.image : VK_NULL_HANDLE,
+                                     enableHybridHdr ? hdrSceneColorImage.mipLevels : 1U,
+                                     serenityActive ? serenityExposurePipeline : VK_NULL_HANDLE,
+                                     serenityExposureFramebuffer,
+                                     serenityExposureOutput.image,
+                                     serenityExposureHistory.image);
 
             const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
             const VkSubmitInfo submitInfo{
@@ -9037,6 +9419,14 @@ bool RunVulkanNativeSceneLoop(const int width,
                 .pSignalSemaphores = &renderFinished[imageIndex],
             };
             ExpectVk(vkQueueSubmit(graphicsQueue, 1, &submitInfo, frameFence), "vkQueueSubmit");
+
+            std::memcpy(previousViewProjection.data(), cameraUniform.viewProjection, sizeof(previousViewProjection));
+            hasPreviousViewProjection = true;
+            serenityHistoryValid = serenityActive;
+            submittedStackRevision = processingStacks.Revision();
+            submittedSceneIdentity = sceneIdentity;
+            previousSubmitClock = stackClock;
+            ++submittedFrameCounter;
 
             if (!hasPresentedFrame && !options.captureFirstFramePath.empty()) {
                 ExpectVk(vkWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX), "vkWaitForFences(native-capture)");
@@ -9143,6 +9533,19 @@ bool RunVulkanNativeSceneLoop(const int width,
             vkDestroyPipelineLayout(device, hybridBundlePipelineLayout, nullptr);
             vkDestroyDescriptorSetLayout(device, hybridBundleTexturesSetLayout, nullptr);
             vkDestroyPipeline(device, compositePipeline, nullptr);
+            vkDestroyPipeline(device, serenityExposurePipeline, nullptr);
+            vkDestroyShaderModule(device, serenityExposureShader, nullptr);
+            vkDestroyFramebuffer(device, serenityExposureFramebuffer, nullptr);
+            for (const auto& meterImage : {serenityExposureOutput, serenityExposureHistory}) {
+                vkDestroyImageView(device, meterImage.view, nullptr);
+                vkDestroyImage(device, meterImage.image, nullptr);
+                vkFreeMemory(device, meterImage.memory, nullptr);
+            }
+            vkDestroyPipeline(device, serenityTonePipeline, nullptr);
+            vkDestroyPipeline(device, serenityCompositePipeline, nullptr);
+            vkDestroyShaderModule(device, serenityToneVertShader, nullptr);
+            vkDestroyShaderModule(device, serenityToneShader, nullptr);
+            vkDestroyShaderModule(device, serenityCompositeShader, nullptr);
             vkDestroyPipeline(device, skyPipelineHdr, nullptr);
             vkDestroyPipeline(device, pipelineHdrSceneAdditive, nullptr);
             vkDestroyPipeline(device, pipelineHdrSceneTransparent, nullptr);
@@ -9158,6 +9561,9 @@ bool RunVulkanNativeSceneLoop(const int width,
             vkDestroyRenderPass(device, compositeRenderPass, nullptr);
             vkDestroyFramebuffer(device, hdrSceneFramebuffer, nullptr);
             vkDestroyRenderPass(device, hdrSceneRenderPass, nullptr);
+            if (hdrSceneColorImage.attachmentView != VK_NULL_HANDLE) {
+                vkDestroyImageView(device, hdrSceneColorImage.attachmentView, nullptr);
+            }
             vkDestroyImageView(device, hdrSceneColorImage.view, nullptr);
             vkDestroyImage(device, hdrSceneColorImage.image, nullptr);
             vkFreeMemory(device, hdrSceneColorImage.memory, nullptr);

@@ -1,5 +1,7 @@
 #include "RawIron/Content/AuthoringHandoff.h"
 
+#include "RawIron/Content/NativeAnimationDocument.h"
+#include "RawIron/Content/NativeSculptDocument.h"
 #include "RawIron/Content/PrimitiveModelDocument.h"
 
 #include <algorithm>
@@ -19,8 +21,14 @@ std::string LowerAscii(std::string value) {
 
 AuthoringAssetKind ClassifyAsset(const fs::path& path) {
     const std::string filename = LowerAscii(path.filename().string());
+    if (filename.ends_with(".ri_anim.json")) {
+        return AuthoringAssetKind::Animation;
+    }
     if (filename.ends_with(".ri_rig.json")) {
         return AuthoringAssetKind::Rig;
+    }
+    if (filename.ends_with(".ri_sculpt.json")) {
+        return AuthoringAssetKind::Sculpt;
     }
     if (filename.ends_with(".ri_model.json")) {
         return AuthoringAssetKind::PrimitiveModel;
@@ -49,8 +57,12 @@ std::string_view ToString(const AuthoringAssetKind kind) noexcept {
             return "model-source";
         case AuthoringAssetKind::PrimitiveModel:
             return "primitive-model";
+        case AuthoringAssetKind::Sculpt:
+            return "native-sculpt";
         case AuthoringAssetKind::Rig:
             return "rig";
+        case AuthoringAssetKind::Animation:
+            return "animation";
         case AuthoringAssetKind::Unknown:
             return "unknown";
     }
@@ -87,7 +99,7 @@ AuthoringHandoffReport BuildAuthoringHandoff(const AuthoringHandoffRequest& requ
 
     report.assetKind = ClassifyAsset(report.assetPath);
     if (report.assetKind == AuthoringAssetKind::Unknown) {
-        report.issues.push_back("Handoff asset is not a supported model source, primitive model, or Raw Iron rig.");
+        report.issues.push_back("Handoff asset is not a supported native sculpt, primitive model, animation, model source, or rig.");
         return report;
     }
     if (report.assetKind == AuthoringAssetKind::PrimitiveModel) {
@@ -100,6 +112,34 @@ AuthoringHandoffReport BuildAuthoringHandoff(const AuthoringHandoffRequest& requ
         if (!validation.valid) {
             report.issues.push_back(
                 validation.errors.empty() ? "Primitive model handoff validation failed."
+                                          : validation.errors.front());
+            return report;
+        }
+    }
+    if (report.assetKind == AuthoringAssetKind::Sculpt) {
+        const auto sculpt = LoadNativeSculptDocument(report.assetPath);
+        if (!sculpt.has_value()) {
+            report.issues.push_back("Native sculpt handoff document could not be parsed.");
+            return report;
+        }
+        const NativeSculptValidationReport validation = ValidateNativeSculptDocument(*sculpt);
+        if (!validation.valid) {
+            report.issues.push_back(
+                validation.errors.empty() ? "Native sculpt handoff validation failed."
+                                          : validation.errors.front());
+            return report;
+        }
+    }
+    if (report.assetKind == AuthoringAssetKind::Animation) {
+        const auto clip = LoadNativeAnimationDocument(report.assetPath);
+        if (!clip.has_value()) {
+            report.issues.push_back("Animation handoff document could not be parsed.");
+            return report;
+        }
+        const NativeAnimationValidationReport validation = ValidateNativeAnimationDocument(*clip);
+        if (!validation.valid) {
+            report.issues.push_back(
+                validation.errors.empty() ? "Animation handoff validation failed."
                                           : validation.errors.front());
             return report;
         }

@@ -282,4 +282,59 @@ inline Mat4 CameraFacingMatrix(const Mat4& authoredWorld, const Mat4& cameraWorl
     return true;
 }
 
+/// Inverts a general 4×4 matrix (including perspective projection). Returns false if singular.
+[[nodiscard]] inline bool TryInvertMat4(const Mat4& m, Mat4& out) {
+    float a[4][8]{};
+    for (int row = 0; row < 4; ++row) {
+        for (int column = 0; column < 4; ++column) {
+            a[row][column] = m.m[row][column];
+        }
+        a[row][row + 4] = 1.0f;
+    }
+    for (int column = 0; column < 4; ++column) {
+        int pivot = column;
+        float best = std::abs(a[column][column]);
+        for (int row = column + 1; row < 4; ++row) {
+            const float magnitude = std::abs(a[row][column]);
+            if (magnitude > best) {
+                best = magnitude;
+                pivot = row;
+            }
+        }
+        if (best < 1.0e-20f) {
+            return false;
+        }
+        if (pivot != column) {
+            for (int index = 0; index < 8; ++index) {
+                const float swap = a[column][index];
+                a[column][index] = a[pivot][index];
+                a[pivot][index] = swap;
+            }
+        }
+        const float invPivot = 1.0f / a[column][column];
+        for (int index = 0; index < 8; ++index) {
+            a[column][index] *= invPivot;
+        }
+        for (int row = 0; row < 4; ++row) {
+            if (row == column) {
+                continue;
+            }
+            const float factor = a[row][column];
+            for (int index = 0; index < 8; ++index) {
+                a[row][index] -= factor * a[column][index];
+            }
+        }
+    }
+    for (int row = 0; row < 4; ++row) {
+        for (int column = 0; column < 4; ++column) {
+            const float value = a[row][column + 4];
+            if (!std::isfinite(value)) {
+                return false;
+            }
+            out.m[row][column] = value;
+        }
+    }
+    return true;
+}
+
 } // namespace ri::math

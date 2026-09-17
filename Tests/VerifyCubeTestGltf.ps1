@@ -133,6 +133,12 @@ $surfaceCounts = [ordered]@{
     CubeTest_Procedural_Lathe20=5880; CubeTest_Procedural_Lathe96=28224; CubeTest_Procedural_LatheCutaway=18816
     CubeTest_Procedural_OpenTube=11640; CubeTest_Procedural_ClosedTube6=4608; CubeTest_Procedural_ClosedTube24=18432
     CubeTest_Procedural_Torus=9216; CubeTest_Procedural_Mobius=9216; CubeTest_Procedural_Saddle=9600
+    CubeTest_Procedural_Trefoil=23040; CubeTest_Procedural_Cinquefoil=30720
+    CubeTest_Procedural_Helix3=23160; CubeTest_Procedural_Helix5=30840
+    CubeTest_Procedural_Spindle=1152; CubeTest_Procedural_PointedVessel=1536
+    CubeTest_Procedural_ConcaveL=60; CubeTest_Procedural_ConcaveCross=132
+    CubeTest_Procedural_OctaHull=24; CubeTest_Procedural_CloudHull=48
+    CubeTest_Procedural_Height8=384; CubeTest_Procedural_Height48=13824
 }
 foreach ($name in $surfaceCounts.Keys) {
     $nodes = @($exported.nodes | Where-Object name -eq $name)

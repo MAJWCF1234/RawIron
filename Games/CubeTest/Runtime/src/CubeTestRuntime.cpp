@@ -19,6 +19,7 @@
 #include "RawIron/Render/PreviewTexture.h"
 #include "RawIron/Render/SoftwarePreview.h"
 #include "RawIron/Render/VulkanPreviewPresenter.h"
+#include "RawIron/Render/ProcessingStack.h"
 #include "RawIron/Scene/GltfExporter.h"
 #include "RawIron/Runtime/HostChrome.h"
 #include "RawIron/Runtime/HostInputService.h"
@@ -201,6 +202,9 @@ bool SaveJigglePreviewSequence(const fs::path& textureRoot,
 
 #if defined(_WIN32)
 struct PlayState {
+    std::vector<std::string> processingStackNames;
+    std::string requestedProcessingStack;
+    std::string activeProcessingStack = "base";
     CubeTestWorld world{};
     HWND hwnd = nullptr;
     ri::runtime::DesktopMouseLook mouseLook;
@@ -422,6 +426,13 @@ void CubeTestWin32Hook(void* user,
     state->mouseLook.HandleMessage(hwnd,message,wParam,lParam);
     switch (message) {
     case WM_KEYDOWN:
+        if (wParam == 'H' && (lParam & (1LL << 30)) == 0 && !state->processingStackNames.empty()) {
+            const auto current = std::find(state->processingStackNames.begin(), state->processingStackNames.end(),
+                state->requestedProcessingStack.empty() ? state->activeProcessingStack : state->requestedProcessingStack);
+            const auto index = current == state->processingStackNames.end() ? 0
+                : (static_cast<std::size_t>(current-state->processingStackNames.begin())+1) % state->processingStackNames.size();
+            state->requestedProcessingStack = state->processingStackNames[index];
+        }
         if (wParam == VK_F2 && (lParam & (1LL << 30)) == 0) {
             const auto feet = FeetFromBounds(state->movement.body.bounds);
             ri::core::LogInfo("Input state: feet=" + std::to_string(feet.x) + "," + std::to_string(feet.y)
@@ -471,6 +482,13 @@ bool RunNativeLoop(const StandaloneOptions& options,
                    std::string* error) {
     PlayState state{};
     const fs::path workspaceRoot = ri::content::DetectWorkspaceRoot(manifest.rootPath);
+    const auto processingLibrary = workspaceRoot / "Config" / "ProcessingStacks";
+    const bool useProcessingStacks = (!options.materialCalibration || !options.processingStackName.empty())
+        && !commandLine.HasFlag("--no-hybrid-hdr");
+    if (useProcessingStacks) state.processingStackNames = ri::render::DiscoverProcessingStacks(processingLibrary);
+    state.requestedProcessingStack = options.processingStackName;
+    const bool verifyStackCycle = commandLine.HasFlag("--verify-processing-stack-cycle");
+    std::vector<std::string> stackTransitions;
     state.world = options.materialCalibration ? BuildCubeTestCalibrationWorld(workspaceRoot, options.normalComparison)
         : BuildCubeTestWorld("Cube Test", workspaceRoot);
     state.netcode = netcode;
@@ -650,6 +668,12 @@ bool RunNativeLoop(const StandaloneOptions& options,
         .enableExtendedPostProcessShader = options.extendedPostProcess,
         .initialRenderQualityTier = options.materialCalibration ? 1 : state.renderQualityTier,
         .shaderPresentation = shaderPresentation,
+        .processingStackConfigPath = useProcessingStacks ? processingLibrary / "active.cfg" : fs::path{},
+        .processingStackName = options.processingStackName,
+        .onProcessingStackChanged = [&state, &stackTransitions](std::string_view name) {
+            state.activeProcessingStack = name;
+            stackTransitions.emplace_back(name);
+        },
         .onPresentInterval = options.frameTimesPath.empty() ? std::function<void(double)>{}
             : [&presentIntervals](double milliseconds) { presentIntervals.push_back(milliseconds); },
     };
@@ -657,9 +681,16 @@ bool RunNativeLoop(const StandaloneOptions& options,
     int runtimeFrameIndex = 0;
     std::string previousGalleryTitle;
     const ri::render::vulkan::VulkanNativeSceneFrameCallback buildFrame =
-        [&state, &textureRoot, &cookedTexturePack, &options, &frameCount, &runtimeFrameIndex, &runtime, &previousGalleryTitle](
+        [&state, &textureRoot, &cookedTexturePack, &options, &frameCount, &runtimeFrameIndex, &runtime, &previousGalleryTitle, verifyStackCycle](
             ri::render::vulkan::VulkanNativeSceneFrame& frame,
             std::string* frameError) {
+            if (verifyStackCycle && runtimeFrameIndex >= 2 && runtimeFrameIndex % 2 == 0
+                && runtimeFrameIndex <= static_cast<int>(state.processingStackNames.size()*2)) {
+                // Exercise the actual key route, including held-key repeat rejection.
+                CubeTestWin32Hook(&state, state.hwnd, WM_KEYDOWN, 'H', 0);
+                CubeTestWin32Hook(&state, state.hwnd, WM_KEYDOWN, 'H', 1LL << 30);
+            }
+            frame.processingStackName = state.requestedProcessingStack;
             const ri::core::FrameContext runtimeFrame = ri::games::BuildGameRuntimeFrameContext(
                 runtimeFrameIndex++,
                 state.lastDeltaSeconds,
@@ -678,7 +709,8 @@ bool RunNativeLoop(const StandaloneOptions& options,
             if (!options.materialCalibration && state.hwnd != nullptr) {
                 const auto feet = FeetFromBounds(state.movement.body.bounds);
                 const auto& room = CubeTestRoomAt(feet.x);
-                std::string title = "Cube Test | " + std::string(room.title) + " | F1: room guide";
+                std::string title = "Cube Test | " + std::string(room.title) + " | F1: room guide | H: shader stack ["
+                    + state.activeProcessingStack + "]";
                 for (const auto& portal : state.world.portals) {
                     const auto center = (portal.triggerBounds.min + portal.triggerBounds.max) * 0.5f;
                     if (std::abs(center.x - feet.x) < 2.5f && std::abs(center.z - feet.z) < 2.5f)
@@ -730,6 +762,14 @@ bool RunNativeLoop(const StandaloneOptions& options,
         windowOptions,
         error);
     ReleaseDesktopMouseCapture(state);
+    if (ok && verifyStackCycle) {
+        if (stackTransitions.size() != state.processingStackNames.size()+1 || stackTransitions.size() < 3
+            || stackTransitions.front() != stackTransitions.back()) {
+            if (error) *error = "Processing stack H-cycle did not visit every stack and return to its starting selection";
+            return false;
+        }
+        ri::core::LogInfo("Processing stack H-cycle verified, including held-key repeat suppression.");
+    }
     if (ok && !options.frameTimesPath.empty()) {
         if (!options.frameTimesPath.parent_path().empty()) fs::create_directories(options.frameTimesPath.parent_path());
         std::ofstream output(options.frameTimesPath);

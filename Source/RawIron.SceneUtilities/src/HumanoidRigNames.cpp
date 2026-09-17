@@ -113,4 +113,37 @@ std::string CanonicalHumanoidBoneKey(const std::string_view rawBoneName) {
     return s;
 }
 
+std::optional<HumanoidSlotBoneSpec> HumanoidSlotBoneSpecForKey(const std::string_view slotKey) {
+    static constexpr HumanoidSlotBoneSpec kSpecs[] = {
+        {"root", "root", ""},
+        {"hips", "pelvis", "root"},
+        {"spine", "spine", "hips"},
+        {"chest", "chest", "spine"},
+        {"neck", "neck", "chest"},
+        {"head", "head", "neck"},
+        {"leftshoulder", "left_clavicle", "chest"},
+        {"leftarm", "left_upper_arm", "leftshoulder"},
+        {"leftforearm", "left_lower_arm", "leftarm"},
+        {"lefthand", "left_hand", "leftforearm"},
+        {"rightshoulder", "right_clavicle", "chest"},
+        {"rightarm", "right_upper_arm", "rightshoulder"},
+        {"rightforearm", "right_lower_arm", "rightarm"},
+        {"righthand", "right_hand", "rightforearm"},
+        {"leftupleg", "left_upper_leg", "hips"},
+        {"leftleg", "left_lower_leg", "leftupleg"},
+        {"leftfoot", "left_foot", "leftleg"},
+        {"lefttoebase", "left_toe", "leftfoot"},
+        {"rightupleg", "right_upper_leg", "hips"},
+        {"rightleg", "right_lower_leg", "rightupleg"},
+        {"rightfoot", "right_foot", "rightleg"},
+        {"righttoebase", "right_toe", "rightfoot"},
+    };
+    for (const HumanoidSlotBoneSpec& spec : kSpecs) {
+        if (spec.slotKey == slotKey) {
+            return spec;
+        }
+    }
+    return std::nullopt;
+}
+
 } // namespace ri::scene

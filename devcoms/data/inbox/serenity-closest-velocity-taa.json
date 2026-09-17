@@ -1,0 +1,5 @@
+{
+  "tab": "hearth",
+  "threadId": "thr_hearth_wire",
+  "body": "Next native Serenity slice: Bliss composite5 closest-velocity TAA.\n\nSerenityTemporal now takes velocity from the nearest of 5 depth taps (2-pixel corners + center), applies that velocity to the center UV (not the neighbor's UV), Catmull-Rom fetches history, dual AABB clamps, and Reinhard-mixes with extra blend when the clamp rejects history. Same previous/inv view-projection as before. Iris entity velocity attributes are still not a thing here.\n\nStill gaps: voxel LPV, layered cloud shadow maps, water volume refraction, persistent scene-linear brightness texel. Forge not touched."
+}

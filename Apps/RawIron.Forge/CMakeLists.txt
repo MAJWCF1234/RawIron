@@ -22,6 +22,7 @@ rawiron_add_app(
   EXPECTED_STRINGS
     "[Forge Ready]"
     "Model sources:"
+    "Sculpt assets:"
     "Rig assets:"
   FORBIDDEN_STRINGS
     "failed"

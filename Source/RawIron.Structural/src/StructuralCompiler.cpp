@@ -272,6 +272,7 @@ StructuralPrimitiveOptions BuildPrimitiveOptionsFromNode(const StructuralNode& n
     options.closedProfile = node.closedProfile;
     options.closedPath = node.closedPath;
     options.capEnds = node.capEnds;
+    options.knotP = node.knotP; options.knotQ = node.knotQ; options.curveTurns = node.curveTurns;
     if (node.segments > 0) options.pathSegments = node.segments;
     if (!node.archStyle.empty()) {
         options.archStyle = node.archStyle;
@@ -1481,6 +1482,9 @@ std::uint64_t BuildStructuralCompileSignature(const std::vector<StructuralNode>&
         signature = HashCombine(signature, HashValue(node.closedProfile));
         signature = HashCombine(signature, HashValue(node.closedPath));
         signature = HashCombine(signature, HashValue(node.capEnds));
+        signature = HashCombine(signature, HashValue(node.knotP));
+        signature = HashCombine(signature, HashValue(node.knotQ));
+        signature = HashCombine(signature, HashValue(node.curveTurns));
         signature = HashCombine(signature, HashValue(node.latticeStyle));
         signature = HashCombine(signature, HashValue(node.points.size()));
         for (const ri::math::Vec3& point : node.points) {

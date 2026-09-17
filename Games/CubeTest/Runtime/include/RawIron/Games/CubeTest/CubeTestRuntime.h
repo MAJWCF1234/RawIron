@@ -15,6 +15,7 @@ struct StandaloneOptions {
     std::filesystem::path frameTimesPath{};
     std::string gameId = "cube-test";
     std::string startRoom = "baseline";
+    std::string processingStackName{};
     int width = 1280;
     int height = 720;
     int benchmarkFrames = 0;

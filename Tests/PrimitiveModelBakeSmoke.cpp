@@ -2,6 +2,16 @@
 #include "RawIron/Scene/PrimitiveModelBake.h"
 #include "RawIron/Scene/RigAuthoring.h"
 #include "RawIron/Scene/Scene.h"
+#include "RawIron/Math/Mat4.h"
+
+#include <algorithm>
+#include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <iterator>
+#include <unordered_map>
 
 #include <algorithm>
 #include <chrono>
@@ -58,7 +68,9 @@ int main() {
         ri::scene::InstantiatePrimitiveModel(scene, editorRoot, document);
     if (!require(
             instantiated.valid && instantiated.rootNode != ri::scene::kInvalidHandle
-                && instantiated.groupNodes.size() == 1U && instantiated.partNodes.size() == 2U
+                && instantiated.groupNodes.size() == 1U && instantiated.groupIds.size() == 1U
+                && instantiated.partNodes.size() == 2U
+                && instantiated.partIds.size() == instantiated.partNodes.size()
                 && scene.GetNode(instantiated.rootNode).parent == editorRoot
                 && scene.GetNode(instantiated.partNodes[0]).parent == instantiated.groupNodes[0],
             "Editor hierarchy instantiation was incorrect.")) {
@@ -135,6 +147,58 @@ int main() {
                        .structuralBrush.informationLayer.gameplayMeaning
                     == "bone:body",
             "Editor instantiation lost inherited rigid bone binding.")) {
+        return EXIT_FAILURE;
+    }
+    if (!require(
+            ri::scene::EffectivePrimitivePartBone(rigged, leftId) == "body"
+                && ri::scene::EffectivePrimitivePartBone(rigged, rightId) == "body",
+            "Group bone binding was not inherited by primitive parts.")) {
+        return EXIT_FAILURE;
+    }
+    const std::vector<ri::scene::BoundPrimitivePartRest> restParts =
+        ri::scene::CaptureBoundPrimitivePartRest(
+            riggedScene,
+            riggedInstantiation.partNodes,
+            riggedInstantiation.partIds,
+            rigged);
+    if (!require(
+            restParts.size() == riggedInstantiation.partNodes.size()
+                && !restParts.front().restPositions.empty(),
+            "Bound primitive rest capture missed skinned parts.")) {
+        return EXIT_FAILURE;
+    }
+    const int posedNode = restParts.front().node;
+    const ri::math::Vec3 restLocal = restParts.front().restPositions.front();
+    std::unordered_map<std::string, ri::math::Mat4> restBone{
+        {"body", ri::math::IdentityMatrix()},
+    };
+    auto posedBone = restBone;
+    if (!require(
+            ri::scene::PoseBoundPrimitiveParts(riggedScene, restParts, restBone, posedBone) == restParts.size()
+                && ri::math::Distance(
+                    riggedScene.GetMesh(riggedScene.GetNode(posedNode).mesh).positions.front(),
+                    restLocal)
+                    < 0.0005f,
+            "Identity primitive pose moved rest vertices.")) {
+        return EXIT_FAILURE;
+    }
+    posedBone["body"] = ri::math::TranslationMatrix({0.0f, 0.25f, 0.0f});
+    if (!require(
+            ri::scene::PoseBoundPrimitiveParts(riggedScene, restParts, restBone, posedBone) == restParts.size()
+                && std::abs(
+                    riggedScene.GetMesh(riggedScene.GetNode(posedNode).mesh).positions.front().y
+                    - (restLocal.y + 0.25f))
+                    < 0.001f,
+            "Posed primitive part did not follow the bone.")) {
+        return EXIT_FAILURE;
+    }
+    ri::scene::RestoreBoundPrimitiveParts(riggedScene, restParts);
+    if (!require(
+            ri::math::Distance(
+                riggedScene.GetMesh(riggedScene.GetNode(posedNode).mesh).positions.front(),
+                restLocal)
+                < 0.0005f,
+            "Restored primitive part did not return to rest.")) {
         return EXIT_FAILURE;
     }
     std::error_code error{};

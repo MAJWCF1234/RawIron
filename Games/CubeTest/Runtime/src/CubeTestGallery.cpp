@@ -5,7 +5,7 @@
 
 namespace ri::games::cubetest {
 namespace {
-constexpr std::array<GalleryRoomGuide, 10> rooms{{
+constexpr std::array<GalleryRoomGuide, 18> rooms{{
     {"baseline", "Baseline materials", 0, "SceneUtilities primitives / native Vulkan PBR",
      "misc_exporter_gltf.html: hardwood2_diffuse.jpg and uv_grid_opengl.jpg",
      "Walk around the five samples; compare tint, roughness, metalness and opacity.",
@@ -46,6 +46,38 @@ constexpr std::array<GalleryRoomGuide, 10> rooms{{
      "webgl_geometries.html: torus and parametric Mobius surfaces, existing local uv_grid_opengl.jpg",
      "Walk around the torus, Mobius ribbon and saddle; examine the UV grid at curved seams.",
      "The torus has two periodic UV seams. The Mobius ribbon reverses its width at closure and uses a double-sided material."},
+    {"knots", "Torus knots", 260, "Structural torus_knot / parallel-transport tube",
+     "webgl_geometries.html: TorusKnotGeometry; local uv_grid_opengl.jpg",
+     "Compare the trefoil (2,3) and cinquefoil (3,5), including their closure seams.",
+     "Native winding parameters, arc-length UVs and transported normals. Self-intersection clearance is an authoring responsibility."},
+    {"helices", "Helical sweeps", 286, "Structural helix / capped tube",
+     "webgl_geometry_extrude_splines.html: swept curves; local uv_grid_opengl.jpg (native helix extension)",
+     "Compare three and five turns; inspect the hard end caps and continuous side UVs.",
+     "Turns, axial length, radius and section resolution belong to the structural collection, not the experience."},
+    {"lathe-poles", "Lathe axis closures", 312, "Structural revolve / nondegenerate pole fans",
+     "webgl_geometries.html: LatheGeometry; local uv_grid_opengl.jpg",
+     "Inspect the spindle and pointed vessel from above and below.",
+     "Zero-radius profile endpoints close at the axis without zero-area triangles; interior axis crossings are rejected."},
+    {"extrusion", "Concave profile extrusion", 338, "Structural extrude_along_normal_primitive / ear-clipped caps",
+     "webgl_geometry_extrude_shapes.html: profile extrusion; local uv_grid_opengl.jpg",
+     "Walk around the L profile and concave cross; check their caps and side texture continuity.",
+     "Caps preserve a simple authored polygon. No holes or bevels yet; invalid self-crossing profiles are rejected."},
+    {"rounded", "Rounded solids", 364, "Structural rounded_box / existing superellipsoid approximation",
+     "webgl_geometries.html: geometry comparison; local uv_grid_opengl.jpg (native rounded-solid extension)",
+     "Compare the sharper and softer rounded silhouettes.",
+     "This collection primitive approximates rounding with a superellipsoid; it is not an exact circular edge fillet."},
+    {"superellipsoids", "Superellipsoid family", 390, "Structural superellipsoid / exponent controls",
+     "webgl_geometries.html: geometry comparison; local uv_grid_opengl.jpg (native exponent extension)",
+     "Compare a box-like shape with a pinched anisotropic shape.",
+     "The same engine primitive controls all three axis exponents. Inspect faceting and texture distortion."},
+    {"hulls", "Convex point hulls", 416, "Structural convex_hull / convex solid compiler",
+     "webgl_geometry_convex.html: ConvexGeometry; local uv_grid_opengl.jpg",
+     "Inspect the octahedral and asymmetric point-cloud hulls.",
+     "Authored points pass through the existing convex hull and structural brush pipeline; face normals remain hard."},
+    {"heightfields", "Heightfield resolution", 442, "Structural heightmap_patch / native sampled surface",
+     "webgl_geometry_terrain.html: heightfield geometry; local uv_grid_opengl.jpg (native procedural height source)",
+     "Compare the same native ridge at 8 and 48 cells per axis.",
+     "This compares tessellation, not Three.js terrain-noise parity. Height samples and meshing are engine capabilities."},
 }};
 }
 

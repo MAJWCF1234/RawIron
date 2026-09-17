@@ -1,6 +1,10 @@
 #include "ForgeCatalog.h"
 
+#include "RawIron/Content/NativeAnimationDocument.h"
 #include "RawIron/Content/PrimitiveModelDocument.h"
+#include "RawIron/Content/NativeSculptDocument.h"
+#include "RawIron/Scene/NativeAnimation.h"
+#include "RawIron/Scene/NativeSculpt.h"
 #include "RawIron/Scene/PrimitiveModelBake.h"
 #include "RawIron/Scene/RigAuthoring.h"
 #include "RawIron/Scene/ModelLoader.h"
@@ -9,8 +13,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
 #include <optional>
+#include <string>
 #include <system_error>
+#include <vector>
 
 namespace ri::forge {
 namespace {
@@ -69,6 +76,7 @@ AssetEntry InspectRig(const fs::path& absolutePath, std::string relativePath) {
     } else if (!report.warnings.empty()) {
         entry.summary += " | " + report.warnings.front();
     }
+    entry.rigPath = entry.relativePath;
     return entry;
 }
 
@@ -91,6 +99,7 @@ AssetEntry InspectPrimitiveModel(const fs::path& absolutePath, std::string relat
         + std::to_string(model->parts.size()) + " parts | "
         + std::to_string(report.enabledPartCount) + " enabled";
     if (!model->rigPath.empty()) {
+        entry.rigPath = model->rigPath;
         entry.summary += " | rig " + model->rigPath;
     }
     entry.summary += report.valid ? " | valid" : " | invalid";
@@ -109,6 +118,83 @@ AssetEntry InspectPrimitiveModel(const fs::path& absolutePath, std::string relat
     return entry;
 }
 
+AssetEntry InspectSculpt(const fs::path& absolutePath, std::string relativePath) {
+    AssetEntry entry{
+        .absolutePath = absolutePath,
+        .relativePath = std::move(relativePath),
+        .kind = AssetKind::Sculpt,
+        .valid = false,
+        .summary = "Native sculpt could not be parsed.",
+    };
+    const auto sculpt = ri::content::LoadNativeSculptDocument(absolutePath);
+    if (!sculpt.has_value()) {
+        return entry;
+    }
+    const ri::content::NativeSculptValidationReport report =
+        ri::content::ValidateNativeSculptDocument(*sculpt);
+    entry.valid = report.valid;
+    entry.summary = sculpt->displayName + " | " + sculpt->cage + " cage | "
+        + std::to_string(report.vertexCount) + " verts | "
+        + std::to_string(report.triangleCount) + " tris";
+    if (!sculpt->rigPath.empty()) {
+        entry.rigPath = sculpt->rigPath;
+        entry.summary += " | rig " + sculpt->rigPath;
+        if (!sculpt->vertexBoneNames.empty()) {
+            entry.summary += " | " + std::to_string(sculpt->vertexBoneNames.size()) + " bound verts";
+            std::size_t blended = 0;
+            for (const auto& influences : sculpt->vertexInfluences) {
+                if (influences.size() > 1U) {
+                    ++blended;
+                }
+            }
+            if (blended > 0U) {
+                entry.summary += " | " + std::to_string(blended) + " blended";
+            }
+        }
+    }
+    entry.summary += report.valid ? " | valid" : " | invalid";
+    if (report.unboundVertexCount > 0U) {
+        entry.summary += " | " + std::to_string(report.unboundVertexCount) + " unbound";
+    }
+    if (!report.errors.empty()) {
+        entry.summary += " | " + report.errors.front();
+    } else if (!report.warnings.empty()) {
+        entry.summary += " | " + report.warnings.front();
+    }
+    return entry;
+}
+
+AssetEntry InspectAnimation(const fs::path& absolutePath, std::string relativePath) {
+    AssetEntry entry{
+        .absolutePath = absolutePath,
+        .relativePath = std::move(relativePath),
+        .kind = AssetKind::Animation,
+        .valid = false,
+        .summary = "Animation clip could not be parsed.",
+    };
+    const auto clip = ri::content::LoadNativeAnimationDocument(absolutePath);
+    if (!clip.has_value()) {
+        return entry;
+    }
+    const auto report = ri::content::ValidateNativeAnimationDocument(*clip);
+    entry.valid = report.valid;
+    entry.summary = clip->displayName + " | " + std::to_string(report.trackCount) + " tracks | "
+        + std::to_string(report.keyCount) + " keys | "
+        + std::to_string(report.eventCount) + " evt | "
+        + std::to_string(clip->durationSeconds) + "s"
+        + (clip->looping ? " loop" : "")
+        + (clip->rootMotion ? " root" : " in-place");
+    if (!clip->rigPath.empty()) {
+        entry.rigPath = clip->rigPath;
+        entry.summary += " | rig " + clip->rigPath;
+    }
+    entry.summary += report.valid ? " | valid" : " | invalid";
+    if (!report.errors.empty()) {
+        entry.summary += " | " + report.errors.front();
+    }
+    return entry;
+}
+
 } // namespace
 
 bool IsModelSourcePath(const fs::path& path) {
@@ -119,6 +205,14 @@ bool IsModelSourcePath(const fs::path& path) {
 
 bool IsRigPath(const fs::path& path) {
     return LowerAscii(path.filename().string()).ends_with(".ri_rig.json");
+}
+
+bool IsAnimationPath(const fs::path& path) {
+    return LowerAscii(path.filename().string()).ends_with(".ri_anim.json");
+}
+
+bool IsSculptPath(const fs::path& path) {
+    return LowerAscii(path.filename().string()).ends_with(".ri_sculpt.json");
 }
 
 bool IsPrimitiveModelPath(const fs::path& path) {
@@ -163,11 +257,25 @@ AssetCatalog ScanAssetCatalog(const fs::path& workspaceRoot) {
                     ++catalog.invalidPrimitiveModelCount;
                 }
                 catalog.entries.push_back(std::move(entry));
+            } else if (IsSculptPath(absolutePath)) {
+                AssetEntry entry = InspectSculpt(absolutePath, relativePath.generic_string());
+                ++catalog.sculptCount;
+                if (!entry.valid) {
+                    ++catalog.invalidSculptCount;
+                }
+                catalog.entries.push_back(std::move(entry));
             } else if (IsRigPath(absolutePath)) {
                 AssetEntry entry = InspectRig(absolutePath, relativePath.generic_string());
                 ++catalog.rigCount;
                 if (!entry.valid) {
                     ++catalog.invalidRigCount;
+                }
+                catalog.entries.push_back(std::move(entry));
+            } else if (IsAnimationPath(absolutePath)) {
+                AssetEntry entry = InspectAnimation(absolutePath, relativePath.generic_string());
+                ++catalog.animationCount;
+                if (!entry.valid) {
+                    ++catalog.invalidAnimationCount;
                 }
                 catalog.entries.push_back(std::move(entry));
             } else if (IsModelSourcePath(absolutePath)) {
@@ -204,8 +312,12 @@ std::vector<std::size_t> FilterAssetCatalogIndices(
         std::string kind = "model source";
         if (entry.kind == AssetKind::PrimitiveModel) {
             kind = "primitive forge model";
+        } else if (entry.kind == AssetKind::Sculpt) {
+            kind = "native sculpt clay";
         } else if (entry.kind == AssetKind::Rig) {
             kind = "rig skeleton";
+        } else if (entry.kind == AssetKind::Animation) {
+            kind = "native animation clip motion";
         }
         const std::string searchable =
             LowerAscii(entry.relativePath + "\n" + entry.summary + "\n" + kind);
@@ -214,6 +326,84 @@ std::vector<std::size_t> FilterAssetCatalogIndices(
         }
     }
     return indices;
+}
+
+fs::path ResolveCatalogRigPath(
+    const AssetCatalog& catalog,
+    const std::string_view rigPath,
+    const fs::path& documentPath) {
+    if (rigPath.empty()) {
+        return {};
+    }
+    const fs::path rig{std::string(rigPath)};
+    std::vector<fs::path> candidates;
+    if (rig.is_absolute()) {
+        candidates.push_back(rig);
+    } else {
+        if (!documentPath.empty()) {
+            std::error_code directoryError{};
+            const bool anchorIsDirectory = fs::is_directory(documentPath, directoryError);
+            const fs::path directory =
+                (!directoryError && anchorIsDirectory) ? documentPath
+                : (documentPath.has_parent_path() ? documentPath.parent_path() : fs::path{});
+            if (!directory.empty()) {
+                candidates.push_back(directory / rig);
+                candidates.push_back(directory / "rigs" / rig.filename());
+                const fs::path parent = directory.parent_path();
+                if (!parent.empty() && parent != directory) {
+                    candidates.push_back(parent / rig);
+                    candidates.push_back(parent / "rigs" / rig.filename());
+                }
+            }
+        }
+        if (!catalog.sourceRoot.empty()) {
+            candidates.push_back(catalog.sourceRoot / rig);
+            candidates.push_back(catalog.sourceRoot / "rigs" / rig.filename());
+        }
+        if (!catalog.workspaceRoot.empty()) {
+            candidates.push_back(catalog.workspaceRoot / "Assets" / "Source" / rig);
+        }
+        candidates.push_back(rig);
+    }
+    for (const fs::path& candidate : candidates) {
+        std::error_code error{};
+        if (!fs::is_regular_file(candidate, error)) {
+            continue;
+        }
+        std::error_code canonicalError{};
+        fs::path canonical = fs::weakly_canonical(candidate, canonicalError);
+        return canonicalError ? candidate : canonical;
+    }
+    return {};
+}
+
+std::vector<std::size_t> AnimationIndicesForRig(
+    const AssetCatalog& catalog,
+    const std::string_view rigPath,
+    const fs::path& documentPath) {
+    const fs::path target = ResolveCatalogRigPath(catalog, rigPath, documentPath);
+    std::vector<std::size_t> matches{};
+    if (target.empty() && rigPath.empty()) {
+        return matches;
+    }
+    const std::string fallback = LowerAscii(std::string(rigPath));
+    for (std::size_t index = 0; index < catalog.entries.size(); ++index) {
+        const AssetEntry& entry = catalog.entries[index];
+        if (entry.kind != AssetKind::Animation || !entry.valid || entry.rigPath.empty()) {
+            continue;
+        }
+        const fs::path resolved = ResolveCatalogRigPath(catalog, entry.rigPath, entry.absolutePath);
+        if (!target.empty()) {
+            if (!resolved.empty() && resolved == target) {
+                matches.push_back(index);
+            }
+            continue;
+        }
+        if (LowerAscii(entry.rigPath) == fallback) {
+            matches.push_back(index);
+        }
+    }
+    return matches;
 }
 
 ModelSourceValidationReport ValidateModelSource(const fs::path& sourcePath) {
@@ -266,6 +456,75 @@ fs::path CreateUniqueHumanoidRig(const fs::path& workspaceRoot, std::string* err
     return output;
 }
 
+fs::path DuplicateRig(
+    const fs::path& workspaceRoot,
+    const fs::path& rigPath,
+    std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    auto rig = ri::scene::LoadRigDefinition(rigPath);
+    if (!rig.has_value() || !ri::scene::ValidateRigDefinition(*rig).valid) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not load rig: " + rigPath.string();
+        }
+        return {};
+    }
+    const fs::path rigFolder = workspaceRoot / "Assets" / "Source" / "rigs";
+    std::error_code folderError{};
+    fs::create_directories(rigFolder, folderError);
+    if (folderError) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not create the rig source folder: " + folderError.message();
+        }
+        return {};
+    }
+    const std::string base = rigPath.stem().string();
+    std::string id = base.empty() ? "rig_copy" : base + "_copy";
+    fs::path output = rigFolder / (id + ".ri_rig.json");
+    for (int suffix = 2; fs::exists(output) && suffix < 10000; ++suffix) {
+        id = (base.empty() ? std::string("rig_copy") : base + "_copy") + "_" + std::to_string(suffix);
+        output = rigFolder / (id + ".ri_rig.json");
+    }
+    if (fs::exists(output)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not choose an unused rig filename.";
+        }
+        return {};
+    }
+    rig->id = id;
+    if (rig->displayName.find(" copy") == std::string::npos) {
+        rig->displayName += " copy";
+    }
+    if (!ri::scene::SaveRigDefinition(output, *rig)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not save the duplicated rig.";
+        }
+        return {};
+    }
+    return output;
+}
+
+bool DeleteRig(const fs::path& rigPath, std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    if (!IsRigPath(rigPath) || !fs::is_regular_file(rigPath)) {
+        if (errorMessage != nullptr) {
+            errorMessage->assign("Rig was not found: " + rigPath.string());
+        }
+        return false;
+    }
+    std::error_code removeError{};
+    if (!fs::remove(rigPath, removeError) || removeError) {
+        if (errorMessage != nullptr) {
+            errorMessage->assign(removeError ? removeError.message() : "Could not delete the rig.");
+        }
+        return false;
+    }
+    return true;
+}
+
 fs::path CreateUniquePrimitiveModel(const fs::path& workspaceRoot, std::string* errorMessage) {
     if (errorMessage != nullptr) {
         errorMessage->clear();
@@ -297,6 +556,248 @@ fs::path CreateUniquePrimitiveModel(const fs::path& workspaceRoot, std::string* 
     if (!ri::content::SavePrimitiveModelDocument(output, document)) {
         if (errorMessage != nullptr) {
             *errorMessage = "Could not save a valid primitive model document.";
+        }
+        return {};
+    }
+    return output;
+}
+
+fs::path DuplicatePrimitiveModel(
+    const fs::path& workspaceRoot,
+    const fs::path& modelPath,
+    std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    auto document = ri::content::LoadPrimitiveModelDocument(modelPath);
+    if (!document.has_value()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not load stock model: " + modelPath.string();
+        }
+        return {};
+    }
+    const fs::path modelFolder = workspaceRoot / "Assets" / "Source" / "models";
+    std::error_code folderError{};
+    fs::create_directories(modelFolder, folderError);
+    if (folderError) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not create the model source folder: " + folderError.message();
+        }
+        return {};
+    }
+    const std::string base = modelPath.stem().string();
+    std::string id = base.empty() ? "primitive_model_copy" : base + "_copy";
+    fs::path output = modelFolder / (id + ".ri_model.json");
+    for (int suffix = 2; fs::exists(output) && suffix < 10000; ++suffix) {
+        id = (base.empty() ? std::string("primitive_model_copy") : base + "_copy") + "_"
+            + std::to_string(suffix);
+        output = modelFolder / (id + ".ri_model.json");
+    }
+    if (fs::exists(output)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not choose an unused stock model filename.";
+        }
+        return {};
+    }
+    document->modelId = id;
+    if (document->displayName.find(" copy") == std::string::npos) {
+        document->displayName += " copy";
+    }
+    if (!ri::content::SavePrimitiveModelDocument(output, *document)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not save the duplicated stock model.";
+        }
+        return {};
+    }
+    return output;
+}
+
+bool DeletePrimitiveModel(const fs::path& modelPath, std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    if (!IsPrimitiveModelPath(modelPath) || !fs::is_regular_file(modelPath)) {
+        if (errorMessage != nullptr) {
+            errorMessage->assign("Stock model was not found: " + modelPath.string());
+        }
+        return false;
+    }
+    std::error_code removeError{};
+    if (!fs::remove(modelPath, removeError) || removeError) {
+        if (errorMessage != nullptr) {
+            errorMessage->assign(
+                removeError ? removeError.message() : "Could not delete the stock model.");
+        }
+        return false;
+    }
+    return true;
+}
+
+fs::path CreateUniqueNativeSculpt(
+    const fs::path& workspaceRoot,
+    const std::string_view cage,
+    std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    const fs::path sculptFolder = workspaceRoot / "Assets" / "Source" / "sculpts";
+    std::error_code folderError{};
+    fs::create_directories(sculptFolder, folderError);
+    if (folderError) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not create the sculpt source folder: " + folderError.message();
+        }
+        return {};
+    }
+    const ri::scene::NativeSculptCage cageKind = ri::scene::ParseNativeSculptCage(cage);
+    const std::string stem = cageKind == ri::scene::NativeSculptCage::Cube ? "block" : "clay_sphere";
+    fs::path output = sculptFolder / (stem + ".ri_sculpt.json");
+    std::string id = stem;
+    for (int suffix = 2; fs::exists(output) && suffix < 10000; ++suffix) {
+        id = stem + "_" + std::to_string(suffix);
+        output = sculptFolder / (id + ".ri_sculpt.json");
+    }
+    if (fs::exists(output)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not choose an unused sculpt filename.";
+        }
+        return {};
+    }
+    const ri::content::NativeSculptDocument document = ri::scene::CreateNativeSculptDocument(
+        id,
+        cageKind == ri::scene::NativeSculptCage::Cube ? "Hard Surface Block" : "Clay Sphere",
+        cageKind);
+    if (!ri::content::SaveNativeSculptDocument(output, document)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not save a valid native sculpt document.";
+        }
+        return {};
+    }
+    return output;
+}
+
+fs::path DuplicateNativeSculpt(
+    const fs::path& workspaceRoot,
+    const fs::path& sculptPath,
+    std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    auto document = ri::content::LoadNativeSculptDocument(sculptPath);
+    if (!document.has_value()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not load clay: " + sculptPath.string();
+        }
+        return {};
+    }
+    const fs::path sculptFolder = workspaceRoot / "Assets" / "Source" / "sculpts";
+    std::error_code folderError{};
+    fs::create_directories(sculptFolder, folderError);
+    if (folderError) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not create the sculpt source folder: " + folderError.message();
+        }
+        return {};
+    }
+    const std::string base = sculptPath.stem().string();
+    std::string id = base.empty() ? "clay_copy" : base + "_copy";
+    fs::path output = sculptFolder / (id + ".ri_sculpt.json");
+    for (int suffix = 2; fs::exists(output) && suffix < 10000; ++suffix) {
+        id = (base.empty() ? std::string("clay_copy") : base + "_copy") + "_" + std::to_string(suffix);
+        output = sculptFolder / (id + ".ri_sculpt.json");
+    }
+    if (fs::exists(output)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not choose an unused sculpt filename.";
+        }
+        return {};
+    }
+    document->id = id;
+    if (document->displayName.find(" copy") == std::string::npos) {
+        document->displayName += " copy";
+    }
+    if (!ri::content::SaveNativeSculptDocument(output, *document)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not save the duplicated clay.";
+        }
+        return {};
+    }
+    return output;
+}
+
+bool DeleteNativeSculpt(const fs::path& sculptPath, std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    if (!IsSculptPath(sculptPath) || !fs::is_regular_file(sculptPath)) {
+        if (errorMessage != nullptr) {
+            errorMessage->assign("Clay was not found: " + sculptPath.string());
+        }
+        return false;
+    }
+    std::error_code removeError{};
+    if (!fs::remove(sculptPath, removeError) || removeError) {
+        if (errorMessage != nullptr) {
+            errorMessage->assign(
+                removeError ? removeError.message() : "Could not delete the clay.");
+        }
+        return false;
+    }
+    return true;
+}
+
+fs::path CreateUniqueNativeAnimation(
+    const fs::path& workspaceRoot,
+    const fs::path& rigPath,
+    std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    if (rigPath.empty() || !IsRigPath(rigPath)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Select a rig before creating a clip.";
+        }
+        return {};
+    }
+    const auto rig = ri::scene::LoadRigDefinition(rigPath);
+    if (!rig.has_value() || !ri::scene::ValidateRigDefinition(*rig).valid) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Clip needs a valid rig document.";
+        }
+        return {};
+    }
+    const fs::path clipFolder = workspaceRoot / "Assets" / "Source" / "anims";
+    std::error_code folderError{};
+    fs::create_directories(clipFolder, folderError);
+    if (folderError) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not create the animation source folder: " + folderError.message();
+        }
+        return {};
+    }
+    fs::path output = clipFolder / "clip.ri_anim.json";
+    std::string id = "clip";
+    for (int suffix = 2; fs::exists(output) && suffix < 10000; ++suffix) {
+        id = "clip_" + std::to_string(suffix);
+        output = clipFolder / (id + ".ri_anim.json");
+    }
+    if (fs::exists(output)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not choose an unused animation filename.";
+        }
+        return {};
+    }
+    std::error_code relativeError{};
+    fs::path relativeRig = fs::relative(rigPath, workspaceRoot / "Assets" / "Source", relativeError);
+    if (relativeError) {
+        relativeRig = rigPath.filename();
+    }
+    ri::content::NativeAnimationDocument document = ri::content::CreateNativeAnimationDocument(
+        id, "Clip", relativeRig.generic_string());
+    ri::scene::SeedNativeAnimationFromRig(document, *rig);
+    if (!ri::content::SaveNativeAnimationDocument(output, document)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not save a valid animation document.";
         }
         return {};
     }
@@ -380,6 +881,136 @@ bool AppendGroupToModel(const fs::path& modelPath,
     return true;
 }
 
+bool DuplicatePrimitiveModelElement(
+    const fs::path& modelPath,
+    const std::string_view elementId,
+    std::string* insertedId,
+    std::string* errorMessage) {
+    if (insertedId != nullptr) {
+        insertedId->clear();
+    }
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    auto document = ri::content::LoadPrimitiveModelDocument(modelPath);
+    if (!document.has_value()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not load primitive model: " + modelPath.string();
+        }
+        return false;
+    }
+    std::string id = ri::content::DuplicatePrimitiveModelPart(*document, elementId);
+    if (id.empty()) {
+        id = ri::content::DuplicatePrimitiveModelGroup(*document, elementId);
+    }
+    if (id.empty() || !ri::content::SavePrimitiveModelDocument(modelPath, *document)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not duplicate the selected stock element.";
+        }
+        return false;
+    }
+    if (insertedId != nullptr) {
+        *insertedId = id;
+    }
+    return true;
+}
+
+bool RemovePrimitiveModelElement(
+    const fs::path& modelPath,
+    const std::string_view elementId,
+    std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    auto document = ri::content::LoadPrimitiveModelDocument(modelPath);
+    if (!document.has_value()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not load primitive model: " + modelPath.string();
+        }
+        return false;
+    }
+    const bool removed = ri::content::RemovePrimitiveModelPart(*document, elementId)
+        || ri::content::RemovePrimitiveModelGroup(*document, elementId);
+    if (!removed || !ri::content::SavePrimitiveModelDocument(modelPath, *document)) {
+        if (errorMessage != nullptr) {
+            *errorMessage =
+                "Could not delete the selected stock element. Nested groups must be removed first.";
+        }
+        return false;
+    }
+    return true;
+}
+
+fs::path DuplicateNativeAnimation(
+    const fs::path& workspaceRoot,
+    const fs::path& clipPath,
+    std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    auto document = ri::content::LoadNativeAnimationDocument(clipPath);
+    if (!document.has_value()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not load motion clip: " + clipPath.string();
+        }
+        return {};
+    }
+    const fs::path clipFolder = workspaceRoot / "Assets" / "Source" / "anims";
+    std::error_code folderError{};
+    fs::create_directories(clipFolder, folderError);
+    if (folderError) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not create the animation source folder: " + folderError.message();
+        }
+        return {};
+    }
+    const std::string base = clipPath.stem().string();
+    std::string id = base.empty() ? "clip_copy" : base + "_copy";
+    fs::path output = clipFolder / (id + ".ri_anim.json");
+    for (int suffix = 2; fs::exists(output) && suffix < 10000; ++suffix) {
+        id = (base.empty() ? std::string("clip_copy") : base + "_copy") + "_" + std::to_string(suffix);
+        output = clipFolder / (id + ".ri_anim.json");
+    }
+    if (fs::exists(output)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not choose an unused animation filename.";
+        }
+        return {};
+    }
+    document->id = id;
+    if (document->displayName.find(" copy") == std::string::npos) {
+        document->displayName += " copy";
+    }
+    if (!ri::content::SaveNativeAnimationDocument(output, *document)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not save the duplicated motion clip.";
+        }
+        return {};
+    }
+    return output;
+}
+
+bool DeleteNativeAnimation(const fs::path& clipPath, std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    if (!IsAnimationPath(clipPath) || !fs::is_regular_file(clipPath)) {
+        if (errorMessage != nullptr) {
+            errorMessage->assign("Motion clip was not found: " + clipPath.string());
+        }
+        return false;
+    }
+    std::error_code removeError{};
+    if (!fs::remove(clipPath, removeError) || removeError) {
+        if (errorMessage != nullptr) {
+            errorMessage->assign(
+                removeError ? removeError.message() : "Could not delete the motion clip.");
+        }
+        return false;
+    }
+    return true;
+}
+
 PrimitiveModelBakeSummary BakePrimitiveModelAsset(const fs::path& modelPath,
                                                   const fs::path& requestedOutputPath) {
     PrimitiveModelBakeSummary summary{};
@@ -422,6 +1053,149 @@ PrimitiveModelBakeSummary BakePrimitiveModelAsset(const fs::path& modelPath,
             + std::to_string(summary.boneBoundVertexCount) + " vertices."
         : "Could not write primitive model bake: " + summary.outputPath.string();
     return summary;
+}
+
+std::string RelativeSourcePath(const fs::path& workspaceRoot, const fs::path& absolutePath) {
+    std::error_code relativeError{};
+    fs::path relative = fs::relative(absolutePath, workspaceRoot / "Assets" / "Source", relativeError);
+    if (relativeError || relative.empty()) {
+        return absolutePath.filename().generic_string();
+    }
+    return relative.generic_string();
+}
+
+std::optional<ri::scene::RigDefinition> LoadSidecarRig(
+    const std::string_view rigPath,
+    const fs::path& documentPath) {
+    return ri::scene::LoadSidecarRigDefinition(rigPath, documentPath);
+}
+
+bool BindSculptToRig(
+    const fs::path& sculptPath,
+    const fs::path& rigPath,
+    const fs::path& workspaceRoot,
+    std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    auto sculpt = ri::content::LoadNativeSculptDocument(sculptPath);
+    if (!sculpt.has_value()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not load native sculpt: " + sculptPath.string();
+        }
+        return false;
+    }
+    const auto rig = ri::scene::LoadRigDefinition(rigPath);
+    if (!rig.has_value() || !ri::scene::ValidateRigDefinition(*rig).valid) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Bind needs a valid rig document.";
+        }
+        return false;
+    }
+    const ri::scene::NativeSculptBindResult bind = ri::scene::BindNativeSculptToRig(
+        *sculpt, *rig, RelativeSourcePath(workspaceRoot, rigPath));
+    if (!bind.valid || !ri::content::SaveNativeSculptDocument(sculptPath, *sculpt)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = bind.summary.empty() ? "Could not bind or save the native sculpt."
+                                                 : bind.summary;
+        }
+        return false;
+    }
+    if (errorMessage != nullptr) {
+        *errorMessage = bind.summary;
+    }
+    return true;
+}
+
+bool BindPrimitiveModelToRig(
+    const fs::path& modelPath,
+    const fs::path& rigPath,
+    const fs::path& workspaceRoot,
+    std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    auto document = ri::content::LoadPrimitiveModelDocument(modelPath);
+    if (!document.has_value()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not load primitive model: " + modelPath.string();
+        }
+        return false;
+    }
+    const auto rig = ri::scene::LoadRigDefinition(rigPath);
+    if (!rig.has_value() || !ri::scene::ValidateRigDefinition(*rig).valid) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Bind needs a valid rig document.";
+        }
+        return false;
+    }
+    document->rigPath = RelativeSourcePath(workspaceRoot, rigPath);
+    if (!ri::content::SavePrimitiveModelDocument(modelPath, *document)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not save the bound primitive model.";
+        }
+        return false;
+    }
+    if (errorMessage != nullptr) {
+        *errorMessage = "Attached rig " + document->rigPath;
+    }
+    return true;
+}
+
+bool BindPrimitiveElementToBone(
+    const fs::path& modelPath,
+    const std::string_view elementId,
+    const std::string_view boneName,
+    std::string* errorMessage) {
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    if (elementId.empty() || boneName.empty()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Select a stock part or pivot and a bone.";
+        }
+        return false;
+    }
+    auto document = ri::content::LoadPrimitiveModelDocument(modelPath);
+    if (!document.has_value()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not load primitive model: " + modelPath.string();
+        }
+        return false;
+    }
+    bool found = false;
+    for (auto& group : document->groups) {
+        if (group.id == elementId) {
+            group.boneName = std::string(boneName);
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        for (auto& part : document->parts) {
+            if (part.id == elementId) {
+                part.boneName = std::string(boneName);
+                found = true;
+                break;
+            }
+        }
+    }
+    if (!found) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not find stock element " + std::string(elementId) + ".";
+        }
+        return false;
+    }
+    if (!ri::content::SavePrimitiveModelDocument(modelPath, *document)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Could not save the bone binding.";
+        }
+        return false;
+    }
+    if (errorMessage != nullptr) {
+        *errorMessage = "Bound " + std::string(elementId) + " to " + std::string(boneName);
+    }
+    return true;
 }
 
 } // namespace ri::forge

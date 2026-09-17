@@ -14,7 +14,7 @@ $run = Join-Path (Join-Path $workspace $OutputRoot) (Get-Date -Format 'yyyyMMdd-
 New-Item -ItemType Directory -Path $run -Force | Out-Null
 $rows = @()
 $frames = $WarmupIntervals + $SampleIntervals + 1
-foreach ($room in @('baseline','sprites','normals','exporter','interaction','projectile','teleport','lathe','tubes','surfaces')) {
+foreach ($room in @('baseline','sprites','normals','exporter','interaction','projectile','teleport','lathe','tubes','surfaces','knots','helices','lathe-poles','extrusion','rounded','superellipsoids','hulls','heightfields')) {
     for ($repeat=1; $repeat -le $Repetitions; ++$repeat) {
         $csv = Join-Path $run "$room-$repeat.csv"
         $log = Join-Path $run "$room-$repeat.log"

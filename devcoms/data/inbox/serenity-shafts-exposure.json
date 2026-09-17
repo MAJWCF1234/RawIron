@@ -1,0 +1,5 @@
+{
+  "tab": "hearth",
+  "threadId": "thr_hearth_wire",
+  "body": "Next native Serenity slice: sun shafts, matching cloud shadows, temporal exposure.\n\nTOGGLE_VL_FOG now raymarches HDR+depth toward the engine sun (camera UBO lightDirection at 208) and uses reconstructed world distance for bloomy fog instead of raw depth. Exposure_Speed mixes the spatial meter with last frame's swapchain history (hybrid binding 4). Sky clouds and ground cloud shadows share SerenityCloudNoise.glsl.\n\nStill gaps: voxel LPV, GPU histogram, layered cloud shadow maps, water volume refraction, closest-velocity motion vectors. Cube Test fully relinked. Forge not touched."
+}

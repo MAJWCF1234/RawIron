@@ -123,10 +123,21 @@ bool TestGalleryContracts(const ri::games::cubetest::CubeTestWorld& world) {
         ok &= Require(!node.structuralBrush.brushId.empty() && !node.structuralBrush.visualMesh.meshId.empty()
             && !node.structuralBrush.physicsMesh.meshId.empty() && !node.structuralBrush.queryMesh.meshId.empty(),
             "procedural exhibits must be authored through the structural collection, with M/P/Q ownership");
-        ok &= Require(mesh.positions.size()>100 && mesh.normals.size()==mesh.positions.size()
+        ok &= Require(mesh.positions.size()>=24 && mesh.normals.size()==mesh.positions.size()
             && mesh.texCoords.size()==mesh.positions.size(),"structural exhibits retain normals and UV streams");
     }
-    ok &= Require(structuralExhibits==9,"three new structural platforms must contain all nine exhibits");
+    ok &= Require(structuralExhibits==25,"eleven structural platforms must contain all 25 exhibits");
+    ok &= Require(CubeTestRoomGuides().size()==18,"all eighteen showcase rooms are registered");
+    for (const auto id : {"knots","helices","lathe-poles","extrusion","rounded","superellipsoids","hulls","heightfields"}) {
+        const auto* room=FindCubeTestRoom(id);
+        ok &= Require(room!=nullptr,"new structural room must be registered");
+        if (!room) continue;
+        const auto count=std::count_if(world.scene.Nodes().begin(),world.scene.Nodes().end(),[&](const auto& node) {
+            return node.name.starts_with("CubeTest_Procedural_") && !node.name.ends_with("_Plinth")
+                && CubeTestRoomAt(node.localTransform.position.x).id==id;
+        });
+        ok &= Require(count==2,"each new room has two distinct structural exhibits");
+    }
     const auto coffeeBounds = ri::scene::ComputeNodeWorldBounds(world.scene, world.coffeeModelNode);
     ok &= Require(coffeeBounds.has_value() && coffeeBounds->min.x > 70.0f && coffeeBounds->max.x < 86.0f
         && coffeeBounds->min.y >= 0.0f && coffeeBounds->max.y < 4.0f

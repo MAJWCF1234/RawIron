@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
 
 layout(location = 0) in vec3 inNormal;
 layout(location = 1) in vec4 inColor;
@@ -210,6 +211,7 @@ layout(std140, set = 0, binding = 0) uniform CameraData {
     vec4 pd80HbPack1;
     vec4 pd80HbPack2;
     vec4 pd80Sc2Pack0;
+    layout(offset = 4304) vec4 serenityControls[9];
 } cameraData;
 
 layout(set = 1, binding = 0) uniform sampler2D albedoTex;
@@ -219,6 +221,7 @@ layout(set = 1, binding = 3) uniform sampler2D emissiveTex;
 layout(set = 1, binding = 4) uniform sampler2D opacityTex;
 layout(set = 1, binding = 5) uniform sampler2D detailTex;
 layout(set = 2, binding = 0) uniform sampler2D shadowMapTex;
+#include "SerenityCloudNoise.glsl"
 
 layout(push_constant) uniform DrawData {
     layout(offset = 0) mat4 model;
@@ -392,6 +395,29 @@ float Hash11(float p) {
 
 float Hash21(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float SerenityCloudShadow(vec3 worldPos, vec3 lightDir) {
+    int flags = int(cameraData.serenityControls[6].w + 0.5);
+    float strength = cameraData.serenityControls[8].y;
+    if ((flags & 4) == 0 || strength < 1e-4) {
+        return 1.0;
+    }
+    vec3 sun = lightDir;
+    if (dot(sun, sun) < 1e-8) {
+        return 1.0;
+    }
+    sun = normalize(sun);
+    float sunY = clamp(sun.y, 0.0, 1.0);
+    float time = cameraData.serenityControls[6].z;
+    float shadow = 1.0;
+    float t = 6.0;
+    for (int i = 0; i < 4; ++i) {
+        float cover = SerenityCloudDensity(worldPos + sun * t, time);
+        shadow *= mix(1.0, 0.62, cover);
+        t += 11.0;
+    }
+    return mix(1.0, shadow, strength * mix(0.28, 1.0, sunY));
 }
 
 float SweetFxSrgbLumaCurve(float x) {
@@ -721,7 +747,8 @@ void main() {
         outputAlpha = 1.0;
     }
     float materialFlags =
-        (metalLookupStyle ? 1.0 : 0.0) + (crystalStyle ? 2.0 : 0.0) + (mixedMediaStyle ? 4.0 : 0.0);
+        (metalLookupStyle ? 1.0 : 0.0) + (crystalStyle ? 2.0 : 0.0) + (mixedMediaStyle ? 4.0 : 0.0)
+        + (drawData.nativeWaterUvMotion != 0 ? 8.0 : 0.0);
     float emissiveMask = clamp(length(drawData.emissiveColor + emissiveTexel), 0.0, 8.0) / 8.0;
 
     float tier = clamp(drawData.qualityTier, 0.0, 2.0);
@@ -840,14 +867,22 @@ void main() {
     vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
     bool foliageCard = (drawData.litShadingModel & 16) != 0;
     float shadow = ComputeShadowFactor(geomNormal, lightDir, worldPositionWs);
+    float cloudShadow = SerenityCloudShadow(worldPositionWs, lightDir);
     float ambientShadowWeight = hybridHdrRadiance ? mix(0.68, 1.0, shadow) : mix(0.20, 1.0, shadow);
     float hemiShadowWeight = hybridHdrRadiance ? mix(0.58, 1.0, shadow) : mix(0.28, 1.0, shadow);
     float diffuseWrapFloor = foliageCard ? 0.14 : (layeredStyle ? mix(0.16, 0.24, tier * 0.5) : 0.14);
     float diffuseTerm = mix(max(nDotL, diffuseWrapFloor), nDotL, foliageCard ? 0.35 : (layeredStyle ? 0.62 : 0.75));
     vec3 diffuse = (kD * albedo / kPi) * diffuseTerm;
-    vec3 direct = (diffuse + (specular * max(nDotL, 0.0))) * lightColor * (foliageCard ? 1.02 : (metalLookupStyle ? 0.95 : 1.38)) * shadow * microSurfaceShadow;
+    vec3 direct = (diffuse + (specular * max(nDotL, 0.0))) * lightColor * (foliageCard ? 1.02 : (metalLookupStyle ? 0.95 : 1.38)) * shadow * microSurfaceShadow * cloudShadow;
+    if (drawData.nativeWaterUvMotion != 0) {
+        float t = drawData.nativeWaterTime;
+        vec2 causticUv = worldPositionWs.xz * 0.37 + vec2(t * 0.11, t * 0.07);
+        float caustic = pow(0.5 + 0.5 * sin(causticUv.x * 6.283185) * sin(causticUv.y * 5.13 + t), 8.0);
+        direct += lightColor * caustic * 0.42 * shadow * max(nDotL, 0.12) * cloudShadow;
+    }
     vec3 ambientBoost = cameraData.presentationExtra.yzw;
     vec3 ambient = albedo * (vec3(0.08, 0.085, 0.09) + ambientBoost * 0.10) * (1.0 - metallic * 0.35);
+    ambient *= mix(1.0, cloudShadow, 0.42);
     if (hybridHdrRadiance) {
         ambient *= ambientShadowWeight;
         ambient += albedo * (vec3(0.03, 0.034, 0.028) + ambientBoost * 0.06) * (1.0 - metallic * 0.35) * (1.0 - shadow);

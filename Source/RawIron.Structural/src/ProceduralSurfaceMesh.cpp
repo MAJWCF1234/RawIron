@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <numeric>
 #include <stdexcept>
 
 namespace ri::structural::detail {
@@ -82,14 +83,14 @@ Mesh BuildLatheMesh(std::span<const ri::math::Vec2> profile, LatheMeshOptions o)
     Budget(static_cast<std::size_t>(o.radialSegments)+1,profile.size());
     std::vector<float> length(profile.size(),0);
     for (std::size_t j = 0; j < profile.size(); ++j) {
-        Check(std::isfinite(profile[j].x) && std::isfinite(profile[j].y) && profile[j].x > 0,
-              "Lathe requires finite positive radii");
+        Check(std::isfinite(profile[j].x) && std::isfinite(profile[j].y) && profile[j].x >= 0 && (profile[j].x > 0 || j==0 || j+1==profile.size()),
+              "Lathe permits zero radius only at endpoints");
         if (j) {
             Check(profile[j].y > profile[j-1].y,"Lathe heights must increase strictly");
             length[j] = length[j-1] + std::hypot(profile[j].x-profile[j-1].x,profile[j].y-profile[j-1].y);
         }
     }
-    Check(std::isfinite(length.back()),"Lathe profile length overflow");
+    Check(std::isfinite(length.back()) && std::any_of(profile.begin(),profile.end(),[](auto p){return p.x>0;}),"Lathe needs a positive radius and finite length");
     Mesh mesh;
     for (unsigned i = 0; i <= o.radialSegments; ++i) {
         const float u = static_cast<float>(i)/o.radialSegments;
@@ -104,7 +105,12 @@ Mesh BuildLatheMesh(std::span<const ri::math::Vec2> profile, LatheMeshOptions o)
                 {tangent.y*c,-tangent.x,tangent.y*s},u,length[j]/length.back());
         }
     }
-    GridIndices(mesh,o.radialSegments+1,static_cast<unsigned>(profile.size()));
+    // Pole bands emit fans, not a collapsed half of each grid quad.
+    for (unsigned i=0;i<o.radialSegments;++i) for (std::size_t j=0;j+1<profile.size();++j) {
+        const int a=static_cast<int>(i*profile.size()+j), b=a+static_cast<int>(profile.size());
+        if (profile[j].x>0) mesh.indices.insert(mesh.indices.end(),{a,b,a+1});
+        if (profile[j+1].x>0) mesh.indices.insert(mesh.indices.end(),{b,b+1,a+1});
+    }
     // dP/dangle cross dP/dheight points inward, so reverse each triangle.
     for (std::size_t i = 0; i < mesh.indices.size(); i += 3) std::swap(mesh.indices[i+1],mesh.indices[i+2]);
     return Finish(std::move(mesh),"Lathe");
@@ -216,10 +222,105 @@ Mesh BuildMobiusMesh(float radius, float width, unsigned rings, unsigned sides) 
     },{rings,sides,false,false});
     mesh.name="Mobius"; return mesh;
 }
+namespace {
+Mesh BuildCurveSurface(std::string_view type, const StructuralPrimitiveOptions& o) {
+    Check(o.pathSegments>=8 && o.pathSegments<static_cast<int>(maxVertices) && o.sides>=3,
+          "Invalid curve tessellation budget");
+    Check(std::isfinite(o.bottomRadius) && o.bottomRadius>0 && std::isfinite(o.thickness) && o.thickness>0,
+          "Curve radii must be positive and finite");
+    const bool knot=type=="torus_knot";
+    if (knot) {
+        Check(o.knotP>=1 && o.knotP<=16 && o.knotQ>=1 && o.knotQ<=16 && std::gcd(o.knotP,o.knotQ)==1,
+              "A single torus knot requires coprime winding counts in 1..16");
+        Check(o.pathSegments>=16*std::max(o.knotP,o.knotQ),"Torus knot undersampled");
+    } else {
+        Check(std::isfinite(o.curveTurns) && o.curveTurns>0 && o.curveTurns<=64
+            && std::isfinite(o.length) && o.length>0 && o.pathSegments>=16*o.curveTurns,"Invalid helix turns/height/sampling");
+    }
+    Budget(static_cast<std::size_t>(o.pathSegments)+1,static_cast<std::size_t>(o.sides)+1,
+           !knot && o.capEnds ? 2*(static_cast<std::size_t>(o.sides)+2) : 0);
+    std::vector<Vec3> path; path.reserve(static_cast<std::size_t>(o.pathSegments)+1);
+    for (int i=0;i<=o.pathSegments;++i) {
+        if (knot && i==o.pathSegments) { path.push_back(path.front()); continue; }
+        const float u=static_cast<float>(i)/o.pathSegments, t=tau*u;
+        if (knot) {
+            const float r=o.bottomRadius*(1+.5f*std::cos(o.knotQ*t));
+            path.push_back({r*std::cos(o.knotP*t),o.bottomRadius*.5f*std::sin(o.knotQ*t),r*std::sin(o.knotP*t)});
+        } else path.push_back({o.bottomRadius*std::cos(t*o.curveTurns),o.length*(u-.5f),o.bottomRadius*std::sin(t*o.curveTurns)});
+    }
+    return BuildTubeMesh(path,{o.thickness,static_cast<unsigned>(o.sides),knot,o.capEnds});
+}
+
+Mesh BuildExtrudedProfile(const StructuralPrimitiveOptions& o) {
+    using ri::math::Vec2;
+    auto points=o.points;
+    if (points.empty()) points={{-.5f,-.5f,0},{.5f,-.5f,0},{.5f,.5f,0},{-.5f,.5f,0}};
+    if (points.size()>3 && ri::math::DistanceSquared(points.front(),points.back())<1e-12f) points.pop_back();
+    Check(points.size()>=3 && points.size()<=128 && std::isfinite(o.depth) && o.depth>0,"Invalid extrusion profile/depth");
+    const auto cross=[](Vec3 a,Vec3 b,Vec3 c){return double(b.x-a.x)*(c.y-a.y)-double(b.y-a.y)*(c.x-a.x);};
+    double area=0;
+    for (std::size_t i=0;i<points.size();++i) {
+        const auto a=points[i],b=points[(i+1)%points.size()];
+        Check(Finite(a) && std::abs(a.z)<1e-6f && ri::math::DistanceSquared(a,b)>1e-12f,"Extrusion needs distinct finite XY vertices");
+        area+=double(a.x)*b.y-double(b.x)*a.y;
+    }
+    Check(std::abs(area)>1e-10,"Degenerate extrusion profile");
+    if (area<0) std::reverse(points.begin(),points.end());
+    // Reject self intersections/touching nonadjacent edges before ear clipping.
+    const auto onSegment=[&](Vec3 a,Vec3 b,Vec3 p){return std::abs(cross(a,b,p))<=1e-10 && p.x>=std::min(a.x,b.x)
+        && p.x<=std::max(a.x,b.x) && p.y>=std::min(a.y,b.y) && p.y<=std::max(a.y,b.y);};
+    for (std::size_t i=0;i<points.size();++i) for (std::size_t j=i+1;j<points.size();++j) {
+        if (j==(i+1)%points.size() || i==(j+1)%points.size()) continue;
+        const auto a=points[i],b=points[(i+1)%points.size()],c=points[j],d=points[(j+1)%points.size()];
+        const double abC=cross(a,b,c),abD=cross(a,b,d),cdA=cross(c,d,a),cdB=cross(c,d,b);
+        Check(!(abC*abD<0 && cdA*cdB<0) && !onSegment(a,b,c) && !onSegment(a,b,d)
+            && !onSegment(c,d,a) && !onSegment(c,d,b),"Self-intersecting extrusion profile");
+    }
+    std::vector<int> polygon(points.size()); std::iota(polygon.begin(),polygon.end(),0);
+    std::vector<int> caps;
+    while (polygon.size()>3) {
+        bool clipped=false;
+        for (std::size_t i=0;i<polygon.size();++i) {
+            const int a=polygon[(i+polygon.size()-1)%polygon.size()],b=polygon[i],c=polygon[(i+1)%polygon.size()];
+            if (cross(points[a],points[b],points[c])<=1e-10) continue;
+            bool occupied=false;
+            for (const int p:polygon) if(p!=a && p!=b && p!=c && cross(points[a],points[b],points[p])>=-1e-10
+                && cross(points[b],points[c],points[p])>=-1e-10 && cross(points[c],points[a],points[p])>=-1e-10) occupied=true;
+            if (occupied) continue;
+            caps.insert(caps.end(),{a,b,c}); polygon.erase(polygon.begin()+i); clipped=true; break;
+        }
+        Check(clipped,"Extrusion polygon could not be triangulated");
+    }
+    caps.insert(caps.end(),polygon.begin(),polygon.end());
+    float minX=points[0].x,maxX=minX,minY=points[0].y,maxY=minY;
+    std::vector<float> perimeter(points.size()+1,0);
+    for (std::size_t i=0;i<points.size();++i) {
+        minX=std::min(minX,points[i].x);maxX=std::max(maxX,points[i].x);
+        minY=std::min(minY,points[i].y);maxY=std::max(maxY,points[i].y);
+        perimeter[i+1]=perimeter[i]+ri::math::Distance(points[i],points[(i+1)%points.size()]);
+    }
+    Mesh mesh;
+    const auto vertex=[&](Vec3 p,Vec3 n,Vec2 uv){mesh.indices.push_back(static_cast<int>(mesh.positions.size()));Vertex(mesh,p,n,uv.x,uv.y);};
+    for (const float sign:{1.f,-1.f}) for(std::size_t i=0;i<caps.size();i+=3) for(int k=0;k<3;++k) {
+        const auto p=points[caps[i+(sign>0 ? k : 2-k)]];
+        vertex({p.x,p.y,sign*o.depth*.5f},{0,0,sign},{(p.x-minX)/(maxX-minX),(p.y-minY)/(maxY-minY)});
+    }
+    for(std::size_t i=0;i<points.size();++i) {
+        const auto a=points[i],b=points[(i+1)%points.size()]; const auto n=Unit({b.y-a.y,a.x-b.x,0});
+        const float u0=perimeter[i]/perimeter.back(),u1=perimeter[i+1]/perimeter.back(),h=o.depth*.5f;
+        vertex({a.x,a.y,-h},n,{u0,0});vertex({b.x,b.y,-h},n,{u1,0});vertex({b.x,b.y,h},n,{u1,1});
+        vertex({a.x,a.y,-h},n,{u0,0});vertex({b.x,b.y,h},n,{u1,1});vertex({a.x,a.y,h},n,{u0,1});
+    }
+    return Finish(std::move(mesh),"ExtrudedProfile");
+}
+}
+
 CompiledMesh BuildSmoothStructuralSurface(std::string_view type, const StructuralPrimitiveOptions& o) {
     try {
         Mesh mesh;
-        if (type == "revolve") {
+        if (type == "torus_knot" || type == "helix") mesh=BuildCurveSurface(type,o);
+        else if (type == "extrude_along_normal_primitive") mesh=BuildExtrudedProfile(o);
+        else if (type == "revolve") {
             std::vector<ri::math::Vec2> profile;
             for (auto p : o.points) profile.push_back({p.x,p.y});
             if (profile.empty()) profile={{.25f,-.5f},{.4f,-.25f},{.3f,.15f},{.2f,.5f}};

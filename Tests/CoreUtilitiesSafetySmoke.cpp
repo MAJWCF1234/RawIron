@@ -38,8 +38,35 @@ bool TestNormalTransforms() {
         && LengthSquared(TransformNormal(IdentityMatrix(),{std::numeric_limits<float>::quiet_NaN(),0,1}))==0;
 }
 
+bool TestPerspectiveInverse() {
+    using namespace ri::math;
+    Mat4 projection{};
+    projection.m[0][0] = 1.2f;
+    projection.m[1][1] = 1.8f;
+    projection.m[2][2] = 1.001f;
+    projection.m[2][3] = -0.1001f;
+    projection.m[3][2] = 1.0f;
+    const auto camera = Multiply(projection, TranslationMatrix({3.0f, -2.0f, 11.0f}));
+    Mat4 inverse{};
+    if (!TryInvertMat4(camera, inverse)) {
+        return false;
+    }
+    const auto roundTrip = Multiply(inverse, camera);
+    const auto identity = IdentityMatrix();
+    for (int row = 0; row < 4; ++row) {
+        for (int column = 0; column < 4; ++column) {
+            if (std::abs(roundTrip.m[row][column] - identity.m[row][column]) > 2.0e-4f) {
+                return false;
+            }
+        }
+    }
+    Mat4 singular{};
+    return !TryInvertMat4(singular, inverse);
+}
+
 int main() {
     if (!TestNormalTransforms()) { std::fprintf(stderr,"Affine normal transform regression\n"); return EXIT_FAILURE; }
+    if (!TestPerspectiveInverse()) { std::fprintf(stderr,"Perspective matrix inverse regression\n"); return EXIT_FAILURE; }
     using ri::core::ActionBinding;
     using ri::core::ActionBindings;
     using ri::core::BindingSlot;

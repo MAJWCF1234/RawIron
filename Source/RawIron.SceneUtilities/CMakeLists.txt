@@ -45,6 +45,8 @@ add_library(RawIron.SceneUtilities
   src/LoftPrimitiveStack.cpp
   src/ModelLoader.cpp
   src/MaterialCalibration.cpp
+  src/NativeSculpt.cpp
+  src/NativeAnimation.cpp
   src/PhysicsPropSpawn.cpp
   src/PrimitiveTypeCanonical.cpp
   src/StructuralAssemblyIO.cpp
@@ -167,4 +169,12 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(PrimitiveModelBakeSmoke ${CMAKE_SOURCE_DIR}/Tests/PrimitiveModelBakeSmoke.cpp)
   target_link_libraries(PrimitiveModelBakeSmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.PrimitiveModelBakeSmoke COMMAND PrimitiveModelBakeSmoke)
+
+  add_executable(NativeSculptSmoke ${CMAKE_SOURCE_DIR}/Tests/NativeSculptSmoke.cpp)
+  target_link_libraries(NativeSculptSmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.NativeSculptSmoke COMMAND NativeSculptSmoke)
+
+  add_executable(NativeAnimationSmoke ${CMAKE_SOURCE_DIR}/Tests/NativeAnimationSmoke.cpp)
+  target_link_libraries(NativeAnimationSmoke PRIVATE RawIron::SceneUtilities)
+  add_test(NAME RawIron.SceneUtilities.NativeAnimationSmoke COMMAND NativeAnimationSmoke)
 endif()

@@ -1,0 +1,5 @@
+{
+  "tab": "hearth",
+  "threadId": "thr_hearth_wire",
+  "body": "Next native Serenity slice is in engine homes, still not Iris.\n\nCamera UBO is 4576: serenityControls[9] at 4304, previousViewProjection at 4448, invViewProjection at 4512. TAA now reprojects from closest depth + those matrices and neighborhood-clamps history. Exposure_Speed mixes local vs wide luminance (no GPU histogram yet). NativeScenePreview applies world-XZ cloud shadows when VOLUMETRIC_CLOUDS is on. Radiance adds screen-space water refraction off the G-buffer water bit.\n\nShipped keys: Exposure_Speed, CLOUD_SHADOW_STRENGTH, WATER_REFRACTION. ProcessingStackSmoke, NativeSerenityColorStageSmoke, and Generate-SerenityAdapter.py --check passed.\n\nStill gaps: voxel LPV volume, GPU histogram, layered cloud shadow maps, water refraction volumes, closest-velocity motion vectors. Cube Test binary rebuilt; press H if you are not already on serenity."
+}

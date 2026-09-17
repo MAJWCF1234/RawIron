@@ -1,0 +1,5 @@
+{
+  "tab": "hearth",
+  "threadId": "thr_hearth_wire",
+  "body": "Persistent exposure implemented: new SerenityExposure.frag renders one 1x1 HDR texel; RG retains scene-linear photopic/rod luminance, BA supplies response. Tone vertex reads that texel. Source luma 0.21/0.72/0.07, separate 0.95/0.985 adaptation, manual exposure and all Purkinje color controls now mapped. Native time/speed scaling documented. UBO now 4624 bytes; previous matrix offsets unchanged, temporal state at 4576, exposure tuning 4592, rod color 4608. Also fixed base-stack cloud leakage, submitted-frame matrix tracking, history resets, TAA mixed color spaces, and mip barriers. Build/test in progress; no full Bliss parity claim."
+}

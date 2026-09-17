@@ -92,6 +92,19 @@ Use a broader game-specific suite when editing Liminal Hall or other project dat
 
 ## Active Backlog
 
+### 2026-09-08 eight-demo increment
+
+Extend the existing structural dispatcher/catalogue with torus knots and helices,
+allow axis endpoints in smooth lathes without degenerate triangles, and replace
+origin-fan extrusion caps with validated triangulation for translated/concave
+profiles. Reproduce missing geometry and broken cap bounds before implementation.
+Eight Cube Test rooms will exercise these changes plus rounded solids,
+superellipsoids, convex hulls and heightfields, using the existing copied Three.js
+UV grid. Verify primitive streams, authoring integration, portal clearance,
+whole-workspace tests and per-room GPU captures. No new primitive framework or
+JavaScript runtime; comparisons do not establish superiority without measurements.
+
+
 ### 2026-09-04 engine maintenance increment — completed
 
 Reproduced and corrected UV loss in deferred spline copies, retained terrain

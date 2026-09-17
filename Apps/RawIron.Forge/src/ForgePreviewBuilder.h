@@ -21,7 +21,20 @@ struct ForgePreviewBuildResult {
     std::filesystem::path assetPath{};
     ri::scene::Scene scene{"Raw Iron Forge 3D Model"};
     ri::scene::OrbitCameraHandles camera{};
+    std::vector<int> frameNodes{};
+    std::vector<int> boneNodes{};
+    int gridNode = ri::scene::kInvalidHandle;
+    int axesNode = ri::scene::kInvalidHandle;
+    int sculptNode = ri::scene::kInvalidHandle;
+    int sculptWireframeNode = ri::scene::kInvalidHandle;
+    int sculptNormalsNode = ri::scene::kInvalidHandle;
+    int sculptCollisionNode = ri::scene::kInvalidHandle;
+    int sculptBrushCursorNode = ri::scene::kInvalidHandle;
     std::size_t renderableNodeCount = 0;
+    std::size_t boneCount = 0;
+    std::vector<std::string> partIds{};
+    std::vector<int> groupNodes{};
+    std::vector<std::string> groupIds{};
     bool assetLoaded = false;
     std::string status{};
     double elapsedMilliseconds = 0.0;
@@ -32,6 +45,17 @@ struct ForgePreviewBuildResult {
     AssetKind kind,
     std::uint64_t generation = 0,
     std::uintmax_t maximumSourceBytes = 256ULL * 1024ULL * 1024ULL);
+
+/// True when the viewport already has this asset loaded and should not reload from disk.
+/// `keepLiveDocument` covers an open sculpt/stock session (dirty strokes, undo, or an in-flight drag).
+[[nodiscard]] bool ShouldReuseForgePreview(
+    const std::filesystem::path& loadedPath,
+    bool loadedHasWriteTime,
+    std::filesystem::file_time_type loadedWriteTime,
+    const std::filesystem::path& requestedPath,
+    bool requestedHasWriteTime,
+    std::filesystem::file_time_type requestedWriteTime,
+    bool keepLiveDocument) noexcept;
 
 /// Coalescing source importer: rapid asset selection only publishes the newest completed preview.
 class AsyncForgePreviewBuilder {

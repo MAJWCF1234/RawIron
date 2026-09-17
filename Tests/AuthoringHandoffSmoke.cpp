@@ -38,6 +38,29 @@ int main() {
         fs::remove_all(root, error);
         return EXIT_FAILURE;
     }
+    const fs::path sculptPath = root / "Assets" / "Source" / "models" / "clay.ri_sculpt.json";
+    std::ofstream(sculptPath) << R"({
+  "formatVersion": 1,
+  "id": "clay",
+  "displayName": "Clay",
+  "cage": "sphere",
+  "segmentsAround": 8,
+  "segmentsDown": 4,
+  "positions": [0,0,0, 1,0,0, 0,1,0],
+  "normals": [0,0,1, 0,0,1, 0,0,1],
+  "texCoords": [0,0, 1,0, 0,1],
+  "indices": [0,1,2]
+})";
+    const ri::content::AuthoringHandoffReport sculptHandoff =
+        ri::content::BuildAuthoringHandoff({
+            .workspaceRoot = root,
+            .assetPath = sculptPath,
+        });
+    if (!sculptHandoff.valid || sculptHandoff.assetKind != ri::content::AuthoringAssetKind::Sculpt
+        || ri::content::ToString(sculptHandoff.assetKind) != "native-sculpt") {
+        fs::remove_all(root, error);
+        return EXIT_FAILURE;
+    }
     const ri::content::AuthoringHandoffReport primitiveHandoff =
         ri::content::BuildAuthoringHandoff({
             .workspaceRoot = root,

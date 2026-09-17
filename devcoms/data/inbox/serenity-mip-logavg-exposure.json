@@ -1,0 +1,5 @@
+{
+  "tab": "hearth",
+  "threadId": "thr_hearth_wire",
+  "body": "Next native Serenity slice: HDR mip reduce + Bliss log-average exposure.\n\nScene HDR now blits a full mip chain (down to 1x1 when the format supports linear blit). Bloom still samples lod 0-4. Auto-exposure moved out of the fragment shader: SerenityToneMap.vert runs Bliss deferred.vsh's 50 R2 log-luma taps on mip 4 (the 1/16 downsample) and flats the scale + rod exposure into the tone-map fragment. Exposure_Speed still holds toward swapchain history. Purkinje uses the metered rod term.\n\nThis is the Bliss meter, not a GPU histogram. Remaining gaps: voxel LPV, closest-velocity motion vectors, layered cloud shadow maps, water volume refraction, a persistent scene-linear brightness texel. Cube Test fully relinked. Forge not touched."
+}

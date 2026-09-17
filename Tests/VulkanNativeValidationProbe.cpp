@@ -22,6 +22,7 @@ int main(int argc, char** argv) {
 #else
     const bool lumaCurveProbe = argc >= 3 && std::string_view(argv[2]) == "--luma-curve";
     const bool normalFrameProbe = argc >= 5 && std::string_view(argv[2]) == "--normal-frame";
+    const bool serenityProbe = argc >= 4 && std::string_view(argv[2]) == "--serenity";
     const int probeWidth=normalFrameProbe && argc>=7 ? std::stoi(argv[6]) : 320;
     const int probeHeight=probeWidth*5/8;
     ri::scene::Scene scene{"VulkanNativeValidationProbe"};
@@ -92,6 +93,10 @@ int main(int argc, char** argv) {
     options.showWindow = false;
     options.outClientHwnd = &clientWindow;
     options.enablePersistentPipelineWarmupCache = false;
+    if (serenityProbe) {
+        options.processingStackConfigPath = std::filesystem::path(argv[3]) / "Config/ProcessingStacks/active.cfg";
+        options.processingStackName = "serenity";
+    }
 
     static const int firstSceneGeneration = 1;
     static const int secondSceneGeneration = 2;
@@ -105,6 +110,12 @@ int main(int argc, char** argv) {
         frame.suppressUnchangedFrames = false;
         frame.cameraNode = cameraNode;
         frame.renderQualityTier = normalFrameProbe && argc>=8 ? std::stoi(argv[7]) : 0;
+        if (serenityProbe) {
+            // Exercise temporal state on continuous frames, scene changes and a round trip through base.
+            frame.processingStackName = frameCount >= 5 && frameCount <= 6 ? "base" : "serenity";
+            frame.animationTimeSeconds = frameCount / 60.0;
+            scene.GetNode(cameraNode).localTransform.position.x += .02f;
+        }
         if (normalFrameProbe) {
             frame.renderFogDensity=frame.renderFogStrength=0;
             frame.nativeAmbientLight={0,0,0};

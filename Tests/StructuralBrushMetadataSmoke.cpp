@@ -15,37 +15,46 @@
 
 bool TestSurfaceCollection() {
     using namespace ri::scene;
-    for (const auto key : {"revolve_open", "spline_sweep", "spline_loop", "torus", "mobius", "parametric_patch"}) {
+    for (const auto key : {"revolve_open", "spline_sweep", "spline_loop", "torus", "torus_knot", "helix", "mobius", "parametric_patch"}) {
         const auto preset=FindStructuralPreset(key);
-        if (!preset) return false;
-        const auto shape=ShapeFromStructuralPreset(*preset);
+        if (!preset) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
+        auto shape=ShapeFromStructuralPreset(*preset);
+        if (std::string_view(key)=="torus_knot") {shape.knotP=3; shape.knotQ=5; shape.pathSegments=128;}
+        if (std::string_view(key)=="helix") {shape.curveTurns=2.5f; shape.pathSegments=96;}
         const auto source=ri::structural::BuildPrimitiveMesh(preset->structuralType,shape);
-        if (source.positions.empty() || source.texCoords.size()!=source.positions.size()) return false;
+        if (source.positions.empty() || source.texCoords.size()!=source.positions.size()) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
         Scene scene("structural surface integration");
         const int root=scene.CreateNode("root");
         StructuralPrimitiveBundleParams params;
-        params.parent=root; params.presetField=key;
+        params.parent=root; params.presetField=key; params.shape=shape;
         const auto result=SpawnStructuralPrimitiveBundle(scene,params);
-        if (result.node==kInvalidHandle) return false;
+        if (result.node==kInvalidHandle) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
         const auto& node=scene.GetNode(result.node);
         const auto mesh=scene.GetMesh(result.mesh);
         if (node.structuralBrush.brushId.empty() || node.structuralBrush.physicsMesh.meshId.empty()
-            || node.structuralBrush.queryMesh.meshId.empty() || mesh.texCoords.size()!=source.texCoords.size()) return false;
+            || node.structuralBrush.queryMesh.meshId.empty() || mesh.texCoords.size()!=source.texCoords.size()) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
         for (std::size_t i=0;i<mesh.texCoords.size();++i)
-            if (mesh.texCoords[i].x!=source.texCoords[i].x || mesh.texCoords[i].y!=source.texCoords[i].y) return false;
+            if (mesh.texCoords[i].x!=source.texCoords[i].x || mesh.texCoords[i].y!=source.texCoords[i].y) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
         // The graph/assembly route must retain options and the exact UV stream too.
         auto graphNode=MakeStructuralPrimitiveGraphNode("surface",preset->structuralType,{2,1,3},{1,1,1},shape);
         StructuralPrimitiveAssemblyOptions assembly;
         assembly.parent=root; assembly.nodes={graphNode};
         const auto assembled=AddStructuralPrimitiveAssembly(scene,assembly);
-        if (assembled.meshNodes.size()!=1) return false;
+        if (assembled.meshNodes.size()!=1) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
         const auto& assembledMesh=scene.GetMesh(scene.GetNode(assembled.meshNodes[0]).mesh);
-        if (assembledMesh.texCoords.size()!=mesh.texCoords.size()) return false;
+        if (assembledMesh.texCoords.size()!=mesh.texCoords.size()) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
         for (std::size_t i=0;i<assembledMesh.texCoords.size();++i)
-            if (assembledMesh.texCoords[i].x!=source.texCoords[i].x || assembledMesh.texCoords[i].y!=source.texCoords[i].y) return false;
+            if (assembledMesh.texCoords[i].x!=source.texCoords[i].x || assembledMesh.texCoords[i].y!=source.texCoords[i].y) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
+        for (std::size_t i=0;i<assembledMesh.positions.size();++i)
+            if (ri::math::Distance(assembledMesh.positions[i],source.positions[i]+ri::math::Vec3{2,1,3})>1e-5f) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
+        for (int field=0;field<3;++field) {
+            auto changed=graphNode;
+            if(field==0) ++changed.knotP; else if(field==1) ++changed.knotQ; else changed.curveTurns+=.5f;
+            if(ri::structural::BuildStructuralCompileSignature({graphNode})==ri::structural::BuildStructuralCompileSignature({changed})) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
+        }
         const auto signature=ri::structural::BuildStructuralCompileSignature({graphNode});
         graphNode.closedPath=!graphNode.closedPath;
-        if (signature==ri::structural::BuildStructuralCompileSignature({graphNode})) return false;
+        if (signature==ri::structural::BuildStructuralCompileSignature({graphNode})) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
     }
     // Custom samples cannot silently become the catalog default when passed through an assembly.
     Scene scene("authored spline graph");
@@ -57,11 +66,11 @@ bool TestSurfaceCollection() {
     assembly.nodes={MakeStructuralPrimitiveGraphNode("custom", "spline_sweep",{},{1,1,1},shape)};
     const auto output=AddStructuralPrimitiveAssembly(scene,assembly);
     const auto expected=ri::structural::BuildPrimitiveMesh("spline_sweep",shape);
-    if (output.meshNodes.size()!=1) return false;
+    if (output.meshNodes.size()!=1) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
     const auto& actual=scene.GetMesh(scene.GetNode(output.meshNodes[0]).mesh);
-    if (actual.positions.size()!=expected.positions.size()) return false;
+    if (actual.positions.size()!=expected.positions.size()) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
     for (std::size_t i=0;i<actual.positions.size();++i)
-        if (ri::math::Distance(actual.positions[i],expected.positions[i])>1.e-5f) return false;
+        if (ri::math::Distance(actual.positions[i],expected.positions[i])>1.e-5f) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
     return true;
 }
 

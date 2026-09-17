@@ -20,6 +20,8 @@ add_library(RawIron.Content
   src/PluginProjectData.cpp
   src/PluginRuntime.cpp
   src/PrimitiveModelDocument.cpp
+  src/NativeSculptDocument.cpp
+  src/NativeAnimationDocument.cpp
   src/RipakArchive.cpp
   src/PrefabExpansion.cpp
   src/ScriptScalars.cpp
@@ -88,6 +90,14 @@ if(RAWIRON_BUILD_TESTS)
   add_executable(PrimitiveModelDocumentSmoke ${CMAKE_SOURCE_DIR}/Tests/PrimitiveModelDocumentSmoke.cpp)
   target_link_libraries(PrimitiveModelDocumentSmoke PRIVATE RawIron::Content)
   add_test(NAME RawIron.Content.PrimitiveModelDocumentSmoke COMMAND PrimitiveModelDocumentSmoke)
+
+  add_executable(NativeSculptDocumentSmoke ${CMAKE_SOURCE_DIR}/Tests/NativeSculptDocumentSmoke.cpp)
+  target_link_libraries(NativeSculptDocumentSmoke PRIVATE RawIron::Content)
+  add_test(NAME RawIron.Content.NativeSculptDocumentSmoke COMMAND NativeSculptDocumentSmoke)
+
+  add_executable(NativeAnimationDocumentSmoke ${CMAKE_SOURCE_DIR}/Tests/NativeAnimationDocumentSmoke.cpp)
+  target_link_libraries(NativeAnimationDocumentSmoke PRIVATE RawIron::Content)
+  add_test(NAME RawIron.Content.NativeAnimationDocumentSmoke COMMAND NativeAnimationDocumentSmoke)
 
   add_executable(PluginRuntimeSmoke ${CMAKE_SOURCE_DIR}/Tests/PluginRuntimeSmoke.cpp)
   target_link_libraries(PluginRuntimeSmoke PRIVATE RawIron::Content)

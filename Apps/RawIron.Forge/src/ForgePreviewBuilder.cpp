@@ -1,16 +1,27 @@
 #include "ForgePreviewBuilder.h"
 
+#include "RawIron/Content/NativeAnimationDocument.h"
 #include "RawIron/Content/PrimitiveModelDocument.h"
+#include "RawIron/Content/NativeSculptDocument.h"
+#include "RawIron/Math/Vec3.h"
 #include "RawIron/Scene/ModelLoader.h"
+#include "RawIron/Scene/NativeAnimation.h"
+#include "RawIron/Scene/NativeSculpt.h"
 #include "RawIron/Scene/PrimitiveModelBake.h"
+#include "RawIron/Scene/RigAuthoring.h"
 #include "RawIron/Scene/SceneUtils.h"
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cctype>
 #include <exception>
+#include <filesystem>
+#include <optional>
+#include <string>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 namespace ri::forge {
 namespace {
@@ -22,24 +33,86 @@ std::string LowerAscii(std::string value) {
     return value;
 }
 
+struct SkeletonPreview {
+    std::vector<int> frameNodes{};
+    std::vector<int> boneNodes{};
+};
+
+SkeletonPreview InstantiateRigSkeleton(
+    ri::scene::Scene& scene,
+    const int previewRoot,
+    const ri::scene::RigDefinition& rig) {
+    const int skeletonRoot = scene.CreateNode("ForgeSkeleton", previewRoot);
+    SkeletonPreview preview{};
+    preview.boneNodes.assign(rig.bones.size(), ri::scene::kInvalidHandle);
+    preview.frameNodes.reserve(rig.bones.size());
+    for (std::size_t index = 0; index < rig.bones.size(); ++index) {
+        const ri::scene::RigBone& bone = rig.bones[index];
+        const std::string boneName = bone.name.empty() ? ("Bone" + std::to_string(index)) : bone.name;
+        int parent = skeletonRoot;
+        if (bone.parentIndex >= 0 && bone.parentIndex < static_cast<int>(preview.boneNodes.size())
+            && preview.boneNodes[static_cast<std::size_t>(bone.parentIndex)] != ri::scene::kInvalidHandle
+            && bone.parentIndex != static_cast<int>(index)) {
+            parent = preview.boneNodes[static_cast<std::size_t>(bone.parentIndex)];
+            const ri::math::Vec3 offset = bone.restLocal.position;
+            const float length = ri::math::Length(offset);
+            if (length > 0.001F) {
+                constexpr float kShaftThickness = 0.028F;
+                ri::scene::PrimitiveNodeOptions shaft{};
+                shaft.nodeName = boneName + "Shaft";
+                shaft.parent = parent;
+                shaft.primitive = ri::scene::PrimitiveType::Cube;
+                shaft.shadingModel = ri::scene::ShadingModel::Unlit;
+                shaft.materialName = boneName + "ShaftMaterial";
+                shaft.baseColor = {0.55F, 0.62F, 0.38F};
+                shaft.transform.position = offset * 0.5F;
+                shaft.transform.scale = {
+                    std::max(std::abs(offset.x), kShaftThickness),
+                    std::max(std::abs(offset.y), kShaftThickness),
+                    std::max(std::abs(offset.z), kShaftThickness),
+                };
+                (void)ri::scene::AddPrimitiveNode(scene, shaft);
+            }
+        }
+        const int boneNode = scene.CreateNode(boneName, parent);
+        scene.GetNode(boneNode).localTransform = bone.restLocal;
+        preview.boneNodes[index] = boneNode;
+
+        ri::scene::PrimitiveNodeOptions joint{};
+        joint.nodeName = boneName + "Joint";
+        joint.parent = boneNode;
+        joint.primitive = ri::scene::PrimitiveType::Sphere;
+        joint.shadingModel = ri::scene::ShadingModel::Unlit;
+        joint.materialName = boneName + "JointMaterial";
+        const float jointScale = bone.deform ? 0.055F : 0.034F;
+        joint.baseColor = bone.deform ? ri::math::Vec3{0.82F, 0.86F, 0.48F} : ri::math::Vec3{0.42F, 0.48F, 0.52F};
+        joint.transform.scale = {jointScale, jointScale, jointScale};
+        const int jointNode = ri::scene::AddPrimitiveNode(scene, joint);
+        if (jointNode != ri::scene::kInvalidHandle) {
+            preview.frameNodes.push_back(jointNode);
+        }
+    }
+    return preview;
+}
+
 void AddPreviewStage(
     ForgePreviewBuildResult& result,
     const int previewRoot,
     const std::vector<int>& frameNodes) {
-    (void)ri::scene::AddGridHelper(
+    result.gridNode = ri::scene::AddGridHelper(
         result.scene,
         ri::scene::GridHelperOptions{
             .nodeName = "ForgeGrid",
             .parent = previewRoot,
             .size = 12.0F,
         });
-    (void)ri::scene::AddAxesHelper(
+    result.axesNode = ri::scene::AddAxesHelper(
         result.scene,
         ri::scene::AxesHelperOptions{
             .nodeName = "ForgeAxes",
             .parent = previewRoot,
             .axisLength = 1.5F,
-        });
+        }).root;
     (void)ri::scene::AddLightNode(
         result.scene,
         ri::scene::LightNodeOptions{
@@ -93,6 +166,27 @@ void AddPreviewStage(
     }
 }
 
+void OverlayBoundRig(
+    ForgePreviewBuildResult& result,
+    const int previewRoot,
+    std::vector<int>& frameNodes,
+    const std::string& rigPath,
+    const std::filesystem::path& assetPath) {
+    if (rigPath.empty()) {
+        return;
+    }
+    const auto rig = LoadSidecarRig(rigPath, assetPath);
+    if (!rig.has_value() || rig->bones.empty()) {
+        result.status += " | rig missing";
+        return;
+    }
+    const SkeletonPreview skeleton = InstantiateRigSkeleton(result.scene, previewRoot, *rig);
+    result.boneNodes = skeleton.boneNodes;
+    result.boneCount = rig->bones.size();
+    frameNodes.insert(frameNodes.end(), skeleton.frameNodes.begin(), skeleton.frameNodes.end());
+    result.status += " | rig " + (rig->displayName.empty() ? rigPath : rig->displayName);
+}
+
 } // namespace
 
 ForgePreviewBuildResult BuildForgePreviewScene(
@@ -122,16 +216,90 @@ ForgePreviewBuildResult BuildForgePreviewScene(
                     assetPath.parent_path());
             if (instantiated.valid) {
                 frameNodes = instantiated.partNodes;
+                result.partIds = instantiated.partIds;
+                result.groupNodes = instantiated.groupNodes;
+                result.groupIds = instantiated.groupIds;
                 result.assetLoaded = !frameNodes.empty();
                 result.status = "Native grouped primitive preview";
+                OverlayBoundRig(result, previewRoot, frameNodes, document->rigPath, assetPath);
             } else {
                 result.status = instantiated.errors.empty()
                     ? "Primitive model produced no preview geometry"
                     : instantiated.errors.front();
             }
         }
+    } else if (kind == AssetKind::Sculpt) {
+        const auto sculpt = ri::content::LoadNativeSculptDocument(assetPath);
+        if (!sculpt.has_value()) {
+            result.status = "Native sculpt could not be loaded";
+        } else {
+            result.sculptNode = ri::scene::InstantiateNativeSculpt(result.scene, previewRoot, *sculpt);
+            if (result.sculptNode != ri::scene::kInvalidHandle) {
+                frameNodes.push_back(result.sculptNode);
+                result.assetLoaded = true;
+                result.sculptWireframeNode =
+                    ri::scene::InstantiateNativeSculptWireframe(result.scene, previewRoot, sculpt->mesh);
+                result.sculptNormalsNode =
+                    ri::scene::InstantiateNativeSculptNormals(result.scene, previewRoot, sculpt->mesh);
+                result.sculptCollisionNode =
+                    ri::scene::InstantiateNativeSculptCollisionBounds(result.scene, previewRoot, sculpt->mesh);
+                result.sculptBrushCursorNode =
+                    ri::scene::InstantiateNativeSculptBrushCursor(result.scene, previewRoot);
+                ri::scene::UpdateNativeSculptBrushCursor(
+                    result.scene, result.sculptBrushCursorNode, {}, 0.18f, false);
+                const auto report = ri::content::ValidateNativeSculptDocument(*sculpt);
+                result.status = "Native sculpt (" + sculpt->cage + ", "
+                    + std::to_string(report.vertexCount)
+                    + " verts)  |  LMB CLAY  |  SHIFT SMOOTH  |  CTRL INFLATE  |  E EXTRUDE  |  9/0 DENSITY";
+                OverlayBoundRig(result, previewRoot, frameNodes, sculpt->rigPath, assetPath);
+            } else {
+                result.status = "Native sculpt produced no preview mesh";
+            }
+        }
     } else if (kind == AssetKind::Rig) {
-        result.status = "Rig document selected";
+        const std::optional<ri::scene::RigDefinition> rig = ri::scene::LoadRigDefinition(assetPath);
+        if (!rig.has_value()) {
+            result.status = "Rig document could not be loaded";
+        } else if (rig->bones.empty()) {
+            result.status = "Rig document contains no bones";
+        } else {
+            const SkeletonPreview skeleton = InstantiateRigSkeleton(result.scene, previewRoot, *rig);
+            frameNodes = skeleton.frameNodes;
+            result.boneNodes = skeleton.boneNodes;
+            result.boneCount = rig->bones.size();
+            result.assetLoaded = !frameNodes.empty();
+            const ri::scene::RigValidationReport validation = ri::scene::ValidateRigDefinition(*rig);
+            if (result.assetLoaded && validation.valid) {
+                result.status = "Rig skeleton preview (" + std::to_string(result.boneCount) + " bones)";
+            } else if (result.assetLoaded) {
+                result.status = validation.errors.empty()
+                    ? "Rig skeleton preview with validation warnings"
+                    : validation.errors.front();
+            } else {
+                result.status = "Rig produced no preview joints";
+            }
+        }
+    } else if (kind == AssetKind::Animation) {
+        const auto clip = ri::content::LoadNativeAnimationDocument(assetPath);
+        if (!clip.has_value()) {
+            result.status = "Animation clip could not be loaded";
+        } else {
+            const auto rig = LoadSidecarRig(clip->rigPath, assetPath);
+            if (!rig.has_value() || rig->bones.empty()) {
+                result.status = "Animation has no usable rig to preview";
+            } else {
+                const SkeletonPreview skeleton = InstantiateRigSkeleton(result.scene, previewRoot, *rig);
+                frameNodes = skeleton.frameNodes;
+                result.boneNodes = skeleton.boneNodes;
+                result.boneCount = rig->bones.size();
+                const ri::scene::AnimationClip bound =
+                    ri::scene::BindNativeAnimationClip(*clip, result.scene, result.boneNodes);
+                ri::scene::ApplyAnimationClip(result.scene, bound, 0.0);
+                result.assetLoaded = !frameNodes.empty();
+                result.status = "Motion clip (" + clip->displayName + ", "
+                    + std::to_string(clip->tracks.size()) + " tracks)";
+            }
+        }
     } else {
         const std::string extension = LowerAscii(assetPath.extension().string());
         if (extension == ".blend") {
@@ -166,6 +334,7 @@ ForgePreviewBuildResult BuildForgePreviewScene(
         }
     }
 
+    result.frameNodes = frameNodes;
     result.renderableNodeCount = frameNodes.size();
     AddPreviewStage(result, previewRoot, frameNodes);
     result.elapsedMilliseconds = std::chrono::duration<double, std::milli>(
@@ -244,6 +413,26 @@ void AsyncForgePreviewBuilder::Run(const std::stop_token stopToken) {
             busy_ = false;
         }
     }
+}
+
+bool ShouldReuseForgePreview(
+    const std::filesystem::path& loadedPath,
+    const bool loadedHasWriteTime,
+    const std::filesystem::file_time_type loadedWriteTime,
+    const std::filesystem::path& requestedPath,
+    const bool requestedHasWriteTime,
+    const std::filesystem::file_time_type requestedWriteTime,
+    const bool keepLiveDocument) noexcept {
+    if (loadedPath != requestedPath) {
+        return false;
+    }
+    if (keepLiveDocument) {
+        return true;
+    }
+    if (loadedHasWriteTime != requestedHasWriteTime) {
+        return false;
+    }
+    return !requestedHasWriteTime || loadedWriteTime == requestedWriteTime;
 }
 
 } // namespace ri::forge

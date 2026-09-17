@@ -68,6 +68,7 @@ int main(int argc, char** argv) {
     if (!options.nativeCapturePath.empty() && options.benchmarkFrames == 0) options.benchmarkFrames = 1;
     options.backgroundWindow = commandLine.HasFlag("--background");
     options.extendedPostProcess = commandLine.HasFlag("--extended-post");
+    if (const auto stack = commandLine.GetValue("--processing-stack")) options.processingStackName = *stack;
     options.jiggleTest = commandLine.HasFlag("--jiggle-test");
     options.jigglePreviewFrames = std::max(0, commandLine.GetIntOr("--jiggle-frames", options.jigglePreviewFrames));
     if (commandLine.HasFlag("--hybrid-hdr")) {

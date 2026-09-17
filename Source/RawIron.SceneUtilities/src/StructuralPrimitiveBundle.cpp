@@ -100,6 +100,9 @@ void ApplyNonDefaultOverrides(ri::structural::StructuralPrimitiveOptions& target
     if (overrides.centerColumn != defaults.centerColumn) target.centerColumn = overrides.centerColumn;
     if (overrides.closedProfile != defaults.closedProfile) target.closedProfile = overrides.closedProfile;
     if (overrides.closedPath != defaults.closedPath) target.closedPath = overrides.closedPath;
+    if (overrides.knotP != defaults.knotP) target.knotP=overrides.knotP;
+    if (overrides.knotQ != defaults.knotQ) target.knotQ=overrides.knotQ;
+    if (overrides.curveTurns != defaults.curveTurns) target.curveTurns=overrides.curveTurns;
     if (overrides.capEnds != defaults.capEnds) target.capEnds = overrides.capEnds;
     if (overrides.pathSegments != defaults.pathSegments) target.pathSegments = overrides.pathSegments;
     if (overrides.archStyle != defaults.archStyle) target.archStyle = overrides.archStyle;

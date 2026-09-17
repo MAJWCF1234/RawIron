@@ -1,0 +1,30 @@
+{
+  "formatVersion": 1,
+  "id": "humanoid",
+  "displayName": "Humanoid Rig",
+  "profile": "humanoid",
+  "bones": [
+    {"name":"root","parent":-1,"deform":false,"restLocal":{"position":{"x":0,"y":0,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"pelvis","parent":0,"deform":true,"restLocal":{"position":{"x":0,"y":1,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"spine","parent":1,"deform":true,"restLocal":{"position":{"x":0,"y":0.18000001,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"chest","parent":2,"deform":true,"restLocal":{"position":{"x":0,"y":0.2,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"neck","parent":3,"deform":true,"restLocal":{"position":{"x":0,"y":0.23999999,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"head","parent":4,"deform":true,"restLocal":{"position":{"x":0,"y":0.18000001,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"left_clavicle","parent":3,"deform":true,"restLocal":{"position":{"x":-0.14,"y":0.17,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"left_upper_arm","parent":6,"deform":true,"restLocal":{"position":{"x":-0.22,"y":0,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"left_lower_arm","parent":7,"deform":true,"restLocal":{"position":{"x":-0.28,"y":0,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"left_hand","parent":8,"deform":true,"restLocal":{"position":{"x":-0.23999999,"y":0,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"right_clavicle","parent":3,"deform":true,"restLocal":{"position":{"x":0.14,"y":0.17,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"right_upper_arm","parent":10,"deform":true,"restLocal":{"position":{"x":0.22,"y":0,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"right_lower_arm","parent":11,"deform":true,"restLocal":{"position":{"x":0.28,"y":0,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"right_hand","parent":12,"deform":true,"restLocal":{"position":{"x":0.23999999,"y":0,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"left_upper_leg","parent":1,"deform":true,"restLocal":{"position":{"x":-0.12,"y":-0.23999999,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"left_lower_leg","parent":14,"deform":true,"restLocal":{"position":{"x":0,"y":-0.41999999,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"left_foot","parent":15,"deform":true,"restLocal":{"position":{"x":0,"y":-0.40000001,"z":0.079999998},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"left_toe","parent":16,"deform":true,"restLocal":{"position":{"x":0,"y":-0.039999999,"z":0.19},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"right_upper_leg","parent":1,"deform":true,"restLocal":{"position":{"x":0.12,"y":-0.23999999,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"right_lower_leg","parent":18,"deform":true,"restLocal":{"position":{"x":0,"y":-0.41999999,"z":0},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"right_foot","parent":19,"deform":true,"restLocal":{"position":{"x":0,"y":-0.40000001,"z":0.079999998},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}},
+    {"name":"right_toe","parent":20,"deform":true,"restLocal":{"position":{"x":0,"y":-0.039999999,"z":0.19},"rotationDegrees":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1}}}
+  ]
+}

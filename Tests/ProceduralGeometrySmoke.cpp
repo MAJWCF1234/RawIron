@@ -1,4 +1,5 @@
 #include "ProceduralSurfaceMesh.h"
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -35,7 +36,86 @@ template<class F> void Reject(F f) {
     Require(rejected,"invalid input must fail explicitly");
 }
 }
+bool TestExpansionContracts() {
+    using namespace ri::structural;
+    bool ok=true;
+    const auto check=[&](bool value,const char* message){ if(!value){std::cerr<<message<<'\n';ok=false;} };
+    for (const auto type : {"torus_knot","helix"}) {
+        const auto mesh=BuildPrimitiveMesh(type);
+        check(!mesh.positions.empty() && mesh.texCoords.size()==mesh.positions.size(),"missing UV-preserving structural curve");
+    }
+    StructuralPrimitiveOptions lathe;
+    lathe.closedProfile=false; lathe.points={{0,-.5f,0},{.5f,0,0},{0,.5f,0}};
+    const auto poles=BuildPrimitiveMesh("revolve",lathe);
+    check(!poles.positions.empty(),"lathe axis endpoints rejected");
+    StructuralPrimitiveOptions extrusion;
+    extrusion.points={{2,2,0},{4,2,0},{4,3,0},{3,3,0},{3,4,0},{2,4,0}};
+    const auto concave=BuildPrimitiveMesh("extrude_along_normal_primitive",extrusion);
+    check(concave.hasBounds && concave.boundsMin.x>=2 && concave.boundsMin.y>=2,"extrusion invents an origin cap outside authored profile");
+    check(!concave.positions.empty() && concave.texCoords.size()==concave.positions.size(),"extrusion drops UV data");
+    return ok;
+}
+void TestExpansionGeometry() {
+    using namespace ri::structural;
+    const auto validateSoup=[](const CompiledMesh& source) {
+        Require(!source.positions.empty() && source.positions.size()%3==0,"nonempty structural triangle soup");
+        Mesh mesh;
+        mesh.primitive=PrimitiveType::Custom; mesh.positions=source.positions; mesh.normals=source.normals; mesh.texCoords=source.texCoords;
+        for (int i=0;i<static_cast<int>(mesh.positions.size());++i) mesh.indices.push_back(i);
+        mesh.vertexCount=static_cast<int>(mesh.positions.size()); mesh.indexCount=mesh.vertexCount;
+        Validate(mesh);
+    };
+    StructuralPrimitiveOptions shape;
+    for (const auto type : {"torus_knot","helix"}) {
+        shape={}; shape.pathSegments=192; shape.sides=20; shape.thickness=.075f;
+        if (std::string_view(type)=="helix") {shape.curveTurns=3;shape.length=2.4f;}
+        const auto first=BuildPrimitiveMesh(type,shape), second=BuildPrimitiveMesh(type,shape);
+        validateSoup(first);
+        Require(first.positions.size()==second.positions.size(),"deterministic curve size");
+        for(std::size_t i=0;i<first.positions.size();++i) Require(Near(first.positions[i],second.positions[i],1e-7f),"deterministic curve positions");
+        shape.pathSegments=8;
+        Require(!ValidateStructuralPrimitive(type,shape).valid,"reject undersampled curve");
+    }
+    shape={}; shape.knotP=4; shape.knotQ=6;
+    Require(!ValidateStructuralPrimitive("torus_knot",shape).valid,"multi-component knot parameters require separate curves");
+    shape.knotP=0;
+    Require(!ValidateStructuralPrimitive("torus_knot",shape).valid,"zero winding rejected");
+    shape={}; shape.curveTurns=std::numeric_limits<float>::quiet_NaN();
+    Require(!ValidateStructuralPrimitive("helix",shape).valid,"nonfinite turns diagnosed before sanitization");
+    shape={}; shape.pathSegments=INT_MAX;
+    Require(BuildPrimitiveMesh("torus_knot",shape).positions.empty(),"curve memory budget");
+    const std::vector<ri::math::Vec2> poleProfile{{0,-1},{.6f,0},{0,1}};
+    const auto poles=BuildLatheMesh(poleProfile,{32}); Validate(poles);
+    Require(poles.indexCount==32*6,"one pole fan triangle per side per segment");
+    for(int j=0;j<3;++j) Require(Near(poles.positions[j],poles.positions[32*3+j]),"pole lathe seam");
+
+    shape={}; shape.points={{2,2,0},{4,2,0},{4,3,0},{3,3,0},{3,4,0},{2,4,0}};
+    const auto extrusion=BuildPrimitiveMesh("extrude_along_normal_primitive",shape); validateSoup(extrusion);
+    double frontArea=0,backArea=0,volume=0;
+    for(std::size_t i=0;i<extrusion.positions.size();i+=3) {
+        const auto a=extrusion.positions[i],b=extrusion.positions[i+1],c=extrusion.positions[i+2];
+        const auto cross=ri::math::Cross(b-a,c-a);
+        if(extrusion.normals[i].z>.99f) frontArea+=ri::math::Length(cross)*.5;
+        if(extrusion.normals[i].z<-.99f) backArea+=ri::math::Length(cross)*.5;
+        volume+=ri::math::Dot(a,ri::math::Cross(b,c))/6.0;
+        const auto center=(a+b+c)/3.f;
+        Require(!(center.x>3.00001f && center.y>3.00001f),"concave notch cannot be filled by cap triangles");
+    }
+    Require(std::abs(frontArea-3)<1e-5 && std::abs(backArea-3)<1e-5 && std::abs(volume-1.5)<1e-5,"translated concave cap area and signed solid volume");
+    std::reverse(shape.points.begin(),shape.points.end());
+    validateSoup(BuildPrimitiveMesh("extrude_along_normal_primitive",shape));
+    shape.points.push_back(shape.points.front());
+    Require(BuildPrimitiveMesh("extrude_along_normal_primitive",shape).triangleCount==extrusion.triangleCount,"explicit closing point is accepted");
+    shape.points={{0,0,0},{2,2,0},{0,2,0},{2,0,0}};
+    Require(!ValidateStructuralPrimitive("extrude_along_normal_primitive",shape).valid,"self-crossing extrusion rejected");
+    shape.points={{0,0,0},{1,0,0},{2,0,0}};
+    Require(!ValidateStructuralPrimitive("extrude_along_normal_primitive",shape).valid,"collinear extrusion rejected");
+    shape.points={{0,0,1},{1,0,0},{0,1,0}};
+    Require(!ValidateStructuralPrimitive("extrude_along_normal_primitive",shape).valid,"non-planar extrusion rejected");
+}
 int main() try {
+    if (!TestExpansionContracts()) return 1;
+    TestExpansionGeometry();
     const auto plane=BuildParametricMesh([](float u,float v){return Vec3{2*u,0,-3*v};},{4,6});
     Validate(plane);
     Require(plane.vertexCount==35 && plane.indexCount==144 && Near(plane.normals[0],{0,1,0}),"plane topology and orientation");
@@ -80,7 +160,7 @@ int main() try {
     Reject([&]{(void)BuildParametricMesh([](float u,float v){return Vec3{u,v,0};},{UINT_MAX,UINT_MAX});});
     Reject([&]{(void)BuildLatheMesh(profile,{2});});
     Reject([&]{(void)BuildLatheMesh(profile,{12,0,-1});});
-    const std::vector<ri::math::Vec2> badProfile{{0,0},{1,1}};
+    const std::vector<ri::math::Vec2> badProfile{{1,0},{0,1},{1,2}};
     Reject([&]{(void)BuildLatheMesh(badProfile);});
     const std::vector<ri::math::Vec2> reversedProfile{{1,1},{1,0}};
     Reject([&]{(void)BuildLatheMesh(reversedProfile);});

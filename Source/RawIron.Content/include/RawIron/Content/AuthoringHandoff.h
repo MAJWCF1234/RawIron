@@ -10,7 +10,9 @@ namespace ri::content {
 enum class AuthoringAssetKind {
     ModelSource,
     PrimitiveModel,
+    Sculpt,
     Rig,
+    Animation,
     Unknown,
 };
 

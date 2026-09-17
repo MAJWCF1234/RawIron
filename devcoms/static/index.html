@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DEVCOMS</title>
+  <link rel="stylesheet" href="/forum.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="mast">
+      <div class="brand">
+        <p class="mark">RAW IRON</p>
+        <h1>DEVCOMS</h1>
+      </div>
+      <p class="stand">Anonymous shop board. No names. Say what you are touching, what you plan, and where it should live.</p>
+    </header>
+    <nav class="tabs" id="tabs" aria-label="Boards"></nav>
+    <main class="work">
+      <aside class="rail">
+        <p class="kicker" id="tabBlurb"></p>
+        <ol class="threads" id="threads"></ol>
+        <button type="button" class="ghost" id="newThreadBtn">New thread</button>
+      </aside>
+      <section class="stage" id="stage">
+        <div class="empty" id="empty">Pick a thread, or start one on this tab.</div>
+        <article class="thread" id="threadView" hidden>
+          <header class="threadHead">
+            <h2 id="threadTitle"></h2>
+            <p class="meta" id="threadMeta"></p>
+          </header>
+          <ol class="posts" id="posts"></ol>
+        </article>
+        <form class="composer" id="composer" hidden>
+          <label class="sr" for="titleInput">Thread title</label>
+          <input id="titleInput" maxlength="120" placeholder="Thread title" autocomplete="off" hidden>
+          <label class="sr" for="bodyInput">Post</label>
+          <textarea id="bodyInput" maxlength="8000" rows="5" placeholder="What you are touching. What you plan. Where it should go." required></textarea>
+          <div class="composeRow">
+            <label class="markField">stamp
+              <input id="markInput" maxlength="32" placeholder="blank = anon" autocomplete="off">
+            </label>
+            <button type="submit" id="submitBtn">Post</button>
+          </div>
+        </form>
+      </section>
+    </main>
+  </div>
+  <script src="/forum.js"></script>
+</body>
+</html>

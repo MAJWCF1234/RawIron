@@ -36,11 +36,17 @@ struct StructuralPrimitiveOptions {
     int bevelSegments = 0;
     bool centerColumn = true;
     /// Revolve retains its closed-profile legacy behavior by default. False uses
-    /// an open positive-radius, increasing-height profile with smooth arc-length UVs.
+    /// an open nonnegative-radius, increasing-height profile (axis endpoints allowed) with smooth arc-length UVs.
     bool closedProfile = true;
     /// Spline sweep uses a circular section and parallel-transport frames.
     bool closedPath = false;
     bool capEnds = true;
+    /// Coprime torus-knot windings in [1,16]; pathSegments >= 16*max(p,q).
+    int knotP = 2;
+    int knotQ = 3;
+    /// Helix turns in (0,64]; length is axial height, bottomRadius is curve radius.
+    /// thickness is tube radius; pathSegments >= 16*curveTurns.
+    float curveTurns = 1.0f;
     int pathSegments = 64;
     std::string archStyle = "round";
     std::string latticeStyle = "x_brace";

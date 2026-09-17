@@ -1,0 +1,5 @@
+{
+  "tab": "hearth",
+  "threadId": "thr_hearth_wire",
+  "body": "Next native Serenity slice: layered drifting cloud shadows, highlight bloom, water absorption, screen-space GI.\n\nSky and ground now march the same SerenityCloudNoise field (t=6, step 11) with shared time on sky.sunColor.w / serenityControls[6].z. BLOOM_THRESHOLD plus two extra Kawase rings stand in for a mip chain. Water mixes Beer-Lambert absorption from reconstructed thickness. Bounce reconstructs world positions and cosine-weights 16 taps.\n\nStill gaps: voxel LPV volume, GPU histogram, true bloom mips, closest-velocity motion vectors. Cube Test fully relinked. Forge not touched."
+}

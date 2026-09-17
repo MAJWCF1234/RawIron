@@ -201,6 +201,15 @@ PrimitiveModelValidationReport ValidatePrimitiveModelDocument(const PrimitiveMod
             || std::abs(part.transform.scale.z) <= 1.0e-6F) {
             report.errors.push_back("Primitive model part scale cannot contain zero: " + part.id);
         }
+        if (!IsFinite(part.albedoColor) || !std::isfinite(part.roughness) || !std::isfinite(part.metallic)) {
+            report.errors.push_back("Primitive model part has a non-finite surface: " + part.id);
+        } else if (part.roughness < 0.0F || part.roughness > 1.0F || part.metallic < 0.0F
+            || part.metallic > 1.0F) {
+            report.errors.push_back("Primitive model part roughness/metallic must be in [0, 1]: " + part.id);
+        }
+        if (part.albedoTexture.find("..") != std::string::npos) {
+            report.errors.push_back("Primitive model part albedo texture cannot traverse directories: " + part.id);
+        }
         if (part.enabled) {
             ++report.enabledPartCount;
         }
@@ -245,6 +254,11 @@ std::string SerializePrimitiveModelDocument(const PrimitiveModelDocument& docume
         json << "      \"materialId\": \"" << detail_scan::EscapeJsonString(part.materialId) << "\",\n";
         json << "      \"boneName\": \"" << detail_scan::EscapeJsonString(part.boneName) << "\",\n";
         json << "      \"enabled\": " << (part.enabled ? "true" : "false") << ",\n";
+        json << "      \"roughness\": " << std::setprecision(9) << part.roughness << ",\n";
+        json << "      \"metallic\": " << part.metallic << ",\n";
+        json << "      \"albedoTexture\": \"" << detail_scan::EscapeJsonString(part.albedoTexture) << "\",\n";
+        WriteVec3(json, "albedoColor", part.albedoColor, 6);
+        json << ",\n";
         WriteTransform(json, part.transform, 6);
         json << "\n    }" << (index + 1U < document.parts.size() ? "," : "") << "\n";
     }
@@ -287,6 +301,12 @@ std::optional<PrimitiveModelDocument> ParsePrimitiveModelDocument(const std::str
         part.materialId = detail_scan::ExtractJsonString(object, "materialId").value_or("default");
         part.boneName = detail_scan::ExtractJsonString(object, "boneName").value_or("");
         part.enabled = detail_scan::ExtractJsonBool(object, "enabled").value_or(true);
+        part.roughness = static_cast<float>(detail_scan::ExtractJsonDouble(object, "roughness").value_or(0.62));
+        part.metallic = static_cast<float>(detail_scan::ExtractJsonDouble(object, "metallic").value_or(0.04));
+        part.albedoTexture = detail_scan::ExtractJsonString(object, "albedoTexture").value_or("");
+        if (const auto albedo = detail_scan::ExtractJsonObject(object, "albedoColor")) {
+            part.albedoColor = ReadVec3(*albedo, {0.62F, 0.55F, 0.46F});
+        }
         if (const auto transform = detail_scan::ExtractJsonObject(object, "transform")) {
             part.transform = ReadTransform(*transform);
         }
@@ -316,6 +336,72 @@ bool SavePrimitiveModelDocument(const std::filesystem::path& path,
         }
     }
     return detail_scan::WriteTextFile(path, SerializePrimitiveModelDocument(document));
+}
+
+std::size_t RenamePrimitiveModelBoneReferences(
+    PrimitiveModelDocument& document,
+    const std::string_view oldName,
+    const std::string_view newName) {
+    if (oldName.empty() || newName.empty() || oldName == newName) {
+        return 0;
+    }
+    std::size_t changed = 0;
+    for (PrimitiveModelGroup& group : document.groups) {
+        if (group.boneName == oldName) {
+            group.boneName = std::string(newName);
+            ++changed;
+        }
+    }
+    for (PrimitiveModelPart& part : document.parts) {
+        if (part.boneName == oldName) {
+            part.boneName = std::string(newName);
+            ++changed;
+        }
+    }
+    return changed;
+}
+
+std::size_t RemovePrimitiveModelBoneReferences(
+    PrimitiveModelDocument& document,
+    const std::string_view boneName) {
+    if (boneName.empty()) {
+        return 0;
+    }
+    std::size_t changed = 0;
+    for (PrimitiveModelGroup& group : document.groups) {
+        if (group.boneName == boneName) {
+            group.boneName.clear();
+            ++changed;
+        }
+    }
+    for (PrimitiveModelPart& part : document.parts) {
+        if (part.boneName == boneName) {
+            part.boneName.clear();
+            ++changed;
+        }
+    }
+    return changed;
+}
+
+std::size_t UnbindPrimitiveModelFromRig(PrimitiveModelDocument& document) {
+    std::size_t changed = 0;
+    if (!document.rigPath.empty()) {
+        document.rigPath.clear();
+        ++changed;
+    }
+    for (PrimitiveModelGroup& group : document.groups) {
+        if (!group.boneName.empty()) {
+            group.boneName.clear();
+            ++changed;
+        }
+    }
+    for (PrimitiveModelPart& part : document.parts) {
+        if (!part.boneName.empty()) {
+            part.boneName.clear();
+            ++changed;
+        }
+    }
+    return changed;
 }
 
 std::string AddPrimitiveModelGroup(PrimitiveModelDocument& document,
@@ -368,6 +454,85 @@ std::string AddPrimitiveModelPart(PrimitiveModelDocument& document,
         .primitivePreset = std::move(primitivePreset),
     });
     return id;
+}
+
+std::string DuplicatePrimitiveModelPart(
+    PrimitiveModelDocument& document,
+    const std::string_view sourcePartId) {
+    const auto source = std::find_if(
+        document.parts.begin(),
+        document.parts.end(),
+        [sourcePartId](const PrimitiveModelPart& part) { return part.id == sourcePartId; });
+    if (source == document.parts.end()) {
+        return {};
+    }
+    PrimitiveModelPart copy = *source;
+    copy.id = UniqueId(document.parts, source->name + " copy", "part");
+    if (copy.id.empty()) {
+        return {};
+    }
+    copy.name = source->name + " copy";
+    copy.transform.translation.x += 0.25F;
+    document.parts.push_back(std::move(copy));
+    return document.parts.back().id;
+}
+
+std::string DuplicatePrimitiveModelGroup(
+    PrimitiveModelDocument& document,
+    const std::string_view sourceGroupId) {
+    const auto source = std::find_if(
+        document.groups.begin(),
+        document.groups.end(),
+        [sourceGroupId](const PrimitiveModelGroup& group) { return group.id == sourceGroupId; });
+    if (source == document.groups.end()) {
+        return {};
+    }
+    PrimitiveModelGroup copy = *source;
+    copy.id = UniqueId(document.groups, source->name + " copy", "group");
+    if (copy.id.empty()) {
+        return {};
+    }
+    copy.name = source->name + " copy";
+    copy.transform.translation.x += 0.25F;
+    document.groups.push_back(std::move(copy));
+    return document.groups.back().id;
+}
+
+bool RemovePrimitiveModelPart(PrimitiveModelDocument& document, const std::string_view partId) {
+    const auto found = std::find_if(
+        document.parts.begin(),
+        document.parts.end(),
+        [partId](const PrimitiveModelPart& part) { return part.id == partId; });
+    if (found == document.parts.end()) {
+        return false;
+    }
+    document.parts.erase(found);
+    return true;
+}
+
+bool RemovePrimitiveModelGroup(PrimitiveModelDocument& document, const std::string_view groupId) {
+    const auto found = std::find_if(
+        document.groups.begin(),
+        document.groups.end(),
+        [groupId](const PrimitiveModelGroup& group) { return group.id == groupId; });
+    if (found == document.groups.end()) {
+        return false;
+    }
+    const bool hasNested = std::any_of(
+        document.groups.begin(),
+        document.groups.end(),
+        [groupId](const PrimitiveModelGroup& group) { return group.parentId == groupId; });
+    if (hasNested) {
+        return false;
+    }
+    const std::string parentId = found->parentId;
+    for (PrimitiveModelPart& part : document.parts) {
+        if (part.groupId == groupId) {
+            part.groupId = parentId;
+        }
+    }
+    document.groups.erase(found);
+    return true;
 }
 
 } // namespace ri::content

@@ -93,6 +93,9 @@ struct StructuralNode {
     bool closedProfile = true;
     bool closedPath = false;
     bool capEnds = true;
+    int knotP = 2;
+    int knotQ = 3;
+    float curveTurns = 1.0f;
     ri::math::Vec3 offsetStepPosition{};
     ri::math::Vec3 offsetStepRotation{};
     ri::math::Vec3 offsetStepScale{1.0f, 1.0f, 1.0f};

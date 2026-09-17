@@ -4,6 +4,14 @@ Cube Test is Raw Iron's walkable native-capability gallery. It validates structu
 camera-facing sprite batches, normal-map conventions, compressed glTF import, textured glTF export, and
 native Vulkan hybrid HDR through the same engine APIs available to games.
 
+Press **H** to cycle the available processing stacks: **base**, **Serenity**, and
+**soft-film**. The window title shows the active name. Edit the selected folder's
+`Config/ProcessingStacks/<name>/stack.cfg` to tune it live; `--processing-stack=serenity`
+selects it on startup. Serenity is the native engine look adapted from Bliss:
+bloom, exposure, TAA, clouds, and water caustics run on RawIron HDR/G-buffer/sky.
+See the
+[Serenity guide](../../docs/SERENITY_PROCESSING_STACK.md) for controls and exact-look status.
+
 Comparison assets are physical copies inside `assets/reference/threejs-r185`, with licenses and a
 SHA-256 manifest. Cube Test does not need the original Three.js checkout. Its baseline cube uses
 the original hardwood image; the four PBR samples use the original UV grid with authored tint,
@@ -42,7 +50,7 @@ That roadmap and its [execution tracker](../../docs/THREEJS_NATIVE_SHOWCASE_TODO
 features, recorded asset provenance, hardware visual validation, and shared desktop/PCVR proof; these zones are not
 considered finished merely because a reference scene opens.
 
-Six bidirectional portal links connect seven areas: baseline materials, the 512-sprite native billboard
+Seventeen bidirectional portal links connect eighteen areas. The original seven cover: baseline materials, the 512-sprite native billboard
 batch, OpenGL/DirectX normal conventions, the glTF import/export room, and a bounded interactive-prop
 field, a pooled projectile and knock-down target room, and a trace-validated parabolic teleport room.
 The gallery uses the exact
@@ -198,3 +206,21 @@ on bump orientation, while the third is a negative control.
 Use `--background --capture-native=<absolute.bmp>` for a repeatable GPU capture.
 See [normal mapping validation](../../docs/NORMAL_MAPPING_COMPARISON_VALIDATION.md)
 for engine ownership, regression evidence and remaining release gates.
+
+## Eight further structural demos (2026-09-08)
+
+The existing structural collection now also drives `--start-room=knots`, `helices`,
+`lathe-poles`, `extrusion`, `rounded`, `superellipsoids`, `hulls`, and `heightfields`.
+Each has two exhibits, local Three.js UV-grid material, shared portal travel and F1 reference notes.
+Together with lathe/tubes/surfaces this gives 25 structural exhibits in eleven structural rooms.
+
+Knot and helix generation, pole fans and concave cap triangulation live in `RawIron.Structural`.
+Game code supplies shape parameters, layout and material bindings only. Rounded solids remain the
+existing superellipsoid approximation; extrusion does not yet support holes/bevels. Terrain demonstrates
+native ridge tessellation, not upstream noise parity. No new vendor dependency or external checkout is required.
+
+```powershell
+Scripts/Test-StructuralShowcase.ps1 -BuildDirectory build/demo-expansion-msvc
+```
+
+See [expansion evidence and remaining limits](../../docs/STRUCTURAL_EXPANSION_VALIDATION.md).

@@ -30,6 +30,7 @@ ri::structural::StructuralPrimitiveOptions ShapeFromStructuralPreset(const Struc
     shape.closedProfile = preset.closedProfile;
     shape.closedPath = preset.closedPath;
     shape.capEnds = preset.capEnds;
+    shape.knotP=preset.knotP; shape.knotQ=preset.knotQ; shape.curveTurns=preset.curveTurns;
     if (preset.structuralType == std::string_view("stairs") || preset.structuralType == std::string_view("spiral_stairs")) {
         shape.steps = preset.steps > 0 ? preset.steps : 8;
     }

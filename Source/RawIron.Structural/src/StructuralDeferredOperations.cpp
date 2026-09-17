@@ -156,6 +156,7 @@ StructuralPrimitiveOptions BuildPrimitiveOptionsFromNode(const StructuralNode& n
     options.closedProfile = node.closedProfile;
     options.closedPath = node.closedPath;
     options.capEnds = node.capEnds;
+    options.knotP = node.knotP; options.knotQ = node.knotQ; options.curveTurns = node.curveTurns;
     if (node.segments > 0) options.pathSegments = node.segments;
     if (!node.archStyle.empty()) {
         options.archStyle = node.archStyle;

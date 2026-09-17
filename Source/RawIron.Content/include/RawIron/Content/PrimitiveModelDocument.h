@@ -35,6 +35,11 @@ struct PrimitiveModelPart {
     /// Optional direct bone binding. Empty inherits the nearest group's bone binding.
     std::string boneName;
     PrimitiveModelTransform transform{};
+    /// Linear albedo tint applied when instantiating the part. Texture is a workspace-relative or filename lookup.
+    DeclarativeVec3 albedoColor{0.62F, 0.55F, 0.46F};
+    float roughness = 0.62F;
+    float metallic = 0.04F;
+    std::string albedoTexture;
     bool enabled = true;
 };
 
@@ -86,5 +91,33 @@ struct PrimitiveModelValidationReport {
                                                 std::string primitivePreset,
                                                 std::string groupId = {},
                                                 std::string name = {});
+
+/// Copies look, bind, and transform. Offsets the duplicate on +X so it is visible in preview.
+[[nodiscard]] std::string DuplicatePrimitiveModelPart(
+    PrimitiveModelDocument& document,
+    std::string_view sourcePartId);
+/// Copies a pivot without cloning nested children.
+[[nodiscard]] std::string DuplicatePrimitiveModelGroup(
+    PrimitiveModelDocument& document,
+    std::string_view sourceGroupId);
+[[nodiscard]] bool RemovePrimitiveModelPart(
+    PrimitiveModelDocument& document,
+    std::string_view partId);
+/// Reparents owned parts to the group's parent, then deletes the group. Nested groups block the delete.
+[[nodiscard]] bool RemovePrimitiveModelGroup(
+    PrimitiveModelDocument& document,
+    std::string_view groupId);
+
+[[nodiscard]] std::size_t RenamePrimitiveModelBoneReferences(
+    PrimitiveModelDocument& document,
+    std::string_view oldName,
+    std::string_view newName);
+
+[[nodiscard]] std::size_t RemovePrimitiveModelBoneReferences(
+    PrimitiveModelDocument& document,
+    std::string_view boneName);
+
+/// Clears `rigPath` and every group/part bone bind. Returns cleared bind count.
+[[nodiscard]] std::size_t UnbindPrimitiveModelFromRig(PrimitiveModelDocument& document);
 
 } // namespace ri::content

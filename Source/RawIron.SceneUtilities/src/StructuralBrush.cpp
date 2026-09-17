@@ -527,6 +527,9 @@ int SpawnPassthroughPrimitiveFromNode(Scene& scene,
     shape.closedProfile = node.closedProfile;
     shape.closedPath = node.closedPath;
     shape.capEnds = node.capEnds;
+    shape.knotP = node.knotP;
+    shape.knotQ = node.knotQ;
+    shape.curveTurns = node.curveTurns;
     shape.points = node.points;
     shape.vertices = node.vertices;
     if (node.sweepDegrees > 0) shape.sweepDegrees = node.sweepDegrees;
@@ -630,6 +633,9 @@ ri::structural::StructuralNode MakeStructuralPrimitiveGraphNode(const std::strin
     node.closedProfile = shape.closedProfile;
     node.closedPath = shape.closedPath;
     node.capEnds = shape.capEnds;
+    node.knotP = shape.knotP;
+    node.knotQ = shape.knotQ;
+    node.curveTurns = shape.curveTurns;
     node.segments = shape.pathSegments;
     node.points = shape.points;
     node.vertices = shape.vertices;

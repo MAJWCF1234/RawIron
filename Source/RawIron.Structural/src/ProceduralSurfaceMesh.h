@@ -30,8 +30,8 @@ struct LatheMeshOptions {
     float startRadians = 0.0f;
     float sweepRadians = 6.283185307179586f;
 };
-// Profile is (positive radius, height), strictly increasing in height. Open ends,
-// no axis poles/caps. V measures profile arc length; full sweeps have exact seams.
+// Profile is (nonnegative radius, height), strictly increasing in height. Zero
+// radii are allowed only at endpoints and produce nondegenerate triangle fans. V measures profile arc length; full sweeps have exact seams.
 [[nodiscard]] Mesh BuildLatheMesh(std::span<const ri::math::Vec2> profile, LatheMeshOptions options = {});
 
 // Uniform Catmull-Rom, endpoint extrapolation for open curves. Closed output
