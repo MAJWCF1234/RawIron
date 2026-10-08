@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <string>
 
 namespace ri::world {
@@ -79,7 +80,7 @@ ri::trace::TraceCollider MakeInteractivePropTraceCollider(
         .structural = false,
         .dynamic = true,
         .simulationTags = {"dynamicCollider", "interactive-prop", std::string(pool)},
-        .simulationFlags = 4U,
+        .simulationFlags = ri::trace::kTraceFlagInteractiveProp,
     };
 }
 
@@ -250,6 +251,82 @@ InteractivePropActorPushReport PushInteractivePropsFromActor(
             report.strongestPushSpeed = std::max(report.strongestPushSpeed, horizontalSpeed);
         }
 
+        ++report.contacts;
+        if (options.updateDynamicColliders && scene != nullptr) {
+            (void)scene->TrySetDynamicColliderBounds(
+                MakeInteractivePropColliderId(pool, index), BoundsFromProp(prop));
+        }
+    }
+
+    return report;
+}
+
+InteractivePropActorPushReport ImpulseInteractivePropsFromTraceHits(
+    ri::trace::TraceScene* scene,
+    const std::span<InteractivePropState> props,
+    const std::string_view pool,
+    const std::span<const ri::trace::TraceHit> hits,
+    const ri::math::Vec3& actorVelocity,
+    const InteractivePropActorPushOptions& options) {
+    InteractivePropActorPushReport report{};
+    if (hits.empty() || props.empty()) {
+        return report;
+    }
+
+    const float actorMass = std::max(1.0f, std::isfinite(options.actorMass) ? options.actorMass : 80.0f);
+    const float pushGain = std::clamp(std::isfinite(options.pushGain) ? options.pushGain : 1.15f, 0.0f, 4.0f);
+    const float maxPushSpeed =
+        std::max(0.0f, std::isfinite(options.maxPushSpeed) ? options.maxPushSpeed : 6.5f);
+    const ri::math::Vec3 safeActorVelocity = FiniteVec3(actorVelocity) ? actorVelocity : ri::math::Vec3{};
+    const std::string prefix = std::string(pool) + "-prop-";
+
+    for (const ri::trace::TraceHit& hit : hits) {
+        if (hit.id.rfind(prefix, 0) != 0) {
+            continue;
+        }
+        const std::string indexText = hit.id.substr(prefix.size());
+        std::size_t index = 0;
+        try {
+            index = static_cast<std::size_t>(std::stoul(indexText));
+        } catch (...) {
+            continue;
+        }
+        if (index >= props.size()) {
+            continue;
+        }
+        InteractivePropState& prop = props[index];
+        if (!prop.active || prop.grabbed || !std::isfinite(prop.inverseMass) || prop.inverseMass <= 0.0f) {
+            continue;
+        }
+
+        ri::math::Vec3 normal = hit.normal;
+        if (!FiniteVec3(normal) || ri::math::LengthSquared(normal) < 1.0e-10f) {
+            normal = prop.position - ri::spatial::Center(hit.bounds);
+            if (!FiniteVec3(normal) || ri::math::LengthSquared(normal) < 1.0e-10f) {
+                continue;
+            }
+        }
+        normal = ri::math::Normalize(normal);
+        // Hit normals point out of the obstacle; shove the prop along the actor travel into the surface.
+        const ri::math::Vec3 pushNormal = normal * -1.0f;
+        const float propMass = 1.0f / std::max(prop.inverseMass, 1.0e-4f);
+        const float massSum = actorMass + propMass;
+        const float closing = ri::math::Dot(safeActorVelocity - prop.velocity, pushNormal);
+        if (closing <= 0.0f) {
+            continue;
+        }
+        const float impulse = closing * pushGain * (actorMass / massSum);
+        ri::math::Vec3 deltaV = pushNormal * impulse;
+        deltaV.y *= 0.25f;
+        prop.velocity = prop.velocity + deltaV;
+        const float horizontalSpeed =
+            std::sqrt(prop.velocity.x * prop.velocity.x + prop.velocity.z * prop.velocity.z);
+        if (horizontalSpeed > maxPushSpeed && horizontalSpeed > 1.0e-5f) {
+            const float scale = maxPushSpeed / horizontalSpeed;
+            prop.velocity.x *= scale;
+            prop.velocity.z *= scale;
+        }
+        report.strongestPushSpeed = std::max(report.strongestPushSpeed, horizontalSpeed);
         ++report.contacts;
         if (options.updateDynamicColliders && scene != nullptr) {
             (void)scene->TrySetDynamicColliderBounds(

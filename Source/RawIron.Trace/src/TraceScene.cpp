@@ -201,7 +201,8 @@ std::size_t TraceScene::ColliderCount() const {
 
 std::vector<std::string> TraceScene::QueryCollidablesForBox(const ri::spatial::Aabb& box, bool structuralOnly) const {
     metrics_.boxQueries += 1;
-    std::vector<const TraceCollider*> candidates = CollectCandidatesForBox(box, structuralOnly, {});
+    std::vector<const TraceCollider*> candidates =
+        CollectCandidatesForBox(box, TraceOptions{.structuralOnly = structuralOnly});
     std::vector<std::string> ids;
     ids.reserve(candidates.size());
     for (const TraceCollider* collider : candidates) {
@@ -215,7 +216,8 @@ std::vector<std::string> TraceScene::QueryCollidablesForRay(const ri::math::Vec3
                                                             float far,
                                                             bool structuralOnly) const {
     metrics_.rayQueries += 1;
-    std::vector<const TraceCollider*> candidates = CollectCandidatesForRay(origin, direction, far, structuralOnly, {});
+    std::vector<const TraceCollider*> candidates =
+        CollectCandidatesForRay(origin, direction, far, TraceOptions{.structuralOnly = structuralOnly});
     std::vector<std::string> ids;
     ids.reserve(candidates.size());
     for (const TraceCollider* collider : candidates) {
@@ -231,7 +233,7 @@ std::optional<TraceHit> TraceScene::TraceBox(const ri::spatial::Aabb& queryBox, 
     }
 
     std::optional<TraceHit> bestHit;
-    for (const TraceCollider* collider : CollectCandidatesForBox(queryBox, options.structuralOnly, options.ignoreId)) {
+    for (const TraceCollider* collider : CollectCandidatesForBox(queryBox, options)) {
         const std::optional<TraceHit> hit = ComputeTraceBoxHit(queryBox, *collider);
         if (!hit.has_value()) {
             continue;
@@ -253,7 +255,7 @@ std::optional<TraceHit> TraceScene::TraceRay(const ri::math::Vec3& origin,
     }
 
     std::optional<TraceHit> bestHit;
-    for (const TraceCollider* collider : CollectCandidatesForRay(origin, direction, far, options.structuralOnly, options.ignoreId)) {
+    for (const TraceCollider* collider : CollectCandidatesForRay(origin, direction, far, options)) {
         const std::optional<TraceHit> hit = ComputeRayHit(origin, direction, far, *collider);
         if (!hit.has_value()) {
             continue;
@@ -275,7 +277,7 @@ std::optional<TraceHit> TraceScene::TraceSweptBox(const ri::spatial::Aabb& query
 
     ri::spatial::Aabb sweepQueryBox = ri::spatial::Union(queryBox, TranslateBox(queryBox, delta));
     std::optional<TraceHit> bestHit;
-    for (const TraceCollider* collider : CollectCandidatesForBox(sweepQueryBox, options.structuralOnly, options.ignoreId)) {
+    for (const TraceCollider* collider : CollectCandidatesForBox(sweepQueryBox, options)) {
         const std::optional<TraceHit> hit = ComputeSweptBoxHit(queryBox, delta, *collider);
         if (!hit.has_value()) {
             continue;
@@ -347,6 +349,8 @@ std::optional<TraceHit> TraceScene::FindGroundHit(const ri::math::Vec3& origin,
     const TraceOptions traceOptions{
         .structuralOnly = options.structuralOnly,
         .ignoreId = options.ignoreId,
+        .includeDynamicFlags = options.includeDynamicFlags,
+        .excludeFlags = options.excludeFlags,
     };
     if (const std::optional<TraceHit> hit = TraceRay(origin, {0.0f, -1.0f, 0.0f}, options.maxDistance, traceOptions);
         hit.has_value() && hit->normal.y >= options.minNormalY) {
@@ -429,21 +433,51 @@ const TraceCollider* TraceScene::FindCollider(std::string_view id) const {
     return found == colliderIndexById_.end() ? nullptr : &colliders_[found->second];
 }
 
+namespace {
+
+[[nodiscard]] bool RejectedByTraceOptions(const TraceCollider& collider, const TraceOptions& options) {
+    if (!options.ignoreId.empty() && collider.id == options.ignoreId) {
+        return true;
+    }
+    if (options.excludeFlags != 0U && (collider.simulationFlags & options.excludeFlags) != 0U) {
+        return true;
+    }
+    return false;
+}
+
+[[nodiscard]] bool AcceptDynamicCandidate(const TraceCollider& collider, const TraceOptions& options) {
+    if (RejectedByTraceOptions(collider, options)) {
+        return false;
+    }
+    if (!options.structuralOnly) {
+        return true;
+    }
+    // Structural-only queries historically skipped non-structural dynamics. Opt tagged dynamics
+    // back in through includeDynamicFlags so player hulls can collide with interactive props.
+    if (collider.structural) {
+        return true;
+    }
+    return options.includeDynamicFlags != 0U
+        && (collider.simulationFlags & options.includeDynamicFlags) != 0U;
+}
+
+} // namespace
+
 std::vector<const TraceCollider*> TraceScene::CollectCandidatesForBox(const ri::spatial::Aabb& box,
-                                                                      bool structuralOnly,
-                                                                      std::string_view ignoreId) const {
+                                                                      const TraceOptions& options) const {
     std::vector<const TraceCollider*> candidates;
 
     // Static and dynamic colliders never share ids (SetColliders dedupes), so no cross-set dedupe is needed.
-    const std::vector<std::size_t>& sourceToCollider = structuralOnly ? structuralColliderIndices_ : staticColliderIndices_;
-    const std::vector<std::size_t> staticSources = structuralOnly
+    const std::vector<std::size_t>& sourceToCollider =
+        options.structuralOnly ? structuralColliderIndices_ : staticColliderIndices_;
+    const std::vector<std::size_t> staticSources = options.structuralOnly
         ? structuralIndex_.QueryBoxSourceIndices(box)
         : staticIndex_.QueryBoxSourceIndices(box);
     metrics_.staticCandidates += staticSources.size();
-    candidates.reserve(staticSources.size());
+    candidates.reserve(staticSources.size() + dynamicColliderIndices_.size());
     for (const std::size_t sourceIndex : staticSources) {
         const TraceCollider& collider = colliders_[sourceToCollider[sourceIndex]];
-        if (!ignoreId.empty() && collider.id == ignoreId) {
+        if (RejectedByTraceOptions(collider, options)) {
             continue;
         }
         candidates.push_back(&collider);
@@ -451,8 +485,7 @@ std::vector<const TraceCollider*> TraceScene::CollectCandidatesForBox(const ri::
 
     for (const std::size_t colliderIndex : dynamicColliderIndices_) {
         const TraceCollider& collider = colliders_[colliderIndex];
-        if ((structuralOnly && !collider.structural)
-            || (!ignoreId.empty() && collider.id == ignoreId)
+        if (!AcceptDynamicCandidate(collider, options)
             || !ri::spatial::Intersects(collider.bounds, box)) {
             continue;
         }
@@ -466,19 +499,19 @@ std::vector<const TraceCollider*> TraceScene::CollectCandidatesForBox(const ri::
 std::vector<const TraceCollider*> TraceScene::CollectCandidatesForRay(const ri::math::Vec3& origin,
                                                                       const ri::math::Vec3& direction,
                                                                       float far,
-                                                                      bool structuralOnly,
-                                                                      std::string_view ignoreId) const {
+                                                                      const TraceOptions& options) const {
     std::vector<const TraceCollider*> candidates;
 
-    const std::vector<std::size_t>& sourceToCollider = structuralOnly ? structuralColliderIndices_ : staticColliderIndices_;
-    const std::vector<ri::spatial::SpatialRayCandidate> staticSources = structuralOnly
+    const std::vector<std::size_t>& sourceToCollider =
+        options.structuralOnly ? structuralColliderIndices_ : staticColliderIndices_;
+    const std::vector<ri::spatial::SpatialRayCandidate> staticSources = options.structuralOnly
         ? structuralIndex_.QueryRayCandidates(origin, direction, far)
         : staticIndex_.QueryRayCandidates(origin, direction, far);
     metrics_.staticCandidates += staticSources.size();
-    candidates.reserve(staticSources.size());
+    candidates.reserve(staticSources.size() + dynamicColliderIndices_.size());
     for (const ri::spatial::SpatialRayCandidate& source : staticSources) {
         const TraceCollider& collider = colliders_[sourceToCollider[source.sourceIndex]];
-        if (!ignoreId.empty() && collider.id == ignoreId) {
+        if (RejectedByTraceOptions(collider, options)) {
             continue;
         }
         candidates.push_back(&collider);
@@ -486,8 +519,7 @@ std::vector<const TraceCollider*> TraceScene::CollectCandidatesForRay(const ri::
 
     for (const std::size_t colliderIndex : dynamicColliderIndices_) {
         const TraceCollider& collider = colliders_[colliderIndex];
-        if ((structuralOnly && !collider.structural)
-            || (!ignoreId.empty() && collider.id == ignoreId)) {
+        if (!AcceptDynamicCandidate(collider, options)) {
             continue;
         }
         float hitDistance = 0.0f;

@@ -214,6 +214,8 @@ KinematicStepResult SimulateKinematicBodyStep(
             .structuralOnly = options.structuralOnly,
             .ignoreId = options.ignoreColliderId,
             .minNormalY = 0.5f,
+            .includeDynamicFlags = options.includeDynamicFlags,
+            .excludeFlags = options.excludeFlags,
         });
 
     const float maxGroundSnap = std::max(options.groundClearance + 0.08f, 0.18f);
@@ -251,7 +253,7 @@ KinematicStepResult SimulateKinematicBodyStep(
             stepDelta,
             4U,
             0.001f,
-            TraceOptions{.structuralOnly = options.structuralOnly, .ignoreId = options.ignoreColliderId});
+            TraceOptions{.structuralOnly = options.structuralOnly, .ignoreId = options.ignoreColliderId, .includeDynamicFlags = options.includeDynamicFlags, .excludeFlags = options.excludeFlags});
 
         if (groundedForStep && options.maxStepUpHeight > 1e-5f) {
             const ri::math::Vec3 planarDelta = ri::math::Vec3{stepDelta.x, 0.0f, stepDelta.z};
@@ -290,14 +292,14 @@ KinematicStepResult SimulateKinematicBodyStep(
                             stepDelta,
                             4U,
                             0.001f,
-                            TraceOptions{.structuralOnly = options.structuralOnly, .ignoreId = options.ignoreColliderId});
+                            TraceOptions{.structuralOnly = options.structuralOnly, .ignoreId = options.ignoreColliderId, .includeDynamicFlags = options.includeDynamicFlags, .excludeFlags = options.excludeFlags});
                         const float dropDistance = liftAmt + std::max(options.groundClearance + 0.08f, 0.18f);
                         const SlideMoveResult stepDrop = traceScene.SlideMoveBox(
                             stepSlide.endBox,
                             {0.0f, -dropDistance, 0.0f},
                             4U,
                             0.001f,
-                            TraceOptions{.structuralOnly = options.structuralOnly, .ignoreId = options.ignoreColliderId});
+                            TraceOptions{.structuralOnly = options.structuralOnly, .ignoreId = options.ignoreColliderId, .includeDynamicFlags = options.includeDynamicFlags, .excludeFlags = options.excludeFlags});
                         if (stepDrop.hits.empty()) {
                             continue;
                         }
@@ -414,6 +416,8 @@ KinematicStepResult SimulateKinematicBodyStep(
             .structuralOnly = options.structuralOnly,
             .ignoreId = options.ignoreColliderId,
             .minNormalY = 0.5f,
+            .includeDynamicFlags = options.includeDynamicFlags,
+            .excludeFlags = options.excludeFlags,
         });
     if (settleHit.has_value()) {
         const float desiredBottom = settleHit->point.y + options.groundClearance;
@@ -522,6 +526,8 @@ OrientedKinematicStepResult SimulateOrientedKinematicBodyStep(
             .structuralOnly = options.structuralOnly,
             .ignoreId = options.ignoreColliderId,
             .minNormalY = 0.5f,
+            .includeDynamicFlags = options.includeDynamicFlags,
+            .excludeFlags = options.excludeFlags,
         });
 
     const float maxGroundSnap = std::max(options.groundClearance + 0.08f, 0.18f);
@@ -559,7 +565,7 @@ OrientedKinematicStepResult SimulateOrientedKinematicBodyStep(
             stepDelta,
             4U,
             0.001f,
-            TraceOptions{.structuralOnly = options.structuralOnly, .ignoreId = options.ignoreColliderId});
+            TraceOptions{.structuralOnly = options.structuralOnly, .ignoreId = options.ignoreColliderId, .includeDynamicFlags = options.includeDynamicFlags, .excludeFlags = options.excludeFlags});
         result.state.center = ri::spatial::Center(slide.endBox);
         result.hits.insert(result.hits.end(), slide.hits.begin(), slide.hits.end());
 
@@ -661,6 +667,8 @@ OrientedKinematicStepResult SimulateOrientedKinematicBodyStep(
             .structuralOnly = options.structuralOnly,
             .ignoreId = options.ignoreColliderId,
             .minNormalY = 0.5f,
+            .includeDynamicFlags = options.includeDynamicFlags,
+            .excludeFlags = options.excludeFlags,
         });
     if (settleHit.has_value()) {
         const float desiredBottom = settleHit->point.y + options.groundClearance;

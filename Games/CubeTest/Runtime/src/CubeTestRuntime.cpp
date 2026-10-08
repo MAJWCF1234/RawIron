@@ -369,13 +369,49 @@ void TickPlayState(PlayState& state) {
 
     const ri::trace::MovementInput movementInput =
         ri::trace::BuildKeyboardMovementInput(focus, state.yawDegrees, state.movementEdges);
-    state.movement = ri::trace::SimulateMovementControllerStep(
-                         state.traceScene,
-                         state.movement,
-                         movementInput,
-                         deltaSeconds,
-                         state.movementOptions)
-                         .state;
+    const ri::trace::MovementControllerResult movementResult = ri::trace::SimulateMovementControllerStep(
+        state.traceScene,
+        state.movement,
+        movementInput,
+        deltaSeconds,
+        state.movementOptions);
+    state.movement = movementResult.state;
+    if (!IsRemoteAuthorityClient(state) && !movementResult.step.hits.empty()) {
+        // Response only — blocking already happened inside Trace slide via includeDynamicFlags.
+        (void)ri::world::ImpulseInteractivePropsFromTraceHits(
+            &state.traceScene,
+            state.world.interactionProps,
+            "interaction",
+            movementResult.step.hits,
+            state.movement.body.velocity);
+        (void)ri::world::ImpulseInteractivePropsFromTraceHits(
+            &state.traceScene,
+            state.world.projectileProps,
+            "projectile",
+            movementResult.step.hits,
+            state.movement.body.velocity);
+    }
+    // Depenetrate only when the hull is already intersecting a prop (spawn/teleport overlap).
+    if (!IsRemoteAuthorityClient(state)
+        && state.traceScene
+               .TraceBox(
+                   state.movement.body.bounds,
+                   {.structuralOnly = true,
+                    .includeDynamicFlags = ri::trace::kTraceFlagInteractiveProp})
+               .has_value()) {
+        (void)ri::world::PushInteractivePropsFromActor(
+            &state.traceScene,
+            state.world.interactionProps,
+            "interaction",
+            state.movement.body.bounds,
+            state.movement.body.velocity);
+        (void)ri::world::PushInteractivePropsFromActor(
+            &state.traceScene,
+            state.world.projectileProps,
+            "projectile",
+            state.movement.body.bounds,
+            state.movement.body.velocity);
+    }
     const ri::world::PortalTravelResult portalTravel = ri::world::UpdatePortalTraveler(
         state.world.portals, state.movement.body.bounds, deltaSeconds, state.portalTraveler);
     if (portalTravel.traveled) {
@@ -394,21 +430,6 @@ void TickPlayState(PlayState& state) {
         state.movement = {};
         state.movement.body.bounds = BuildPlayerBounds(state.respawnFeet);
         state.movement.onGround = true;
-    }
-
-    if (!IsRemoteAuthorityClient(state)) {
-        (void)ri::world::PushInteractivePropsFromActor(
-            &state.traceScene,
-            state.world.interactionProps,
-            "interaction",
-            state.movement.body.bounds,
-            state.movement.body.velocity);
-        (void)ri::world::PushInteractivePropsFromActor(
-            &state.traceScene,
-            state.world.projectileProps,
-            "projectile",
-            state.movement.body.bounds,
-            state.movement.body.velocity);
     }
 
     if (state.interactionGrab.propIndex >= 0) {
@@ -572,6 +593,10 @@ bool RunNativeLoop(const StandaloneOptions& options,
     state.movementOptions.fallGravityMultiplier = ri::content::ScriptScalarOrClamped(
         physics, "movement_fall_gravity_multiplier", state.movementOptions.fallGravityMultiplier, 0.5f, 4.0f);
     state.movementOptions = ri::games::ResolveGamePhysicsTuning(state.movementOptions, physics);
+    // Player remains structural-only for floors/walls, but must collide with tagged prop hulls.
+    state.movementOptions.kinematic.structuralOnly = true;
+    state.movementOptions.kinematic.includeDynamicFlags = ri::trace::kTraceFlagInteractiveProp;
+    state.movementOptions.kinematic.excludeFlags = ri::trace::kTraceFlagPropArena;
     state.mouseSensitivity = ri::content::ScriptScalarOrClamped(
         gameplay, "mouse_sensitivity", state.mouseSensitivity, 0.01f, 2.0f);
     state.cameraHeight = ri::content::ScriptScalarOrClamped(gameplay, "camera_height", 1.62f, 0.8f, 2.2f);

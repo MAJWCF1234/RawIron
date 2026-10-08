@@ -24,7 +24,7 @@ constexpr std::array<GalleryRoomGuide, 22> rooms{{
      "Quantized/meshopt geometry must load. Coffee's embedded KTX2 textures are unsupported and marked magenta; this is not material parity. Exported supported images resolve locally."},
     {"interaction", "Interactive props", 104, "World InteractivePropTracePhysics / CubeTestAuthority",
      "webxr_xr_cubes.html, webxr_xr_dragging.html, webxr_xr_haptics.html (behavior references; no content assets)",
-     "Walk into props to push them; aim and hold E to carry, release E to throw. Props share the player's TraceScene floor/walls.",
+     "Walk into props — the player hull collides with them in TraceScene, then shove impulse follows. Hold E to carry, release to throw.",
      "Only one owner can hold a prop. Real-headset haptics have not been certified."},
     {"projectile", "Pooled projectiles", 130, "World InteractivePropTracePhysics emission / authority commands",
      "webxr_xr_ballshooter.html (behavior reference; no content assets)",

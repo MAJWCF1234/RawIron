@@ -37,7 +37,7 @@ void AddArenaWallColliders(std::vector<ri::trace::TraceCollider>& colliders,
             .structural = false,
             .dynamic = false,
             .simulationTags = {"arena-wall", "prop-bounds"},
-            .simulationFlags = 4U,
+            .simulationFlags = ri::trace::kTraceFlagPropArena,
         });
     };
     pushWall("-arena-north",

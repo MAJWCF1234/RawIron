@@ -24,6 +24,14 @@ struct TransparentStringHash {
 
 } // namespace detail
 
+/// Well-known `TraceCollider::simulationFlags` bits. Games may OR additional high bits.
+inline constexpr std::uint32_t kTraceFlagWalkable = 1U;
+inline constexpr std::uint32_t kTraceFlagQuery = 2U;
+/// Dynamic interactive debris / grab props the player hull should collide with.
+inline constexpr std::uint32_t kTraceFlagInteractiveProp = 4U;
+/// Soft arena bounds for prop containment; props hit these, player hulls must not.
+inline constexpr std::uint32_t kTraceFlagPropArena = 8U;
+
 struct TraceCollider {
     std::string id;
     ri::spatial::Aabb bounds;
@@ -31,13 +39,19 @@ struct TraceCollider {
     bool dynamic = false;
     /// Optional gameplay/sim tags (e.g. `dynamicCollider`, `pickup`, layer hints); broadphase ignores unless you filter.
     std::vector<std::string> simulationTags{};
-    /// Opaque bitmask for game collision / simulation routing (filters live in game code).
+    /// Bitmask for collision routing. See `kTraceFlag*` constants; consumed by `TraceOptions`.
     std::uint32_t simulationFlags = 0U;
 };
 
 struct TraceOptions {
     bool structuralOnly = false;
     std::string ignoreId;
+    /// When `structuralOnly` is true, also test dynamic colliders whose
+    /// `(simulationFlags & includeDynamicFlags) != 0`. Zero preserves legacy behavior
+    /// (non-structural dynamics ignored under structural-only queries).
+    std::uint32_t includeDynamicFlags = 0U;
+    /// Reject colliders with any of these bits set.
+    std::uint32_t excludeFlags = 0U;
 };
 
 struct GroundTraceOptions {
@@ -45,6 +59,8 @@ struct GroundTraceOptions {
     bool structuralOnly = false;
     std::string ignoreId;
     float minNormalY = 0.5f;
+    std::uint32_t includeDynamicFlags = 0U;
+    std::uint32_t excludeFlags = 0U;
 };
 
 struct TraceHit {
@@ -131,13 +147,11 @@ public:
 private:
     const TraceCollider* FindCollider(std::string_view id) const;
     [[nodiscard]] std::vector<const TraceCollider*> CollectCandidatesForBox(const ri::spatial::Aabb& box,
-                                                                            bool structuralOnly,
-                                                                            std::string_view ignoreId) const;
+                                                                            const TraceOptions& options) const;
     [[nodiscard]] std::vector<const TraceCollider*> CollectCandidatesForRay(const ri::math::Vec3& origin,
                                                                             const ri::math::Vec3& direction,
                                                                             float far,
-                                                                            bool structuralOnly,
-                                                                            std::string_view ignoreId) const;
+                                                                            const TraceOptions& options) const;
 
     std::vector<TraceCollider> colliders_;
     std::vector<std::size_t> dynamicColliderIndices_;

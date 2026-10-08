@@ -41,6 +41,10 @@ struct KinematicPhysicsOptions {
     /// When true (default), slides/ground queries ignore non-structural colliders — correct for
     /// player hulls. Set false for interactive props that must hit other dynamic bodies.
     bool structuralOnly = true;
+    /// Forwarded to `TraceOptions::includeDynamicFlags` so structural player hulls can still
+    /// collide with tagged dynamic props (`kTraceFlagInteractiveProp`) without hitting arena walls.
+    std::uint32_t includeDynamicFlags = 0U;
+    std::uint32_t excludeFlags = 0U;
 };
 
 struct KinematicVolumeModifiers {

@@ -59,4 +59,9 @@ if (RAWIRON_BUILD_TESTS)
   )
   target_link_libraries(TeleportTargetingSmoke PRIVATE RawIron::Trace)
   add_test(NAME RawIron.Trace.TeleportTargetingSmoke COMMAND TeleportTargetingSmoke)
+  add_executable(TraceDynamicFilterSmoke
+    ${CMAKE_SOURCE_DIR}/Tests/TraceDynamicFilterSmoke.cpp
+  )
+  target_link_libraries(TraceDynamicFilterSmoke PRIVATE RawIron::Trace)
+  add_test(NAME RawIron.Trace.TraceDynamicFilterSmoke COMMAND TraceDynamicFilterSmoke)
 endif()

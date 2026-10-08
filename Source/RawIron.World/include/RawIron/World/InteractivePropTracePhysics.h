@@ -77,4 +77,14 @@ struct InteractivePropActorPushReport {
     const ri::math::Vec3& actorVelocity,
     const InteractivePropActorPushOptions& options = {});
 
+/// Applies impulses to props whose collider ids appear in movement/slide `hits`.
+/// This is the response path once the actor hull truly collides with tagged dynamic props.
+[[nodiscard]] InteractivePropActorPushReport ImpulseInteractivePropsFromTraceHits(
+    ri::trace::TraceScene* scene,
+    std::span<InteractivePropState> props,
+    std::string_view pool,
+    std::span<const ri::trace::TraceHit> hits,
+    const ri::math::Vec3& actorVelocity,
+    const InteractivePropActorPushOptions& options = {});
+
 } // namespace ri::world
