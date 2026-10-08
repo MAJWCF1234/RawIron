@@ -58,7 +58,13 @@ void AnimateCubeTestMeshFeatures(CubeTestWorld& world,double elapsedSeconds);
     const std::filesystem::path& workspaceRoot = {});
 // Isolated static renderer fixture; no gallery assets, portals, or dynamic props.
 [[nodiscard]] CubeTestWorld BuildCubeTestCalibrationWorld(const std::filesystem::path& workspaceRoot, bool normalComparison = false);
-void AnimateCubeTestWorld(CubeTestWorld& world, double elapsedSeconds, bool simulateDynamicProps = true);
+/// When `traceScene` is non-null, interaction/projectile props integrate against that
+/// TraceScene (same world the player walks on). When null, a temporary TraceScene is
+/// built from `world.colliders` for the call (fine for smokes / editor preview).
+void AnimateCubeTestWorld(CubeTestWorld& world,
+                          double elapsedSeconds,
+                          bool simulateDynamicProps = true,
+                          ri::trace::TraceScene* traceScene = nullptr);
 void AnimateCubeTestWorldJiggle(CubeTestWorld& world, double elapsedSeconds);
 void ConfigureCookedTextureCube(CubeTestWorld& world,
                                 std::vector<std::string> logicalTexturePaths,

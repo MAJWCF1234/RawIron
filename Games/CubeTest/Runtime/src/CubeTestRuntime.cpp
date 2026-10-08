@@ -33,6 +33,7 @@
 #include "RawIron/Trace/MovementController.h"
 #include "RawIron/Trace/TeleportTargeting.h"
 #include "RawIron/World/InteractivePropGrab.h"
+#include "RawIron/World/InteractivePropTracePhysics.h"
 
 #include <algorithm>
 #include <array>
@@ -395,6 +396,21 @@ void TickPlayState(PlayState& state) {
         state.movement.onGround = true;
     }
 
+    if (!IsRemoteAuthorityClient(state)) {
+        (void)ri::world::PushInteractivePropsFromActor(
+            &state.traceScene,
+            state.world.interactionProps,
+            "interaction",
+            state.movement.body.bounds,
+            state.movement.body.velocity);
+        (void)ri::world::PushInteractivePropsFromActor(
+            &state.traceScene,
+            state.world.projectileProps,
+            "projectile",
+            state.movement.body.bounds,
+            state.movement.body.velocity);
+    }
+
     if (state.interactionGrab.propIndex >= 0) {
         (void)ri::world::UpdateRayPropGrab(state.interactionGrab, state.world.interactionProps,
             CameraPosition(state), CameraForward(state), deltaSeconds);
@@ -624,7 +640,11 @@ bool RunNativeLoop(const StandaloneOptions& options,
             if (options.jiggleTest) {
                 AnimateCubeTestWorldJiggle(state.world, state.elapsedSeconds);
             } else {
-                AnimateCubeTestWorld(state.world, state.elapsedSeconds, !IsRemoteAuthorityClient(state));
+                AnimateCubeTestWorld(
+                    state.world,
+                    state.elapsedSeconds,
+                    !IsRemoteAuthorityClient(state),
+                    &state.traceScene);
             }
         })) {
         if (error != nullptr) {

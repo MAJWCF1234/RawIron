@@ -13,6 +13,7 @@ add_library(RawIron.World
   src/InteractionPromptState.cpp
   src/InventoryState.cpp
   src/InteractivePropField.cpp
+  src/InteractivePropTracePhysics.cpp
   src/InteractivePropGrab.cpp
   src/InteractivePropAuthority.cpp
   src/InteractivePropReplication.cpp
@@ -46,6 +47,7 @@ target_link_libraries(RawIron.World
     RawIron::Runtime
     RawIron::Spatial
     RawIron::Structural
+    RawIron::Trace
     RawIron::Validation
 )
 
@@ -55,6 +57,10 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(InteractivePropFieldSmoke ${CMAKE_SOURCE_DIR}/Tests/InteractivePropFieldSmoke.cpp)
   target_link_libraries(InteractivePropFieldSmoke PRIVATE RawIron::World)
   add_test(NAME RawIron.World.InteractivePropFieldSmoke COMMAND InteractivePropFieldSmoke)
+  add_executable(InteractivePropTracePhysicsSmoke
+    ${CMAKE_SOURCE_DIR}/Tests/InteractivePropTracePhysicsSmoke.cpp)
+  target_link_libraries(InteractivePropTracePhysicsSmoke PRIVATE RawIron::World)
+  add_test(NAME RawIron.World.InteractivePropTracePhysicsSmoke COMMAND InteractivePropTracePhysicsSmoke)
   add_executable(WorldVolumeSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/WorldVolumeSafetySmoke.cpp)
   target_link_libraries(WorldVolumeSafetySmoke PRIVATE RawIron::World)
   add_test(NAME RawIron.World.VolumeSafetySmoke COMMAND WorldVolumeSafetySmoke)

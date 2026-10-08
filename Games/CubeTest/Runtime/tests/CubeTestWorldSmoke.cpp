@@ -367,6 +367,27 @@ int main(int argc, char** argv) {
     ok &= Require(world.interactionProps.size() == 24U
                       && world.interactionPropNodes.size() == world.interactionProps.size(),
                   "XR interaction room should bind every native prop state to a scene node");
+    {
+        const std::size_t dynamicPropColliders = std::count_if(
+            world.colliders.begin(), world.colliders.end(), [](const ri::trace::TraceCollider& collider) {
+                return collider.dynamic && collider.id.find("interaction-prop-") != std::string::npos;
+            });
+        ok &= Require(dynamicPropColliders == world.interactionProps.size(),
+                      "interaction props must register dynamic TraceScene colliders");
+        // Use a disposable world so prop settling does not disturb later animation assertions.
+        ri::games::cubetest::CubeTestWorld propWorld =
+            ri::games::cubetest::BuildCubeTestWorld("Cube Test Prop Trace");
+        const float startY = propWorld.interactionProps.front().position.y;
+        ri::trace::TraceScene propTrace(propWorld.colliders);
+        for (int step = 0; step < 120; ++step) {
+            ri::games::cubetest::AnimateCubeTestWorld(
+                propWorld, static_cast<double>(step + 1) / 60.0, true, &propTrace);
+        }
+        ok &= Require(propWorld.interactionProps.front().position.y < startY - 0.05f,
+                      "interaction props must fall under TraceScene gravity onto world geometry");
+        ok &= Require(propWorld.interactionProps.front().position.y > 0.05f,
+                      "interaction props must rest above the capability platform instead of tunneling");
+    }
     ok &= Require(world.projectileRoomRoot != ri::scene::kInvalidHandle,
                   "gallery should expose the native pooled-projectile room");
     ok &= Require(world.projectileProps.size() == 50U

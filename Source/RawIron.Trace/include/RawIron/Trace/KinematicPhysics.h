@@ -38,6 +38,9 @@ struct KinematicPhysicsOptions {
     float impactNotifyCooldownSeconds = 0.0f;
     std::size_t maxSubsteps = 4;
     std::string ignoreColliderId;
+    /// When true (default), slides/ground queries ignore non-structural colliders — correct for
+    /// player hulls. Set false for interactive props that must hit other dynamic bodies.
+    bool structuralOnly = true;
 };
 
 struct KinematicVolumeModifiers {

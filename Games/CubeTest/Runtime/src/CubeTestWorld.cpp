@@ -8,10 +8,12 @@
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Scene/ModelLoader.h"
 #include "RawIron/Scene/StructuralBrush.h"
+#include "RawIron/World/InteractivePropTracePhysics.h"
 
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -22,6 +24,90 @@ namespace ri::games::cubetest {
 namespace {
 
 namespace fs = std::filesystem;
+
+void AddArenaWallColliders(std::vector<ri::trace::TraceCollider>& colliders,
+                           const std::string& prefix,
+                           const ri::spatial::Aabb& bounds) {
+    // Non-structural so player hulls (structuralOnly) walk through; props use structuralOnly=false.
+    const float thickness = 0.18f;
+    const auto pushWall = [&](const std::string& suffix, const ri::spatial::Aabb& wallBounds) {
+        colliders.push_back({
+            .id = prefix + suffix,
+            .bounds = wallBounds,
+            .structural = false,
+            .dynamic = false,
+            .simulationTags = {"arena-wall", "prop-bounds"},
+            .simulationFlags = 4U,
+        });
+    };
+    pushWall("-arena-north",
+             {.min = {bounds.min.x, bounds.min.y, bounds.min.z - thickness},
+              .max = {bounds.max.x, bounds.max.y, bounds.min.z}});
+    pushWall("-arena-south",
+             {.min = {bounds.min.x, bounds.min.y, bounds.max.z},
+              .max = {bounds.max.x, bounds.max.y, bounds.max.z + thickness}});
+    pushWall("-arena-west",
+             {.min = {bounds.min.x - thickness, bounds.min.y, bounds.min.z},
+              .max = {bounds.min.x, bounds.max.y, bounds.max.z}});
+    pushWall("-arena-east",
+             {.min = {bounds.max.x, bounds.min.y, bounds.min.z},
+              .max = {bounds.max.x + thickness, bounds.max.y, bounds.max.z}});
+    pushWall("-arena-ceiling",
+             {.min = {bounds.min.x, bounds.max.y, bounds.min.z},
+              .max = {bounds.max.x, bounds.max.y + thickness, bounds.max.z}});
+}
+
+ri::world::InteractivePropTraceOptions MakePropTraceOptions(
+    const ri::world::InteractivePropFieldOptions& field) {
+    ri::world::InteractivePropTraceOptions options{};
+    options.gravity = std::fabs(field.gravity.y);
+    if (!(options.gravity > 0.0f)) {
+        options.gravity = 9.81f;
+    }
+    options.bounciness = field.restitution;
+    options.arenaRestitution = field.restitution;
+    // Keep soft arena clamp as a safety net; Trace walls/floors do the real contacts.
+    options.clampToArenaBounds = true;
+    options.arenaBounds = field.bounds;
+    options.enableSleep = false;
+    options.updateDynamicColliders = true;
+    return options;
+}
+
+void StepCubeTestPropPool(CubeTestWorld& world,
+                          ri::trace::TraceScene& scene,
+                          std::vector<ri::world::InteractivePropState>& props,
+                          const std::vector<int>& nodes,
+                          const ri::world::InteractivePropFieldOptions& field,
+                          const std::string_view pool,
+                          const float deltaSeconds,
+                          const bool simulateDynamicProps) {
+    if (props.empty() || props.size() != nodes.size()) {
+        return;
+    }
+    const ri::world::InteractivePropTraceOptions options = MakePropTraceOptions(field);
+    if (simulateDynamicProps) {
+        (void)ri::world::StepInteractivePropFieldAgainstTrace(
+            scene, props, pool, deltaSeconds, options);
+    } else {
+        for (std::size_t index = 0; index < props.size(); ++index) {
+            (void)scene.TrySetDynamicColliderBounds(
+                ri::world::MakeInteractivePropColliderId(pool, index),
+                {.min = props[index].position - props[index].halfExtents,
+                 .max = props[index].position + props[index].halfExtents});
+        }
+    }
+    for (std::size_t index = 0; index < props.size(); ++index) {
+        const ri::world::InteractivePropState& prop = props[index];
+        ri::scene::Transform& transform = world.scene.GetNode(nodes[index]).localTransform;
+        transform.position = prop.position;
+        transform.scale = prop.active ? prop.halfExtents * 2.0f : ri::math::Vec3{};
+        if (prop.active) {
+            transform.rotationDegrees = transform.rotationDegrees
+                + prop.angularVelocityDegrees * deltaSeconds;
+        }
+    }
+}
 
 fs::path ThreeJsReferenceAsset(const fs::path& workspaceRoot, const fs::path& relativePath) {
     return (workspaceRoot / "Games" / "CubeTest" / "assets" / "reference" / "threejs-r185" / relativePath)
@@ -590,6 +676,7 @@ void AddInteractionCapabilityRoom(CubeTestWorld& world) {
     world.interactionField.linearDampingPerSecond = 0.12f;
     world.interactionField.restitution = 0.76f;
     world.interactionField.resolvePropContacts = true;
+    AddArenaWallColliders(world.colliders, "cube-test-interaction", world.interactionField.bounds);
 
     constexpr int propCount = 24;
     world.interactionPropNodes.reserve(propCount);
@@ -622,6 +709,8 @@ void AddInteractionCapabilityRoom(CubeTestWorld& world) {
                 0.15f + static_cast<float>(index % 5) * 0.08f,
                 static_cast<float>(((index + 1) % 3) - 1) * 0.28f},
             .angularVelocityDegrees = {18.0f + index, 32.0f - index * 0.4f, 12.0f}});
+        world.colliders.push_back(ri::world::MakeInteractivePropTraceCollider(
+            "interaction", static_cast<std::size_t>(index), world.interactionProps.back()));
     }
 }
 
@@ -644,6 +733,7 @@ void AddProjectileCapabilityRoom(CubeTestWorld& world) {
     world.projectileField.linearDampingPerSecond = 0.08f;
     world.projectileField.restitution = 0.58f;
     world.projectileField.resolvePropContacts = true;
+    AddArenaWallColliders(world.colliders, "cube-test-projectile", world.projectileField.bounds);
 
     constexpr int targetCount = 18;
     constexpr int projectileCount = 32;
@@ -670,6 +760,8 @@ void AddProjectileCapabilityRoom(CubeTestWorld& world) {
             .position = position,
             .halfExtents = {0.24f, 0.24f, 0.24f},
             .inverseMass = 0.72f});
+        world.colliders.push_back(ri::world::MakeInteractivePropTraceCollider(
+            "projectile", static_cast<std::size_t>(index), world.projectileProps.back()));
     }
     for (int index = 0; index < projectileCount; ++index) {
         const ri::math::Vec3 color = index % 2 == 0
@@ -687,6 +779,10 @@ void AddProjectileCapabilityRoom(CubeTestWorld& world) {
             .halfExtents = {0.12f, 0.12f, 0.12f},
             .inverseMass = 1.8f,
             .active = false});
+        world.colliders.push_back(ri::world::MakeInteractivePropTraceCollider(
+            "projectile",
+            static_cast<std::size_t>(targetCount + index),
+            world.projectileProps.back()));
     }
 }
 
@@ -1076,7 +1172,10 @@ CubeTestWorld BuildCubeTestCalibrationWorld(const std::filesystem::path& workspa
     return world;
 }
 
-void AnimateCubeTestWorld(CubeTestWorld& world, const double elapsedSeconds, const bool simulateDynamicProps) {
+void AnimateCubeTestWorld(CubeTestWorld& world,
+                          const double elapsedSeconds,
+                          const bool simulateDynamicProps,
+                          ri::trace::TraceScene* traceScene) {
     AnimateCubeTestMeshFeatures(world,elapsedSeconds);
     if (world.cubeNode == ri::scene::kInvalidHandle) {
         return;
@@ -1102,45 +1201,47 @@ void AnimateCubeTestWorld(CubeTestWorld& world, const double elapsedSeconds, con
             world.spriteFrameMeshes[fromLayout * framesPerTransition + localFrame];
     }
 
-    if (!world.interactionProps.empty()
-        && world.interactionProps.size() == world.interactionPropNodes.size()) {
-        const float deltaSeconds = world.interactionSimulationTime <= 0.0
-            ? 1.0f / 60.0f
-            : static_cast<float>(std::clamp(elapsedSeconds - world.interactionSimulationTime, 0.0, 0.10));
-        world.interactionSimulationTime = elapsedSeconds;
-        const ri::world::InteractivePropStepReport report = ri::world::StepInteractivePropField(
-            world.interactionProps, simulateDynamicProps ? deltaSeconds : 0.0f, world.interactionField);
-        for (std::size_t index = 0; index < world.interactionProps.size(); ++index) {
-            const ri::world::InteractivePropState& prop = world.interactionProps[index];
-            ri::scene::Transform& transform =
-                world.scene.GetNode(world.interactionPropNodes[index]).localTransform;
-            transform.position = prop.position;
-            transform.rotationDegrees = transform.rotationDegrees
-                + prop.angularVelocityDegrees * deltaSeconds;
-        }
-        (void)report;
+    std::optional<ri::trace::TraceScene> ownedScene;
+    ri::trace::TraceScene* scene = traceScene;
+    if (scene == nullptr
+        && (!world.interactionProps.empty() || !world.projectileProps.empty())) {
+        ownedScene.emplace(world.colliders);
+        scene = &*ownedScene;
     }
 
-    if (!world.projectileProps.empty()
-        && world.projectileProps.size() == world.projectilePropNodes.size()) {
-        const float deltaSeconds = world.projectileSimulationTime <= 0.0
-            ? 1.0f / 60.0f
-            : static_cast<float>(std::clamp(elapsedSeconds - world.projectileSimulationTime, 0.0, 0.10));
-        world.projectileSimulationTime = elapsedSeconds;
-        (void)ri::world::StepInteractivePropField(
-            world.projectileProps, simulateDynamicProps ? deltaSeconds : 0.0f, world.projectileField);
-        for (std::size_t index = 0; index < world.projectileProps.size(); ++index) {
-            const ri::world::InteractivePropState& prop = world.projectileProps[index];
-            ri::scene::Transform& transform =
-                world.scene.GetNode(world.projectilePropNodes[index]).localTransform;
-            transform.position = prop.position;
-            transform.scale = prop.active
-                ? prop.halfExtents * 2.0f
-                : ri::math::Vec3{};
-            if (prop.active) {
-                transform.rotationDegrees = transform.rotationDegrees
-                    + prop.angularVelocityDegrees * deltaSeconds;
-            }
+    if (scene != nullptr) {
+        if (!world.interactionProps.empty()
+            && world.interactionProps.size() == world.interactionPropNodes.size()) {
+            const float deltaSeconds = world.interactionSimulationTime <= 0.0
+                ? 1.0f / 60.0f
+                : static_cast<float>(std::clamp(elapsedSeconds - world.interactionSimulationTime, 0.0, 0.10));
+            world.interactionSimulationTime = elapsedSeconds;
+            StepCubeTestPropPool(
+                world,
+                *scene,
+                world.interactionProps,
+                world.interactionPropNodes,
+                world.interactionField,
+                "interaction",
+                deltaSeconds,
+                simulateDynamicProps);
+        }
+
+        if (!world.projectileProps.empty()
+            && world.projectileProps.size() == world.projectilePropNodes.size()) {
+            const float deltaSeconds = world.projectileSimulationTime <= 0.0
+                ? 1.0f / 60.0f
+                : static_cast<float>(std::clamp(elapsedSeconds - world.projectileSimulationTime, 0.0, 0.10));
+            world.projectileSimulationTime = elapsedSeconds;
+            StepCubeTestPropPool(
+                world,
+                *scene,
+                world.projectileProps,
+                world.projectilePropNodes,
+                world.projectileField,
+                "projectile",
+                deltaSeconds,
+                simulateDynamicProps);
         }
     }
 }
