@@ -65,6 +65,14 @@ rawiron_stage_runtime_dlls(RawIron.Editor)
 rawiron_bundle_engine_textures(RawIron.Editor)
 
 if (RAWIRON_BUILD_TESTS)
+  if(WIN32)
+    add_executable(EditorCatalogLayoutSmoke
+      src/EditorStructuralPicker.cpp src/EditorAuthoringCatalog.cpp src/EditorRenderer.cpp src/EditorLogicLayer.cpp
+      ${CMAKE_SOURCE_DIR}/Tests/EditorCatalogLayoutSmoke.cpp)
+    target_include_directories(EditorCatalogLayoutSmoke PRIVATE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(EditorCatalogLayoutSmoke PRIVATE RawIron::SceneUtilities RawIron::Logic RawIron::World RawIron::RenderSoftware gdi32 user32 msimg32)
+    add_test(NAME RawIron.Editor.CatalogLayoutSmoke COMMAND EditorCatalogLayoutSmoke)
+  endif()
   add_executable(EditorViewportPerformanceSmoke
     src/EditorViewportRenderer.cpp
     src/EditorRenderer.cpp

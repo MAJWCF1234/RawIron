@@ -181,20 +181,42 @@ void EditorRenderer::DrawPanelHeader(HDC dc,
         DrawToolbarButton(dc, *collapseToggleRectOut, collapsed ? "»" : "«", false, smallFont, EditorToolbarStyle::Dark);
     }
 
+    if (collapsed) return;
+    const auto wideTitle=Widen(title);
+    SIZE titleExtent{};
+    const auto previousFont=SelectObject(dc,headerFont);
+    GetTextExtentPoint32W(dc,wideTitle.c_str(),static_cast<int>(wideTitle.size()),&titleExtent);
+    SelectObject(dc,previousFont);
+    const int titleRight=std::min(header.right-10-toggleReserve,header.left+18+static_cast<int>(titleExtent.cx));
     DrawTextLine(dc,
-                 RECT{header.left + 10, header.top + 4, header.right - 120 - toggleReserve, header.bottom - 4},
+                 RECT{header.left + 10, header.top + 4, titleRight, header.bottom - 4},
                  title,
                  EditorUiTheme::kHeaderText,
                  headerFont,
                  DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    if (!meta.empty()) {
+    if (!meta.empty() && titleRight+36<header.right-10-toggleReserve) {
         DrawTextLine(dc,
-                     RECT{header.left + 120, header.top + 4, header.right - 10 - toggleReserve, header.bottom - 4},
+                     RECT{titleRight + 12, header.top + 4, header.right - 10 - toggleReserve, header.bottom - 4},
                      meta,
                      EditorUiTheme::kHeaderMeta,
                      smallFont,
                      DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
     }
+}
+
+void EditorRenderer::DrawCollapsedPanelRail(HDC dc,const RECT& rect,const std::string& title,HFONT font) {
+    LOGFONTW style{};
+    if (!GetObjectW(font,sizeof(style),&style)) return;
+    style.lfEscapement=style.lfOrientation=900;
+    const HFONT vertical=CreateFontIndirectW(&style);
+    if(!vertical) return;
+    const auto previous=SelectObject(dc,vertical);
+    SetBkMode(dc,TRANSPARENT);SetTextColor(dc,EditorUiTheme::kHeaderMeta);
+    const auto label=Widen(title);SIZE extent{};
+    GetTextExtentPoint32W(dc,label.c_str(),static_cast<int>(label.size()),&extent);
+    TextOutW(dc,rect.left+std::max(2L,((rect.right-rect.left)-std::abs(style.lfHeight))/2),
+        rect.top+static_cast<int>(extent.cx)+18,label.c_str(),static_cast<int>(label.size()));
+    SelectObject(dc,previous);DeleteObject(vertical);
 }
 
 RECT EditorRenderer::InsetRect(const RECT& rect, const int amount) {

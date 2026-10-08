@@ -30,7 +30,7 @@ struct ViewportCameraState {
 };
 
 [[nodiscard]] inline int DefaultHierarchyPanelWidth() {
-    return 248;
+    return 276;
 }
 
 [[nodiscard]] inline int DefaultEditorStartupWidth() {

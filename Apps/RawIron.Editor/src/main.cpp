@@ -233,6 +233,7 @@ double ResolveFixedDeltaSeconds(const ri::core::CommandLine& commandLine, int fa
 struct EditorSceneConfig {
     fs::path workspaceRoot;
     fs::path sceneStatePath;
+    fs::path editorStateRoot;
     std::optional<ri::content::GameManifest> gameManifest;
     /// From manifest `editorPreviewScene`, or `"starter"` when absent / no project loaded.
     std::string editorPreviewScene = "starter";
@@ -250,8 +251,9 @@ bool LooksLikeWorkspaceRoot(const fs::path& path) {
         && fs::exists(path / "Games", ec);
 }
 
-fs::path BuildEditorSceneStatePath(const fs::path& workspaceRoot, std::string_view sceneId) {
-    return workspaceRoot / "Saved" / "Editor" / std::string(sceneId) / "scene_state.ri_state";
+fs::path BuildEditorSceneStatePath(const fs::path& workspaceRoot, std::string_view sceneId,const fs::path& stateRoot={}) {
+    const auto root=stateRoot.empty()?workspaceRoot / "Saved" / "Editor":stateRoot;
+    return root / std::string(sceneId) / "scene_state.ri_state";
 }
 
 fs::path BuildEditorLogicAuthoringPath(const fs::path& sceneStatePath) {
@@ -417,7 +419,9 @@ EditorSceneConfig ResolveSceneConfig(const ri::core::CommandLine& commandLine) {
         startupAsset.has_value() && !startupAsset->empty()) {
         config.startupAssetPath = NormalizePathForConfig(*startupAsset);
     }
-    config.sceneStatePath = BuildEditorSceneStatePath(config.workspaceRoot, "starter");
+    if (const auto isolated=commandLine.GetValue("--editor-state-root");isolated && !isolated->empty())
+        config.editorStateRoot=NormalizePathForConfig(*isolated);
+    config.sceneStatePath = BuildEditorSceneStatePath(config.workspaceRoot, "starter",config.editorStateRoot);
 
     if (!manifest.has_value()) {
         config.statusMessage =
@@ -437,7 +441,8 @@ EditorSceneConfig ResolveSceneConfig(const ri::core::CommandLine& commandLine) {
     config.workspaceLabel = std::string("Authoring — ") + manifest->name + " " + manifestVersionLabel;
     config.windowTitle =
         std::string("RawIron Editor — ") + manifest->name + " " + manifestVersionLabel + " (" + manifestAuthorLabel + ")";
-    config.sceneStatePath = BuildEditorSceneStatePath(config.workspaceRoot, manifest->id);
+    config.sceneStatePath = BuildEditorSceneStatePath(config.workspaceRoot, manifest->id,config.editorStateRoot);
+    if(commandLine.HasFlag("--editor-preview")) config.windowTitle += " [UI Preview]";
     config.sceneName = "EditorWorkspace_" + manifest->id;
     config.editorPreviewScene =
         manifest->editorPreviewScene.empty() ? "starter" : manifest->editorPreviewScene;
@@ -2829,7 +2834,7 @@ enum class UiWorkbenchTextEditTarget {
         }
 
         sceneConfig_.gameManifest = manifest;
-        sceneConfig_.sceneStatePath = BuildEditorSceneStatePath(sceneConfig_.workspaceRoot, manifest->id);
+        sceneConfig_.sceneStatePath = BuildEditorSceneStatePath(sceneConfig_.workspaceRoot, manifest->id,sceneConfig_.editorStateRoot);
         sceneConfig_.sceneName = "EditorWorkspace_" + manifest->id;
         sceneConfig_.editorPreviewScene =
             manifest->editorPreviewScene.empty() ? "starter" : manifest->editorPreviewScene;
@@ -3407,7 +3412,7 @@ enum class UiWorkbenchTextEditTarget {
     }
 
     [[nodiscard]] StructuralPickerLayout CurrentStructuralPickerLayout(const RECT& viewportInner) const {
-        return ComputeStructuralPickerLayout(viewportInner, authoringCatalogSection_, structuralPickerScrollRow_);
+        return ComputeStructuralPickerLayout(viewportInner, authoringCatalogSection_, structuralPickerScrollRow_, catalogSearchQuery_);
     }
 
     [[nodiscard]] std::size_t& SelectedCatalogPresetIndex(const ri::editor::AuthoringCatalogSection section) {
@@ -3434,11 +3439,19 @@ enum class UiWorkbenchTextEditTarget {
         return structuralBrushPresetIndex_;
     }
 
+    void ReconcileCatalogSearchSelection() {
+        const auto matches = ri::editor::MatchingCatalogPresets(authoringCatalogSection_, catalogSearchQuery_);
+        auto& selected = SelectedCatalogPresetIndex(authoringCatalogSection_);
+        if (!matches.empty() && std::find(matches.begin(), matches.end(), selected) == matches.end())
+            selected = matches.front();
+    }
+
     void SwitchAuthoringCatalogSection(const ri::editor::AuthoringCatalogSection section) {
         if (authoringCatalogSection_ == section) {
             return;
         }
         authoringCatalogSection_ = section;
+        ReconcileCatalogSearchSelection();
         structuralPickerScrollRow_ = 0;
         lastIoStatus_ = std::string("Authoring catalog: ") + std::string(ri::editor::AuthoringCatalogSectionLabel(section))
             + " tab.";
@@ -3452,6 +3465,16 @@ enum class UiWorkbenchTextEditTarget {
         const StructuralPickerLayout layout = CurrentStructuralPickerLayout(viewportInner);
         const ri::editor::StructuralPickerHit hit = HitTestStructuralPicker(layout, point);
         switch (hit.kind) {
+            case StructuralPickerHitKind::Search:
+                catalogSearchActive_ = true;
+                resourceSearchActive_ = false;
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return true;
+            case StructuralPickerHitKind::ClearSearch:
+                catalogSearchQuery_.clear();
+                structuralPickerScrollRow_ = 0;
+                InvalidateRect(hwnd_, nullptr, FALSE);
+                return true;
             case StructuralPickerHitKind::Preset:
                 SelectedCatalogPresetIndex(authoringCatalogSection_) = hit.presetIndex;
                 lastIoStatus_ = "Selected " + std::string(ri::editor::AuthoringCatalogSectionLabel(authoringCatalogSection_))
@@ -5356,6 +5379,21 @@ enum class UiWorkbenchTextEditTarget {
     }
 
     LRESULT OnKeyDown(WPARAM key) {
+        // A focused catalog search owns typing; scene shortcuts must not move or delete anything.
+        if (catalogSearchActive_) {
+            if (key == VK_ESCAPE || key == VK_RETURN) {
+                if (key == VK_RETURN) {
+                    const auto matches = ri::editor::MatchingCatalogPresets(authoringCatalogSection_, catalogSearchQuery_);
+                    if (!matches.empty()) {
+                        SelectedCatalogPresetIndex(authoringCatalogSection_) = matches.front();
+                        SetToolMode(ri::editor::EditorToolMode::Create);
+                    }
+                }
+                catalogSearchActive_ = false;
+                InvalidateRect(hwnd_, nullptr, FALSE);
+            }
+            return 0;
+        }
         const bool controlHeld = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         const bool shiftHeld = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         const bool altHeld = (GetKeyState(VK_MENU) & 0x8000) != 0;
@@ -5696,6 +5734,16 @@ enum class UiWorkbenchTextEditTarget {
     }
 
     LRESULT OnChar(WPARAM key) {
+        if (catalogSearchActive_) {
+            if (key == 8 && !catalogSearchQuery_.empty()) catalogSearchQuery_.pop_back();
+            else if (key >= 32 && key <= 126 && catalogSearchQuery_.size() < 96)
+                catalogSearchQuery_.push_back(static_cast<char>(key));
+            ReconcileCatalogSearchSelection();
+            structuralPickerScrollRow_ = 0;
+            structuralPickerHovered_ = SIZE_MAX;
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
+        }
         if (uiWorkbenchTextEditActive_) {
             if (key == 27) {
                 CancelUiWorkbenchTextEdit();
@@ -5792,6 +5840,7 @@ enum class UiWorkbenchTextEditTarget {
     }
 
     LRESULT OnLeftButtonDown(int x, int y) {
+        catalogSearchActive_ = false;
         const POINT pick{x, y};
 #if defined(_WIN32)
         const HWND hitChild =
@@ -8119,9 +8168,9 @@ enum class UiWorkbenchTextEditTarget {
             layout.hierarchy = leftColumn;
         } else {
             constexpr int kLeftPanelSplitGap = 10;
-            constexpr int kMinCameraRailHeight = 300;
+            constexpr int kMinCameraRailHeight = 320;
             const int leftColumnHeight = leftColumn.bottom - leftColumn.top;
-            const int preferredHierarchyHeight = std::max(196, (leftColumnHeight * 42) / 100);
+            const int preferredHierarchyHeight = std::max(196, (leftColumnHeight * 52) / 100);
             const int hierarchyHeight = std::clamp(
                 preferredHierarchyHeight,
                 196,
@@ -8171,14 +8220,17 @@ enum class UiWorkbenchTextEditTarget {
     }
 
     [[nodiscard]] bool TryHandlePanelCollapseClick(const POINT& point) {
-        if (PtInRect(&leftPanelCollapseToggleRect_, point) != FALSE) {
+        const auto panelLayout=ComputeLayout();
+        if (PtInRect(&leftPanelCollapseToggleRect_, point) != FALSE
+            || (leftPanelCollapsed_ && PtInRect(&panelLayout.hierarchy,point))) {
             leftPanelCollapsed_ = !leftPanelCollapsed_;
             MarkViewportPreviewDirty();
             lastIoStatus_ = leftPanelCollapsed_ ? "Left panel collapsed (Ctrl+[)." : "Left panel expanded.";
             InvalidateRect(hwnd_, nullptr, FALSE);
             return true;
         }
-        if (PtInRect(&rightPanelCollapseToggleRect_, point) != FALSE) {
+        if (PtInRect(&rightPanelCollapseToggleRect_, point) != FALSE
+            || (rightPanelCollapsed_ && PtInRect(&panelLayout.inspector,point))) {
             rightPanelCollapsed_ = !rightPanelCollapsed_;
             MarkViewportPreviewDirty();
             lastIoStatus_ = rightPanelCollapsed_ ? "Right panel collapsed (Ctrl+])." : "Right panel expanded.";
@@ -8698,12 +8750,7 @@ enum class UiWorkbenchTextEditTarget {
         IntersectClipRect(dc, hierarchyInner.left, hierarchyInner.top, hierarchyInner.right, hierarchyInner.bottom);
 
         if (leftPanelCollapsed_) {
-            DrawTextLine(dc,
-                         RECT{hierarchyInner.left + 4, hierarchyInner.top + 40, hierarchyInner.right - 4, hierarchyInner.bottom - 8},
-                         "Left panel collapsed. Click » in the header or press Ctrl+[.",
-                         RGB(170, 176, 186),
-                         smallFont_,
-                         DT_LEFT | DT_WORDBREAK);
+            EditorRenderer::DrawCollapsedPanelRail(dc,hierarchyInner,"Hierarchy",smallFont_);
         } else {
         DrawToolbarButton(dc,
                          RECT{hierarchyInner.left + 6,
@@ -8882,16 +8929,18 @@ enum class UiWorkbenchTextEditTarget {
                 if (static_cast<std::size_t>(nodeIndex) == selectedNode_) {
                     FillRectColor(dc, rowRect, ri::editor::EditorUiTheme::kSelSceneFill);
                 }
+                const bool compactKind=(rowRect.right-rowRect.left)<280;
+                const int kindWidth=compactKind?28:62;
                 DrawTextLine(dc,
-                             RECT{rowRect.left + indent, rowRect.top, rowRect.right - 90, rowRect.bottom},
+                             RECT{rowRect.left + indent, rowRect.top, rowRect.right - kindWidth - 8, rowRect.bottom},
                              std::to_string(nodeIndex) + "  " + node.name,
                              static_cast<std::size_t>(nodeIndex) == selectedNode_ ? ri::editor::EditorUiTheme::kSelSceneText
                                                                                 : RGB(236, 240, 244),
                              bodyFont_,
-                             DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+                             DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
                 DrawTextLine(dc,
-                             RECT{rowRect.right - 84, rowRect.top, rowRect.right - 8, rowRect.bottom},
-                             NodeKindLabel(node),
+                             RECT{rowRect.right - kindWidth, rowRect.top, rowRect.right - 8, rowRect.bottom},
+                             compactKind?NodeKindLabel(node).substr(0,1):NodeKindLabel(node),
                              static_cast<std::size_t>(nodeIndex) == selectedNode_ ? RGB(255, 255, 200)
                                                                                   : RGB(186, 194, 204),
                              smallFont_,
@@ -9312,12 +9361,7 @@ enum class UiWorkbenchTextEditTarget {
         }
 
         } else {
-            DrawTextLine(dc,
-                         RECT{inspectorInner.left + 8, inspectorInner.top + 40, inspectorInner.right - 8, inspectorInner.bottom - 8},
-                         "Inspector collapsed. Click » in the header or press Ctrl+].",
-                         RGB(170, 176, 186),
-                         smallFont_,
-                         DT_LEFT | DT_WORDBREAK);
+            EditorRenderer::DrawCollapsedPanelRail(dc,inspectorInner,"Inspector",smallFont_);
         }
 
         if (cameraRail.right > cameraRail.left) {
@@ -9356,6 +9400,8 @@ enum class UiWorkbenchTextEditTarget {
                         .selectedPresetIndex = SelectedCatalogPresetIndex(authoringCatalogSection_),
                         .hoveredPresetIndex = structuralPickerHovered_,
                         .scrollTopRow = structuralPickerScrollRow_,
+                        .searchQuery = catalogSearchQuery_,
+                        .searchActive = catalogSearchActive_,
                     },
                     structuralThumbnailCache_,
                     ResolveEditorTextureRoot(),
@@ -9587,6 +9633,8 @@ enum class UiWorkbenchTextEditTarget {
     LeftPanelMode leftPanelMode_ = LeftPanelMode::Scene;
     NewGameTemplate newGameTemplate_ = NewGameTemplate::EmptyStudio;
     int newGameNameVariant_ = 0;
+    std::string catalogSearchQuery_;
+    bool catalogSearchActive_ = false;
     int structuralPickerScrollRow_ = 0;
     std::size_t structuralPickerHovered_ = SIZE_MAX;
     StructuralThumbnailCache structuralThumbnailCache_{};

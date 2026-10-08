@@ -324,17 +324,19 @@ void RenderEditorLeftPanel(HDC dc,
             if (static_cast<std::size_t>(nodeIndex) == model.selectedNode) {
                 EditorRenderer::FillRectColor(dc, rowRect, RGB(124, 89, 40));
             }
+            const bool compactKind=(rowRect.right-rowRect.left)<280;
+            const int kindWidth=compactKind?28:62;
             EditorRenderer::DrawTextLine(dc,
-                                         RECT{rowRect.left + indent, rowRect.top, rowRect.right - 90, rowRect.bottom},
+                                         RECT{rowRect.left + indent, rowRect.top, rowRect.right - kindWidth - 8, rowRect.bottom},
                                          std::to_string(nodeIndex) + "  " + node.name,
                                          static_cast<std::size_t>(nodeIndex) == model.selectedNode
                                              ? RGB(255, 246, 214)
                                              : RGB(236, 240, 244),
                                          theme.bodyFont,
-                                         DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+                                         DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
             EditorRenderer::DrawTextLine(dc,
-                                         RECT{rowRect.right - 84, rowRect.top, rowRect.right - 8, rowRect.bottom},
-                                         NodeKindLabel(node),
+                                         RECT{rowRect.right - kindWidth, rowRect.top, rowRect.right - 8, rowRect.bottom},
+                                         compactKind?NodeKindLabel(node).substr(0,1):NodeKindLabel(node),
                                          static_cast<std::size_t>(nodeIndex) == model.selectedNode
                                              ? RGB(255, 231, 182)
                                              : RGB(186, 194, 204),

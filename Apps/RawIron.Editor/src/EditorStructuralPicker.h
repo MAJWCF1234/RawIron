@@ -25,11 +25,13 @@
 
 namespace ri::editor {
 
-inline constexpr int kStructuralPickerCellSize = 52;
-inline constexpr int kStructuralPickerLabelHeight = 11;
+inline constexpr int kStructuralPickerCellSize = 64;
+inline constexpr int kStructuralPickerCellWidth = 104;
+inline constexpr int kStructuralPickerLabelHeight = 26;
 inline constexpr int kStructuralPickerHeaderHeight = 18;
 inline constexpr int kStructuralPickerTabHeight = 18;
 inline constexpr int kStructuralPickerFooterHeight = 20;
+inline constexpr int kStructuralPickerSearchHeight = 26;
 inline constexpr int kStructuralPickerVisibleRows = 2;
 
 [[nodiscard]] inline int StructuralPickerGridHeight() {
@@ -37,7 +39,7 @@ inline constexpr int kStructuralPickerVisibleRows = 2;
 }
 
 [[nodiscard]] inline int ComputeStructuralPickerPanelHeight() {
-    return kStructuralPickerHeaderHeight + kStructuralPickerTabHeight + 4 + StructuralPickerGridHeight()
+    return kStructuralPickerHeaderHeight + kStructuralPickerTabHeight + kStructuralPickerSearchHeight + 4 + StructuralPickerGridHeight()
            + kStructuralPickerFooterHeight + 8;
 }
 
@@ -53,6 +55,8 @@ inline constexpr int kStructuralPickerCollapsedBarHeight = 26;
 enum class StructuralPickerHitKind {
     None,
     Preset,
+    Search,
+    ClearSearch,
     PrevPage,
     NextPage,
     Place,
@@ -80,6 +84,9 @@ struct StructuralPickerLayout {
     RECT meshTabBtn{};
     RECT volumeTabBtn{};
     RECT logicTabBtn{};
+    RECT searchRect{};
+    RECT clearSearchBtn{};
+    std::size_t matchingPresetCount = 0;
     RECT prevPageBtn{};
     RECT nextPageBtn{};
     RECT placeBtn{};
@@ -97,6 +104,8 @@ struct StructuralPickerModel {
     std::size_t hoveredPresetIndex = SIZE_MAX;
     int scrollTopRow = 0;
     std::string statusLine;
+    std::string searchQuery;
+    bool searchActive = false;
 };
 
 class StructuralThumbnailCache {
@@ -133,6 +142,7 @@ struct StructuralPickerTheme {
     HFONT smallFont = nullptr;
 };
 
+[[nodiscard]] std::vector<std::size_t> MatchingCatalogPresets(AuthoringCatalogSection section, std::string_view query);
 [[nodiscard]] std::size_t ActiveCatalogPresetCount(AuthoringCatalogSection section);
 [[nodiscard]] std::string ActiveCatalogPresetLabel(AuthoringCatalogSection section, std::size_t index);
 [[nodiscard]] ri::math::Vec3 ActiveCatalogWireColor(AuthoringCatalogSection section, std::size_t index);
@@ -140,7 +150,8 @@ struct StructuralPickerTheme {
 
 [[nodiscard]] StructuralPickerLayout ComputeStructuralPickerLayout(const RECT& viewportInner,
                                                                    AuthoringCatalogSection section,
-                                                                   int scrollTopRow);
+                                                                   int scrollTopRow,
+                                                                   std::string_view searchQuery = {});
 [[nodiscard]] RECT ComputeStructuralPickerCollapsedBarRect(const RECT& viewportInner);
 [[nodiscard]] StructuralPickerHit HitTestStructuralPickerCollapsedBar(const RECT& barRect, const POINT& point);
 void RenderStructuralPickerCollapsedBar(HDC dc,

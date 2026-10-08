@@ -54,6 +54,7 @@ public:
                                 bool showCollapseToggle = false,
                                 bool collapsed = false,
                                 RECT* collapseToggleRectOut = nullptr);
+    static void DrawCollapsedPanelRail(HDC dc,const RECT& rect,const std::string& title,HFONT font);
     [[nodiscard]] static RECT InsetRect(const RECT& rect, int amount);
     static void BlitRgbaImage(HDC dc,
                               const RECT& target,

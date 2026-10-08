@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
@@ -38,7 +39,7 @@ using ri::scene::StarterScene;
 using ri::scene::StructuralBrushSpawnOptions;
 
 constexpr int kThumbnailRenderSize = kStructuralPickerCellSize;
-constexpr std::uint32_t kThumbnailCacheVersion = 1U;
+constexpr std::uint32_t kThumbnailCacheVersion = 3U;
 constexpr auto kThumbnailStaleAge = std::chrono::hours(24 * 7);
 
 [[nodiscard]] std::string SanitizeFileToken(std::string_view value) {
@@ -460,11 +461,12 @@ void DrawWireframeLine(ri::render::software::SoftwareImage& image,
         .nearClip = 0.05f,
         .farClip = 64.0f,
     };
+    const bool faceOpening = std::string_view(preset.structuralType) == "arch";
     orbitCamera.orbit = OrbitCameraState{
         .target = ri::math::Vec3{0.0f, 0.45f, 0.0f},
         .distance = 2.85f,
-        .yawDegrees = 38.0f,
-        .pitchDegrees = -21.0f,
+        .yawDegrees = faceOpening ? 12.0f : 38.0f,
+        .pitchDegrees = faceOpening ? -8.0f : -21.0f,
     };
     starterScene.handles.orbitCamera = AddOrbitCamera(scene, orbitCamera);
 
@@ -477,8 +479,9 @@ void DrawWireframeLine(ri::render::software::SoftwareImage& image,
     brush.transform.scale = ThumbnailScaleForPreset(preset);
     brush.materialName = "picker_preview";
     brush.baseColor = ri::math::Vec3{0.64f, 0.68f, 0.74f};
-    brush.baseColorTexture = ri::scene::DefaultStructuralBrushAlbedoTexture();
-    brush.baseColor = ri::scene::DefaultStructuralBrushBaseColor();
+    // Neutral studio clay reveals shape independently of the level material palette.
+    brush.baseColorTexture.clear();
+    brush.baseColor = ri::math::Vec3{0.60f,0.70f,0.82f};
     brush.textureTiling = ri::math::Vec2{1.5f, 1.5f};
     brush.roughness = 0.82f;
     (void)AddStructuralBrushNode(scene, brush);
@@ -733,7 +736,9 @@ void StructuralThumbnailCache::Ensure(const AuthoringCatalogSection section,
             options.height = kThumbnailRenderSize;
             options.clearTop = ri::math::Vec3{0.05f, 0.06f, 0.09f};
             options.clearBottom = ri::math::Vec3{0.12f, 0.13f, 0.17f};
-            options.ambientLight = ri::math::Vec3{0.20f, 0.21f, 0.24f};
+            options.ambientLight = ri::math::Vec3{0.46f, 0.48f, 0.52f};
+            options.fogStrength = 0.0f;
+            options.previewExposure = 1.15f;
             options.previewSharpenAmount = 0.10f;
             options.orderedDither = false;
             options.pointSampleTextures = false;
@@ -795,9 +800,27 @@ void StructuralThumbnailCache::PrewarmVisible(const AuthoringCatalogSection sect
 
 #if defined(_WIN32)
 
+std::vector<std::size_t> MatchingCatalogPresets(const AuthoringCatalogSection section, const std::string_view query) {
+    const auto normalize = [](std::string text) {
+        for (char& c : text) c = c == '_' || c == '-' ? ' ' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return text;
+    };
+    std::istringstream words(normalize(std::string(query)));
+    std::vector<std::string> tokens;
+    for (std::string word; words >> word;) tokens.push_back(std::move(word));
+    std::vector<std::size_t> matches;
+    for (std::size_t index = 0; index < ActiveCatalogPresetCount(section); ++index) {
+        const auto label = normalize(ActiveCatalogPresetLabel(section, index));
+        if (std::all_of(tokens.begin(), tokens.end(), [&](const auto& token) {return label.find(token) != std::string::npos;}))
+            matches.push_back(index);
+    }
+    return matches;
+}
+
 StructuralPickerLayout ComputeStructuralPickerLayout(const RECT& viewportInner,
                                                      const AuthoringCatalogSection section,
-                                                     const int scrollTopRow) {
+                                                     const int scrollTopRow,
+                                                     const std::string_view searchQuery) {
     StructuralPickerLayout layout{};
     const int panelHeight = ComputeStructuralPickerPanelHeight();
     layout.panelRect = RECT{
@@ -812,16 +835,21 @@ StructuralPickerLayout ComputeStructuralPickerLayout(const RECT& viewportInner,
     layout.volumeTabBtn = RECT{layout.panelRect.left + 62, tabTop, layout.panelRect.left + 118, tabTop + kStructuralPickerTabHeight};
     layout.logicTabBtn = RECT{layout.panelRect.left + 122, tabTop, layout.panelRect.left + 170, tabTop + kStructuralPickerTabHeight};
 
+    const int searchTop = tabTop + kStructuralPickerTabHeight + 2;
+    layout.searchRect = RECT{layout.panelRect.left + 8, searchTop, layout.panelRect.right - 38, searchTop + 22};
+    layout.clearSearchBtn = RECT{layout.panelRect.right - 34, searchTop, layout.panelRect.right - 8, searchTop + 22};
     layout.contentRect = RECT{
         layout.panelRect.left + 8,
-        tabTop + kStructuralPickerTabHeight + 2,
+        searchTop + kStructuralPickerSearchHeight,
         layout.panelRect.right - 8,
-        tabTop + kStructuralPickerTabHeight + 2 + StructuralPickerGridHeight(),
+        searchTop + kStructuralPickerSearchHeight + StructuralPickerGridHeight(),
     };
 
-    const std::size_t presetCount = ActiveCatalogPresetCount(section);
+    const auto matches = MatchingCatalogPresets(section, searchQuery);
+    const std::size_t presetCount = matches.size();
+    layout.matchingPresetCount = presetCount;
     const int contentWidth = std::max(1, static_cast<int>(layout.contentRect.right - layout.contentRect.left));
-    layout.columns = std::max(4, contentWidth / (kStructuralPickerCellSize + 6));
+    layout.columns = std::max(1, contentWidth / (kStructuralPickerCellWidth + 6));
     const int rowStride = kStructuralPickerCellSize + kStructuralPickerLabelHeight + 4;
     layout.visibleRows = kStructuralPickerVisibleRows;
     layout.totalRows = static_cast<int>((presetCount + static_cast<std::size_t>(layout.columns) - 1)
@@ -840,10 +868,11 @@ StructuralPickerLayout ComputeStructuralPickerLayout(const RECT& viewportInner,
     int column = 0;
     const std::size_t firstIndex = static_cast<std::size_t>(layout.scrollTopRow * layout.columns);
     for (std::size_t offset = 0; offset < presetCount; ++offset) {
-        const std::size_t presetIndex = firstIndex + offset;
-        if (presetIndex >= presetCount) {
+        const std::size_t matchIndex = firstIndex + offset;
+        if (matchIndex >= presetCount) {
             break;
         }
+        const std::size_t presetIndex = matches[matchIndex];
         const int cellTop = y;
         const int cellBottom = cellTop + kStructuralPickerCellSize;
         if (cellBottom > layout.contentRect.bottom) {
@@ -851,9 +880,10 @@ StructuralPickerLayout ComputeStructuralPickerLayout(const RECT& viewportInner,
         }
         StructuralPickerCell cell{};
         cell.presetIndex = presetIndex;
-        cell.thumbRect = RECT{x, cellTop, x + kStructuralPickerCellSize, cellBottom};
+        const int thumbLeft=x+(kStructuralPickerCellWidth-kStructuralPickerCellSize)/2;
+        cell.thumbRect = RECT{thumbLeft, cellTop, thumbLeft + kStructuralPickerCellSize, cellBottom};
         cell.labelRect =
-            RECT{x, cellBottom + 2, x + kStructuralPickerCellSize, cellBottom + 2 + kStructuralPickerLabelHeight};
+            RECT{x, cellBottom + 2, x + kStructuralPickerCellWidth, cellBottom + 2 + kStructuralPickerLabelHeight};
         layout.cells.push_back(cell);
 
         ++column;
@@ -862,7 +892,7 @@ StructuralPickerLayout ComputeStructuralPickerLayout(const RECT& viewportInner,
             x = layout.contentRect.left;
             y += rowStride;
         } else {
-            x += kStructuralPickerCellSize + 6;
+            x += kStructuralPickerCellWidth + 6;
         }
     }
     return layout;
@@ -913,9 +943,11 @@ int CountStructuralPickerRows(const AuthoringCatalogSection section, const RECT&
 }
 
 StructuralPickerHit HitTestStructuralPicker(const StructuralPickerLayout& layout, const POINT& point) {
+    if (PtInRect(&layout.searchRect, point)) return {.kind = StructuralPickerHitKind::Search};
+    if (PtInRect(&layout.clearSearchBtn, point)) return {.kind = StructuralPickerHitKind::ClearSearch};
     for (const StructuralPickerCell& cell : layout.cells) {
-        RECT hitRect = cell.thumbRect;
-        hitRect.bottom = cell.labelRect.bottom;
+        const RECT hitRect{std::min(cell.thumbRect.left,cell.labelRect.left),cell.thumbRect.top,
+            std::max(cell.thumbRect.right,cell.labelRect.right),cell.labelRect.bottom};
         if (PtInRect(&hitRect, point) != FALSE) {
             return {.kind = StructuralPickerHitKind::Preset, .presetIndex = cell.presetIndex};
         }
@@ -935,7 +967,7 @@ StructuralPickerHit HitTestStructuralPicker(const StructuralPickerLayout& layout
     if (PtInRect(&layout.nextPageBtn, point) != FALSE) {
         return {.kind = StructuralPickerHitKind::NextPage};
     }
-    if (PtInRect(&layout.placeBtn, point) != FALSE) {
+    if (layout.matchingPresetCount > 0 && PtInRect(&layout.placeBtn, point) != FALSE) {
         return {.kind = StructuralPickerHitKind::Place};
     }
     if (PtInRect(&layout.collapseToggleBtn, point) != FALSE) {
@@ -962,7 +994,7 @@ void RenderStructuralPickerOverlay(HDC dc,
     EditorRenderer::DrawTextLine(
         dc,
         RECT{layout.panelRect.left + 10, layout.panelRect.top + 3, layout.panelRect.right - 160, layout.panelRect.top + 18},
-        "Authoring Catalog  |  click preset  |  Place to spawn  |  wheel to page",
+        "Build palette  |  choose a piece, then click the scene in Create mode",
         RGB(248, 244, 228),
         theme.headerFont,
         DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
@@ -982,6 +1014,20 @@ void RenderStructuralPickerOverlay(HDC dc,
                       std::string(AuthoringCatalogSectionLabel(AuthoringCatalogSection::Logic)),
                       model.section == AuthoringCatalogSection::Logic);
 
+    EditorRenderer::DrawInsetFrame(dc, layout.searchRect, RGB(22, 26, 32),
+        model.searchActive ? RGB(230, 166, 76) : RGB(88, 96, 108), RGB(14, 16, 20));
+    const auto searchText = model.searchQuery.empty() ? std::string("Find a piece...  (click to type)")
+        : model.searchQuery + (model.searchActive ? "|" : "");
+    EditorRenderer::DrawTextLine(dc,
+        RECT{layout.searchRect.left + 8, layout.searchRect.top, layout.searchRect.right - 4, layout.searchRect.bottom},
+        searchText, model.searchQuery.empty() ? RGB(154, 164, 178) : RGB(244, 224, 182), theme.smallFont,
+        DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+    drawToolbarButton(dc, layout.clearSearchBtn, "x", false);
+    if (layout.cells.empty()) {
+        EditorRenderer::DrawTextLine(dc, layout.contentRect,
+            "No matching pieces. Clear the search or try another tab.", RGB(188, 196, 208), theme.bodyFont,
+            DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+    }
     for (const StructuralPickerCell& cell : layout.cells) {
         const bool selected = cell.presetIndex == model.selectedPresetIndex;
         const bool hovered = cell.presetIndex == model.hoveredPresetIndex;
@@ -1014,26 +1060,25 @@ void RenderStructuralPickerOverlay(HDC dc,
             EditorRenderer::BlitSoftwareImage(dc, inner, image);
         }
 
+        std::string displayLabel=ActiveCatalogPresetLabel(model.section, cell.presetIndex);
+        std::replace(displayLabel.begin(),displayLabel.end(),'_',' ');
         EditorRenderer::DrawTextLine(dc,
                                      cell.labelRect,
-                                     ActiveCatalogPresetLabel(model.section, cell.presetIndex),
+                                     displayLabel,
                                      selected ? RGB(255, 236, 170) : RGB(196, 202, 210),
                                      theme.smallFont,
-                                     DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+                                     DT_CENTER | DT_WORDBREAK | DT_END_ELLIPSIS);
     }
 
     drawToolbarButton(dc, layout.prevPageBtn, "Prev", false);
     drawToolbarButton(dc, layout.nextPageBtn, "Next", false);
-    const std::string placeLabel =
-        std::string("Place ") + ActiveCatalogPresetLabel(model.section, model.selectedPresetIndex);
-    drawToolbarButton(dc, layout.placeBtn, placeLabel, true);
+    const std::string placeLabel = "Place selected";
+    drawToolbarButton(dc, layout.placeBtn, placeLabel, layout.matchingPresetCount > 0);
 
-    const std::string footer =
-        model.statusLine.empty()
-            ? ("Showing row " + std::to_string(layout.scrollTopRow + 1) + "/" + std::to_string(layout.totalRows)
-               + "  |  " + std::to_string(ActiveCatalogPresetCount(model.section)) + " "
-               + std::string(AuthoringCatalogSectionLabel(model.section)))
-            : model.statusLine;
+    std::string selectedLabel = ActiveCatalogPresetLabel(model.section, model.selectedPresetIndex);
+    std::replace(selectedLabel.begin(), selectedLabel.end(), '_', ' ');
+    const std::string footer = model.searchActive ? "Type to find  |  Enter: choose first match  |  Esc: finish"
+        : std::to_string(layout.matchingPresetCount) + " pieces  |  Selected: " + selectedLabel + "  |  Double-click to place";
     EditorRenderer::DrawTextLine(
         dc,
         RECT{layout.panelRect.left + 120, layout.placeBtn.top, layout.placeBtn.left - 8, layout.placeBtn.bottom},
