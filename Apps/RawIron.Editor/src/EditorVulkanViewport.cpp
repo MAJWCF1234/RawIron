@@ -2,10 +2,13 @@
 
 #include "RawIron/Render/VulkanPreviewPresenter.h"
 #include "RawIron/Render/VulkanScenePreviewBridge.h"
+#include "RawIron/Scene/Helpers.h"
 
 #include <algorithm>
+#include <chrono>
 #include <fstream>
 #include <mutex>
+#include <thread>
 #include <windowsx.h>
 
 namespace ri::editor {
@@ -15,6 +18,44 @@ namespace {
 
 constexpr wchar_t kEditorVulkanHostClassName[] = L"RawIronEditorVulkanViewportHost";
 
+[[nodiscard]] std::shared_ptr<ri::scene::Scene> MakeIdleClearScene(int& cameraNode) {
+    auto scene = std::make_shared<ri::scene::Scene>("EditorVulkanIdle");
+    const int root = scene->CreateNode("IdleRoot");
+    const ri::scene::OrbitCameraHandles orbit = ri::scene::AddOrbitCamera(
+        *scene,
+        ri::scene::OrbitCameraOptions{
+            .rigName = "IdleOrbit",
+            .parent = root,
+            .camera =
+                ri::scene::Camera{
+                    .name = "IdleCamera",
+                    .fieldOfViewDegrees = 55.0F,
+                    .nearClip = 0.05F,
+                    .farClip = 200.0F,
+                },
+            .orbit =
+                ri::scene::OrbitCameraState{
+                    .target = {0.0F, 1.0F, 0.0F},
+                    .distance = 4.0F,
+                    .yawDegrees = 145.0F,
+                    .pitchDegrees = -18.0F,
+                },
+        });
+    cameraNode = orbit.cameraNode;
+    // Visible marker so a live loop is obvious before the first authored Publish.
+    ri::scene::PrimitiveNodeOptions marker{};
+    marker.nodeName = "IdleMarker";
+    marker.parent = root;
+    marker.primitive = ri::scene::PrimitiveType::Cube;
+    marker.shadingModel = ri::scene::ShadingModel::Unlit;
+    marker.materialName = "IdleMarkerMaterial";
+    marker.baseColor = {0.35F, 0.38F, 0.42F};
+    marker.transform.position = {0.0F, 1.0F, 0.0F};
+    marker.transform.scale = {0.35F, 0.35F, 0.35F};
+    (void)ri::scene::AddPrimitiveNode(*scene, marker);
+    return scene;
+}
+
 void EnsureHostClassRegistered() {
     static std::once_flag once{};
     std::call_once(once, []() {
@@ -23,11 +64,12 @@ void EnsureHostClassRegistered() {
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.lpszClassName = kEditorVulkanHostClassName;
         wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
+        wc.hbrBackground = reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
         RegisterClassW(&wc);
     });
 }
 
-}
+} // namespace
 
 struct EditorVulkanViewport::Snapshot {
     std::uint64_t publishSequence = 0;
@@ -47,6 +89,26 @@ EditorVulkanViewport::~EditorVulkanViewport() {
 
 bool EditorVulkanViewport::Start(const HWND parent, const RECT& bounds) {
     Stop();
+    // Seed a clear scene before the render thread spins — returning false from the
+    // native frame callback permanently kills the Vulkan loop (black hearth forever).
+    {
+        int idleCamera = ri::scene::kInvalidHandle;
+        auto idleScene = MakeIdleClearScene(idleCamera);
+        auto snapshot = std::make_shared<Snapshot>();
+        snapshot->publishSequence = publishSequence_.fetch_add(1);
+        snapshot->scene = idleScene;
+        snapshot->sceneCacheIdentity = idleScene.get();
+        snapshot->cameraNode = idleCamera;
+        if (idleCamera >= 0 && static_cast<std::size_t>(idleCamera) < idleScene->NodeCount()) {
+            snapshot->cameraWorld = idleScene->ComputeWorldMatrix(idleCamera);
+            snapshot->cameraWorldValid = true;
+        }
+        snapshot->previewOptions.clearTop = {0.08F, 0.09F, 0.11F};
+        snapshot->previewOptions.clearBottom = {0.14F, 0.15F, 0.18F};
+        snapshot->previewOptions.fogStrength = 0.0F;
+        snapshot->previewOptions.ambientLight = {0.25F, 0.25F, 0.27F};
+        snapshot_.store(std::move(snapshot));
+    }
     if (!StartRenderLoop(parent, bounds)) {
         return false;
     }
@@ -83,7 +145,7 @@ bool EditorVulkanViewport::StartRenderLoop(const HWND parent, const RECT& bounds
         options.clientHwnd = child_.load();
         options.messageUserData = this;
         options.presentModePreference = ri::render::vulkan::VulkanPresentModePreference::Mailbox;
-        options.enableHybridHdrPresentation = true;
+        options.enableHybridHdrPresentation = false;
         options.initialRenderQualityTier = 1;
         options.onResourceStats = [this](
                                       const ri::render::vulkan::VulkanNativeSceneResourceStats& stats) {
@@ -109,12 +171,22 @@ bool EditorVulkanViewport::StartRenderLoop(const HWND parent, const RECT& bounds
                     }
                     return false;
                 }
-                const std::shared_ptr<const Snapshot> snapshot = snapshot_.load();
+                std::shared_ptr<const Snapshot> snapshot = snapshot_.load();
                 if (!snapshot || !snapshot->scene) {
-                    if (frameError != nullptr) {
-                        *frameError = "Editor Vulkan viewport is waiting for a scene snapshot.";
-                    }
-                    return false;
+                    // Never abort the loop for a missing snapshot — that permanently blacks the hearth.
+                    int idleCamera = ri::scene::kInvalidHandle;
+                    auto idleScene = MakeIdleClearScene(idleCamera);
+                    auto idle = std::make_shared<Snapshot>();
+                    idle->publishSequence = publishSequence_.load();
+                    idle->scene = idleScene;
+                    idle->sceneCacheIdentity = idleScene.get();
+                    idle->cameraNode = idleCamera;
+                    idle->previewOptions.clearTop = {0.08F, 0.09F, 0.11F};
+                    idle->previewOptions.clearBottom = {0.14F, 0.15F, 0.18F};
+                    idle->previewOptions.fogStrength = 0.0F;
+                    snapshot_.store(idle);
+                    snapshot = idle;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(8));
                 }
                 frame.sceneOwner = snapshot->scene;
                 frame.scene = snapshot->scene.get();

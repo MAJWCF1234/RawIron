@@ -83,6 +83,12 @@ void InteractivePropAuthorityBridge::SetPools(std::vector<InteractivePropState>*
     authorityTick_ = 0U;
     peerCommandBudgets_.clear();
 }
+void InteractivePropAuthorityBridge::OnCommandTick(const std::uint64_t tick) {
+    // Zero denotes a fresh runtime session, even if the previous session never ticked.
+    if (tick == 0 || authorityTick_ != tick) peerCommandBudgets_.clear();
+    authorityTick_ = tick;
+}
+
 std::optional<ri::runtime::SnapshotBlob> InteractivePropAuthorityBridge::CaptureSnapshot(const std::uint32_t tick) {
     if (interaction_ == nullptr || projectiles_ == nullptr) return std::nullopt;
     const ri::runtime::SnapshotBlob interaction =
@@ -99,8 +105,6 @@ std::optional<ri::runtime::SnapshotBlob> InteractivePropAuthorityBridge::Capture
     snapshot.bytes.insert(snapshot.bytes.end(), interaction.bytes.begin(), interaction.bytes.end());
     WriteU32(snapshot.bytes, static_cast<std::uint32_t>(projectiles.bytes.size()));
     snapshot.bytes.insert(snapshot.bytes.end(), projectiles.bytes.begin(), projectiles.bytes.end());
-    if (authorityTick_ != tick) peerCommandBudgets_.clear();
-    authorityTick_ = tick;
     return snapshot;
 }
 

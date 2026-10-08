@@ -25,7 +25,9 @@ std::string Trim(const std::string& text) {
 }
 
 [[nodiscard]] std::optional<std::pair<std::string, float>> TryParseScalarLine(const std::string& line) {
-    const std::string trimmed = Trim(line);
+    std::string trimmed = Trim(line);
+    // Accept UTF-8 files written by Windows authoring tools with a BOM.
+    if (trimmed.starts_with("\xEF\xBB\xBF")) trimmed = Trim(trimmed.substr(3));
     if (trimmed.empty() || trimmed[0] == '#') {
         return std::nullopt;
     }
@@ -79,6 +81,32 @@ ScriptScalarMap LoadScriptScalarsFromText(const std::string_view text) {
         }
     }
     return values;
+}
+
+ScriptScalarParseResult ParseScriptScalarsChecked(const std::string_view text) {
+    ScriptScalarParseResult result{};
+    std::istringstream stream{std::string(text)};
+    std::string line;
+    std::size_t lineNumber = 0;
+    while (std::getline(stream, line)) {
+        ++lineNumber;
+        std::string trimmed = Trim(line);
+        if (lineNumber == 1 && trimmed.starts_with("\xEF\xBB\xBF")) trimmed = Trim(trimmed.substr(3));
+        if (trimmed.empty() || trimmed.front() == '#') continue;
+        const auto parsed = TryParseScalarLine(line);
+        const std::string key = Trim(trimmed.substr(0, trimmed.find('=')));
+        if (!parsed.has_value()) {
+            result.issues.push_back({ScriptScalarValidationSeverity::Error, key,
+                "line " + std::to_string(lineNumber) + ": expected key=finite-number"});
+            continue;
+        }
+        if (result.values.contains(parsed->first)) {
+            result.issues.push_back({ScriptScalarValidationSeverity::Error, parsed->first,
+                "line " + std::to_string(lineNumber) + ": duplicate key"});
+        }
+        result.values[parsed->first] = parsed->second;
+    }
+    return result;
 }
 
 void MergeScriptScalarMaps(ScriptScalarMap& destination, const ScriptScalarMap& overrides) {
@@ -173,7 +201,7 @@ ScriptScalarMap LoadScriptScalars(const std::filesystem::path& path) {
 
 float ScriptScalarOr(const ScriptScalarMap& values, std::string_view key, float fallback) {
     const auto it = values.find(std::string(key));
-    return it == values.end() ? fallback : it->second;
+    return it == values.end() || !std::isfinite(it->second) ? fallback : it->second;
 }
 
 float ScriptScalarOrClamped(const ScriptScalarMap& values,
@@ -241,6 +269,10 @@ ScriptScalarValidationReport ValidateScriptScalars(
             continue;
         }
         const float value = it->second;
+        if (!std::isfinite(value)) {
+            report.issues.push_back({ScriptScalarValidationSeverity::Error, rule.key, "value is not finite"});
+            continue;
+        }
         if (rule.minValue.has_value() && value < *rule.minValue) {
             report.issues.push_back(ScriptScalarValidationIssue{
                 .severity = ScriptScalarValidationSeverity::Error,

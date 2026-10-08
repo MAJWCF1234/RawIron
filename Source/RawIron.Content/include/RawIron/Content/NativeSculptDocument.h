@@ -29,12 +29,14 @@ struct NativeSculptDocument {
     int formatVersion = kFormatVersion;
     std::string id{};
     std::string displayName{};
-    /// `sphere` (clay ball) or `cube` (hard-surface cage).
+    /// `sphere` (clay ball), `cube` (hard-surface cage), or `psx` (block humanoid).
     std::string cage{"sphere"};
     int segmentsAround = 32;
     int segmentsDown = 16;
     /// Workspace-relative or filename path to a `.ri_rig.json`. Empty means unbound clay.
     std::string rigPath{};
+    /// Optional authored block-character parts (`.ri_blockchar.json`). Used when cage is `psx`.
+    std::string blockCharPath{};
     /// Dominant bone per vertex, parallel to `mesh.positions`. Empty means not yet bound.
     std::vector<std::string> vertexBoneNames{};
     /// Up to four blended influences per vertex. Empty means rigid `vertexBoneNames` at weight 1.

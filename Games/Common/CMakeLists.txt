@@ -1,28 +1,6 @@
-add_library(RawIron.Game.RuntimeDiagnosticsDraw STATIC
-  src/GameConfigContracts.cpp
-  src/GamePluginRuntimeBridge.cpp
-  src/GameRuntimeCore.cpp
-  src/GameTextOverlayHost.cpp
-  src/RuntimeDiagnosticsStandaloneDraw.cpp
-  src/TextOverlayStandaloneDraw.cpp
-)
-
-add_library(RawIron::Game.RuntimeDiagnosticsDraw ALIAS RawIron.Game.RuntimeDiagnosticsDraw)
-
-target_include_directories(RawIron.Game.RuntimeDiagnosticsDraw
-  PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-
-target_link_libraries(RawIron.Game.RuntimeDiagnosticsDraw
-  PUBLIC
-    RawIron::Content
-    RawIron::Core
-    RawIron::Runtime
-    RawIron::SceneUtilities
-    RawIron::Spatial
-    RawIron::Trace
-    RawIron::World
-)
-
-target_compile_features(RawIron.Game.RuntimeDiagnosticsDraw PUBLIC cxx_std_20)
+# Compatibility/test entry point. Shared host implementation lives in Source/RawIron.GameHost.
+if(RAWIRON_BUILD_TESTS)
+  add_executable(GameTuningContractSmoke ${CMAKE_SOURCE_DIR}/Tests/GameTuningContractSmoke.cpp)
+  target_link_libraries(GameTuningContractSmoke PRIVATE RawIron::Game.RuntimeDiagnosticsDraw)
+  add_test(NAME RawIron.Games.TuningContractSmoke COMMAND GameTuningContractSmoke ${CMAKE_SOURCE_DIR})
+endif()

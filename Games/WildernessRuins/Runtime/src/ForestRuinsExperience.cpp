@@ -6,6 +6,7 @@
 #include "RawIron/Content/GameCameraTuning.h"
 #include "RawIron/Content/GameScriptBundle.h"
 #include "RawIron/Games/GameConfigContracts.h"
+#include "RawIron/Games/GamePhysicsTuning.h"
 #include "RawIron/Games/GamePluginRuntimeBridge.h"
 #include "RawIron/Games/RuntimeDiagnosticsStandaloneDraw.h"
 
@@ -1167,6 +1168,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         gameplay, "max_fall_speed", state.movementOptions.maxFallSpeed, 4.0f, 120.0f);
     state.movementOptions.refineStructuralTraceHit =
         ri::scene::MakeStructuralMeshTraceRefiner(state.world.scene);
+    state.movementOptions = ri::games::ResolveGamePhysicsTuning(state.movementOptions, physics);
     state.authoredMovementOptions = state.movementOptions;
     state.movement.onGround = true;
     const ri::math::Vec3 defaultSpawnEye = state.world.scene.GetNode(state.world.playerRig).localTransform.position;

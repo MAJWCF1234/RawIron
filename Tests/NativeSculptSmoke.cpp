@@ -1,6 +1,7 @@
 #include "RawIron/Scene/NativeSculpt.h"
 #include "RawIron/Scene/Raycast.h"
 #include "RawIron/Scene/RigAuthoring.h"
+#include "RawIron/Content/BlockCharacterDocument.h"
 #include "RawIron/Math/Mat4.h"
 
 #include <algorithm>
@@ -355,6 +356,21 @@ int main() {
         std::cerr << "Identity sculpt skin moved rest vertices.\n";
         return EXIT_FAILURE;
     }
+    {
+        ri::content::NativeSculptDocument baked = sphere;
+        const float beforeY = baked.mesh.positions.front().y;
+        if (ri::scene::BakeNativeSculptSkin(baked, restWorld, posedWorld) == 0U
+            || std::abs(baked.mesh.positions.front().y - beforeY) < 0.05f) {
+            std::cerr << "Bake sculpt skin did not rewrite rest positions.\n";
+            return EXIT_FAILURE;
+        }
+        const float bakedY = baked.mesh.positions.front().y;
+        if (ri::scene::BakeNativeSculptSkin(baked, restWorld, restWorld) == 0U
+            || std::abs(baked.mesh.positions.front().y - bakedY) > 0.0005f) {
+            std::cerr << "Identity bake sculpt skin moved already-baked rest.\n";
+            return EXIT_FAILURE;
+        }
+    }
     std::string otherBone = "hips";
     for (const ri::scene::RigBone& bone : humanoid.bones) {
         if (bone.deform && bone.name != driven) {
@@ -536,8 +552,344 @@ int main() {
             std::cerr << "Scale bone weights did not strengthen hand_l.\n";
             return EXIT_FAILURE;
         }
+        // Rigid ½W must leave unbound remainder; ×2W on rigid 1.0 is a no-op.
+        {
+            paint.vertexBoneNames.front() = "hand_l";
+            paint.vertexInfluences.front() = {
+                ri::content::NativeSculptVertexInfluence{.boneName = "hand_l", .weight = 1.0f},
+            };
+            if (ri::scene::ScaleNativeSculptBoneWeights(paint, "hand_l", 0.5f) == 0U
+                || paint.vertexInfluences.front().size() != 1U
+                || std::abs(paint.vertexInfluences.front().front().weight - 0.5f) > 0.001f) {
+                std::cerr << "Half-weight on rigid vert did not leave unbound 0.5.\n";
+                return EXIT_FAILURE;
+            }
+            if (ri::scene::ScaleNativeSculptBoneWeights(paint, "hand_l", 2.0f) == 0U
+                || std::abs(paint.vertexInfluences.front().front().weight - 1.0f) > 0.001f) {
+                std::cerr << "Double-weight did not restore rigid hand_l to 1.0.\n";
+                return EXIT_FAILURE;
+            }
+            if (ri::scene::ScaleNativeSculptBoneWeights(paint, "hand_l", 2.0f) != 0U) {
+                std::cerr << "Double-weight on already-rigid 1.0 reported work.\n";
+                return EXIT_FAILURE;
+            }
+        }
+        // 1-W on a balanced 0.5/0.5 blend must be a true no-op.
+        {
+            (void)ri::scene::FloodNativeSculptWeights(paint, "hips");
+            paint.vertexBoneNames.front() = "hand_l";
+            paint.vertexInfluences.front() = {
+                ri::content::NativeSculptVertexInfluence{.boneName = "hand_l", .weight = 0.5f},
+                ri::content::NativeSculptVertexInfluence{.boneName = "hips", .weight = 0.5f},
+            };
+            if (ri::scene::InvertNativeSculptBoneWeights(paint, "hand_l") != 0U) {
+                std::cerr << "Invert on a 0.5/0.5 blend reported a false change.\n";
+                return EXIT_FAILURE;
+            }
+        }
+        paint.vertexBoneNames.front() = "hand_l";
+        paint.vertexInfluences.front() = {
+            ri::content::NativeSculptVertexInfluence{.boneName = "hand_l", .weight = 0.8f},
+            ri::content::NativeSculptVertexInfluence{.boneName = "hips", .weight = 0.2f},
+        };
+        {
+            const std::vector<float> clipped =
+                ri::scene::ExtractNativeSculptBoneWeights(paint, "hand_l");
+            if (clipped.size() != paint.mesh.positions.size() || clipped.front() < 0.65f) {
+                std::cerr << "Extract bone weights missed hand_l peak.\n";
+                return EXIT_FAILURE;
+            }
+            if (ri::scene::ApplyNativeSculptBoneWeights(paint, "hand_r", clipped) == 0U) {
+                std::cerr << "Apply bone weights wrote no verts onto hand_r.\n";
+                return EXIT_FAILURE;
+            }
+            const std::vector<float> pasted =
+                ri::scene::ExtractNativeSculptBoneWeights(paint, "hand_r");
+            if (pasted.empty() || pasted.front() < 0.65f) {
+                std::cerr << "Paste bone weights did not restore hand_r peak.\n";
+                return EXIT_FAILURE;
+            }
+        }
         if (ri::scene::SmoothNativeSculptWeights(paint) == 0U) {
             std::cerr << "Smooth weights changed no vertices.\n";
+            return EXIT_FAILURE;
+        }
+        if (ri::scene::FloodNativeSculptWeights(paint, "hips") == 0U) {
+            std::cerr << "Could not restore hips before grow/shrink.\n";
+            return EXIT_FAILURE;
+        }
+        // Leave a seed on the first vert, grow onto neighbors, then shrink the frontier back.
+        for (std::size_t vertex = 1; vertex < paint.vertexBoneNames.size(); ++vertex) {
+            paint.vertexBoneNames[vertex].clear();
+            if (vertex < paint.vertexInfluences.size()) {
+                paint.vertexInfluences[vertex].clear();
+            }
+        }
+        paint.vertexBoneNames.front() = "hips";
+        if (!paint.vertexInfluences.empty()) {
+            paint.vertexInfluences.front() = {{"hips", 1.0f}};
+        }
+        const std::size_t grown = ri::scene::GrowNativeSculptBoneWeights(paint, "hips");
+        if (grown == 0U) {
+            std::cerr << "Grow bone weights painted no neighbors.\n";
+            return EXIT_FAILURE;
+        }
+        const std::size_t shrunk = ri::scene::ShrinkNativeSculptBoneWeights(paint, "hips");
+        if (shrunk == 0U) {
+            std::cerr << "Shrink bone weights cleared no frontier verts.\n";
+            return EXIT_FAILURE;
+        }
+        (void)ri::scene::FloodNativeSculptWeights(paint, "hips");
+        paint.vertexBoneNames.front() = "spine";
+        paint.vertexInfluences.front() = {{"spine", 1.0f}};
+        if (ri::scene::SmoothNativeSculptBoneWeights(paint, "spine") == 0U
+            || paint.vertexInfluences.front().size() < 2U) {
+            std::cerr << "Soft Bone did not blend spine toward hips neighbors.\n";
+            return EXIT_FAILURE;
+        }
+        bool softHasSpine = false;
+        bool softHasHips = false;
+        for (const ri::content::NativeSculptVertexInfluence& influence : paint.vertexInfluences.front()) {
+            if (influence.boneName == "spine") {
+                softHasSpine = true;
+            }
+            if (influence.boneName == "hips") {
+                softHasHips = true;
+            }
+        }
+        if (!softHasSpine || !softHasHips) {
+            std::cerr << "Soft Bone dropped spine or hips while softening.\n";
+            return EXIT_FAILURE;
+        }
+        // Blend a soft hand_l, then harden verts at/above 0.5 into a rigid bind.
+        (void)ri::scene::FloodNativeSculptWeights(paint, "hips");
+        paint.vertexBoneNames.front() = "hand_l";
+        if (!paint.vertexInfluences.empty()) {
+            paint.vertexInfluences.front() = {
+                ri::content::NativeSculptVertexInfluence{.boneName = "hand_l", .weight = 0.7f},
+                ri::content::NativeSculptVertexInfluence{.boneName = "hips", .weight = 0.3f},
+            };
+        }
+        if (ri::scene::HardenNativeSculptBoneWeights(paint, "hand_l", 0.5f) == 0U
+            || paint.vertexBoneNames.front() != "hand_l"
+            || paint.vertexInfluences.front().size() != 1U
+            || paint.vertexInfluences.front().front().weight < 0.999f) {
+            std::cerr << "Harden bone weights did not snap the blended vert.\n";
+            return EXIT_FAILURE;
+        }
+        if (ri::scene::HardenNativeSculptBoneWeights(paint, "hand_l", 0.5f) != 0U) {
+            std::cerr << "Harden reported work on an already-rigid vert.\n";
+            return EXIT_FAILURE;
+        }
+        paint.vertexBoneNames.front() = "hand_l";
+        paint.vertexInfluences.front() = {
+            ri::content::NativeSculptVertexInfluence{.boneName = "hand_l", .weight = 0.03f},
+            ri::content::NativeSculptVertexInfluence{.boneName = "hips", .weight = 0.97f},
+        };
+        if (ri::scene::FloorNativeSculptBoneWeights(paint, "hand_l", 0.05f) == 0U
+            || paint.vertexBoneNames.front() != "hips"
+            || paint.vertexInfluences.front().size() != 1U) {
+            std::cerr << "Floor bone weights did not drop the weak hand_l influence.\n";
+            return EXIT_FAILURE;
+        }
+        if (ri::scene::FloorNativeSculptBoneWeights(paint, "hips", 0.05f) != 0U) {
+            std::cerr << "Floor reported work on a strong hips influence.\n";
+            return EXIT_FAILURE;
+        }
+        paint.vertexBoneNames.front() = "hand_l";
+        paint.vertexInfluences.front() = {
+            ri::content::NativeSculptVertexInfluence{.boneName = "hand_l", .weight = 0.92f},
+            ri::content::NativeSculptVertexInfluence{.boneName = "hips", .weight = 0.08f},
+        };
+        if (ri::scene::CeilNativeSculptBoneWeights(paint, "hand_l", 0.85f) == 0U) {
+            std::cerr << "Ceil bone weights did not cap the strong hand_l influence.\n";
+            return EXIT_FAILURE;
+        }
+        {
+            float handWeight = 0.0f;
+            for (const ri::content::NativeSculptVertexInfluence& influence :
+                 paint.vertexInfluences.front()) {
+                if (influence.boneName == "hand_l") {
+                    handWeight = influence.weight;
+                }
+            }
+            if (handWeight > 0.86f) {
+                std::cerr << "Ceil left hand_l above the ceiling.\n";
+                return EXIT_FAILURE;
+            }
+        }
+        // Solo rigid above Ceil should leave unbound remainder, not no-op.
+        paint.vertexBoneNames.front() = "hand_l";
+        paint.vertexInfluences.front() = {
+            ri::content::NativeSculptVertexInfluence{.boneName = "hand_l", .weight = 1.0f},
+        };
+        if (ri::scene::CeilNativeSculptBoneWeights(paint, "hand_l", 0.75f) == 0U
+            || paint.vertexInfluences.front().size() != 1U
+            || paint.vertexInfluences.front().front().weight > 0.76f
+            || paint.vertexInfluences.front().front().weight < 0.74f) {
+            std::cerr << "Ceil solo did not leave hand_l at the ceiling with unbound remainder.\n";
+            return EXIT_FAILURE;
+        }
+        // Paste onto a full Cap4 slot: a strong new bone must replace the weakest.
+        {
+            paint.vertexBoneNames.front() = "hips";
+            paint.vertexInfluences.front() = {
+                {"hips", 0.40f},
+                {"spine", 0.30f},
+                {"chest", 0.20f},
+                {"neck", 0.10f},
+            };
+            std::vector<float> paste(paint.mesh.positions.size(), 0.0f);
+            paste.front() = 0.55f;
+            if (ri::scene::ApplyNativeSculptBoneWeights(paint, "hand_r", paste) == 0U) {
+                std::cerr << "Cap-safe paste wrote no verts onto a full influence list.\n";
+                return EXIT_FAILURE;
+            }
+            bool hasHand = false;
+            bool hasNeck = false;
+            for (const ri::content::NativeSculptVertexInfluence& influence :
+                 paint.vertexInfluences.front()) {
+                if (influence.boneName == "hand_r") {
+                    hasHand = true;
+                }
+                if (influence.boneName == "neck") {
+                    hasNeck = true;
+                }
+            }
+            if (!hasHand || hasNeck
+                || paint.vertexInfluences.front().size()
+                    > static_cast<std::size_t>(ri::content::NativeSculptDocument::kMaxInfluences)) {
+                std::cerr << "Cap-safe paste did not replace the weakest influence.\n";
+                return EXIT_FAILURE;
+            }
+        }
+        // Transfer onto an over-cap list must claim a slot for the destination bone.
+        {
+            paint.vertexBoneNames.front() = "hips";
+            paint.vertexInfluences.front() = {
+                {"hips", 0.30f},
+                {"spine", 0.25f},
+                {"chest", 0.20f},
+                {"neck", 0.15f},
+                {"hand_l", 0.10f},
+            };
+            if (ri::scene::TransferNativeSculptWeights(paint, "hand_l", "hand_r") == 0U) {
+                std::cerr << "Cap-safe transfer wrote no verts.\n";
+                return EXIT_FAILURE;
+            }
+            bool hasHandR = false;
+            bool hasHandL = false;
+            for (const ri::content::NativeSculptVertexInfluence& influence :
+                 paint.vertexInfluences.front()) {
+                if (influence.boneName == "hand_r") {
+                    hasHandR = true;
+                }
+                if (influence.boneName == "hand_l") {
+                    hasHandL = true;
+                }
+            }
+            if (!hasHandR || hasHandL
+                || paint.vertexInfluences.front().size()
+                    > static_cast<std::size_t>(ri::content::NativeSculptDocument::kMaxInfluences)) {
+                std::cerr << "Cap-safe transfer did not land hand_r within Cap4.\n";
+                return EXIT_FAILURE;
+            }
+        }
+        // Blend-paint Cap4: a mid-strength dab must be able to claim the weakest slot.
+        {
+            paint.vertexBoneNames.front() = "hips";
+            paint.vertexInfluences.front() = {
+                {"hips", 0.40f},
+                {"spine", 0.30f},
+                {"chest", 0.20f},
+                {"neck", 0.10f},
+            };
+            const ri::math::Vec3 center = paint.mesh.positions.front();
+            const std::size_t painted = ri::scene::PaintNativeSculptWeights(
+                paint,
+                center,
+                2.0f,
+                "hand_r",
+                ri::scene::NativeSculptWeightPaint::Add,
+                false,
+                false,
+                false,
+                0.35f);
+            if (painted == 0U) {
+                std::cerr << "Cap4 blend paint claimed no verts with a mid-strength dab.\n";
+                return EXIT_FAILURE;
+            }
+            bool hasHand = false;
+            for (const ri::content::NativeSculptVertexInfluence& influence :
+                 paint.vertexInfluences.front()) {
+                if (influence.boneName == "hand_r") {
+                    hasHand = true;
+                }
+            }
+            if (!hasHand) {
+                std::cerr << "Cap4 blend paint did not introduce hand_r.\n";
+                return EXIT_FAILURE;
+            }
+        }
+        // Stuff five influences, then Cap4 should drop the weakest and renormalize.
+        paint.vertexBoneNames.front() = "hips";
+        paint.vertexInfluences.front() = {
+            {"hips", 0.40f},
+            {"spine", 0.25f},
+            {"chest", 0.15f},
+            {"neck", 0.12f},
+            {"head", 0.08f},
+        };
+        if (ri::scene::AuditNativeSculptWeights(paint).overInfluencedCount == 0U) {
+            std::cerr << "Audit missed an over-cap influence list.\n";
+            return EXIT_FAILURE;
+        }
+        if (ri::scene::LimitNativeSculptInfluences(paint, 4) == 0U
+            || paint.vertexInfluences.front().size() != 4U
+            || paint.vertexInfluences.front().back().boneName == "head") {
+            std::cerr << "Limit influences did not keep the strongest four.\n";
+            return EXIT_FAILURE;
+        }
+        if (ri::scene::AuditNativeSculptWeights(paint).overInfluencedCount != 0U) {
+            std::cerr << "Audit still reports over-cap after Cap4.\n";
+            return EXIT_FAILURE;
+        }
+        paint.vertexBoneNames.front() = "ghost_fin";
+        paint.vertexInfluences.front() = {
+            {"ghost_fin", 0.6f},
+            {"hips", 0.4f},
+        };
+        const std::vector<std::string> allowedBones{"hips", "spine", "chest"};
+        if (ri::scene::StripNativeSculptOrphanInfluences(paint, allowedBones) == 0U
+            || paint.vertexBoneNames.front() != "hips"
+            || paint.vertexInfluences.front().size() != 1U
+            || paint.vertexInfluences.front().front().boneName != "hips") {
+            std::cerr << "Strip orphan influences did not drop ghost_fin.\n";
+            return EXIT_FAILURE;
+        }
+        // Leave a hips seed and clear the rest, then Seal should pull neighbor weights in.
+        (void)ri::scene::FloodNativeSculptWeights(paint, "hips");
+        for (std::size_t vertex = 1; vertex < paint.vertexBoneNames.size(); ++vertex) {
+            paint.vertexBoneNames[vertex].clear();
+            if (vertex < paint.vertexInfluences.size()) {
+                paint.vertexInfluences[vertex].clear();
+            }
+        }
+        const std::size_t sealed = ri::scene::SealUnboundNativeSculptWeightsFromNeighbors(paint);
+        if (sealed == 0U) {
+            std::cerr << "Seal unbound weights filled no neighbor verts.\n";
+            return EXIT_FAILURE;
+        }
+        bool sealedNeighbor = false;
+        for (std::size_t vertex = 1; vertex < paint.vertexBoneNames.size(); ++vertex) {
+            if (!paint.vertexBoneNames[vertex].empty()
+                || (vertex < paint.vertexInfluences.size() && !paint.vertexInfluences[vertex].empty())) {
+                sealedNeighbor = true;
+                break;
+            }
+        }
+        if (!sealedNeighbor) {
+            std::cerr << "Seal unbound weights did not bind any neighbor of hips.\n";
             return EXIT_FAILURE;
         }
         // Ensure a full hips flood so the blend-paint checks below stay deterministic.
@@ -747,6 +1099,63 @@ int main() {
     if (ri::scene::UnbindNativeSculptFromRig(maintain) == 0U || !maintain.rigPath.empty()
         || ri::scene::AuditNativeSculptWeights(maintain).boundCount != 0U) {
         std::cerr << "Unbind did not clear rig path and weights.\n";
+        return EXIT_FAILURE;
+    }
+
+    ri::content::BlockCharacterDocument psxParts{};
+    psxParts.id = "psx_scout";
+    psxParts.displayName = "PSX Scout";
+    psxParts.parts = {
+        ri::content::BlockCharacterPart{
+            .id = "head",
+            .name = "Head",
+            .boneName = "head",
+            .shape = "dome",
+            .center = {0.0F, 1.98F, 0.04F},
+            .halfExtent = {0.32F, 0.30F, 0.30F},
+            .albedoColor = {0.48F, 0.58F, 0.36F},
+        },
+        ri::content::BlockCharacterPart{
+            .id = "chest",
+            .name = "Chest",
+            .boneName = "chest",
+            .shape = "prism",
+            .center = {0.0F, 1.40F, 0.04F},
+            .halfExtent = {0.36F, 0.24F, 0.16F},
+            .halfExtentTop = {0.26F, 0.24F, 0.12F},
+            .albedoColor = {0.58F, 0.66F, 0.38F},
+        },
+        ri::content::BlockCharacterPart{
+            .id = "boot_l",
+            .name = "Boot L",
+            .boneName = "left_foot",
+            .shape = "wedge",
+            .center = {-0.15F, 0.02F, 0.14F},
+            .halfExtent = {0.14F, 0.08F, 0.26F},
+            .albedoColor = {0.30F, 0.26F, 0.20F},
+        },
+    };
+    ri::content::NativeSculptDocument psx =
+        ri::scene::CreateBlockCharacterSculptDocument("psx scout", "PSX Scout", psxParts);
+    const auto psxReport = ri::content::ValidateNativeSculptDocument(psx);
+    if (!psxReport.valid || psx.cage != "psx" || psx.mesh.positions.size() < 24U * 5U
+        || psx.vertexBoneNames.size() != psx.mesh.positions.size()
+        || psx.vertexInfluences.size() != psx.mesh.positions.size()
+        || psx.mesh.normals.size() != psx.mesh.positions.size()) {
+        std::cerr << "PSX humanoid sculpt was incomplete.\n";
+        return EXIT_FAILURE;
+    }
+    const ri::scene::RigDefinition psxRig =
+        ri::scene::CreateHumanoidRigDefinition("psx_scout", "PSX Scout");
+    const auto psxBind =
+        ri::scene::BindNativeSculptToRig(psx, psxRig, "rigs/psx_scout.ri_rig.json", false);
+    if (!psxBind.valid || psx.rigPath.empty()) {
+        std::cerr << "PSX bind failed: " << psxBind.summary << "\n";
+        return EXIT_FAILURE;
+    }
+    const auto psxAudit = ri::scene::AuditNativeSculptWeights(psx);
+    if (psxAudit.boundCount == 0U || psxAudit.unboundCount != 0U) {
+        std::cerr << "PSX weights incomplete after bind.\n";
         return EXIT_FAILURE;
     }
 

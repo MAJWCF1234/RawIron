@@ -170,6 +170,18 @@ std::string_view AuthoritativeNetModule::Name() const noexcept {
 }
 
 bool AuthoritativeNetModule::OnRuntimeStartup(RuntimeContext& context, const ri::core::CommandLine&) {
+    config_.tickRate=std::clamp(config_.tickRate,1,240);
+    commandClock_=ri::core::FixedStepAccumulator({1.0/config_.tickRate,4,0.25});
+    ResetSessionState();
+    serverTelemetry_={};
+    predictionTelemetry_={};
+    if (config_.simulationBridge != nullptr) {
+        try { config_.simulationBridge->OnCommandTick(0); }
+        catch (...) {
+            context.Fail("Authority bridge session reset failed");
+            return false;
+        }
+    }
     if (config_.requireSessionExtensionAgreement) {
         const ri::core::SessionExtensionValidationReport report =
             ri::core::NormalizeSessionExtensionContract(config_.sessionExtensionContract);
@@ -620,36 +632,57 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
             resync.fields["reason"] = "client_resync_request";
             context.Events().Emit("net.snapshot.resync_requested", std::move(resync));
         } else {
-            if (config_.simulationBridge != nullptr) {
-                std::string commandError;
-                bool accepted = false;
-                try {
-                    accepted = config_.simulationBridge->HandleCommand(
-                        ready->peerId, ready->channel, ready->payload, &commandError);
-                } catch (const std::exception& exception) {
-                    commandError = exception.what();
-                } catch (...) {
-                    commandError = "simulation bridge threw an unknown exception";
+            if (IsAuthorityHostRole(config_.role) && config_.simulationBridge != nullptr) {
+                constexpr std::size_t maxQueuedCommands = 128;
+                constexpr std::size_t maxQueuedBytes = 1024 * 1024;
+                const auto peerCount = std::count_if(pendingCommands_.begin(),pendingCommands_.end(),
+                    [&](const NetPacket& packet){return packet.peerId==ready->peerId;});
+                if (pendingCommands_.size() >= maxQueuedCommands || peerCount >= 16
+                    || ready->payload.size() > maxQueuedBytes-pendingCommandBytes_) {
+                    SaturatingAdd(serverTelemetry_.commandQueueDrops,1);
+                    emitIgnoredPacket(ready->peerId,ready->payload.size(),"command_queue_limit");
+                } else {
+                    pendingCommandBytes_ += ready->payload.size();
+                    pendingCommands_.push_back(*ready);
                 }
-                RuntimeEvent commandResult{};
-                commandResult.fields["peer"] = std::to_string(ready->peerId);
-                commandResult.fields["channel"] = std::to_string(ready->channel);
-                commandResult.fields["bytes"] = std::to_string(ready->payload.size());
-                if (!commandError.empty()) {
-                    commandResult.fields["reason"] = std::move(commandError);
-                }
-                context.Events().Emit(accepted ? "net.command.accepted" : "net.command.rejected",
-                                      std::move(commandResult));
-                if (!accepted) {
-                    continue;
-                }
+            } else {
+                DispatchCommand(context,*ready);
             }
-            RuntimeEvent command{};
-            command.fields["peer"] = std::to_string(ready->peerId);
-            command.fields["channel"] = std::to_string(ready->channel);
-            command.fields["bytes"] = std::to_string(ready->payload.size());
-            context.Events().Emit("net.command.received", std::move(command));
         }
+    }
+
+    if (IsAuthorityHostRole(config_.role)) {
+        // Retire stale work before advancing the clock: disconnected or unagreed peers
+        // must never mutate a domain later merely because they once queued a packet.
+        for(auto it=pendingCommands_.begin();it!=pendingCommands_.end();) {
+            if(std::find(connectedPeers.begin(),connectedPeers.end(),it->peerId)==connectedPeers.end()
+                || (config_.requireSessionExtensionAgreement
+                    && PeerSessionExtensionState(it->peerId)!=SessionExtensionPeerState::Accepted)) {
+                pendingCommandBytes_-=it->payload.size();
+                it=pendingCommands_.erase(it);
+                SaturatingAdd(serverTelemetry_.staleCommandDrops,1);
+            } else ++it;
+        }
+        const auto advance=commandClock_.Advance(frame.deltaSeconds);
+        for(std::size_t step=0;step<advance.stepCount;++step) {
+            SaturatingAdd(serverTelemetry_.commandTicks,1);
+            if(config_.simulationBridge) {
+                try {config_.simulationBridge->OnCommandTick(serverTelemetry_.commandTicks);}
+                catch(...) {context.Fail("Authority command tick callback failed");return false;}
+            }
+            // Bound per-boundary work independently of the receive and catch-up budgets.
+            for(std::size_t count=0;count<32 && !pendingCommands_.empty();++count) {
+                auto packet=std::move(pendingCommands_.front());pendingCommands_.pop_front();
+                pendingCommandBytes_-=packet.payload.size();
+                if(peerIsCoolingDown(packet.peerId,false)) {
+                    SaturatingAdd(serverTelemetry_.staleCommandDrops,1);continue;
+                }
+                SaturatingAdd(serverTelemetry_.commandsDispatched,1);
+                DispatchCommand(context,packet);
+            }
+        }
+        serverTelemetry_.pendingCommands=pendingCommands_.size();
+        serverTelemetry_.pendingCommandBytes=pendingCommandBytes_;
     }
 
     if (config_.role == NetRole::DedicatedServer || config_.role == NetRole::ListenServer) {
@@ -862,6 +895,12 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
     metrics.fields["snapshot_broadcasts"] = std::to_string(serverTelemetry_.snapshotsBroadcast);
     metrics.fields["inbound_packets"] = std::to_string(serverTelemetry_.inboundPackets);
     metrics.fields["last_snapshot_tick"] = std::to_string(serverTelemetry_.lastSnapshotTick);
+    metrics.fields["command_ticks"] = std::to_string(serverTelemetry_.commandTicks);
+    metrics.fields["command_queue_packets"] = std::to_string(serverTelemetry_.pendingCommands);
+    metrics.fields["command_queue_bytes"] = std::to_string(serverTelemetry_.pendingCommandBytes);
+    metrics.fields["command_queue_drops"] = std::to_string(serverTelemetry_.commandQueueDrops);
+    metrics.fields["stale_command_drops"] = std::to_string(serverTelemetry_.staleCommandDrops);
+    metrics.fields["commands_dispatched"] = std::to_string(serverTelemetry_.commandsDispatched);
     metrics.fields["tracked_peers"] = std::to_string(snapshotReplicator_.TrackedPeerCount());
     if (const auto latest = netGraph_.Latest(); latest.has_value()) {
         metrics.fields["netgraph_rtt_ms"] = std::to_string(latest->rttMs);
@@ -875,16 +914,82 @@ bool AuthoritativeNetModule::OnRuntimeFrame(RuntimeContext& context, const ri::c
     return true;
 }
 
+void AuthoritativeNetModule::DispatchCommand(RuntimeContext& context, const NetPacket& packet) {
+    if (config_.simulationBridge != nullptr) {
+        std::string commandError;
+        bool accepted = false;
+        try {
+            accepted = config_.simulationBridge->HandleCommand(
+                packet.peerId, packet.channel, packet.payload, &commandError);
+        } catch (const std::exception& exception) {
+            commandError = exception.what();
+        } catch (...) {
+            commandError = "simulation bridge threw an unknown exception";
+        }
+        RuntimeEvent commandResult{};
+        commandResult.fields["tick"] = std::to_string(serverTelemetry_.commandTicks);
+        commandResult.fields["peer"] = std::to_string(packet.peerId);
+        commandResult.fields["channel"] = std::to_string(packet.channel);
+        commandResult.fields["bytes"] = std::to_string(packet.payload.size());
+        if (!commandError.empty()) {
+            commandResult.fields["reason"] = std::move(commandError);
+        }
+        context.Events().Emit(accepted ? "net.command.accepted" : "net.command.rejected",
+                              std::move(commandResult));
+        if (!accepted) {
+            return;
+        }
+    }
+    RuntimeEvent command{};
+    command.fields["tick"] = std::to_string(serverTelemetry_.commandTicks);
+    command.fields["peer"] = std::to_string(packet.peerId);
+    command.fields["channel"] = std::to_string(packet.channel);
+    command.fields["bytes"] = std::to_string(packet.payload.size());
+    context.Events().Emit("net.command.received", std::move(command));
+}
+
+void AuthoritativeNetModule::ResetSessionState() {
+    config_.role = NetRole::None;
+    pendingCommands_.clear();
+    pendingCommandBytes_ = 0;
+    serverTelemetry_.pendingCommands = serverTelemetry_.pendingCommandBytes = 0;
+    commandClock_.Reset();
+    snapshotCadenceAccumulatorSeconds_ = 0;
+    lastBroadcastTick_ = 0;
+    // Configure intentionally preserves delayed packets while enabled. A session
+    // boundary must instead discard packets, baselines and peer authentication.
+    latencySimulator_ = LatencySimulator(0xBADC0DEu);
+    snapshotReplicator_ = SnapshotReplicator(128);
+    netGraph_ = NetGraphTracker(512);
+    rewindBuffer_ = RewindBuffer(config_.rewindFrames);
+    peerOffenses_.clear();
+    p2pPeerOffenses_.clear();
+    peerResyncAcceptedMs_.clear();
+    sessionExtensionPeers_.clear();
+    localSessionExtensionState_ = SessionExtensionPeerState::NotRequired;
+    activeJoinCode_.reset();
+    migrationState_ = HostMigrationState::Idle;
+    migrationFrames_ = 0;
+    localPredictionTick_ = 0;
+    predictedPositionX_ = 0;
+    predictedHistory_.clear();
+}
+
 void AuthoritativeNetModule::OnRuntimeShutdown(RuntimeContext&) {
-    if (authorityTransport_ != nullptr) {
-        authorityTransport_->Shutdown();
-    }
-    if (p2pTransport_ != nullptr) {
-        p2pTransport_->Shutdown();
-    }
-    if (rendezvous_ != nullptr) {
-        rendezvous_->Shutdown();
-    }
+    config_.role = NetRole::None;
+    // One service failure must not skip the remaining cleanup or leave sends enabled.
+    std::exception_ptr cleanupFailure;
+    const auto shutdown = [&cleanupFailure](auto& service) {
+        if (service == nullptr) return;
+        try { service->Shutdown(); }
+        catch (...) { if (!cleanupFailure) cleanupFailure = std::current_exception(); }
+    };
+    shutdown(authorityTransport_);
+    shutdown(p2pTransport_);
+    shutdown(rendezvous_);
+    try { ResetSessionState(); }
+    catch (...) { if (!cleanupFailure) cleanupFailure = std::current_exception(); }
+    if (cleanupFailure) std::rethrow_exception(cleanupFailure);
 }
 
 const AuthoritativeNetConfig& AuthoritativeNetModule::Config() const noexcept {
@@ -924,6 +1029,7 @@ bool AuthoritativeNetModule::SendPacket(
     const std::size_t peerId,
     const NetPacket& packet,
     const NetChannelKind kind) {
+    if (config_.role == NetRole::None) return false;
     if (!IsNetPacketPayloadSizeAllowed(packet.payload.size())) {
         SaturatingAdd(serverTelemetry_.oversizedOutboundPacketsRejected, 1U);
         return false;

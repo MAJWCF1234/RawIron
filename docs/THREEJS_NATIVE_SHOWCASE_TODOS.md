@@ -115,3 +115,14 @@ Regression reproduction, configured-workspace verification and remaining limits 
 - [ ] Desktop and PCVR controls, accessibility/comfort notes, and reset route.
 - [ ] Test commands, hardware capture location, benchmark target, and known limitations.
 - [ ] Package membership, cooker input, and runtime mount contract.
+
+## 2026-10-08 mesh feature additions
+
+- [x] Add four native Cube Test rooms for vertex RGB, UV transforms, absolute morph
+  targets, and intersecting local clipping planes. Shared operators live in
+  RawIron.SceneUtilities, with Vulkan/software/XR color streams and glTF RGB
+  interchange. [Scope and evidence](MESH_FEATURE_ROSTER_VALIDATION.md).
+- [x] Expose camera-follow directional shadow coverage to games.
+- [ ] Complete GPU morph attributes, fragment clipping/caps and independent shadow
+  clipping modes; assess upstream example controls before marking full parity.
+- [ ] Implement cascaded directional shadows and validate near/far transitions.

@@ -4,6 +4,8 @@
 #include "RawIron/Content/GameRuntimeSupport.h"
 #include "RawIron/Core/Log.h"
 #include "RawIron/Games/GameConfigContracts.h"
+#include "RawIron/Games/GameNetworkTuning.h"
+#include "RawIron/Content/GameScriptBundle.h"
 #include "RawIron/Games/GameRuntimeCore.h"
 #include "RawIron/Runtime/BotClients.h"
 #include "RawIron/Runtime/RuntimeNetcode.h"
@@ -67,7 +69,7 @@ bool RunStandalone(const StandaloneOptions& options,
         }
         if (!ri::games::EnforceGameConfigContracts(
                 manifest->rootPath,
-                ri::games::GameConfigContractOptions{.mode = ri::games::GameConfigContractMode::Balanced},
+                ri::games::GameConfigContractOptions{.mode = ri::games::GameConfigContractMode::Balanced, .networkTuningMounted = true},
                 error)) {
             return false;
         }
@@ -84,6 +86,7 @@ bool RunStandalone(const StandaloneOptions& options,
             ri::games::GameRuntimeBootServices{.manifest = std::move(manifestService), .support = std::move(supportService)});
 
         ri::runtime::AuthoritativeNetConfig net{};
+        net.enabled = !commandLine.HasFlag("--offline");
         net.enabled = !commandLine.HasFlag("--offline");
         net.mode = ParseNetMode(options.netMode);
         net.bindEndpoint.host = "0.0.0.0";
@@ -105,6 +108,9 @@ bool RunStandalone(const StandaloneOptions& options,
         net.latencySimulation.baseDelayMs = options.simDelayMs;
         net.latencySimulation.jitterMs = options.simJitterMs;
         net.latencySimulation.packetLossPercent = static_cast<float>(options.simLossPct);
+
+        ri::games::ApplyGameNetworkTuning(net,
+            ri::content::LoadGameScriptBundle(manifest->rootPath, {.logMissing = false}).network, commandLine);
 
         auto netModule = std::make_unique<ri::runtime::AuthoritativeNetModule>(net);
         ri::runtime::AuthoritativeNetModule* netPtr = netModule.get();

@@ -114,8 +114,8 @@ NativeSculptValidationReport ValidateNativeSculptDocument(const NativeSculptDocu
         report.errors.push_back("Sculpt id is required.");
     }
     const std::string cage = LowerAscii(document.cage);
-    if (cage != "sphere" && cage != "cube") {
-        report.errors.push_back("Sculpt cage must be sphere or cube.");
+    if (cage != "sphere" && cage != "cube" && cage != "psx") {
+        report.errors.push_back("Sculpt cage must be sphere, cube, or psx.");
     }
     if (document.mesh.positions.empty() || document.mesh.indices.size() < 3U) {
         report.errors.push_back("Sculpt mesh is empty.");
@@ -249,6 +249,9 @@ std::string SerializeNativeSculptDocument(const NativeSculptDocument& document) 
     WriteNumberArray(jsonOut, "indices", indices);
     jsonOut << ",\n";
     jsonOut << "  \"rigPath\": \"" << json::EscapeJsonString(document.rigPath) << "\"";
+    if (!document.blockCharPath.empty()) {
+        jsonOut << ",\n  \"blockCharPath\": \"" << json::EscapeJsonString(document.blockCharPath) << "\"";
+    }
     if (!document.vertexBoneNames.empty()) {
         jsonOut << ",\n  \"vertexBoneNames\": [";
         for (std::size_t index = 0; index < document.vertexBoneNames.size(); ++index) {
@@ -330,6 +333,7 @@ std::optional<NativeSculptDocument> ParseNativeSculptDocument(const std::string_
     document.mesh.vertexCount = static_cast<int>(document.mesh.positions.size());
     document.mesh.indexCount = static_cast<int>(document.mesh.indices.size());
     document.rigPath = json::ExtractJsonString(jsonText, "rigPath").value_or("");
+    document.blockCharPath = json::ExtractJsonString(jsonText, "blockCharPath").value_or("");
     document.vertexBoneNames = json::ExtractJsonStringArray(jsonText, "vertexBoneNames");
     for (const std::string_view influenceObject : json::SplitJsonArrayObjects(jsonText, "vertexInfluences")) {
         std::vector<NativeSculptVertexInfluence> influences{};

@@ -233,6 +233,8 @@ struct Mesh {
     std::vector<ri::math::Vec3> normals;
     /// When non-empty, must match `positions.size()` for textured custom meshes in the software preview.
     std::vector<ri::math::Vec2> texCoords;
+    /// Optional scene-linear RGB vertex modulation, parallel to positions; empty means white.
+    std::vector<ri::math::Vec3> colors;
     /// Per-vertex camera-plane offset for `CameraFacingSpriteQuads`; parallel to `positions`.
     std::vector<ri::math::Vec2> billboardOffsets;
     std::vector<int> indices;

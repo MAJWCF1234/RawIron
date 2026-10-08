@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RawIron/Runtime/LagCompensation.h"
+#include "RawIron/Core/FixedStepAccumulator.h"
 #include "RawIron/Runtime/LatencyTools.h"
 #include "RawIron/Runtime/NetModes.h"
 #include "RawIron/Runtime/NetTransport.h"
@@ -47,6 +48,8 @@ class IAuthoritativeSimulationBridge {
 public:
     virtual ~IAuthoritativeSimulationBridge() = default;
 
+    // Fixed command boundary; does not advance game physics or the snapshot clock.
+    virtual void OnCommandTick(std::uint64_t tick) { (void)tick; }
     [[nodiscard]] virtual std::optional<SnapshotBlob> CaptureSnapshot(std::uint32_t tick) = 0;
     /// Must leave the world unchanged when returning false.
     virtual bool ApplySnapshot(const SnapshotBlob& snapshot, std::string* error) = 0;
@@ -60,6 +63,7 @@ public:
 struct AuthoritativeNetConfig {
     NetMode mode = NetMode::ClientOnly;
     NetRole role = NetRole::None;
+    /// Authority command dispatch Hz, independent of snapshot cadence.
     int tickRate = 60;
     int serverTickRate = 125;
     int maxPeers = 32;
@@ -107,6 +111,12 @@ struct ServerNetTelemetry {
     /// Packets dropped because the peer is under an escalating protocol-offense cooldown.
     std::uint64_t inboundPacketsDroppedByPeerCooldown = 0;
     std::uint32_t lastSnapshotTick = 0;
+    std::uint64_t commandTicks = 0;
+    std::uint64_t commandsDispatched = 0;
+    std::uint64_t commandQueueDrops = 0;
+    std::uint64_t staleCommandDrops = 0;
+    std::size_t pendingCommands = 0;
+    std::size_t pendingCommandBytes = 0;
 };
 
 class AuthoritativeNetModule final : public RuntimeModule {
@@ -136,6 +146,8 @@ private:
     [[nodiscard]] static const char* MigrationStateName(HostMigrationState state) noexcept;
     void EmitMigrationState(RuntimeContext& context, HostMigrationState newState, std::string reason = {});
     void TickHostMigration(RuntimeContext& context);
+    void DispatchCommand(RuntimeContext& context, const NetPacket& packet);
+    void ResetSessionState();
 
     struct PeerOffenseState {
         std::uint32_t strikes = 0;
@@ -160,6 +172,9 @@ private:
     std::unordered_map<std::size_t, std::uint64_t> peerResyncAcceptedMs_{};
     std::uint32_t lastBroadcastTick_ = 0;
     double snapshotCadenceAccumulatorSeconds_ = 0.0;
+    ri::core::FixedStepAccumulator commandClock_{};
+    std::deque<NetPacket> pendingCommands_{};
+    std::size_t pendingCommandBytes_ = 0;
     HostMigrationState migrationState_ = HostMigrationState::Idle;
     int migrationFrames_ = 0;
     std::optional<std::string> activeJoinCode_{};

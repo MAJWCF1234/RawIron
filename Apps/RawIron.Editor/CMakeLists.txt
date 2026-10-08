@@ -212,4 +212,12 @@ if (RAWIRON_BUILD_TESTS)
       -DRAWIRON_WORKSPACE=${CMAKE_SOURCE_DIR}
       -P ${CMAKE_SOURCE_DIR}/Tests/VerifyPluginStorePackages.cmake
   )
+  if(TARGET RawIron.Game.RuntimeDiagnosticsDraw)
+    add_executable(EditorScaffoldContractSmoke
+      ${CMAKE_SOURCE_DIR}/Tests/EditorScaffoldContractSmoke.cpp
+      src/EditorProjectScaffolding.cpp)
+    target_include_directories(EditorScaffoldContractSmoke PRIVATE src)
+    target_link_libraries(EditorScaffoldContractSmoke PRIVATE RawIron::Game.RuntimeDiagnosticsDraw)
+    add_test(NAME RawIron.Editor.ScaffoldContractSmoke COMMAND EditorScaffoldContractSmoke)
+  endif()
 endif()

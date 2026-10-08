@@ -2,9 +2,15 @@
 
 #include "RawIron/Math/Mat4.h"
 #include <cmath>
+#include <algorithm>
 #include <cstdint>
 
 namespace ri::render::vulkan {
+
+// Half-width in metres; smaller coverage improves precision at the cost of range.
+inline float ResolveShadowCoverageRadius(float requested) {
+    return std::isfinite(requested) ? std::clamp(requested, 8.0f, 256.0f) : 90.0f;
+}
 
 // Affine orthographic light VP matrix: the translation column projects world origin.
 // Snap that fixed anchor, not the moving camera/follow center (which always projects

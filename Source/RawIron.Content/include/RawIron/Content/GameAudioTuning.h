@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include "RawIron/Content/ScriptScalars.h"
 
 namespace ri::content {
 
@@ -13,5 +14,7 @@ struct GameAudioTuningScalars {
 };
 
 [[nodiscard]] GameAudioTuningScalars LoadGameAudioTuningScalars(const std::filesystem::path& gameRoot);
+/// Consume an already-prepared script snapshot without rereading the project.
+[[nodiscard]] GameAudioTuningScalars LoadGameAudioTuningScalars(const ScriptScalarMap& scalars);
 
 } // namespace ri::content

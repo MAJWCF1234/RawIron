@@ -1,7 +1,12 @@
 #include "RawIron/Games/CubeTest/CubeTestAuthority.h"
 #include "RawIron/Core/CommandLine.h"
+#include "RawIron/Content/GameScriptBundle.h"
+#include "RawIron/Content/GameManifest.h"
+#include "RawIron/Games/GameNetworkTuning.h"
+#include "RawIron/Games/GameConfigContracts.h"
 #include "RawIron/Core/SessionExtensions.h"
 #include <algorithm>
+#include <stdexcept>
 
 namespace ri::games::cubetest {
 namespace {
@@ -26,7 +31,8 @@ void CubeTestAuthorityBridge::SetWorld(CubeTestWorld* world) {
 }
 ri::runtime::AuthoritativeNetConfig BuildCubeTestAuthorityConfig(
     const ri::core::CommandLine& commandLine,
-    std::shared_ptr<CubeTestAuthorityBridge> bridge) {
+    std::shared_ptr<CubeTestAuthorityBridge> bridge,
+    const std::filesystem::path& gameRoot) {
     ri::runtime::AuthoritativeNetConfig config{};
     bool enabled = false;
     config.mode = ParseNetworkMode(commandLine.GetValue("--net-mode").value_or("offline"), enabled);
@@ -40,6 +46,25 @@ ri::runtime::AuthoritativeNetConfig BuildCubeTestAuthorityConfig(
     config.serverTickRate = std::clamp(commandLine.GetIntOr("--server-tick", 60), 20, 125);
     config.tickRate = config.serverTickRate;
     config.maxPeers = std::clamp(commandLine.GetIntOr("--max-peers", 8), 1, 32);
+    std::filesystem::path resolvedGameRoot = gameRoot;
+    if (resolvedGameRoot.empty()) {
+        const auto workspace = commandLine.GetValue("--workspace-root");
+        const auto manifest = ri::content::ResolveGameManifest(
+            workspace ? std::filesystem::path(*workspace)
+                      : ri::content::DetectWorkspaceRoot(std::filesystem::current_path()), "cube-test");
+        if (manifest) resolvedGameRoot = manifest->rootPath;
+    }
+    if (!resolvedGameRoot.empty()) {
+        if (gameRoot.empty()) {
+            std::string error;
+            if (!ri::games::EnforceGameConfigContracts(resolvedGameRoot,
+                    {.mode=ri::games::GameConfigContractMode::Balanced, .networkTuningMounted=true}, &error)) {
+                throw std::runtime_error(error);
+            }
+        }
+        ri::games::ApplyGameNetworkTuning(config,
+            ri::content::LoadGameScriptBundle(resolvedGameRoot, {.logMissing = false}).network, commandLine);
+    }
     config.rendezvousProvider = ri::runtime::RendezvousProviderKind::DirectToken;
     config.requireSessionExtensionAgreement = config.enabled;
     config.simulationBridge = std::move(bridge);

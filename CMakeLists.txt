@@ -101,6 +101,7 @@ add_subdirectory(Source/RawIron.Spatial)
 add_subdirectory(Source/RawIron.Trace)
 add_subdirectory(Source/RawIron.Validation)
 add_subdirectory(Source/RawIron.SceneUtilities)
+add_subdirectory(Source/RawIron.GameHost)
 add_subdirectory(Source/RawIron.EditorPreview)
 add_subdirectory(Source/RawIron.XR.OpenXR)
 

@@ -14,6 +14,7 @@ namespace ri::forge {
 enum class AssetKind {
     ModelSource,
     PrimitiveModel,
+    BlockCharacter,
     Sculpt,
     Rig,
     Animation,
@@ -35,10 +36,12 @@ struct AssetCatalog {
     std::vector<AssetEntry> entries;
     std::size_t modelCount = 0;
     std::size_t primitiveModelCount = 0;
+    std::size_t blockCharacterCount = 0;
     std::size_t sculptCount = 0;
     std::size_t rigCount = 0;
     std::size_t animationCount = 0;
     std::size_t invalidPrimitiveModelCount = 0;
+    std::size_t invalidBlockCharacterCount = 0;
     std::size_t invalidSculptCount = 0;
     std::size_t invalidRigCount = 0;
     std::size_t invalidAnimationCount = 0;
@@ -55,6 +58,7 @@ struct ModelSourceValidationReport {
 
 [[nodiscard]] bool IsModelSourcePath(const std::filesystem::path& path);
 [[nodiscard]] bool IsPrimitiveModelPath(const std::filesystem::path& path);
+[[nodiscard]] bool IsBlockCharacterPath(const std::filesystem::path& path);
 [[nodiscard]] bool IsSculptPath(const std::filesystem::path& path);
 [[nodiscard]] bool IsRigPath(const std::filesystem::path& path);
 [[nodiscard]] bool IsAnimationPath(const std::filesystem::path& path);

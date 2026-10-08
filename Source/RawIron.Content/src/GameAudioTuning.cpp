@@ -6,9 +6,13 @@
 namespace ri::content {
 
 GameAudioTuningScalars LoadGameAudioTuningScalars(const std::filesystem::path& gameRoot) {
-    GameAudioTuningScalars tuning{};
     const ScriptScalarMap scalars =
         LoadScriptScalars(ResolveGameAssetPath(gameRoot, "scripts/audio.riscript"));
+    return LoadGameAudioTuningScalars(scalars);
+}
+
+GameAudioTuningScalars LoadGameAudioTuningScalars(const ScriptScalarMap& scalars) {
+    GameAudioTuningScalars tuning{};
     if (scalars.empty()) {
         return tuning;
     }

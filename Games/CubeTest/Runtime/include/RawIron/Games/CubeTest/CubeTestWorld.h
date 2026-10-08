@@ -14,6 +14,7 @@
 namespace ri::games::cubetest {
 
 struct CubeTestWorld {
+    struct MeshFeatureAnimation { int node=-1; std::vector<int> frames; };
     ri::scene::Scene scene;
     bool materialCalibration = false;
     int rootNode = ri::scene::kInvalidHandle;
@@ -45,7 +46,12 @@ struct CubeTestWorld {
     std::vector<ri::world::InteractivePropState> projectileProps{};
     ri::world::InteractivePropFieldOptions projectileField{};
     double projectileSimulationTime = 0.0;
+    std::vector<MeshFeatureAnimation> meshFeatureAnimations;
+    int featureFrameOverride=-1;
 };
+
+void AddCubeTestMeshFeatureRooms(CubeTestWorld& world,const std::filesystem::path& workspaceRoot);
+void AnimateCubeTestMeshFeatures(CubeTestWorld& world,double elapsedSeconds);
 
 [[nodiscard]] CubeTestWorld BuildCubeTestWorld(
     std::string_view sceneName = "Cube Test",

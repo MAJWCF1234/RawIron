@@ -32,6 +32,7 @@ target_compile_features(RawIron.meshoptimizer PUBLIC cxx_std_20)
 
 add_library(RawIron.SceneUtilities
   src/Animation.cpp
+  src/MeshFeatureOps.cpp
   src/AnimationLibraryHydration.cpp
   src/FbxLoader.cpp
   src/UfbxMeshImport.cpp
@@ -99,6 +100,9 @@ target_link_libraries(RawIron.SceneUtilities
 target_compile_features(RawIron.SceneUtilities PUBLIC cxx_std_20)
 
 if (RAWIRON_BUILD_TESTS)
+  add_executable(MeshFeatureOpsSmoke ${CMAKE_SOURCE_DIR}/Tests/MeshFeatureOpsSmoke.cpp)
+  target_link_libraries(MeshFeatureOpsSmoke PRIVATE RawIron::SceneUtilities RawIron::RenderSoftware RawIron::XrOpenXR)
+  add_test(NAME RawIron.SceneUtilities.MeshFeatureOpsSmoke COMMAND MeshFeatureOpsSmoke)
   add_executable(AnimationSafetySmoke ${CMAKE_SOURCE_DIR}/Tests/AnimationSafetySmoke.cpp)
   target_link_libraries(AnimationSafetySmoke PRIVATE RawIron::SceneUtilities)
   add_test(NAME RawIron.SceneUtilities.AnimationSafetySmoke COMMAND AnimationSafetySmoke)

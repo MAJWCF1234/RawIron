@@ -2,7 +2,7 @@
 #include "RawIron/Games/LiminalHall/LiminalHallWorld.h"
 
 #include "RawIron/Content/EngineAssets.h"
-#include "RawIron/Content/GameManifest.h"
+#include "RawIron/GameHost/GameProjectBoot.h"
 #include "RawIron/Render/ScenePreview.h"
 
 #include <algorithm>
@@ -49,15 +49,13 @@ bool RunLiminalHallSoftwareRenderBenchmark(const fs::path& workspaceRoot,
             return false;
         }
 
-        const std::optional<ri::content::GameManifest> manifestOpt =
-            ri::content::ResolveGameManifest(workspaceRoot, "liminal-hall");
-        if (!manifestOpt.has_value()) {
-            if (errorOut != nullptr) {
-                *errorOut = "Could not resolve liminal-hall manifest for CPU render benchmark.";
-            }
-            return false;
-        }
-        const ri::content::GameManifest& manifest = *manifestOpt;
+        auto project=ri::gamehost::PrepareGameProject({
+            .workspaceRoot=workspaceRoot,
+            .gameId="liminal-hall",
+            .expectedRuntimeModule="RawIron.Game.LiminalHall",
+        },errorOut);
+        if (!project) return false;
+        const auto& manifest=project->Manifest();
         World world =
             BuildWorld(manifest.name.empty() ? std::string_view{"LiminalHall"} : std::string_view{manifest.name},
                        manifest.rootPath);

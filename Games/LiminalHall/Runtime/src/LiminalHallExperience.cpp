@@ -1,11 +1,12 @@
 #include "RawIron/Games/LiminalHall/LiminalHallWorld.h"
-#include "RawIron/Games/GameRuntimeCore.h"
+#include "RawIron/GameHost/GameProjectBoot.h"
 #include "RawIron/Audio/AmbientLoopBank.h"
 #include "RawIron/Audio/AudioTuning.h"
 #include "RawIron/Content/GameAudioTuning.h"
 #include "RawIron/Content/GameCameraTuning.h"
 #include "RawIron/Content/GameScriptBundle.h"
 #include "RawIron/Games/GameConfigContracts.h"
+#include "RawIron/Games/GamePhysicsTuning.h"
 #include "RawIron/Games/GamePluginRuntimeBridge.h"
 #include "RawIron/Games/GameTextOverlayHost.h"
 #include "RawIron/Games/RuntimeDiagnosticsStandaloneDraw.h"
@@ -88,29 +89,16 @@ namespace {
 namespace fs = std::filesystem;
 using ri::content::DescribeOptionalAssetState;
 
-[[nodiscard]] ri::runtime::RuntimeCore CreateLiminalRuntimeCore(
-    const ri::content::GameManifest& manifest,
-    const StandaloneOptions& options,
-    std::shared_ptr<ri::content::GameManifest> manifestService,
-    std::shared_ptr<ri::content::GameRuntimeSupportData> supportService) {
-    return ri::games::CreateGameRuntimeCore(
-        manifest,
-        "RawIron.Game.LiminalHall",
-        ri::games::BuildGameRuntimePaths(manifest, options.workspaceRoot, options.checkpointStorageRoot),
-        ri::games::GameRuntimeBootServices{
-            .manifest = std::move(manifestService),
-            .support = std::move(supportService),
-        });
-}
-
-std::optional<ri::content::GameManifest> ResolveStandaloneGameManifest(const StandaloneOptions& options) {
-    if (!options.gameRoot.empty()) {
-        return ri::content::LoadGameManifest(options.gameRoot / "manifest.json");
-    }
-
-    const fs::path workspaceRoot =
-        options.workspaceRoot.empty() ? ri::content::DetectWorkspaceRoot(fs::current_path()) : options.workspaceRoot;
-    return ri::content::ResolveGameManifest(workspaceRoot, options.gameId);
+// The experience chooses its identity and policy; shared boot mechanics live in GameHost.
+std::optional<ri::gamehost::PreparedGameProject> PrepareLiminalProject(
+    const StandaloneOptions& options, std::string* error) {
+    return ri::gamehost::PrepareGameProject({
+        .workspaceRoot=options.workspaceRoot,
+        .gameRoot=options.gameRoot,
+        .gameId=options.gameId,
+        .expectedRuntimeModule="RawIron.Game.LiminalHall",
+        .checkpointStorageRoot=options.checkpointStorageRoot,
+    },error);
 }
 
 ri::spatial::Aabb BuildPlayerBounds(const ri::math::Vec3& feet) {
@@ -2295,8 +2283,9 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
     return ok;
 }
 
-bool InitializeRuntimeState(const StandaloneOptions& options,
+void InitializeRuntimeState(const StandaloneOptions& options,
                             const ri::content::GameManifest& manifest,
+                            const ri::content::GameScriptBundle& scripts,
                             RuntimeState& state) {
     state.gameRoot = manifest.rootPath;
     state.editorLogicAuthoringPath = options.logicAuthoringPath;
@@ -2315,7 +2304,6 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         "Vulkan swapchain " + std::to_string(options.width) + "x" + std::to_string(options.height)
         + " (native textured GPU path, mesh buffers cached on GPU)");
 
-    const ri::content::GameScriptBundle scripts = ri::content::LoadGameScriptBundle(manifest.rootPath);
     const ri::content::ScriptScalarMap& gameplay = scripts.gameplay;
     const ri::content::ScriptScalarMap& rendering = scripts.rendering;
     const ri::content::ScriptScalarMap& ui = scripts.ui;
@@ -2335,14 +2323,6 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     const ri::content::ScriptScalarMap& buildProfile = scripts.buildProfile;
     const ri::content::ScriptScalarMap& securityPolicy = scripts.securityPolicy;
     const ri::content::ScriptScalarMap& pluginsPolicy = scripts.pluginsPolicy;
-    std::string contractError;
-    if (!ri::games::EnforceGameConfigContracts(
-            manifest.rootPath,
-            ri::games::GameConfigContractOptions{.mode = ri::games::GameConfigContractMode::Balanced},
-            &contractError)) {
-        ri::core::LogInfo(contractError);
-        return false;
-    }
     const LiminalDemoExtensions demoExtensions = LoadLiminalDemoExtensions(manifest);
     (void)LoadRuntimeUiManifest(
         ri::ui::PrimaryUiManifestPath(manifest.rootPath),
@@ -2414,7 +2394,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         + " editorProfile="
         + std::to_string(ri::content::ScriptScalarOrIntClamped(gameCfg, "editor_profile", 1, 0, 16)));
     const ri::content::GameAudioTuningScalars audioTuning =
-        ri::content::LoadGameAudioTuningScalars(manifest.rootPath);
+        ri::content::LoadGameAudioTuningScalars(scripts.audio);
     state.audioEnvironmentBlend = static_cast<double>(audioTuning.environmentBlend);
     if (state.audioManager != nullptr) {
         std::string clampMessage;
@@ -2636,6 +2616,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     }
     state.movementOptions.refineStructuralTraceHit =
         ri::scene::MakeStructuralMeshTraceRefiner(state.world.scene);
+    state.movementOptions = ri::games::ResolveGamePhysicsTuning(state.movementOptions, physics);
     state.authoredMovementOptions = state.movementOptions;
     state.movement.onGround = true;
     const SpawnSetup spawn = ResolveSpawnSetup(options, manifest, gameplay);
@@ -2825,7 +2806,6 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
         ri::core::LogInfo("Texture library not found; preview will render without texture files.");
     }
     InitializePluginRuntime(state, manifest, plugins, pluginsPolicy);
-    return true;
 }
 
 } // namespace
@@ -2834,39 +2814,18 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
 bool RunStandalone(const StandaloneOptions& options, std::string* error) {
     try {
 #if defined(_WIN32)
-        const std::optional<ri::content::GameManifest> manifest = ResolveStandaloneGameManifest(options);
-        if (!manifest.has_value()) {
-            if (error != nullptr) {
-                *error = "Unable to resolve game manifest for '" + options.gameId + "'.";
-            }
-            return false;
-        }
-        const std::vector<std::string> formatIssues = ri::content::ValidateGameProjectFormat(*manifest);
-        if (!formatIssues.empty()) {
-            if (error != nullptr) {
-                *error = "Game format validation failed:";
-                for (const std::string& issue : formatIssues) {
-                    *error += " " + issue;
-                }
-            }
-            return false;
-        }
-        auto manifestService = std::make_shared<ri::content::GameManifest>(*manifest);
-        auto standaloneSupport = std::make_shared<ri::content::GameRuntimeSupportData>(
-            ri::content::LoadGameRuntimeSupportData(manifest->rootPath));
-        ri::games::LogGameRuntimeSupportSummary(*standaloneSupport);
-        ri::runtime::RuntimeCore runtime = CreateLiminalRuntimeCore(
-            *manifest,
-            options,
-            manifestService,
-            standaloneSupport);
-
+        auto project=PrepareLiminalProject(options,error);
+        if (!project) return false;
+        const auto* manifest=&project->Manifest();
+        auto runtime=project->CreateRuntime();
+        // Game event bridges detach during state destruction; their engine bus must outlive them.
         RuntimeState state{};
-        InitializeRuntimeState(options, *manifest, state);
+        InitializeRuntimeState(options, *manifest, project->Scripts(), state);
         if (!ri::games::AttachGameSimulationTick(runtime, [&state](const ri::core::FrameContext&) {
                 TickStandaloneFrame(state);
             })) {
-            ri::core::LogInfo("Runtime core: failed to attach game simulation tick module.");
+            if (error) *error="Liminal Hall: failed to attach game simulation tick module.";
+            return false;
         }
 
         char fallbackArgv0[] = "RawIron.LiminalGame";
@@ -2916,38 +2875,16 @@ bool RunStandalone(const StandaloneOptions& options, std::string* error) {
 bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* error) {
     try {
 #if defined(_WIN32)
-        const std::optional<ri::content::GameManifest> manifest = ResolveStandaloneGameManifest(options.standalone);
-        if (!manifest.has_value()) {
-            if (error != nullptr) {
-                *error = "Unable to resolve game manifest for '" + options.standalone.gameId + "'.";
-            }
-            return false;
-        }
-        const std::vector<std::string> formatIssues = ri::content::ValidateGameProjectFormat(*manifest);
-        if (!formatIssues.empty()) {
-            if (error != nullptr) {
-                *error = "Game format validation failed:";
-                for (const std::string& issue : formatIssues) {
-                    *error += " " + issue;
-                }
-            }
-            return false;
-        }
-        auto manifestService = std::make_shared<ri::content::GameManifest>(*manifest);
-        auto headlessSupport = std::make_shared<ri::content::GameRuntimeSupportData>(
-            ri::content::LoadGameRuntimeSupportData(manifest->rootPath));
-        ri::games::LogGameRuntimeSupportSummary(*headlessSupport);
-        ri::runtime::RuntimeCore runtime = CreateLiminalRuntimeCore(
-            *manifest,
-            options.standalone,
-            manifestService,
-            headlessSupport);
-
+        auto project=PrepareLiminalProject(options.standalone,error);
+        if (!project) return false;
+        const auto* manifest=&project->Manifest();
+        auto runtime=project->CreateRuntime();
+        // Game event bridges detach during state destruction; their engine bus must outlive them.
         RuntimeState state{};
         StandaloneOptions runOptions = options.standalone;
         runOptions.captureMouse = false;
         runOptions.renderer = StandaloneRenderer::VulkanNative;
-        InitializeRuntimeState(runOptions, *manifest, state);
+        InitializeRuntimeState(runOptions, *manifest, project->Scripts(), state);
         state.runtimeUiHeadless = true;
         state.gameplayMouseCapture = false;
         state.captureMouse = false;
@@ -2976,7 +2913,8 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
                 TickLogicDemo(state, headlessDt);
                 TickPluginRuntimeHooks(state, headlessDt);
             })) {
-            ri::core::LogInfo("Runtime core: failed to attach headless simulation tick module.");
+            if (error) *error="Liminal Hall: failed to attach headless simulation tick module.";
+            return false;
         }
 
         char fallbackArgv0[] = "RawIron.LiminalGame.Headless";
@@ -3009,7 +2947,10 @@ bool RunHeadlessCapture(const HeadlessCaptureOptions& options, std::string* erro
             const double animationSeconds = static_cast<double>(frameIndex) * static_cast<double>(dt);
             if (!runtime.Frame(ri::games::BuildGameRuntimeFrameContext(
                     frameIndex, static_cast<double>(dt), animationSeconds, animationSeconds))) {
-                break;
+                if (error) *error=runtime.Context().FailureReason().empty()
+                    ? "Liminal Hall headless runtime frame failed."
+                    : std::string(runtime.Context().FailureReason());
+                return false;
             }
             ri::render::software::RenderScenePreviewInto(
                 state.world.scene,

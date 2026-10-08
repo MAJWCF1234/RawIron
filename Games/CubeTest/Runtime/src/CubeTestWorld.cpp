@@ -925,6 +925,7 @@ CubeTestWorld BuildCubeTestWorld(const std::string_view sceneName, const fs::pat
     AddTeleportCapabilityRoom(world);
 
     AddProceduralCapabilityRooms(world, workspaceRoot);
+    AddCubeTestMeshFeatureRooms(world, workspaceRoot);
     const auto rooms = CubeTestRoomGuides();
     for (std::size_t i=1; i<rooms.size(); ++i) {
         AddPortalGate(world.scene,world.rootNode,"CubeTest_Portal_"+std::string(rooms[i-1].id)+"To"+std::string(rooms[i].id),
@@ -1076,6 +1077,7 @@ CubeTestWorld BuildCubeTestCalibrationWorld(const std::filesystem::path& workspa
 }
 
 void AnimateCubeTestWorld(CubeTestWorld& world, const double elapsedSeconds, const bool simulateDynamicProps) {
+    AnimateCubeTestMeshFeatures(world,elapsedSeconds);
     if (world.cubeNode == ri::scene::kInvalidHandle) {
         return;
     }

@@ -95,7 +95,11 @@ build\dev-msvc\Apps\RawIron.DedicatedServer\RelWithDebInfo\RawIron.DedicatedServ
 - `RawIron.XR.OpenXR` isolates official OpenXR runtime/system/action discovery and Vulkan requirements from game code
 - `RawIron.World`, `RawIron.Logic`, `RawIron.Events`, `RawIron.Trace`, and `RawIron.Spatial` support world simulation and authored interactions
 - interactive prop pools encode authoritative, index-stable state into `RawIron.Runtime` snapshot blobs, so desktop and PC-VR hosts share the same validated delta-replication format
-- `Games/Common` enforces shared config contract behavior across projects
+- `RawIron.GameHost` owns shared project validation, boot services, config bindings, and host support;
+  `Games/Common` retains a compatibility/test entry point
+
+See [Game tuning contract](docs/GAME_TUNING_CONTRACT.md) for applied movement/network settings,
+explicit CLI precedence, malformed-file diagnostics, and currently unbound showcase requests.
 
 ## Asset packs and the engine repository
 

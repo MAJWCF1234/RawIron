@@ -1,5 +1,6 @@
 #include "ForgeCatalog.h"
 
+#include "RawIron/Content/BlockCharacterDocument.h"
 #include "RawIron/Content/NativeAnimationDocument.h"
 #include "RawIron/Content/PrimitiveModelDocument.h"
 #include "RawIron/Content/NativeSculptDocument.h"
@@ -118,6 +119,45 @@ AssetEntry InspectPrimitiveModel(const fs::path& absolutePath, std::string relat
     return entry;
 }
 
+AssetEntry InspectBlockCharacter(const fs::path& absolutePath, std::string relativePath) {
+    AssetEntry entry{
+        .absolutePath = absolutePath,
+        .relativePath = std::move(relativePath),
+        .kind = AssetKind::BlockCharacter,
+        .valid = false,
+        .summary = "Block character could not be parsed.",
+    };
+    const auto model = ri::content::LoadBlockCharacterDocument(absolutePath);
+    if (!model.has_value()) {
+        return entry;
+    }
+    const ri::content::BlockCharacterValidationReport report =
+        ri::content::ValidateBlockCharacterDocument(*model);
+    entry.valid = report.valid;
+    entry.summary = model->displayName + " | " + std::to_string(report.partCount) + " parts | "
+        + std::to_string(report.enabledPartCount) + " enabled";
+    if (!model->rigPath.empty()) {
+        entry.rigPath = model->rigPath;
+        entry.summary += " | rig " + model->rigPath;
+    }
+    std::size_t textured = 0;
+    for (const auto& part : model->parts) {
+        if (!part.albedoTexture.empty()) {
+            ++textured;
+        }
+    }
+    if (textured > 0U) {
+        entry.summary += " | " + std::to_string(textured) + " textured";
+    }
+    entry.summary += report.valid ? " | valid" : " | invalid";
+    if (!report.errors.empty()) {
+        entry.summary += " | " + report.errors.front();
+    } else if (!report.warnings.empty()) {
+        entry.summary += " | " + report.warnings.front();
+    }
+    return entry;
+}
+
 AssetEntry InspectSculpt(const fs::path& absolutePath, std::string relativePath) {
     AssetEntry entry{
         .absolutePath = absolutePath,
@@ -219,6 +259,10 @@ bool IsPrimitiveModelPath(const fs::path& path) {
     return LowerAscii(path.filename().string()).ends_with(".ri_model.json");
 }
 
+bool IsBlockCharacterPath(const fs::path& path) {
+    return LowerAscii(path.filename().string()).ends_with(".ri_blockchar.json");
+}
+
 AssetCatalog ScanAssetCatalog(const fs::path& workspaceRoot) {
     AssetCatalog catalog{};
     std::error_code canonicalError{};
@@ -255,6 +299,13 @@ AssetCatalog ScanAssetCatalog(const fs::path& workspaceRoot) {
                 ++catalog.primitiveModelCount;
                 if (!entry.valid) {
                     ++catalog.invalidPrimitiveModelCount;
+                }
+                catalog.entries.push_back(std::move(entry));
+            } else if (IsBlockCharacterPath(absolutePath)) {
+                AssetEntry entry = InspectBlockCharacter(absolutePath, relativePath.generic_string());
+                ++catalog.blockCharacterCount;
+                if (!entry.valid) {
+                    ++catalog.invalidBlockCharacterCount;
                 }
                 catalog.entries.push_back(std::move(entry));
             } else if (IsSculptPath(absolutePath)) {
@@ -650,7 +701,9 @@ fs::path CreateUniqueNativeSculpt(
         return {};
     }
     const ri::scene::NativeSculptCage cageKind = ri::scene::ParseNativeSculptCage(cage);
-    const std::string stem = cageKind == ri::scene::NativeSculptCage::Cube ? "block" : "clay_sphere";
+    const std::string stem = cageKind == ri::scene::NativeSculptCage::Cube
+        ? "block"
+        : (cageKind == ri::scene::NativeSculptCage::PsxHumanoid ? "psx_humanoid" : "clay_sphere");
     fs::path output = sculptFolder / (stem + ".ri_sculpt.json");
     std::string id = stem;
     for (int suffix = 2; fs::exists(output) && suffix < 10000; ++suffix) {
@@ -663,10 +716,11 @@ fs::path CreateUniqueNativeSculpt(
         }
         return {};
     }
-    const ri::content::NativeSculptDocument document = ri::scene::CreateNativeSculptDocument(
-        id,
-        cageKind == ri::scene::NativeSculptCage::Cube ? "Hard Surface Block" : "Clay Sphere",
-        cageKind);
+    const std::string displayName = cageKind == ri::scene::NativeSculptCage::Cube
+        ? "Hard Surface Block"
+        : (cageKind == ri::scene::NativeSculptCage::PsxHumanoid ? "PSX Humanoid" : "Clay Sphere");
+    const ri::content::NativeSculptDocument document =
+        ri::scene::CreateNativeSculptDocument(id, displayName, cageKind);
     if (!ri::content::SaveNativeSculptDocument(output, document)) {
         if (errorMessage != nullptr) {
             *errorMessage = "Could not save a valid native sculpt document.";

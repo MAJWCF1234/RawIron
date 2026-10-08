@@ -7,6 +7,12 @@
 #include <iostream>
 
 int main() {
+    using ri::render::vulkan::ResolveShadowCoverageRadius;
+    if (ResolveShadowCoverageRadius(16.f) != 16.f
+        || ResolveShadowCoverageRadius(-1.f) != 8.f
+        || ResolveShadowCoverageRadius(1000.f) != 256.f
+        || ResolveShadowCoverageRadius(std::numeric_limits<float>::quiet_NaN()) != 90.f)
+        return EXIT_FAILURE;
     // Camera movement below half a shadow texel must not slide a fixed world point
     // through the shadow texture. Crossing a cell boundary advances exactly one texel.
     for (const std::uint32_t resolution : {1024U,2048U,4096U}) {

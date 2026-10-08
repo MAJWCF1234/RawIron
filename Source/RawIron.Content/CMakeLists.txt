@@ -20,6 +20,7 @@ add_library(RawIron.Content
   src/PluginProjectData.cpp
   src/PluginRuntime.cpp
   src/PrimitiveModelDocument.cpp
+  src/BlockCharacterDocument.cpp
   src/NativeSculptDocument.cpp
   src/NativeAnimationDocument.cpp
   src/RipakArchive.cpp

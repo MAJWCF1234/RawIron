@@ -59,4 +59,14 @@ if (RAWIRON_BUILD_TESTS)
       "${rawiron_forge_runtime_dll_arg}"
       -P "${PROJECT_SOURCE_DIR}/Tests/cmake/VerifyCommandOutput.cmake"
   )
+  add_test(
+    NAME RawIron.Forge.CliHelp
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:RawIron.Forge>"
+      "-DCOMMAND_ARGS=--help"
+      "-DEXPECTED_STRINGS=Preferred headless authoring;ri_tool --sculpt-create;--anim-hold;--create-rig;--bind-sculpt"
+      "-DFORBIDDEN_STRINGS=failed;exception"
+      "${rawiron_forge_runtime_dll_arg}"
+      -P "${PROJECT_SOURCE_DIR}/Tests/cmake/VerifyCommandOutput.cmake"
+  )
 endif()

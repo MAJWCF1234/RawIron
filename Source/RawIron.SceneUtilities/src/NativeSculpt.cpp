@@ -1,9 +1,12 @@
 #include "RawIron/Scene/NativeSculpt.h"
 
+#include "RawIron/Content/BlockCharacterDocument.h"
+
 #include "RawIron/Math/Mat4.h"
 #include "RawIron/Scene/Helpers.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cctype>
 #include <cstdint>
@@ -133,6 +136,419 @@ Mesh MakeCubeCage(const int segmentsAround, std::string name) {
     mesh.vertexCount = static_cast<int>(mesh.positions.size());
     mesh.indexCount = static_cast<int>(mesh.indices.size());
     RecalculateSculptNormals(mesh);
+    return mesh;
+}
+
+void EmitHardTri(
+    Mesh& mesh,
+    std::vector<std::string>& vertexBoneNames,
+    const ri::math::Mat4& orient,
+    const ri::math::Vec3& center,
+    const ri::math::Vec3& a,
+    const ri::math::Vec3& b,
+    const ri::math::Vec3& c,
+    const std::string& boneName) {
+    ri::math::Vec3 localNormal = ri::math::Cross(b - a, c - a);
+    const float nLen = ri::math::Length(localNormal);
+    localNormal = nLen > 1.0e-8f ? localNormal * (1.0f / nLen) : ri::math::Vec3{0.0f, 1.0f, 0.0f};
+    const ri::math::Vec3 worldNormal = ri::math::Normalize(ri::math::TransformPoint(orient, localNormal));
+    if (mesh.normals.size() != mesh.positions.size()) {
+        mesh.normals.resize(mesh.positions.size(), ri::math::Vec3{0.0f, 1.0f, 0.0f});
+    }
+    const int base = static_cast<int>(mesh.positions.size());
+    for (const ri::math::Vec3& local : {a, b, c}) {
+        mesh.positions.push_back(ri::math::TransformPoint(orient, local) + center);
+        mesh.normals.push_back(worldNormal);
+        mesh.texCoords.push_back(ri::math::Vec2{local.x * 0.5f + 0.5f, local.y * 0.5f + 0.5f});
+        vertexBoneNames.push_back(boneName);
+    }
+    mesh.indices.insert(mesh.indices.end(), {base, base + 1, base + 2});
+}
+
+void EmitHardQuad(
+    Mesh& mesh,
+    std::vector<std::string>& vertexBoneNames,
+    const ri::math::Mat4& orient,
+    const ri::math::Vec3& center,
+    const ri::math::Vec3& a,
+    const ri::math::Vec3& b,
+    const ri::math::Vec3& c,
+    const ri::math::Vec3& d,
+    const std::string& boneName) {
+    EmitHardTri(mesh, vertexBoneNames, orient, center, a, b, c, boneName);
+    EmitHardTri(mesh, vertexBoneNames, orient, center, a, c, d, boneName);
+}
+
+void AppendTaperedOrientedBox(
+    Mesh& mesh,
+    std::vector<std::string>& vertexBoneNames,
+    const ri::math::Vec3& center,
+    const ri::math::Vec3& halfExtentBottom,
+    const ri::math::Vec3& halfExtentTop,
+    const ri::math::Vec3& rotationDegrees,
+    const std::string& boneName) {
+    const ri::math::Vec3 top = (ri::math::LengthSquared(halfExtentTop) > 1.0e-8f)
+        ? halfExtentTop
+        : halfExtentBottom;
+    const ri::math::Vec3 c[8] = {
+        {-halfExtentBottom.x, -halfExtentBottom.y, -halfExtentBottom.z},
+        { halfExtentBottom.x, -halfExtentBottom.y, -halfExtentBottom.z},
+        { halfExtentBottom.x, -halfExtentBottom.y,  halfExtentBottom.z},
+        {-halfExtentBottom.x, -halfExtentBottom.y,  halfExtentBottom.z},
+        {-top.x,  top.y, -top.z},
+        { top.x,  top.y, -top.z},
+        { top.x,  top.y,  top.z},
+        {-top.x,  top.y,  top.z},
+    };
+    const ri::math::Mat4 orient = ri::math::RotationXYZDegrees(rotationDegrees);
+    EmitHardQuad(mesh, vertexBoneNames, orient, center, c[0], c[1], c[2], c[3], boneName);
+    EmitHardQuad(mesh, vertexBoneNames, orient, center, c[7], c[6], c[5], c[4], boneName);
+    EmitHardQuad(mesh, vertexBoneNames, orient, center, c[0], c[4], c[5], c[1], boneName);
+    EmitHardQuad(mesh, vertexBoneNames, orient, center, c[3], c[2], c[6], c[7], boneName);
+    EmitHardQuad(mesh, vertexBoneNames, orient, center, c[0], c[3], c[7], c[4], boneName);
+    EmitHardQuad(mesh, vertexBoneNames, orient, center, c[1], c[5], c[6], c[2], boneName);
+}
+
+void AppendTaperedPrism(
+    Mesh& mesh,
+    std::vector<std::string>& vertexBoneNames,
+    const ri::math::Vec3& center,
+    const ri::math::Vec3& halfExtentBottom,
+    const ri::math::Vec3& halfExtentTop,
+    const ri::math::Vec3& rotationDegrees,
+    const std::string& boneName,
+    const int sides = 6) {
+    const int ring = std::clamp(sides, 3, 16);
+    const ri::math::Vec3 top = (ri::math::LengthSquared(halfExtentTop) > 1.0e-8f)
+        ? halfExtentTop
+        : halfExtentBottom;
+    const ri::math::Mat4 orient = ri::math::RotationXYZDegrees(rotationDegrees);
+    std::vector<ri::math::Vec3> bottom(static_cast<std::size_t>(ring));
+    std::vector<ri::math::Vec3> topRing(static_cast<std::size_t>(ring));
+    for (int i = 0; i < ring; ++i) {
+        const float angle = (static_cast<float>(i) / static_cast<float>(ring)) * 6.28318530718f;
+        const float ca = std::cos(angle);
+        const float sa = std::sin(angle);
+        bottom[static_cast<std::size_t>(i)] = {
+            ca * halfExtentBottom.x, -halfExtentBottom.y, sa * halfExtentBottom.z};
+        topRing[static_cast<std::size_t>(i)] = {
+            ca * top.x, top.y, sa * top.z};
+    }
+    for (int i = 0; i < ring; ++i) {
+        const int j = (i + 1) % ring;
+        EmitHardQuad(
+            mesh,
+            vertexBoneNames,
+            orient,
+            center,
+            bottom[static_cast<std::size_t>(i)],
+            bottom[static_cast<std::size_t>(j)],
+            topRing[static_cast<std::size_t>(j)],
+            topRing[static_cast<std::size_t>(i)],
+            boneName);
+    }
+    const ri::math::Vec3 bottomCenter{0.0f, -halfExtentBottom.y, 0.0f};
+    const ri::math::Vec3 topCenter{0.0f, top.y, 0.0f};
+    for (int i = 0; i < ring; ++i) {
+        const int j = (i + 1) % ring;
+        EmitHardTri(
+            mesh,
+            vertexBoneNames,
+            orient,
+            center,
+            bottomCenter,
+            bottom[static_cast<std::size_t>(j)],
+            bottom[static_cast<std::size_t>(i)],
+            boneName);
+        EmitHardTri(
+            mesh,
+            vertexBoneNames,
+            orient,
+            center,
+            topCenter,
+            topRing[static_cast<std::size_t>(i)],
+            topRing[static_cast<std::size_t>(j)],
+            boneName);
+    }
+}
+
+void AppendFacetDome(
+    Mesh& mesh,
+    std::vector<std::string>& vertexBoneNames,
+    const ri::math::Vec3& center,
+    const ri::math::Vec3& halfExtent,
+    const ri::math::Vec3& rotationDegrees,
+    const std::string& boneName) {
+    // Truncated low-poly dome: hex mid-ring + apex + flat chin (PS1 helmet mass).
+    const ri::math::Mat4 orient = ri::math::RotationXYZDegrees(rotationDegrees);
+    constexpr int kSides = 6;
+    std::array<ri::math::Vec3, kSides> mid{};
+    std::array<ri::math::Vec3, kSides> chin{};
+    for (int i = 0; i < kSides; ++i) {
+        const float angle = (static_cast<float>(i) / static_cast<float>(kSides)) * 6.28318530718f;
+        const float ca = std::cos(angle);
+        const float sa = std::sin(angle);
+        mid[static_cast<std::size_t>(i)] = {
+            ca * halfExtent.x, halfExtent.y * 0.15f, sa * halfExtent.z};
+        chin[static_cast<std::size_t>(i)] = {
+            ca * halfExtent.x * 0.72f, -halfExtent.y, sa * halfExtent.z * 0.72f};
+    }
+    const ri::math::Vec3 apex{0.0f, halfExtent.y, 0.0f};
+    const ri::math::Vec3 chinCenter{0.0f, -halfExtent.y, 0.0f};
+    for (int i = 0; i < kSides; ++i) {
+        const int j = (i + 1) % kSides;
+        EmitHardTri(
+            mesh, vertexBoneNames, orient, center, apex, mid[static_cast<std::size_t>(i)],
+            mid[static_cast<std::size_t>(j)], boneName);
+        EmitHardQuad(
+            mesh, vertexBoneNames, orient, center,
+            mid[static_cast<std::size_t>(i)], chin[static_cast<std::size_t>(i)],
+            chin[static_cast<std::size_t>(j)], mid[static_cast<std::size_t>(j)], boneName);
+        EmitHardTri(
+            mesh, vertexBoneNames, orient, center, chinCenter,
+            chin[static_cast<std::size_t>(j)], chin[static_cast<std::size_t>(i)], boneName);
+    }
+}
+
+void AppendForwardWedge(
+    Mesh& mesh,
+    std::vector<std::string>& vertexBoneNames,
+    const ri::math::Vec3& center,
+    const ri::math::Vec3& halfExtent,
+    const ri::math::Vec3& rotationDegrees,
+    const std::string& boneName) {
+    // Boot wedge: wide heel, pointed toe along +Z.
+    const ri::math::Mat4 orient = ri::math::RotationXYZDegrees(rotationDegrees);
+    const ri::math::Vec3 heelL{-halfExtent.x, -halfExtent.y, -halfExtent.z * 0.35f};
+    const ri::math::Vec3 heelR{ halfExtent.x, -halfExtent.y, -halfExtent.z * 0.35f};
+    const ri::math::Vec3 heelLT{-halfExtent.x * 0.85f, halfExtent.y, -halfExtent.z * 0.35f};
+    const ri::math::Vec3 heelRT{ halfExtent.x * 0.85f, halfExtent.y, -halfExtent.z * 0.35f};
+    const ri::math::Vec3 toe{0.0f, -halfExtent.y * 0.35f, halfExtent.z};
+    const ri::math::Vec3 toeT{0.0f, halfExtent.y * 0.45f, halfExtent.z * 0.85f};
+    EmitHardQuad(mesh, vertexBoneNames, orient, center, heelL, heelR, heelRT, heelLT, boneName);
+    EmitHardTri(mesh, vertexBoneNames, orient, center, heelL, toe, heelR, boneName);
+    EmitHardTri(mesh, vertexBoneNames, orient, center, heelLT, heelRT, toeT, boneName);
+    EmitHardQuad(mesh, vertexBoneNames, orient, center, heelL, heelLT, toeT, toe, boneName);
+    EmitHardQuad(mesh, vertexBoneNames, orient, center, heelR, toe, toeT, heelRT, boneName);
+}
+
+void AppendSpike(
+    Mesh& mesh,
+    std::vector<std::string>& vertexBoneNames,
+    const ri::math::Vec3& center,
+    const ri::math::Vec3& halfExtent,
+    const ri::math::Vec3& rotationDegrees,
+    const std::string& boneName,
+    const int sides) {
+    const int ring = std::clamp(sides > 0 ? sides : 4, 3, 12);
+    const ri::math::Mat4 orient = ri::math::RotationXYZDegrees(rotationDegrees);
+    std::vector<ri::math::Vec3> base(static_cast<std::size_t>(ring));
+    for (int i = 0; i < ring; ++i) {
+        const float angle = (static_cast<float>(i) / static_cast<float>(ring)) * 6.28318530718f;
+        base[static_cast<std::size_t>(i)] = {
+            std::cos(angle) * halfExtent.x, -halfExtent.y, std::sin(angle) * halfExtent.z};
+    }
+    const ri::math::Vec3 apex{0.0f, halfExtent.y, 0.0f};
+    const ri::math::Vec3 baseCenter{0.0f, -halfExtent.y, 0.0f};
+    for (int i = 0; i < ring; ++i) {
+        const int j = (i + 1) % ring;
+        EmitHardTri(
+            mesh, vertexBoneNames, orient, center, apex, base[static_cast<std::size_t>(i)],
+            base[static_cast<std::size_t>(j)], boneName);
+        EmitHardTri(
+            mesh, vertexBoneNames, orient, center, baseCenter, base[static_cast<std::size_t>(j)],
+            base[static_cast<std::size_t>(i)], boneName);
+    }
+}
+
+void AppendBeveledBox(
+    Mesh& mesh,
+    std::vector<std::string>& vertexBoneNames,
+    const ri::math::Vec3& center,
+    const ri::math::Vec3& halfExtent,
+    const ri::math::Vec3& rotationDegrees,
+    const std::string& boneName,
+    const float bevelFraction) {
+    const float minHalf = std::min({halfExtent.x, halfExtent.y, halfExtent.z});
+    const float b = std::clamp(bevelFraction > 1.0e-4f ? bevelFraction : 0.18f, 0.02f, 0.45f) * minHalf;
+    const float hx = halfExtent.x;
+    const float hy = halfExtent.y;
+    const float hz = halfExtent.z;
+    const float ix = std::max(hx - b, hx * 0.35f);
+    const float iy = std::max(hy - b, hy * 0.35f);
+    const float iz = std::max(hz - b, hz * 0.35f);
+    const ri::math::Mat4 orient = ri::math::RotationXYZDegrees(rotationDegrees);
+
+    // Inset face quads.
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {-ix, -hy, -iz}, {ix, -hy, -iz}, {ix, -hy, iz}, {-ix, -hy, iz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {-ix, hy, iz}, {ix, hy, iz}, {ix, hy, -iz}, {-ix, hy, -iz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {-hx, -iy, -iz}, {-hx, iy, -iz}, {-hx, iy, iz}, {-hx, -iy, iz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {hx, -iy, iz}, {hx, iy, iz}, {hx, iy, -iz}, {hx, -iy, -iz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {-ix, -iy, -hz}, {ix, -iy, -hz}, {ix, iy, -hz}, {-ix, iy, -hz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {-ix, iy, hz}, {ix, iy, hz}, {ix, -iy, hz}, {-ix, -iy, hz},
+        boneName);
+
+    // Edge chamfers (12).
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {-ix, -hy, -iz}, {-hx, -iy, -iz}, {hx, -iy, -iz}, {ix, -hy, -iz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {-ix, -hy, iz}, {ix, -hy, iz}, {hx, -iy, iz}, {-hx, -iy, iz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {-ix, hy, -iz}, {ix, hy, -iz}, {hx, iy, -iz}, {-hx, iy, -iz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {-ix, hy, iz}, {-hx, iy, iz}, {hx, iy, iz}, {ix, hy, iz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {-hx, -iy, -iz}, {-ix, -hy, -iz}, {-ix, -hy, iz}, {-hx, -iy, iz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {hx, -iy, -iz}, {hx, -iy, iz}, {ix, -hy, iz}, {ix, -hy, -iz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {-hx, iy, -iz}, {-hx, iy, iz}, {-ix, hy, iz}, {-ix, hy, -iz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {hx, iy, -iz}, {ix, hy, -iz}, {ix, hy, iz}, {hx, iy, iz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {-ix, -iy, -hz}, {-hx, -iy, -iz}, {-hx, iy, -iz}, {-ix, iy, -hz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {ix, -iy, -hz}, {ix, iy, -hz}, {hx, iy, -iz}, {hx, -iy, -iz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {-ix, -iy, hz}, {-ix, iy, hz}, {-hx, iy, iz}, {-hx, -iy, iz},
+        boneName);
+    EmitHardQuad(
+        mesh, vertexBoneNames, orient, center, {ix, -iy, hz}, {hx, -iy, iz}, {hx, iy, iz}, {ix, iy, hz},
+        boneName);
+}
+
+void AppendCapsule(
+    Mesh& mesh,
+    std::vector<std::string>& vertexBoneNames,
+    const ri::math::Vec3& center,
+    const ri::math::Vec3& halfExtent,
+    const ri::math::Vec3& rotationDegrees,
+    const std::string& boneName,
+    const int sides) {
+    const int ring = std::clamp(sides > 0 ? sides : 8, 4, 16);
+    const float bodyHalfY = halfExtent.y * 0.55f;
+    const float capHalfY = halfExtent.y * 0.45f;
+    AppendTaperedPrism(
+        mesh, vertexBoneNames, center,
+        {halfExtent.x, bodyHalfY, halfExtent.z},
+        {halfExtent.x, bodyHalfY, halfExtent.z},
+        rotationDegrees, boneName, ring);
+    const ri::math::Vec3 topCenter = center + ri::math::TransformVector(
+        ri::math::RotationXYZDegrees(rotationDegrees), {0.0f, bodyHalfY, 0.0f});
+    const ri::math::Vec3 bottomCenter = center + ri::math::TransformVector(
+        ri::math::RotationXYZDegrees(rotationDegrees), {0.0f, -bodyHalfY, 0.0f});
+    AppendFacetDome(
+        mesh, vertexBoneNames, topCenter, {halfExtent.x, capHalfY, halfExtent.z}, rotationDegrees,
+        boneName);
+    AppendFacetDome(
+        mesh, vertexBoneNames, bottomCenter, {halfExtent.x, capHalfY, halfExtent.z},
+        {rotationDegrees.x + 180.0f, rotationDegrees.y, rotationDegrees.z}, boneName);
+}
+
+void AppendPsxPartGeometry(
+    Mesh& mesh,
+    std::vector<std::string>& vertexBoneNames,
+    const PsxBlockPartDesc& part,
+    const ri::math::Vec3& center) {
+    const ri::math::Vec3 top = (ri::math::LengthSquared(part.halfExtentTop) > 1.0e-8f)
+        ? part.halfExtentTop
+        : part.halfExtent;
+    switch (part.shape) {
+    case PsxPartShape::Prism:
+        AppendTaperedPrism(
+            mesh, vertexBoneNames, center, part.halfExtent, top, part.rotationDegrees,
+            part.boneName, part.sides > 0 ? part.sides : 6);
+        break;
+    case PsxPartShape::Cylinder:
+        AppendTaperedPrism(
+            mesh, vertexBoneNames, center, part.halfExtent, top, part.rotationDegrees,
+            part.boneName, part.sides > 0 ? part.sides : 10);
+        break;
+    case PsxPartShape::Dome:
+        AppendFacetDome(
+            mesh, vertexBoneNames, center, part.halfExtent, part.rotationDegrees,
+            part.boneName);
+        break;
+    case PsxPartShape::Wedge:
+        AppendForwardWedge(
+            mesh, vertexBoneNames, center, part.halfExtent, part.rotationDegrees,
+            part.boneName);
+        break;
+    case PsxPartShape::Spike:
+        AppendSpike(
+            mesh, vertexBoneNames, center, part.halfExtent, part.rotationDegrees, part.boneName,
+            part.sides);
+        break;
+    case PsxPartShape::Slab: {
+        const float bevel = part.bevel > 1.0e-4f ? part.bevel : 0.12f;
+        AppendBeveledBox(
+            mesh, vertexBoneNames, center, part.halfExtent, part.rotationDegrees, part.boneName,
+            bevel);
+        break;
+    }
+    case PsxPartShape::Bevel:
+        AppendBeveledBox(
+            mesh, vertexBoneNames, center, part.halfExtent, part.rotationDegrees, part.boneName,
+            part.bevel);
+        break;
+    case PsxPartShape::Capsule:
+        AppendCapsule(
+            mesh, vertexBoneNames, center, part.halfExtent, part.rotationDegrees, part.boneName,
+            part.sides);
+        break;
+    case PsxPartShape::Box:
+    default:
+        AppendTaperedOrientedBox(
+            mesh, vertexBoneNames, center, part.halfExtent, top, part.rotationDegrees,
+            part.boneName);
+        break;
+    }
+}
+
+void AppendAxisAlignedBox(
+    Mesh& mesh,
+    std::vector<std::string>& vertexBoneNames,
+    const ri::math::Vec3& center,
+    const ri::math::Vec3& halfExtent,
+    const std::string& boneName) {
+    AppendTaperedOrientedBox(
+        mesh, vertexBoneNames, center, halfExtent, halfExtent, {}, boneName);
+}
+
+Mesh MakePsxBlockHumanoidMesh(
+    std::string name,
+    std::vector<std::string>& vertexBoneNames,
+    const std::vector<PsxBlockPartDesc>& parts) {
+    Mesh mesh{};
+    mesh.name = std::move(name);
+    mesh.primitive = PrimitiveType::Custom;
+    vertexBoneNames.clear();
+    for (const PsxBlockPartDesc& part : parts) {
+        AppendPsxPartGeometry(mesh, vertexBoneNames, part, part.center);
+    }
+    mesh.vertexCount = static_cast<int>(mesh.positions.size());
+    mesh.indexCount = static_cast<int>(mesh.indices.size());
     return mesh;
 }
 
@@ -415,12 +831,91 @@ void ReplaceOverlayMesh(Scene& scene, const int nodeHandle, Mesh mesh) {
 
 } // namespace
 
+[[nodiscard]] PsxPartShape ParsePsxPartShape(const std::string_view shape) {
+    const std::string lower = LowerAscii(std::string(shape));
+    if (lower == "prism") {
+        return PsxPartShape::Prism;
+    }
+    if (lower == "dome") {
+        return PsxPartShape::Dome;
+    }
+    if (lower == "wedge") {
+        return PsxPartShape::Wedge;
+    }
+    if (lower == "cylinder" || lower == "cyl") {
+        return PsxPartShape::Cylinder;
+    }
+    if (lower == "spike" || lower == "pyramid") {
+        return PsxPartShape::Spike;
+    }
+    if (lower == "slab") {
+        return PsxPartShape::Slab;
+    }
+    if (lower == "bevel" || lower == "chamfer") {
+        return PsxPartShape::Bevel;
+    }
+    if (lower == "capsule") {
+        return PsxPartShape::Capsule;
+    }
+    return PsxPartShape::Box;
+}
+
+std::vector<PsxBlockPartDesc> BlockCharacterPartsToPsxDescs(
+    const ri::content::BlockCharacterDocument& document) {
+    std::vector<PsxBlockPartDesc> parts{};
+    parts.reserve(document.parts.size());
+    for (const ri::content::BlockCharacterPart& part : document.parts) {
+        parts.push_back(PsxBlockPartDesc{
+            .boneName = part.boneName,
+            .center = {part.center.x, part.center.y, part.center.z},
+            .halfExtent = {part.halfExtent.x, part.halfExtent.y, part.halfExtent.z},
+            .halfExtentTop = {part.halfExtentTop.x, part.halfExtentTop.y, part.halfExtentTop.z},
+            .rotationDegrees =
+                {part.rotationDegrees.x, part.rotationDegrees.y, part.rotationDegrees.z},
+            .baseColor = {part.albedoColor.x, part.albedoColor.y, part.albedoColor.z},
+            .shape = ParsePsxPartShape(part.shape),
+            .sides = part.sides,
+            .bevel = part.bevel,
+            .albedoTexture = part.albedoTexture,
+            .roughness = part.roughness,
+            .metallic = part.metallic,
+        });
+    }
+    return parts;
+}
+
+Mesh MakePsxBlockPartMesh(const PsxBlockPartDesc& part) {
+    Mesh mesh{};
+    mesh.name = part.boneName + "PsxPart";
+    mesh.primitive = PrimitiveType::Custom;
+    std::vector<std::string> ignored{};
+    AppendPsxPartGeometry(mesh, ignored, part, {});
+    mesh.vertexCount = static_cast<int>(mesh.positions.size());
+    mesh.indexCount = static_cast<int>(mesh.indices.size());
+    return mesh;
+}
+
 NativeSculptCage ParseNativeSculptCage(const std::string_view value) {
-    return LowerAscii(std::string(value)) == "cube" ? NativeSculptCage::Cube : NativeSculptCage::Sphere;
+    const std::string lower = LowerAscii(std::string(value));
+    if (lower == "cube" || lower == "block") {
+        return NativeSculptCage::Cube;
+    }
+    if (lower == "psx" || lower == "psx_humanoid" || lower == "humanoid") {
+        return NativeSculptCage::PsxHumanoid;
+    }
+    return NativeSculptCage::Sphere;
 }
 
 std::string_view NativeSculptCageName(const NativeSculptCage cage) noexcept {
-    return cage == NativeSculptCage::Cube ? "cube" : "sphere";
+    switch (cage) {
+    case NativeSculptCage::Cube:
+        return "cube";
+    case NativeSculptCage::PsxHumanoid:
+        return "psx";
+    case NativeSculptCage::Sphere:
+    default:
+        return "sphere";
+    }
 }
 
 std::string_view NativeSculptBrushName(const NativeSculptBrush brush) noexcept {
@@ -446,6 +941,14 @@ Mesh MakeNativeSculptCageMesh(
     std::string name) {
     if (cage == NativeSculptCage::Cube) {
         return MakeCubeCage(segmentsAround, std::move(name));
+    }
+    if (cage == NativeSculptCage::PsxHumanoid) {
+        Mesh mesh{};
+        mesh.name = std::move(name);
+        mesh.primitive = PrimitiveType::Custom;
+        mesh.vertexCount = 0;
+        mesh.indexCount = 0;
+        return mesh;
     }
     return MakeSphereCage(segmentsAround, segmentsDown, std::move(name));
 }
@@ -792,10 +1295,47 @@ ri::content::NativeSculptDocument CreateNativeSculptDocument(
     document.id = Slugify(std::move(id), "clay_sphere");
     document.displayName = displayName.empty() ? document.id : std::move(displayName);
     document.cage = std::string(NativeSculptCageName(cage));
+    if (cage == NativeSculptCage::PsxHumanoid) {
+        // Empty psx cage placeholder. Authored geometry comes from .ri_blockchar.json via
+        // CreateBlockCharacterSculptDocument (ri_tool --blockchar-sync-sculpt).
+        document.segmentsAround = 1;
+        document.segmentsDown = 1;
+        document.mesh.name = document.displayName;
+        document.mesh.primitive = PrimitiveType::Custom;
+        document.mesh.vertexCount = 0;
+        document.mesh.indexCount = 0;
+        return document;
+    }
     document.segmentsAround = std::clamp(segmentsAround, 8, 96);
     document.segmentsDown = std::clamp(segmentsDown, 4, 48);
     document.mesh = MakeNativeSculptCageMesh(
         cage, document.segmentsAround, document.segmentsDown, document.displayName);
+    return document;
+}
+
+ri::content::NativeSculptDocument CreateBlockCharacterSculptDocument(
+    std::string id,
+    std::string displayName,
+    const ri::content::BlockCharacterDocument& blockCharacter) {
+    ri::content::NativeSculptDocument document{};
+    document.id = Slugify(std::move(id), "psx_humanoid");
+    document.displayName = displayName.empty() ? document.id : std::move(displayName);
+    document.cage = "psx";
+    document.segmentsAround = 1;
+    document.segmentsDown = 1;
+    std::vector<std::string> boneNames{};
+    document.mesh = MakePsxBlockHumanoidMesh(
+        document.displayName, boneNames, BlockCharacterPartsToPsxDescs(blockCharacter));
+    document.vertexBoneNames = std::move(boneNames);
+    document.vertexInfluences.resize(document.vertexBoneNames.size());
+    for (std::size_t vertex = 0; vertex < document.vertexBoneNames.size(); ++vertex) {
+        document.vertexInfluences[vertex] = {
+            ri::content::NativeSculptVertexInfluence{
+                .boneName = document.vertexBoneNames[vertex],
+                .weight = 1.0f,
+            },
+        };
+    }
     return document;
 }
 
@@ -806,12 +1346,14 @@ int InstantiateNativeSculpt(
     if (!ri::content::ValidateNativeSculptDocument(document).valid) {
         return kInvalidHandle;
     }
+    const bool psx = document.cage == "psx";
     const int material = scene.AddMaterial(Material{
         .name = document.id + "ClayMaterial",
         .shadingModel = ShadingModel::Lit,
-        .baseColor = {0.78f, 0.52f, 0.34f},
+        .materialStyle = MaterialStyle::Standard,
+        .baseColor = psx ? ri::math::Vec3{0.55f, 0.62f, 0.38f} : ri::math::Vec3{0.78f, 0.52f, 0.34f},
         .metallic = 0.0f,
-        .roughness = 0.82f,
+        .roughness = psx ? 0.88f : 0.82f,
     });
     Mesh mesh = document.mesh;
     mesh.primitive = PrimitiveType::Custom;
@@ -1342,6 +1884,36 @@ std::size_t SkinRigidMesh(
     return skinned;
 }
 
+std::size_t BakeNativeSculptSkin(
+    ri::content::NativeSculptDocument& document,
+    const std::unordered_map<std::string, ri::math::Mat4>& restBoneWorld,
+    const std::unordered_map<std::string, ri::math::Mat4>& posedBoneWorld) {
+    if (document.mesh.positions.empty() || restBoneWorld.empty() || posedBoneWorld.empty()) {
+        return 0;
+    }
+    if (document.vertexBoneNames.size() != document.mesh.positions.size()
+        && document.vertexInfluences.size() != document.mesh.positions.size()) {
+        return 0;
+    }
+    const std::vector<ri::math::Vec3> restPositions = document.mesh.positions;
+    const std::vector<ri::math::Vec3> restNormals = document.mesh.normals;
+    const std::size_t skinned = SkinRigidMesh(
+        document.mesh,
+        document.vertexBoneNames,
+        restPositions,
+        restNormals,
+        restBoneWorld,
+        posedBoneWorld,
+        document.vertexInfluences);
+    if (skinned == 0U) {
+        document.mesh.positions = restPositions;
+        document.mesh.normals = restNormals;
+        return 0;
+    }
+    RecalculateSculptNormals(document.mesh);
+    return skinned;
+}
+
 Mesh MakeNativeSculptWeightMesh(
     const Mesh& source,
     const std::vector<std::string>& vertexBoneNames,
@@ -1577,7 +2149,8 @@ void AddVertexInfluence(
                     weakest = index;
                 }
             }
-            if (amount > influences[weakest].weight) {
+            // Allow a meaningful dab to claim a Cap4 slot even when slightly below the weakest.
+            if (amount > influences[weakest].weight * 0.5f) {
                 influences[weakest] = {.boneName = boneName, .weight = amount};
             }
         }
@@ -1883,6 +2456,64 @@ std::size_t FloodUnboundNativeSculptWeights(
     return changed;
 }
 
+std::size_t SealUnboundNativeSculptWeightsFromNeighbors(ri::content::NativeSculptDocument& document) {
+    if (document.mesh.positions.empty()) {
+        return 0;
+    }
+    EnsureVertexInfluences(document);
+    const std::vector<std::vector<std::size_t>> adjacency = BuildVertexAdjacency(document.mesh);
+    const auto previousInfluences = document.vertexInfluences;
+    const auto previousNames = document.vertexBoneNames;
+    const auto isBound = [&](const std::size_t vertex) {
+        if (vertex >= previousNames.size()) {
+            return false;
+        }
+        if (!previousNames[vertex].empty()) {
+            return true;
+        }
+        return vertex < previousInfluences.size() && !previousInfluences[vertex].empty();
+    };
+    std::size_t changed = 0;
+    for (std::size_t vertex = 0; vertex < document.mesh.positions.size(); ++vertex) {
+        if (isBound(vertex)) {
+            continue;
+        }
+        std::unordered_map<std::string, float> sums{};
+        std::size_t sampleCount = 0;
+        for (const std::size_t neighbor : adjacency[vertex]) {
+            if (!isBound(neighbor)) {
+                continue;
+            }
+            ++sampleCount;
+            if (!previousInfluences[neighbor].empty()) {
+                for (const ri::content::NativeSculptVertexInfluence& influence :
+                     previousInfluences[neighbor]) {
+                    if (!influence.boneName.empty() && influence.weight > 0.0f) {
+                        sums[influence.boneName] += influence.weight;
+                    }
+                }
+            } else if (!previousNames[neighbor].empty()) {
+                sums[previousNames[neighbor]] += 1.0f;
+            }
+        }
+        if (sampleCount == 0U || sums.empty()) {
+            continue;
+        }
+        std::vector<ri::content::NativeSculptVertexInfluence> next{};
+        next.reserve(sums.size());
+        for (const auto& [boneName, weight] : sums) {
+            next.push_back(ri::content::NativeSculptVertexInfluence{
+                .boneName = boneName,
+                .weight = weight / static_cast<float>(sampleCount),
+            });
+        }
+        NormalizeVertexInfluences(next, document.vertexBoneNames[vertex]);
+        document.vertexInfluences[vertex] = std::move(next);
+        ++changed;
+    }
+    return changed;
+}
+
 std::size_t TransferNativeSculptWeights(
     ri::content::NativeSculptDocument& document,
     const std::string_view fromBoneName,
@@ -1927,8 +2558,14 @@ std::size_t TransferNativeSculptWeights(
                     influences.push_back(
                         ri::content::NativeSculptVertexInfluence{.boneName = to, .weight = transferred});
                 } else if (!influences.empty()) {
-                    influences.back().weight += transferred;
-                    influences.back().boneName = to;
+                    std::size_t weakest = 0;
+                    for (std::size_t index = 1; index < influences.size(); ++index) {
+                        if (influences[index].weight < influences[weakest].weight) {
+                            weakest = index;
+                        }
+                    }
+                    // Transfer always claims a slot — drop the weakest other influence.
+                    influences[weakest] = {.boneName = to, .weight = transferred};
                 } else {
                     WriteRigidInfluence(document, vertex, to);
                 }
@@ -1992,6 +2629,8 @@ std::size_t InvertNativeSculptBoneWeights(
     std::size_t changed = 0;
     for (std::size_t vertex = 0; vertex < document.vertexInfluences.size(); ++vertex) {
         auto& influences = document.vertexInfluences[vertex];
+        const auto beforeInfluences = influences;
+        const std::string beforeName = document.vertexBoneNames[vertex];
         float selectedWeight = 0.0f;
         bool found = false;
         for (const ri::content::NativeSculptVertexInfluence& influence : influences) {
@@ -2009,6 +2648,9 @@ std::size_t InvertNativeSculptBoneWeights(
             found = true;
         }
         const float inverted = std::clamp(1.0f - selectedWeight, 0.0f, 1.0f);
+        if (std::abs(inverted - selectedWeight) <= 0.0005f) {
+            continue;
+        }
         float otherSum = 0.0f;
         for (const ri::content::NativeSculptVertexInfluence& influence : influences) {
             if (influence.boneName != target) {
@@ -2039,7 +2681,10 @@ std::size_t InvertNativeSculptBoneWeights(
             }
         }
         influences = std::move(next);
-        NormalizeVertexInfluences(influences, document.vertexBoneNames[vertex]);
+        NormalizeVertexInfluences(influences, document.vertexBoneNames[vertex], 0.0f);
+        if (influences == beforeInfluences && document.vertexBoneNames[vertex] == beforeName) {
+            continue;
+        }
         ++changed;
     }
     return changed;
@@ -2057,32 +2702,424 @@ std::size_t ScaleNativeSculptBoneWeights(
     std::size_t changed = 0;
     for (std::size_t vertex = 0; vertex < document.vertexInfluences.size(); ++vertex) {
         auto& influences = document.vertexInfluences[vertex];
+        float current = 0.0f;
         bool found = false;
-        for (ri::content::NativeSculptVertexInfluence& influence : influences) {
-            if (influence.boneName != target) {
-                continue;
+        for (const ri::content::NativeSculptVertexInfluence& influence : influences) {
+            if (influence.boneName == target) {
+                current = influence.weight;
+                found = true;
+                break;
             }
-            influence.weight *= factor;
-            found = true;
-            break;
         }
         if (!found) {
             if (document.vertexBoneNames[vertex] != target) {
                 continue;
             }
-            // Rigid bind with no influence list entry yet — scale from 1.0.
-            if (factor >= 0.999f && factor <= 1.001f) {
-                continue;
-            }
-            influences = {
-                ri::content::NativeSculptVertexInfluence{.boneName = target, .weight = factor},
-            };
+            current = 1.0f;
             found = true;
+            influences = {
+                ri::content::NativeSculptVertexInfluence{.boneName = target, .weight = 1.0f},
+            };
+        }
+        const float desired = std::clamp(current * factor, 0.0f, 1.0f);
+        if (std::abs(desired - current) <= 0.0005f) {
+            continue;
+        }
+
+        bool haveTarget = false;
+        for (ri::content::NativeSculptVertexInfluence& influence : influences) {
+            if (influence.boneName == target) {
+                influence.weight = desired;
+                haveTarget = true;
+                break;
+            }
+        }
+        if (!haveTarget && desired > 0.000001f) {
+            influences.push_back(
+                ri::content::NativeSculptVertexInfluence{.boneName = target, .weight = desired});
+        }
+        if (desired <= 0.000001f) {
+            influences.erase(
+                std::remove_if(
+                    influences.begin(),
+                    influences.end(),
+                    [&](const ri::content::NativeSculptVertexInfluence& influence) {
+                        return influence.boneName == target;
+                    }),
+                influences.end());
+        }
+
+        float otherSum = 0.0f;
+        for (const ri::content::NativeSculptVertexInfluence& influence : influences) {
+            if (influence.boneName != target) {
+                otherSum += influence.weight;
+            }
+        }
+        const float remaining = std::clamp(1.0f - desired, 0.0f, 1.0f);
+        if (otherSum <= 0.000001f) {
+            // Solo/rigid scale: keep absolute weight and leave unbound remainder.
+            if (desired > 0.000001f) {
+                influences = {
+                    ri::content::NativeSculptVertexInfluence{.boneName = target, .weight = desired},
+                };
+                document.vertexBoneNames[vertex] = target;
+            } else {
+                influences.clear();
+                document.vertexBoneNames[vertex].clear();
+            }
+            ++changed;
+            continue;
+        }
+        const float scale = remaining / otherSum;
+        for (ri::content::NativeSculptVertexInfluence& influence : influences) {
+            if (influence.boneName != target) {
+                influence.weight *= scale;
+            }
+        }
+        NormalizeVertexInfluences(influences, document.vertexBoneNames[vertex], 0.0f);
+        ++changed;
+    }
+    return changed;
+}
+
+static float BoneInfluenceWeight(
+    const std::vector<ri::content::NativeSculptVertexInfluence>& influences,
+    const std::string& boneName,
+    const std::string& dominantName) {
+    for (const ri::content::NativeSculptVertexInfluence& influence : influences) {
+        if (influence.boneName == boneName) {
+            return influence.weight;
+        }
+    }
+    if (dominantName == boneName && influences.empty()) {
+        return 1.0f;
+    }
+    return 0.0f;
+}
+
+std::vector<float> ExtractNativeSculptBoneWeights(
+    const ri::content::NativeSculptDocument& document,
+    const std::string_view boneName) {
+    std::vector<float> weights(document.mesh.positions.size(), 0.0f);
+    if (document.mesh.positions.empty() || boneName.empty()) {
+        return weights;
+    }
+    const std::string target{boneName};
+    const bool hasInfluences = document.vertexInfluences.size() == document.mesh.positions.size();
+    const bool hasNames = document.vertexBoneNames.size() == document.mesh.positions.size();
+    for (std::size_t vertex = 0; vertex < document.mesh.positions.size(); ++vertex) {
+        if (hasInfluences) {
+            weights[vertex] = BoneInfluenceWeight(
+                document.vertexInfluences[vertex],
+                target,
+                hasNames ? document.vertexBoneNames[vertex] : std::string{});
+        } else if (hasNames && document.vertexBoneNames[vertex] == target) {
+            weights[vertex] = 1.0f;
+        }
+    }
+    return weights;
+}
+
+std::size_t ApplyNativeSculptBoneWeights(
+    ri::content::NativeSculptDocument& document,
+    const std::string_view boneName,
+    const std::span<const float> weights) {
+    if (document.mesh.positions.empty() || boneName.empty()
+        || weights.size() != document.mesh.positions.size()) {
+        return 0;
+    }
+    EnsureVertexInfluences(document);
+    const std::string target{boneName};
+    std::size_t changed = 0;
+    for (std::size_t vertex = 0; vertex < document.mesh.positions.size(); ++vertex) {
+        float desired = weights[vertex];
+        if (!std::isfinite(desired) || desired < 0.0f) {
+            desired = 0.0f;
+        }
+        desired = std::clamp(desired, 0.0f, 1.0f);
+        const float current = BoneInfluenceWeight(
+            document.vertexInfluences[vertex], target, document.vertexBoneNames[vertex]);
+        if (std::abs(current - desired) <= 0.0005f) {
+            continue;
+        }
+        auto& influences = document.vertexInfluences[vertex];
+        if (influences.empty() && !document.vertexBoneNames[vertex].empty()
+            && document.vertexBoneNames[vertex] != target) {
+            influences = {
+                ri::content::NativeSculptVertexInfluence{
+                    .boneName = document.vertexBoneNames[vertex],
+                    .weight = 1.0f,
+                },
+            };
+        }
+        bool found = false;
+        for (ri::content::NativeSculptVertexInfluence& influence : influences) {
+            if (influence.boneName == target) {
+                influence.weight = desired;
+                found = true;
+                break;
+            }
+        }
+        if (!found && desired > 0.000001f) {
+            const std::size_t maxInfluences =
+                static_cast<std::size_t>(ri::content::NativeSculptDocument::kMaxInfluences);
+            if (influences.size() < maxInfluences) {
+                influences.push_back(
+                    ri::content::NativeSculptVertexInfluence{.boneName = target, .weight = desired});
+            } else {
+                // Cap-safe paste: replace the weakest other slot when the new weight wins.
+                std::size_t weakest = 0;
+                for (std::size_t index = 1; index < influences.size(); ++index) {
+                    if (influences[index].weight < influences[weakest].weight) {
+                        weakest = index;
+                    }
+                }
+                if (desired <= influences[weakest].weight) {
+                    continue;
+                }
+                influences[weakest] = {.boneName = target, .weight = desired};
+            }
+        }
+        if (desired <= 0.000001f) {
+            influences.erase(
+                std::remove_if(
+                    influences.begin(),
+                    influences.end(),
+                    [&](const ri::content::NativeSculptVertexInfluence& influence) {
+                        return influence.boneName == target;
+                    }),
+                influences.end());
+        }
+        float otherSum = 0.0f;
+        for (const ri::content::NativeSculptVertexInfluence& influence : influences) {
+            if (influence.boneName != target) {
+                otherSum += influence.weight;
+            }
+        }
+        const float remaining = std::clamp(1.0f - desired, 0.0f, 1.0f);
+        if (otherSum > 0.000001f) {
+            const float scale = remaining / otherSum;
+            for (ri::content::NativeSculptVertexInfluence& influence : influences) {
+                if (influence.boneName != target) {
+                    influence.weight *= scale;
+                }
+            }
+        } else if (desired > 0.000001f) {
+            influences = {
+                ri::content::NativeSculptVertexInfluence{.boneName = target, .weight = desired},
+            };
+        }
+        NormalizeVertexInfluences(influences, document.vertexBoneNames[vertex], 0.0f);
+        ++changed;
+    }
+    return changed;
+}
+
+std::size_t GrowNativeSculptBoneWeights(
+    ri::content::NativeSculptDocument& document,
+    const std::string_view boneName) {
+    if (document.mesh.positions.empty() || boneName.empty()) {
+        return 0;
+    }
+    EnsureVertexInfluences(document);
+    const std::string target{boneName};
+    const std::vector<std::vector<std::size_t>> adjacency = BuildVertexAdjacency(document.mesh);
+    const auto previousInfluences = document.vertexInfluences;
+    const auto previousNames = document.vertexBoneNames;
+    std::size_t changed = 0;
+    for (std::size_t vertex = 0; vertex < document.mesh.positions.size(); ++vertex) {
+        if (BoneInfluenceWeight(previousInfluences[vertex], target, previousNames[vertex]) > 0.000001f) {
+            continue;
+        }
+        float best = 0.0f;
+        for (const std::size_t neighbor : adjacency[vertex]) {
+            best = (std::max)(
+                best,
+                BoneInfluenceWeight(previousInfluences[neighbor], target, previousNames[neighbor]));
+        }
+        if (best <= 0.05f) {
+            continue;
+        }
+        AddVertexInfluence(document, vertex, target, best * 0.85f);
+        ++changed;
+    }
+    return changed;
+}
+
+std::size_t ShrinkNativeSculptBoneWeights(
+    ri::content::NativeSculptDocument& document,
+    const std::string_view boneName) {
+    if (document.mesh.positions.empty() || boneName.empty()) {
+        return 0;
+    }
+    EnsureVertexInfluences(document);
+    const std::string target{boneName};
+    const std::vector<std::vector<std::size_t>> adjacency = BuildVertexAdjacency(document.mesh);
+    const auto previousInfluences = document.vertexInfluences;
+    const auto previousNames = document.vertexBoneNames;
+    std::size_t changed = 0;
+    for (std::size_t vertex = 0; vertex < document.mesh.positions.size(); ++vertex) {
+        if (BoneInfluenceWeight(previousInfluences[vertex], target, previousNames[vertex]) <= 0.000001f) {
+            continue;
+        }
+        bool frontier = adjacency[vertex].empty();
+        for (const std::size_t neighbor : adjacency[vertex]) {
+            if (BoneInfluenceWeight(previousInfluences[neighbor], target, previousNames[neighbor])
+                <= 0.000001f) {
+                frontier = true;
+                break;
+            }
+        }
+        if (!frontier) {
+            continue;
+        }
+        auto& influences = document.vertexInfluences[vertex];
+        influences.erase(
+            std::remove_if(
+                influences.begin(),
+                influences.end(),
+                [&](const ri::content::NativeSculptVertexInfluence& influence) {
+                    return influence.boneName == target;
+                }),
+            influences.end());
+        if (document.vertexBoneNames[vertex] == target) {
+            document.vertexBoneNames[vertex].clear();
+        }
+        NormalizeVertexInfluences(influences, document.vertexBoneNames[vertex]);
+        ++changed;
+    }
+    return changed;
+}
+
+std::size_t HardenNativeSculptBoneWeights(
+    ri::content::NativeSculptDocument& document,
+    const std::string_view boneName,
+    const float threshold) {
+    if (document.mesh.positions.empty() || boneName.empty() || !std::isfinite(threshold)
+        || threshold <= 0.0f) {
+        return 0;
+    }
+    EnsureVertexInfluences(document);
+    const std::string target{boneName};
+    std::size_t changed = 0;
+    for (std::size_t vertex = 0; vertex < document.vertexInfluences.size(); ++vertex) {
+        const float weight =
+            BoneInfluenceWeight(document.vertexInfluences[vertex], target, document.vertexBoneNames[vertex]);
+        if (weight + 0.000001f < threshold) {
+            continue;
+        }
+        if (document.vertexBoneNames[vertex] == target
+            && document.vertexInfluences[vertex].size() == 1U
+            && document.vertexInfluences[vertex].front().weight > 0.999f) {
+            continue;
+        }
+        WriteRigidInfluence(document, vertex, target);
+        ++changed;
+    }
+    return changed;
+}
+
+std::size_t FloorNativeSculptBoneWeights(
+    ri::content::NativeSculptDocument& document,
+    const std::string_view boneName,
+    const float minWeight) {
+    if (document.mesh.positions.empty() || boneName.empty() || !std::isfinite(minWeight)
+        || minWeight <= 0.0f) {
+        return 0;
+    }
+    EnsureVertexInfluences(document);
+    const std::string target{boneName};
+    std::size_t changed = 0;
+    for (std::size_t vertex = 0; vertex < document.vertexInfluences.size(); ++vertex) {
+        auto& influences = document.vertexInfluences[vertex];
+        const float weight = BoneInfluenceWeight(influences, target, document.vertexBoneNames[vertex]);
+        if (weight <= 0.000001f || weight + 0.000001f >= minWeight) {
+            continue;
+        }
+        if (influences.empty() && document.vertexBoneNames[vertex] == target) {
+            // Rigid bind below floor — clear it.
+            document.vertexBoneNames[vertex].clear();
+            ++changed;
+            continue;
+        }
+        const auto before = influences;
+        const std::string beforeName = document.vertexBoneNames[vertex];
+        influences.erase(
+            std::remove_if(
+                influences.begin(),
+                influences.end(),
+                [&](const ri::content::NativeSculptVertexInfluence& influence) {
+                    return influence.boneName == target && influence.weight + 0.000001f < minWeight;
+                }),
+            influences.end());
+        NormalizeVertexInfluences(influences, document.vertexBoneNames[vertex]);
+        if (influences != before || document.vertexBoneNames[vertex] != beforeName) {
+            ++changed;
+        }
+    }
+    return changed;
+}
+
+std::size_t CeilNativeSculptBoneWeights(
+    ri::content::NativeSculptDocument& document,
+    const std::string_view boneName,
+    const float maxWeight) {
+    if (document.mesh.positions.empty() || boneName.empty() || !std::isfinite(maxWeight)
+        || maxWeight <= 0.0f || maxWeight >= 1.0f) {
+        return 0;
+    }
+    EnsureVertexInfluences(document);
+    const std::string target{boneName};
+    std::size_t changed = 0;
+    for (std::size_t vertex = 0; vertex < document.vertexInfluences.size(); ++vertex) {
+        auto& influences = document.vertexInfluences[vertex];
+        if (influences.empty() && document.vertexBoneNames[vertex] == target) {
+            // Rigid solo above the ceiling — leave unbound remainder.
+            influences = {
+                ri::content::NativeSculptVertexInfluence{.boneName = target, .weight = maxWeight},
+            };
+            document.vertexBoneNames[vertex] = target;
+            ++changed;
+            continue;
+        }
+        const float weight = BoneInfluenceWeight(influences, target, document.vertexBoneNames[vertex]);
+        if (weight <= maxWeight + 0.000001f) {
+            continue;
+        }
+        bool found = false;
+        for (ri::content::NativeSculptVertexInfluence& influence : influences) {
+            if (influence.boneName == target) {
+                influence.weight = maxWeight;
+                found = true;
+                break;
+            }
         }
         if (!found) {
             continue;
         }
-        NormalizeVertexInfluences(influences, document.vertexBoneNames[vertex]);
+        float otherSum = 0.0f;
+        for (const ri::content::NativeSculptVertexInfluence& influence : influences) {
+            if (influence.boneName != target) {
+                otherSum += influence.weight;
+            }
+        }
+        const float remaining = std::clamp(1.0f - maxWeight, 0.0f, 1.0f);
+        if (otherSum <= 0.000001f) {
+            // Solo soft above the ceiling: leave unbound remainder instead of no-op.
+            influences = {
+                ri::content::NativeSculptVertexInfluence{.boneName = target, .weight = maxWeight},
+            };
+            document.vertexBoneNames[vertex] = target;
+            ++changed;
+            continue;
+        }
+        const float scale = remaining / otherSum;
+        for (ri::content::NativeSculptVertexInfluence& influence : influences) {
+            if (influence.boneName != target) {
+                influence.weight *= scale;
+            }
+        }
+        NormalizeVertexInfluences(influences, document.vertexBoneNames[vertex], 0.0f);
         ++changed;
     }
     return changed;
@@ -2110,6 +3147,10 @@ NativeSculptWeightAudit AuditNativeSculptWeights(const ri::content::NativeSculpt
             }
             if (!influences.empty() && std::abs(sum - 1.0f) > 0.02f) {
                 ++audit.nonNormalizedCount;
+            }
+            if (influences.size()
+                > static_cast<std::size_t>(ri::content::NativeSculptDocument::kMaxInfluences)) {
+                ++audit.overInfluencedCount;
             }
         } else {
             ++audit.unboundCount;
@@ -2164,6 +3205,232 @@ std::size_t SmoothNativeSculptWeights(ri::content::NativeSculptDocument& documen
     return changed;
 }
 
+std::size_t SmoothNativeSculptBoneWeights(
+    ri::content::NativeSculptDocument& document,
+    const std::string_view boneName) {
+    if (document.mesh.positions.empty() || boneName.empty()) {
+        return 0;
+    }
+    EnsureVertexInfluences(document);
+    const std::string target{boneName};
+    const auto previous = document.vertexInfluences;
+    const auto previousNames = document.vertexBoneNames;
+    const std::vector<std::vector<std::size_t>> adjacency = BuildVertexAdjacency(document.mesh);
+    std::size_t changed = 0;
+    for (std::size_t vertex = 0; vertex < document.mesh.positions.size(); ++vertex) {
+        const float current =
+            BoneInfluenceWeight(previous[vertex], target, previousNames[vertex]);
+        bool neighborhoodHasTarget = current > 0.000001f;
+        if (!neighborhoodHasTarget) {
+            for (const std::size_t neighbor : adjacency[vertex]) {
+                if (BoneInfluenceWeight(previous[neighbor], target, previousNames[neighbor])
+                    > 0.000001f) {
+                    neighborhoodHasTarget = true;
+                    break;
+                }
+            }
+        }
+        if (!neighborhoodHasTarget) {
+            continue;
+        }
+
+        // Channel-only laplacian on the selected bone; preserve/rebuild other mass separately.
+        float targetSum = current;
+        std::size_t sampleCount = 1;
+        std::unordered_map<std::string, float> otherSums{};
+        const auto accumulateOthers = [&](const std::size_t index) {
+            if (index >= previous.size()) {
+                return;
+            }
+            if (!previous[index].empty()) {
+                for (const ri::content::NativeSculptVertexInfluence& influence : previous[index]) {
+                    if (influence.boneName.empty() || influence.boneName == target
+                        || influence.weight <= 0.0f) {
+                        continue;
+                    }
+                    otherSums[influence.boneName] += influence.weight;
+                }
+            } else if (!previousNames[index].empty() && previousNames[index] != target) {
+                otherSums[previousNames[index]] += 1.0f;
+            }
+        };
+        accumulateOthers(vertex);
+        for (const std::size_t neighbor : adjacency[vertex]) {
+            targetSum += BoneInfluenceWeight(previous[neighbor], target, previousNames[neighbor]);
+            accumulateOthers(neighbor);
+            ++sampleCount;
+        }
+        const float desired = std::clamp(targetSum / static_cast<float>(sampleCount), 0.0f, 1.0f);
+
+        float localOther = 0.0f;
+        if (!previous[vertex].empty()) {
+            for (const ri::content::NativeSculptVertexInfluence& influence : previous[vertex]) {
+                if (influence.boneName != target) {
+                    localOther += influence.weight;
+                }
+            }
+        } else if (!previousNames[vertex].empty() && previousNames[vertex] != target) {
+            localOther = 1.0f;
+        }
+        const bool needsNeighborFill =
+            localOther <= 0.000001f && desired + 0.000001f < 1.0f && !otherSums.empty();
+        if (std::abs(current - desired) <= 0.0005f && !needsNeighborFill) {
+            continue;
+        }
+
+        std::vector<ri::content::NativeSculptVertexInfluence> mixed = previous[vertex];
+        if (mixed.empty() && !previousNames[vertex].empty()) {
+            mixed = {
+                ri::content::NativeSculptVertexInfluence{
+                    .boneName = previousNames[vertex],
+                    .weight = 1.0f,
+                },
+            };
+        }
+
+        bool found = false;
+        for (ri::content::NativeSculptVertexInfluence& influence : mixed) {
+            if (influence.boneName == target) {
+                influence.weight = desired;
+                found = true;
+                break;
+            }
+        }
+        if (!found && desired > 0.000001f) {
+            const std::size_t maxInfluences =
+                static_cast<std::size_t>(ri::content::NativeSculptDocument::kMaxInfluences);
+            if (mixed.size() < maxInfluences) {
+                mixed.push_back(
+                    ri::content::NativeSculptVertexInfluence{.boneName = target, .weight = desired});
+            } else {
+                std::size_t weakest = 0;
+                for (std::size_t index = 1; index < mixed.size(); ++index) {
+                    if (mixed[index].weight < mixed[weakest].weight) {
+                        weakest = index;
+                    }
+                }
+                if (desired > mixed[weakest].weight * 0.5f) {
+                    mixed[weakest] = {.boneName = target, .weight = desired};
+                } else {
+                    continue;
+                }
+            }
+        }
+        if (desired <= 0.000001f) {
+            mixed.erase(
+                std::remove_if(
+                    mixed.begin(),
+                    mixed.end(),
+                    [&](const ri::content::NativeSculptVertexInfluence& influence) {
+                        return influence.boneName == target;
+                    }),
+                mixed.end());
+        }
+
+        float otherSum = 0.0f;
+        for (const ri::content::NativeSculptVertexInfluence& influence : mixed) {
+            if (influence.boneName != target) {
+                otherSum += influence.weight;
+            }
+        }
+        const float remaining = std::clamp(1.0f - desired, 0.0f, 1.0f);
+        if (otherSum > 0.000001f) {
+            const float scale = remaining / otherSum;
+            for (ri::content::NativeSculptVertexInfluence& influence : mixed) {
+                if (influence.boneName != target) {
+                    influence.weight *= scale;
+                }
+            }
+        } else if (needsNeighborFill) {
+            float neighborOther = 0.0f;
+            for (const auto& [name, weight] : otherSums) {
+                neighborOther += weight;
+            }
+            if (neighborOther > 0.000001f) {
+                mixed.erase(
+                    std::remove_if(
+                        mixed.begin(),
+                        mixed.end(),
+                        [&](const ri::content::NativeSculptVertexInfluence& influence) {
+                            return influence.boneName != target;
+                        }),
+                    mixed.end());
+                bool haveTarget = false;
+                for (ri::content::NativeSculptVertexInfluence& influence : mixed) {
+                    if (influence.boneName == target) {
+                        influence.weight = desired;
+                        haveTarget = true;
+                        break;
+                    }
+                }
+                if (!haveTarget && desired > 0.000001f) {
+                    mixed.push_back(
+                        ri::content::NativeSculptVertexInfluence{.boneName = target, .weight = desired});
+                }
+                const float scale = remaining / neighborOther;
+                std::vector<ri::content::NativeSculptVertexInfluence> others{};
+                others.reserve(otherSums.size());
+                for (const auto& [name, weight] : otherSums) {
+                    const float amount = weight * scale;
+                    if (amount <= 0.000001f) {
+                        continue;
+                    }
+                    others.push_back(ri::content::NativeSculptVertexInfluence{
+                        .boneName = name,
+                        .weight = amount,
+                    });
+                }
+                std::sort(
+                    others.begin(),
+                    others.end(),
+                    [](const ri::content::NativeSculptVertexInfluence& lhs,
+                       const ri::content::NativeSculptVertexInfluence& rhs) {
+                        return lhs.weight > rhs.weight;
+                    });
+                const std::size_t maxInfluences =
+                    static_cast<std::size_t>(ri::content::NativeSculptDocument::kMaxInfluences);
+                const std::size_t otherBudget =
+                    mixed.empty() ? maxInfluences : maxInfluences - mixed.size();
+                if (others.size() > otherBudget) {
+                    others.resize(otherBudget);
+                }
+                // Rescale kept others so they still fill the remainder after Cap4 pin.
+                float keptOther = 0.0f;
+                for (const ri::content::NativeSculptVertexInfluence& influence : others) {
+                    keptOther += influence.weight;
+                }
+                if (keptOther > 0.000001f && remaining > 0.000001f) {
+                    const float fixup = remaining / keptOther;
+                    for (ri::content::NativeSculptVertexInfluence& influence : others) {
+                        influence.weight *= fixup;
+                    }
+                }
+                for (ri::content::NativeSculptVertexInfluence& influence : others) {
+                    mixed.push_back(std::move(influence));
+                }
+            } else if (desired > 0.000001f) {
+                mixed = {
+                    ri::content::NativeSculptVertexInfluence{.boneName = target, .weight = desired},
+                };
+            }
+        } else if (desired > 0.000001f) {
+            mixed = {
+                ri::content::NativeSculptVertexInfluence{.boneName = target, .weight = desired},
+            };
+        }
+
+        std::string dominant = previousNames[vertex];
+        NormalizeVertexInfluences(mixed, dominant, 0.0f);
+        if (mixed == previous[vertex] && dominant == previousNames[vertex]) {
+            continue;
+        }
+        document.vertexInfluences[vertex] = std::move(mixed);
+        document.vertexBoneNames[vertex] = std::move(dominant);
+        ++changed;
+    }
+    return changed;
+}
+
 std::size_t NormalizeAllNativeSculptWeights(ri::content::NativeSculptDocument& document) {
     if (document.mesh.positions.empty()) {
         return 0;
@@ -2177,6 +3444,34 @@ std::size_t NormalizeAllNativeSculptWeights(ri::content::NativeSculptDocument& d
         if (document.vertexInfluences[vertex] != before || document.vertexBoneNames[vertex] != beforeName) {
             ++changed;
         }
+    }
+    return changed;
+}
+
+std::size_t LimitNativeSculptInfluences(
+    ri::content::NativeSculptDocument& document,
+    const int maxInfluences) {
+    if (document.mesh.positions.empty() || maxInfluences < 1) {
+        return 0;
+    }
+    EnsureVertexInfluences(document);
+    const std::size_t limit = static_cast<std::size_t>(maxInfluences);
+    std::size_t changed = 0;
+    for (std::size_t vertex = 0; vertex < document.mesh.positions.size(); ++vertex) {
+        auto& influences = document.vertexInfluences[vertex];
+        if (influences.size() <= limit) {
+            continue;
+        }
+        std::sort(
+            influences.begin(),
+            influences.end(),
+            [](const ri::content::NativeSculptVertexInfluence& lhs,
+               const ri::content::NativeSculptVertexInfluence& rhs) {
+                return lhs.weight > rhs.weight;
+            });
+        influences.resize(limit);
+        NormalizeVertexInfluences(influences, document.vertexBoneNames[vertex], 0.0f);
+        ++changed;
     }
     return changed;
 }
@@ -2195,6 +3490,47 @@ std::size_t PruneAllNativeSculptWeights(
         NormalizeVertexInfluences(
             document.vertexInfluences[vertex], document.vertexBoneNames[vertex], minWeight);
         if (document.vertexInfluences[vertex] != before || document.vertexBoneNames[vertex] != beforeName) {
+            ++changed;
+        }
+    }
+    return changed;
+}
+
+std::size_t StripNativeSculptOrphanInfluences(
+    ri::content::NativeSculptDocument& document,
+    const std::span<const std::string> allowedBoneNames) {
+    if (document.mesh.positions.empty() || allowedBoneNames.empty()) {
+        return 0;
+    }
+    EnsureVertexInfluences(document);
+    std::unordered_set<std::string> allowed{};
+    allowed.reserve(allowedBoneNames.size());
+    for (const std::string& name : allowedBoneNames) {
+        if (!name.empty()) {
+            allowed.insert(name);
+        }
+    }
+    if (allowed.empty()) {
+        return 0;
+    }
+    std::size_t changed = 0;
+    for (std::size_t vertex = 0; vertex < document.vertexInfluences.size(); ++vertex) {
+        auto& influences = document.vertexInfluences[vertex];
+        const auto before = influences;
+        const std::string beforeName = document.vertexBoneNames[vertex];
+        influences.erase(
+            std::remove_if(
+                influences.begin(),
+                influences.end(),
+                [&](const ri::content::NativeSculptVertexInfluence& influence) {
+                    return influence.boneName.empty() || allowed.find(influence.boneName) == allowed.end();
+                }),
+            influences.end());
+        if (allowed.find(document.vertexBoneNames[vertex]) == allowed.end()) {
+            document.vertexBoneNames[vertex].clear();
+        }
+        NormalizeVertexInfluences(influences, document.vertexBoneNames[vertex]);
+        if (influences != before || document.vertexBoneNames[vertex] != beforeName) {
             ++changed;
         }
     }

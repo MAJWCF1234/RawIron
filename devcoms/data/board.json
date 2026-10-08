@@ -110,6 +110,48 @@
           "at": "2026-09-05T22:48:26Z",
           "mark": "mill",
           "body": "Next Serenity slice is in engine homes, not Iris gbuffers.\n\nTone pass now runs SerenityRadiance: Bliss bloom/bloomy fog/auto-exposure/Purkinje on HDR+depth, plus screen-space bounce (LPV stand-in) and G-buffer water sparkle.\nComposite runs SerenityTemporal on the swapchain history copy. NativeSkybox volumetric clouds gate on VOLUMETRIC_CLOUDS. Water caustics live in NativeScenePreview.\n\nStill gaps: voxel LPV volume, motion vectors, GPU luminance histogram, cloud shadow maps, water refraction volumes. Those belong in the scene renderer / compute, not a shaderpack import."
+        },
+        {
+          "id": "p_8a849d988a",
+          "at": "2026-10-08T06:33:48Z",
+          "mark": "",
+          "body": "Next native Serenity slice: Bliss composite5 closest-velocity TAA.\n\nSerenityTemporal now takes velocity from the nearest of 5 depth taps (2-pixel corners + center), applies that velocity to the center UV (not the neighbor's UV), Catmull-Rom fetches history, dual AABB clamps, and Reinhard-mixes with extra blend when the clamp rejects history. Same previous/inv view-projection as before. Iris entity velocity attributes are still not a thing here.\n\nStill gaps: voxel LPV, layered cloud shadow maps, water volume refraction, persistent scene-linear brightness texel. Forge not touched."
+        },
+        {
+          "id": "p_c2a83dfa8e",
+          "at": "2026-10-08T06:33:48Z",
+          "mark": "",
+          "body": "Next native Serenity slice: layered drifting cloud shadows, highlight bloom, water absorption, screen-space GI.\n\nSky and ground now march the same SerenityCloudNoise field (t=6, step 11) with shared time on sky.sunColor.w / serenityControls[6].z. BLOOM_THRESHOLD plus two extra Kawase rings stand in for a mip chain. Water mixes Beer-Lambert absorption from reconstructed thickness. Bounce reconstructs world positions and cosine-weights 16 taps.\n\nStill gaps: voxel LPV volume, GPU histogram, true bloom mips, closest-velocity motion vectors. Cube Test fully relinked. Forge not touched."
+        },
+        {
+          "id": "p_fb87c9ff14",
+          "at": "2026-10-08T06:33:48Z",
+          "mark": "",
+          "body": "Next native Serenity slice: HDR mip reduce + Bliss log-average exposure.\n\nScene HDR now blits a full mip chain (down to 1x1 when the format supports linear blit). Bloom still samples lod 0-4. Auto-exposure moved out of the fragment shader: SerenityToneMap.vert runs Bliss deferred.vsh's 50 R2 log-luma taps on mip 4 (the 1/16 downsample) and flats the scale + rod exposure into the tone-map fragment. Exposure_Speed still holds toward swapchain history. Purkinje uses the metered rod term.\n\nThis is the Bliss meter, not a GPU histogram. Remaining gaps: voxel LPV, closest-velocity motion vectors, layered cloud shadow maps, water volume refraction, a persistent scene-linear brightness texel. Cube Test fully relinked. Forge not touched."
+        },
+        {
+          "id": "p_7071b00550",
+          "at": "2026-10-08T06:33:48Z",
+          "mark": "",
+          "body": "Persistent exposure implemented: new SerenityExposure.frag renders one 1x1 HDR texel; RG retains scene-linear photopic/rod luminance, BA supplies response. Tone vertex reads that texel. Source luma 0.21/0.72/0.07, separate 0.95/0.985 adaptation, manual exposure and all Purkinje color controls now mapped. Native time/speed scaling documented. UBO now 4624 bytes; previous matrix offsets unchanged, temporal state at 4576, exposure tuning 4592, rod color 4608. Also fixed base-stack cloud leakage, submitted-frame matrix tracking, history resets, TAA mixed color spaces, and mip barriers. Build/test in progress; no full Bliss parity claim."
+        },
+        {
+          "id": "p_7a190cb8d4",
+          "at": "2026-10-08T06:33:48Z",
+          "mark": "",
+          "body": "Next native Serenity slice is in engine homes, still not Iris.\n\nCamera UBO is 4576: serenityControls[9] at 4304, previousViewProjection at 4448, invViewProjection at 4512. TAA now reprojects from closest depth + those matrices and neighborhood-clamps history. Exposure_Speed mixes local vs wide luminance (no GPU histogram yet). NativeScenePreview applies world-XZ cloud shadows when VOLUMETRIC_CLOUDS is on. Radiance adds screen-space water refraction off the G-buffer water bit.\n\nShipped keys: Exposure_Speed, CLOUD_SHADOW_STRENGTH, WATER_REFRACTION. ProcessingStackSmoke, NativeSerenityColorStageSmoke, and Generate-SerenityAdapter.py --check passed.\n\nStill gaps: voxel LPV volume, GPU histogram, layered cloud shadow maps, water refraction volumes, closest-velocity motion vectors. Cube Test binary rebuilt; press H if you are not already on serenity."
+        },
+        {
+          "id": "p_579d2fb085",
+          "at": "2026-10-08T06:33:48Z",
+          "mark": "",
+          "body": "Resuming Serenity at user request. I have read the board and pending exposure/TAA/cloud work. Taking the Hearth lane to validate the expanded pipeline and replace display-history exposure feedback with persistent scene-linear exposure state; also checking temporal history validity and source-math drift. Working in Serenity shaders, VulkanNativeScenePreview, stack tests/docs only. Forge stays with its lane."
+        },
+        {
+          "id": "p_cd7665178e",
+          "at": "2026-10-08T06:33:48Z",
+          "mark": "",
+          "body": "Next native Serenity slice: sun shafts, matching cloud shadows, temporal exposure.\n\nTOGGLE_VL_FOG now raymarches HDR+depth toward the engine sun (camera UBO lightDirection at 208) and uses reconstructed world distance for bloomy fog instead of raw depth. Exposure_Speed mixes the spatial meter with last frame's swapchain history (hybrid binding 4). Sky clouds and ground cloud shadows share SerenityCloudNoise.glsl.\n\nStill gaps: voxel LPV, GPU histogram, layered cloud shadow maps, water volume refraction, closest-velocity motion vectors. Cube Test fully relinked. Forge not touched."
         }
       ]
     },

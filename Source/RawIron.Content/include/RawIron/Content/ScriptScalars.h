@@ -69,6 +69,14 @@ struct ScriptScalarValidationIssue {
     std::string message;
 };
 
+struct ScriptScalarParseResult {
+    ScriptScalarMap values{};
+    /// Includes source line numbers for invalid assignments and duplicate keys.
+    std::vector<ScriptScalarValidationIssue> issues{};
+};
+
+[[nodiscard]] ScriptScalarParseResult ParseScriptScalarsChecked(std::string_view text);
+
 struct ScriptScalarValidationReport {
     std::vector<ScriptScalarValidationIssue> issues{};
 

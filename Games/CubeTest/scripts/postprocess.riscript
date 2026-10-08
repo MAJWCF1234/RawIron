@@ -11,3 +11,6 @@ native_fog_density=0.002
 fov_base=72.0
 fov_sprint_add=2.0
 fov_lerp_per_second=10.0
+
+# Camera-follow directional shadow half-width, metres.
+native_shadow_radius=16

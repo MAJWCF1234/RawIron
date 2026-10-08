@@ -59,6 +59,30 @@ void UpsertNativeAnimationKey(
     double timeSeconds,
     std::string_view boneName = {});
 
+/// Upserts a key at `timeSeconds` using the previous key's transform on `boneName` (hold plateau).
+/// Returns false when no earlier key exists.
+[[nodiscard]] bool HoldNativeAnimationKey(
+    ri::content::NativeAnimationDocument& document,
+    std::string_view boneName,
+    double timeSeconds);
+
+/// Holds every track that has an earlier key at `timeSeconds`. Returns bones held.
+[[nodiscard]] std::size_t HoldNativeAnimationPose(
+    ri::content::NativeAnimationDocument& document,
+    double timeSeconds);
+
+/// Upserts an interpolated key on `boneName` at `timeSeconds` between the surrounding keys.
+/// Returns false when the playhead is not strictly between two keys.
+[[nodiscard]] bool BreakdownNativeAnimationKey(
+    ri::content::NativeAnimationDocument& document,
+    std::string_view boneName,
+    double timeSeconds);
+
+/// Breakdowns every track with surrounding keys at `timeSeconds`. Returns bones stamped.
+[[nodiscard]] std::size_t BreakdownNativeAnimationPose(
+    ri::content::NativeAnimationDocument& document,
+    double timeSeconds);
+
 /// Copies `sourceBoneName` keys onto its left/right partner with X-mirrored transforms.
 [[nodiscard]] std::size_t MirrorNativeAnimationTrackAcrossX(
     ri::content::NativeAnimationDocument& document,
@@ -69,9 +93,22 @@ void UpsertNativeAnimationKey(
     ri::content::NativeAnimationDocument& document,
     double factor);
 
+/// Scales every key translation and rotationDegrees by `factor` (> 0). Scale channels stay.
+[[nodiscard]] std::size_t ScaleNativeAnimationTransforms(
+    ri::content::NativeAnimationDocument& document,
+    float factor);
+
 /// Adds `deltaSeconds` to every key/event time (clamped). Duration grows when delta is positive.
+/// Keys that land on the same snap frame are collapsed (later sample wins).
 [[nodiscard]] bool OffsetNativeAnimationTimes(
     ri::content::NativeAnimationDocument& document,
+    double deltaSeconds);
+
+/// Adds `deltaSeconds` only to `boneName` keys (clamped). Duration grows when needed.
+/// Keys that land on the same snap frame are collapsed (later sample wins).
+[[nodiscard]] bool OffsetNativeAnimationBoneTimes(
+    ri::content::NativeAnimationDocument& document,
+    std::string_view boneName,
     double deltaSeconds);
 
 /// Shifts keys/events so the earliest key (or event) lands at time 0. Duration shrinks by the same delta.
@@ -85,6 +122,12 @@ void UpsertNativeAnimationKey(
     ri::content::NativeAnimationDocument& document,
     std::string_view sourceBoneName,
     std::string_view destinationBoneName);
+
+/// Replaces `destinationBoneName` keys with `keys` without touching any other track.
+[[nodiscard]] std::size_t ReplaceNativeAnimationTrackKeys(
+    ri::content::NativeAnimationDocument& document,
+    std::string_view destinationBoneName,
+    std::span<const ri::content::NativeAnimationKeyframe> keys);
 
 /// Writes a key for every bound bone node at `timeSeconds`.
 void CaptureNativeAnimationPose(
@@ -161,10 +204,35 @@ struct NativeAnimationTrimResult {
     float rotationEpsilonDegrees = 0.05f,
     float scaleEpsilon = 0.0001f);
 
-/// Snaps every key/event time to the nearest `framesPerSecond` grid. Returns changed stamp count.
+/// Snaps every key/event time to the nearest `framesPerSecond` grid.
+/// Returns moved+collapsed stamp count. When `collapsedOut` is set, writes how many keys were
+/// dropped because they landed on the same frame.
 [[nodiscard]] std::size_t QuantizeNativeAnimationTimes(
     ri::content::NativeAnimationDocument& document,
+    double framesPerSecond = 30.0,
+    std::size_t* collapsedOut = nullptr);
+
+/// Mirrors every key/event time around the clip midpoint (`duration - t`). Duration stays.
+[[nodiscard]] bool ReverseNativeAnimation(ri::content::NativeAnimationDocument& document);
+
+/// Inserts interpolated keys on every track at `framesPerSecond` between the first and last key.
+/// Returns newly written key count (existing snaps count as updates).
+[[nodiscard]] std::size_t DensifyNativeAnimationKeys(
+    ri::content::NativeAnimationDocument& document,
     double framesPerSecond = 30.0);
+
+/// Drops interior keys that already lie on the linear lerp between their neighbors (within epsilon).
+/// Endpoints of each track are kept. Returns removed key count.
+[[nodiscard]] std::size_t DecimateNativeAnimationKeys(
+    ri::content::NativeAnimationDocument& document,
+    float positionEpsilon = 0.0005f,
+    float rotationEpsilonDegrees = 0.1f,
+    float scaleEpsilon = 0.0005f);
+
+/// One temporal laplacian pass on interior keys (blend toward neighbor lerp). Returns changed keys.
+[[nodiscard]] std::size_t SmoothNativeAnimationKeys(
+    ri::content::NativeAnimationDocument& document,
+    float blend = 0.5f);
 
 [[nodiscard]] bool RenameNativeAnimationBone(
     ri::content::NativeAnimationDocument& document,
@@ -205,5 +273,24 @@ void HoldNativeAnimationRootInPlace(
     Scene& scene,
     int rootNode,
     const Transform& restLocal);
+
+/// Shared humanoid clip recipes used by `ri_tool --forge-character-create` and re-author verbs.
+struct HumanoidMotionAuthorOptions {
+    /// Scales keyed rotation/translation deltas (1 = stock PSX scout).
+    float intensity = 1.0f;
+    bool looping = true;
+};
+
+/// Breathing + weight-shift idle (1s loop). Seeds from `rig` rest, then stamps deltas.
+void AuthorHumanoidIdleClip(
+    ri::content::NativeAnimationDocument& document,
+    const RigDefinition& rig,
+    const HumanoidMotionAuthorOptions& options = {});
+
+/// Choppy 4-pose PSX walk (1s loop) with counter-rotated torso and arm swing.
+void AuthorHumanoidWalkClip(
+    ri::content::NativeAnimationDocument& document,
+    const RigDefinition& rig,
+    const HumanoidMotionAuthorOptions& options = {});
 
 } // namespace ri::scene

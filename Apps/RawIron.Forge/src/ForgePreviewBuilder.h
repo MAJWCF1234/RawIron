@@ -2,6 +2,7 @@
 
 #include "ForgeCatalog.h"
 
+#include "RawIron/Math/Mat4.h"
 #include "RawIron/Scene/Helpers.h"
 #include "RawIron/Scene/Scene.h"
 
@@ -13,6 +14,7 @@
 #include <stop_token>
 #include <string>
 #include <thread>
+#include <unordered_map>
 
 namespace ri::forge {
 
@@ -30,6 +32,13 @@ struct ForgePreviewBuildResult {
     int sculptNormalsNode = ri::scene::kInvalidHandle;
     int sculptCollisionNode = ri::scene::kInvalidHandle;
     int sculptBrushCursorNode = ri::scene::kInvalidHandle;
+    /// When previewing a motion clip, path of the bound companion clay (if found).
+    std::filesystem::path companionSculptPath{};
+    /// PSX motion preview parents Cube blocks to bones (not a skinned Custom mesh).
+    bool companionIsRigidBlocks = false;
+    /// Bind-pose bone worlds captured before the clip pose is applied (anim previews).
+    std::unordered_map<std::string, ri::math::Mat4> restBoneWorld{};
+    std::unordered_map<std::string, ri::scene::Transform> restBoneLocal{};
     std::size_t renderableNodeCount = 0;
     std::size_t boneCount = 0;
     std::vector<std::string> partIds{};

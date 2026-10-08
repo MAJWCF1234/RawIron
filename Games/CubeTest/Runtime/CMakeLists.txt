@@ -3,6 +3,7 @@ add_library(RawIron.Game.CubeTest
   src/CubeTestGallery.cpp
   src/CubeTestRuntime.cpp
   src/CubeTestWorld.cpp
+  src/CubeTestMeshFeatures.cpp
   src/CubeTestEditorPreview.cpp
 )
 
@@ -24,7 +25,7 @@ target_link_libraries(RawIron.Game.CubeTest
     RawIron::Trace
     RawIron::World
     RawIron::EditorPreview
-    RawIron::Game.RuntimeDiagnosticsDraw
+    RawIron::GameHost
 )
 
 if (WIN32)
@@ -40,6 +41,10 @@ if (RAWIRON_BUILD_TESTS)
   add_executable(RawIron.CubeTest.WorldSmoke
     tests/CubeTestWorldSmoke.cpp
   )
+  add_executable(RawIron.CubeTest.CommandCadenceSmoke tests/CubeTestCommandCadenceSmoke.cpp)
+  target_link_libraries(RawIron.CubeTest.CommandCadenceSmoke PRIVATE RawIron::Game.CubeTest)
+  target_compile_features(RawIron.CubeTest.CommandCadenceSmoke PRIVATE cxx_std_20)
+  add_test(NAME RawIron.CubeTest.CommandCadenceSmoke COMMAND RawIron.CubeTest.CommandCadenceSmoke)
 
   target_link_libraries(RawIron.CubeTest.WorldSmoke
     PRIVATE

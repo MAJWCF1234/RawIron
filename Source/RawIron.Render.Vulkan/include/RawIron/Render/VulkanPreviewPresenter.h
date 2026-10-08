@@ -158,6 +158,8 @@ struct VulkanNativeSceneFrame {
     float renderContrast = 1.0f;
     float renderSaturation = 1.0f;
     float renderFogDensity = 0.0095f;
+    // Camera-follow directional shadow half-width in metres (8..256).
+    float shadowCoverageRadius = 90.0f;
     /// Linear distance fog (matches software `ScenePreviewOptions` / `rendering.riscript`).
     float renderFogStart = 2.0f;
     float renderFogEnd = 48.0f;

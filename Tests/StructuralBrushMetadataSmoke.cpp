@@ -39,18 +39,27 @@ bool TestSurfaceCollection() {
         auto graphNode=MakeStructuralPrimitiveGraphNode("surface",preset->structuralType,{2,1,3},{1,1,1},shape);
         StructuralPrimitiveAssemblyOptions assembly;
         assembly.parent=root; assembly.nodes={graphNode};
+        assembly.transform.position={-4,2,1};
+        assembly.transform.rotationDegrees={0,25,0};
+        assembly.transform.scale={2,.75f,1.5f};
         const auto assembled=AddStructuralPrimitiveAssembly(scene,assembly);
         if (assembled.meshNodes.size()!=1) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
         const auto& assembledMesh=scene.GetMesh(scene.GetNode(assembled.meshNodes[0]).mesh);
         if (assembledMesh.texCoords.size()!=mesh.texCoords.size()) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
         for (std::size_t i=0;i<assembledMesh.texCoords.size();++i)
-            if (assembledMesh.texCoords[i].x!=source.texCoords[i].x || assembledMesh.texCoords[i].y!=source.texCoords[i].y) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
+            if (std::abs(assembledMesh.texCoords[i].x-source.texCoords[i].x)>1e-6f || std::abs(assembledMesh.texCoords[i].y-source.texCoords[i].y)>1e-6f) { std::cerr << "Assembly UV mismatch: preset=" << key << " vertex=" << i << " actual=" << assembledMesh.texCoords[i].x << "," << assembledMesh.texCoords[i].y << " expected=" << source.texCoords[i].x << "," << source.texCoords[i].y << "\n"; return false; }
+        const auto actualWorld=scene.ComputeWorldMatrix(assembled.meshNodes[0]);
+        const auto expectedWorld=ri::math::Multiply(assembly.transform.LocalMatrix(),
+            ri::math::TRS({2,1,3},{},{1,1,1}));
         for (std::size_t i=0;i<assembledMesh.positions.size();++i)
-            if (ri::math::Distance(assembledMesh.positions[i],source.positions[i]+ri::math::Vec3{2,1,3})>1e-5f) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
+            if (ri::math::Distance(ri::math::TransformPoint(actualWorld,assembledMesh.positions[i]),
+                ri::math::TransformPoint(expectedWorld,source.positions[i]))>1e-5f) {
+                std::cerr << "Surface world-position mismatch: preset=" << key << " vertex=" << i << "\n"; return false;
+            }
         for (int field=0;field<3;++field) {
             auto changed=graphNode;
             if(field==0) ++changed.knotP; else if(field==1) ++changed.knotQ; else changed.curveTurns+=.5f;
-            if(ri::structural::BuildStructuralCompileSignature({graphNode})==ri::structural::BuildStructuralCompileSignature({changed})) { std::cerr << "surface integration line " << __LINE__ << "\n"; return false; }
+            if(ri::structural::BuildStructuralCompileSignature({graphNode})==ri::structural::BuildStructuralCompileSignature({changed})) { std::cerr << "Unchanged structural signature: preset=" << key << " field=" << field << "\n"; return false; }
         }
         const auto signature=ri::structural::BuildStructuralCompileSignature({graphNode});
         graphNode.closedPath=!graphNode.closedPath;

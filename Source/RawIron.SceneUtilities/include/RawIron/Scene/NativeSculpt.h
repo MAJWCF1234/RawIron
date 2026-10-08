@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RawIron/Content/NativeSculptDocument.h"
+#include "RawIron/Content/BlockCharacterDocument.h"
 #include "RawIron/Math/Mat4.h"
 #include "RawIron/Math/Vec3.h"
 #include "RawIron/Scene/Components.h"
@@ -8,6 +9,8 @@
 #include "RawIron/Scene/Scene.h"
 
 #include <cstddef>
+#include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -18,6 +21,8 @@ namespace ri::scene {
 enum class NativeSculptCage {
     Sphere,
     Cube,
+    /// Low-poly blocky humanoid (PS1-era proportions) with per-limb boxes.
+    PsxHumanoid,
 };
 
 enum class NativeSculptBrush {
@@ -128,6 +133,12 @@ struct NativeSculptBindResult {
     const std::unordered_map<std::string, ri::math::Mat4>& posedBoneWorld,
     const std::vector<std::vector<ri::content::NativeSculptVertexInfluence>>& vertexInfluences = {});
 
+/// Applies skin into `document.mesh` as the new rest pose. Weights/binds are unchanged.
+[[nodiscard]] std::size_t BakeNativeSculptSkin(
+    ri::content::NativeSculptDocument& document,
+    const std::unordered_map<std::string, ri::math::Mat4>& restBoneWorld,
+    const std::unordered_map<std::string, ri::math::Mat4>& posedBoneWorld);
+
 [[nodiscard]] Mesh MakeNativeSculptWeightMesh(
     const Mesh& source,
     const std::vector<std::string>& vertexBoneNames,
@@ -170,6 +181,10 @@ enum class NativeSculptWeightPaint {
     ri::content::NativeSculptDocument& document,
     std::string_view boneName);
 
+/// Fills unbound verts from bound neighbors (averaged influences). One ring per call.
+[[nodiscard]] std::size_t SealUnboundNativeSculptWeightsFromNeighbors(
+    ri::content::NativeSculptDocument& document);
+
 /// Moves every influence named `fromBoneName` onto `toBoneName` (merges when both present).
 [[nodiscard]] std::size_t TransferNativeSculptWeights(
     ri::content::NativeSculptDocument& document,
@@ -193,6 +208,46 @@ enum class NativeSculptWeightPaint {
     std::string_view boneName,
     float factor);
 
+/// Per-vertex weight for `boneName` (0 when unbound). Size matches mesh vertex count.
+[[nodiscard]] std::vector<float> ExtractNativeSculptBoneWeights(
+    const ri::content::NativeSculptDocument& document,
+    std::string_view boneName);
+
+/// Writes `weights[i]` onto `boneName` for each vert (other influences keep relative share).
+/// `weights.size()` must equal vertex count. Returns changed verts.
+[[nodiscard]] std::size_t ApplyNativeSculptBoneWeights(
+    ri::content::NativeSculptDocument& document,
+    std::string_view boneName,
+    std::span<const float> weights);
+
+/// Expands `boneName` onto adjacent verts that lack it (one ring). Returns newly painted verts.
+[[nodiscard]] std::size_t GrowNativeSculptBoneWeights(
+    ri::content::NativeSculptDocument& document,
+    std::string_view boneName);
+
+/// Shrinks `boneName` off frontier verts that border unpainted neighbors. Returns cleared verts.
+[[nodiscard]] std::size_t ShrinkNativeSculptBoneWeights(
+    ri::content::NativeSculptDocument& document,
+    std::string_view boneName);
+
+/// Snaps verts where `boneName` weight is >= `threshold` to a rigid 1.0 bind on that bone.
+[[nodiscard]] std::size_t HardenNativeSculptBoneWeights(
+    ri::content::NativeSculptDocument& document,
+    std::string_view boneName,
+    float threshold = 0.5f);
+
+/// Drops `boneName` influences below `minWeight`, then renormalizes. Returns changed verts.
+[[nodiscard]] std::size_t FloorNativeSculptBoneWeights(
+    ri::content::NativeSculptDocument& document,
+    std::string_view boneName,
+    float minWeight = 0.05f);
+
+/// Caps `boneName` influences above `maxWeight`, then renormalizes. Returns changed verts.
+[[nodiscard]] std::size_t CeilNativeSculptBoneWeights(
+    ri::content::NativeSculptDocument& document,
+    std::string_view boneName,
+    float maxWeight = 0.85f);
+
 [[nodiscard]] std::size_t RenameNativeSculptBone(
     ri::content::NativeSculptDocument& document,
     std::string_view oldName,
@@ -214,16 +269,30 @@ struct NativeSculptWeightAudit {
     std::size_t unboundCount = 0;
     std::size_t blendedCount = 0;
     std::size_t nonNormalizedCount = 0;
+    /// Vertices carrying more than `kMaxInfluences` raw slots (before Cap/Norm).
+    std::size_t overInfluencedCount = 0;
 };
 
 [[nodiscard]] NativeSculptWeightAudit AuditNativeSculptWeights(
     const ri::content::NativeSculptDocument& document);
 /// One laplacian smooth pass over every vertex influence (neighbor average).
 [[nodiscard]] std::size_t SmoothNativeSculptWeights(ri::content::NativeSculptDocument& document);
+/// Laplacian-smooths only `boneName` weights against neighbors, then renormalizes.
+[[nodiscard]] std::size_t SmoothNativeSculptBoneWeights(
+    ri::content::NativeSculptDocument& document,
+    std::string_view boneName);
 [[nodiscard]] std::size_t NormalizeAllNativeSculptWeights(ri::content::NativeSculptDocument& document);
+/// Keeps the strongest `maxInfluences` slots per vert (default runtime max), then renormalizes.
+[[nodiscard]] std::size_t LimitNativeSculptInfluences(
+    ri::content::NativeSculptDocument& document,
+    int maxInfluences = ri::content::NativeSculptDocument::kMaxInfluences);
 [[nodiscard]] std::size_t PruneAllNativeSculptWeights(
     ri::content::NativeSculptDocument& document,
     float minWeight = 0.05f);
+/// Drops influences (and dominant names) whose bone is not in `allowedBoneNames`. Renormalizes.
+[[nodiscard]] std::size_t StripNativeSculptOrphanInfluences(
+    ri::content::NativeSculptDocument& document,
+    std::span<const std::string> allowedBoneNames);
 /// Copy +X weights to -X partners with left/right bone-name swap. Respects the same mirror planes as paint.
 [[nodiscard]] std::size_t MirrorNativeSculptWeights(
     ri::content::NativeSculptDocument& document,
@@ -237,6 +306,48 @@ struct NativeSculptWeightAudit {
     NativeSculptCage cage = NativeSculptCage::Sphere,
     int segmentsAround = 32,
     int segmentsDown = 16);
+
+/// Blocky PSX-style humanoid clay is authored via CreateBlockCharacterSculptDocument + .ri_blockchar.json.
+
+/// World-space low-poly parts for rigid block characters (matches CreateHumanoidRigDefinition rest).
+/// `halfExtentTop` zero → no taper. `shape` picks the emitter; `sides`/`bevel` refine it.
+enum class PsxPartShape : std::uint8_t {
+    Box = 0,
+    Prism = 1,
+    Dome = 2,
+    Wedge = 3,
+    Cylinder = 4,
+    Spike = 5,
+    Slab = 6,
+    Bevel = 7,
+    Capsule = 8,
+};
+struct PsxBlockPartDesc {
+    std::string boneName{};
+    ri::math::Vec3 center{};
+    ri::math::Vec3 halfExtent{};
+    ri::math::Vec3 halfExtentTop{};
+    ri::math::Vec3 rotationDegrees{};
+    ri::math::Vec3 baseColor{0.92f, 0.70f, 0.38f};
+    PsxPartShape shape = PsxPartShape::Box;
+    /// Ring facets for prism/cylinder/dome/capsule (0 = shape default).
+    int sides = 0;
+    /// Edge chamfer as fraction of min half-extent (bevel/slab), 0..0.45.
+    float bevel = 0.0f;
+    std::string albedoTexture{};
+    float roughness = 0.88f;
+    float metallic = 0.0f;
+};
+/// Convert authored block-character parts into mesh-build descriptors.
+[[nodiscard]] std::vector<PsxBlockPartDesc> BlockCharacterPartsToPsxDescs(
+    const ri::content::BlockCharacterDocument& document);
+/// Local-space mesh for one block part (origin-centered, extents baked). Used by Forge rigid preview.
+[[nodiscard]] Mesh MakePsxBlockPartMesh(const PsxBlockPartDesc& part);
+/// Build a bindable sculpt mesh from an authored block-character document (no engine-hardcoded scout).
+[[nodiscard]] ri::content::NativeSculptDocument CreateBlockCharacterSculptDocument(
+    std::string id,
+    std::string displayName,
+    const ri::content::BlockCharacterDocument& blockCharacter);
 
 [[nodiscard]] int InstantiateNativeSculpt(
     Scene& scene,

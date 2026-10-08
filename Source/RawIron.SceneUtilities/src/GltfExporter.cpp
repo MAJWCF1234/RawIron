@@ -14,6 +14,7 @@
 #include <map>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <unordered_map>
 
 namespace ri::scene {
@@ -24,6 +25,7 @@ struct Geometry {
     std::vector<ri::math::Vec3> normals{};
     std::vector<ri::math::Vec2> texCoords{};
     std::vector<std::uint32_t> indices{};
+    std::vector<ri::math::Vec3> colors{};
 };
 
 struct BufferViewRecord { std::size_t offset = 0; std::size_t length = 0; int target = 0; };
@@ -35,7 +37,7 @@ struct AccessorRecord {
     std::optional<ri::math::Vec3> min3{};
     std::optional<ri::math::Vec3> max3{};
 };
-struct MeshRecord { std::string name{}; int position = -1; int normal = -1; int uv = -1; int indices = -1; int material = -1; };
+struct MeshRecord { std::string name{}; int position = -1; int normal = -1; int uv = -1; int indices = -1; int material = -1; int color = -1; };
 struct MaterialTextureRecord {
     int baseColor = -1;
     int normal = -1;
@@ -148,6 +150,10 @@ Geometry ResolveGeometry(const Mesh& mesh) {
         return {};
     }
     Geometry out{mesh.positions, mesh.normals, mesh.texCoords, {}};
+    out.colors=mesh.colors;
+    if(!out.colors.empty() && out.colors.size()!=out.positions.size()) throw std::runtime_error("Invalid vertex color stream");
+    for(const auto& color:out.colors) if(!std::isfinite(color.x)||!std::isfinite(color.y)||!std::isfinite(color.z))
+        throw std::runtime_error("Nonfinite vertex color");
     if (mesh.geometryMode == MeshGeometryMode::CameraFacingSpriteQuads
         && mesh.billboardOffsets.size() == out.positions.size()) {
         // glTF has no core billboard primitive. Export a deterministic +Z-facing snapshot while
@@ -290,10 +296,16 @@ bool ExportSceneToGltf(const Scene& scene,
                 accessors.push_back({view,5126,geometry.texCoords.size(),"VEC2"});
                 uvAccessor = static_cast<int>(accessors.size()-1U);
             }
+            int colorAccessor=-1;
+            if(!geometry.colors.empty()) {
+                const int view=appendView(geometry.colors.data(),geometry.colors.size()*sizeof(ri::math::Vec3),34962);
+                accessors.push_back({view,5126,geometry.colors.size(),"VEC3"});
+                colorAccessor=static_cast<int>(accessors.size()-1U);
+            }
             const int indexView = appendView(geometry.indices.data(), geometry.indices.size()*sizeof(std::uint32_t), 34963);
             accessors.push_back({indexView,5125,geometry.indices.size(),"SCALAR"});
             const int indexAccessor = static_cast<int>(accessors.size()-1U);
-            meshes.push_back({source.name,posAccessor,normalAccessor,uvAccessor,indexAccessor,materialHandle});
+            meshes.push_back({source.name,posAccessor,normalAccessor,uvAccessor,indexAccessor,materialHandle,colorAccessor});
             const int result = static_cast<int>(meshes.size()-1U);
             meshByHandles.emplace(key,result);
             return result;
@@ -377,7 +389,7 @@ bool ExportSceneToGltf(const Scene& scene,
         if(!textures.empty()){json<<"\"images\":[";for(std::size_t i=0;i<textures.size();++i){if(i)json<<',';json<<"{\"uri\":\""<<JsonEscape(textures[i].uri)<<"\"}";}json<<"],\n\"textures\":[";for(std::size_t i=0;i<textures.size();++i){if(i)json<<',';json<<"{\"source\":"<<i<<'}';}json<<"],\n";}
 
         json << "\"meshes\":[";
-        for(std::size_t i=0;i<meshes.size();++i){if(i)json<<',';const MeshRecord& m=meshes[i];json<<"{\"name\":\""<<JsonEscape(m.name)<<"\",\"primitives\":[{\"attributes\":{\"POSITION\":"<<m.position;if(m.normal>=0)json<<",\"NORMAL\":"<<m.normal;if(m.uv>=0)json<<",\"TEXCOORD_0\":"<<m.uv;json<<"},\"indices\":"<<m.indices;if(m.material>=0)json<<",\"material\":"<<m.material;json<<"}]}";} json<<"],\n";
+        for(std::size_t i=0;i<meshes.size();++i){if(i)json<<',';const MeshRecord& m=meshes[i];json<<"{\"name\":\""<<JsonEscape(m.name)<<"\",\"primitives\":[{\"attributes\":{\"POSITION\":"<<m.position;if(m.normal>=0)json<<",\"NORMAL\":"<<m.normal;if(m.uv>=0)json<<",\"TEXCOORD_0\":"<<m.uv;if(m.color>=0)json<<",\"COLOR_0\":"<<m.color;json<<"},\"indices\":"<<m.indices;if(m.material>=0)json<<",\"material\":"<<m.material;json<<"}]}";} json<<"],\n";
 
         if(options.includeCameras&&scene.CameraCount()>0){json<<"\"cameras\":[";for(std::size_t i=0;i<scene.CameraCount();++i){if(i)json<<',';const Camera& c=scene.GetCamera(static_cast<int>(i));json<<"{\"name\":\""<<JsonEscape(c.name)<<"\",\"type\":\"perspective\",\"perspective\":{\"yfov\":"<<ri::math::DegreesToRadians(c.fieldOfViewDegrees)<<",\"znear\":"<<c.nearClip<<",\"zfar\":"<<c.farClip<<"}}";}json<<"],\n";}
         if(options.includeLights&&scene.LightCount()>0){json<<"\"extensions\":{\"KHR_lights_punctual\":{\"lights\":[";for(std::size_t i=0;i<scene.LightCount();++i){if(i)json<<',';const Light& l=scene.GetLight(static_cast<int>(i));const char* type=l.type==LightType::Directional?"directional":l.type==LightType::Spot?"spot":"point";json<<"{\"name\":\""<<JsonEscape(l.name)<<"\",\"type\":\""<<type<<"\",\"color\":["<<l.color.x<<','<<l.color.y<<','<<l.color.z<<"],\"intensity\":"<<l.intensity;if(l.type!=LightType::Directional&&l.range>0)json<<",\"range\":"<<l.range;if(l.type==LightType::Spot)json<<",\"spot\":{\"outerConeAngle\":"<<ri::math::DegreesToRadians(l.spotAngleDegrees*0.5f)<<'}';json<<'}';}json<<"]}},\n";}

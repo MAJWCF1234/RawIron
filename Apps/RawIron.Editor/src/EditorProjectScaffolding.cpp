@@ -22,10 +22,7 @@ struct ScaffoldTemplateFile {
     const std::string primaryLevel = manifest.primaryLevel.empty() ? "levels/assembly.primitives.csv" : manifest.primaryLevel;
     return {
         {"README.md", "# " + gameName + "\n\nCreated with RawIron tooling.\n"},
-        {"config/game.cfg", "# RawIron game config\n"
-                            "game_id=" + manifest.id + "\n"
-                            "game_name=" + gameName + "\n"
-                            "default_spawn=0 1.5 0\n"},
+        {"config/game.cfg", "# Identity belongs in manifest.json\nruntime_profile=1\neditor_profile=1\n"},
         {"config/input.map", "# RawIron input map\nmove_forward=W\nmove_back=S\nmove_left=A\nmove_right=D\njump=Space\nsprint=Shift\n"},
         {"config/network.cfg", "# RawIron network config\nnet_mode=listen\nmax_peers=16\nserver_tick=60\n"},
         {"config/build.profile", "# RawIron build profile\ncontent_profile=dev\nrender_profile=balanced\n"},
@@ -56,10 +53,10 @@ struct ScaffoldTemplateFile {
         {"levels/assembly.lods.csv", "name,group,near,mid,far\nstarter_block,default,8,16,32\n"},
         {"levels/assembly.zones.csv", "name,type,px,py,pz,sx,sy,sz\nplay_space,box,0,2,0,24,8,24\n"},
         {"scripts/init.riscript", "# RawIron init script\ngame.id=\"" + manifest.id + "\"\ngame.primary_level=\"" + primaryLevel + "\"\n"},
-        {"scripts/gameplay.riscript", "# RawIron gameplay script\nplayer.spawn=\"spawn_zone\"\nplayer.move_speed=6.0\nplayer.jump_speed=7.5\n"},
+        {"scripts/gameplay.riscript", "# RawIron player tuning\nspawn_x=0\nspawn_y=1.5\nspawn_z=0\nwalk_speed=6\nsprint_speed=9\nair_speed=9\njump_speed=7.5\n"},
         {"scripts/logic.riscript", "# RawIron logic script\nlogic.enabled=1\n"},
-        {"scripts/rendering.riscript", "# RawIron rendering defaults\nnative_exposure=1.0\nnative_contrast=1.0\nnative_saturation=1.0\nnative_fog_density=0.003\n"},
-        {"scripts/postprocess.riscript", "# RawIron postprocess defaults\nbloom=0.10\ngrain=0.00\nvignette=0.00\n"},
+        {"scripts/rendering.riscript", "# RawIron atmosphere defaults\nclear_top_r=0.5\nclear_top_g=0.6\nclear_top_b=0.7\nclear_bottom_r=0.3\nclear_bottom_g=0.35\nclear_bottom_b=0.4\nfog_r=0.5\nfog_g=0.6\nfog_b=0.7\nambient_r=0.2\nambient_g=0.2\nambient_b=0.2\n"},
+        {"scripts/postprocess.riscript", "# RawIron postprocess defaults\npostprocess_quality=2\npostprocess_tint_strength=0\nnative_exposure=1\nnative_contrast=1\nnative_saturation=1\nnative_fog_density=0.003\nfov_base=75\nfov_sprint_add=8\nfov_lerp_per_second=8\n"},
         {"scripts/ui.riscript",
          "# RawIron UI script\n"
          "# Scalar-only runtime flags for HUD and diagnostics.\n"
@@ -74,12 +71,12 @@ struct ScaffoldTemplateFile {
          "hud_style_variant=1\n"
          "runtime_ui_boot_flow=1\n"
          "runtime_ui_hotkeys_enabled=1\n"},
-        {"scripts/audio.riscript", "# RawIron audio script\nmusic.enabled=0\nsfx.enabled=1\n"},
-        {"scripts/streaming.riscript", "# RawIron streaming script\nstreaming.enabled=1\nstreaming.budget_mb=256\n"},
+        {"scripts/audio.riscript", "# RawIron audio tuning\naudio_master_gain=1\naudio_environment_blend=1\n"},
+        {"scripts/streaming.riscript", "# Host reports these requests as unbound until streaming/autosave is mounted.\nstreaming_budget_scale=1\ncheckpoint_autosave_enabled=0\n"},
         {"scripts/localization.riscript", "# RawIron localization script\nlanguage.default=\"en-US\"\n"},
-        {"scripts/physics.riscript", "# RawIron physics script\ngravity=9.81\nstep_hz=60\n"},
-        {"scripts/network.riscript", "# RawIron network script\nreplication.enabled=1\nprediction.enabled=1\n"},
-        {"scripts/persistence.riscript", "# RawIron persistence script\nsave.slot=\"autosave\"\ncheckpoint.enabled=1\n"},
+        {"scripts/physics.riscript", "# RawIron movement physics\nglobal_gravity_scale=1\nglobal_drag_scale=1\nglobal_jump_scale=1\nglobal_air_control_scale=1\nmovement_gravity=26\nmovement_fall_gravity_multiplier=1.3\n"},
+        {"scripts/network.riscript", "# Snapshot cadence applies only to a mounted network host.\nnetwork_tick_hz=60\nnetwork_snapshot_rate=20\nnetwork_max_clients=8\nnetwork_timeout_seconds=15\n"},
+        {"scripts/persistence.riscript", "# Reserved requests; host reports missing persistence bindings.\nsave_slot_count=3\nautosave_interval_seconds=75\ncheckpoint_ring_size=5\npersistence_flush_on_checkpoint=1\n"},
         {"scripts/state.riscript", "# RawIron state script\nstate.bootstrap=\"default\"\n"},
         {"scripts/ai.riscript", "# RawIron AI script\nai.enabled=1\nai.behavior_tree=\"ai/behavior.tree\"\n"},
         {"scripts/plugins.riscript", "# RawIron plugins script\nplugins.manifest=\"plugins/manifest.plugins\"\n"},

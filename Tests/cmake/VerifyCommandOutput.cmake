@@ -61,6 +61,7 @@ if(rawiron_command_prefix)
     RESULT_VARIABLE command_result
     OUTPUT_VARIABLE command_stdout
     ERROR_VARIABLE command_stderr
+    ENCODING UTF-8
     ${rawiron_working_directory_args}
   )
 else()
@@ -69,6 +70,7 @@ else()
     RESULT_VARIABLE command_result
     OUTPUT_VARIABLE command_stdout
     ERROR_VARIABLE command_stderr
+    ENCODING UTF-8
     ${rawiron_working_directory_args}
   )
 endif()

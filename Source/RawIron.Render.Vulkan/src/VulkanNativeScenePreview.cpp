@@ -72,6 +72,7 @@ struct NativeSceneVertex {
     float normal[3]{};
     float uv[2]{};
     float billboardOffset[2]{};
+    float color[3]{1.0f, 1.0f, 1.0f};
 };
 
 struct NativeSceneDraw {
@@ -975,7 +976,7 @@ static_assert(offsetof(NativeDrawPushConstants, emissiveColor) == 112);
 static_assert(offsetof(NativeDrawPushConstants, qualityTier) == 124);
 static_assert(offsetof(NativeDrawPushConstants, alphaCutoff) == 128);
 static_assert(offsetof(NativeDrawPushConstants, normalScale) == 136);
-static_assert(sizeof(NativeSceneVertex) == 40);
+static_assert(sizeof(NativeSceneVertex) == 52);
 
 struct CpuMeshGeometry {
     std::vector<NativeSceneVertex> vertices{};
@@ -1574,7 +1575,8 @@ ri::math::Vec3 ClampColor(const ri::math::Vec3& color) {
 void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
                                        const ri::math::Vec3& cameraWorldPos,
                                        NativeScenePreviewData& data,
-                                       const std::uint32_t shadowMapResolution) {
+                                       const std::uint32_t shadowMapResolution,
+                                       const float shadowCoverageRadius) {
     constexpr float kDirectionalRgbScale = 1.35f;
     constexpr float kEngineDefaultSunIntensity = 1.65f;
     constexpr float kFillRgbScale = 0.32f;
@@ -1722,7 +1724,7 @@ void PopulateNativeGpuLightingFromScene(const ri::scene::Scene& scene,
     const ri::math::Vec3 lightEye = shadowCenter + sunToSurface * 120.0f;
     const ri::math::Mat4 lightView =
         BuildLookAtMatrix(lightEye, shadowCenter, ri::math::Vec3{0.0f, 1.0f, 0.0f});
-    constexpr float orthoRadius = 90.0f;
+    const float orthoRadius = ResolveShadowCoverageRadius(shadowCoverageRadius);
     ri::math::Mat4 lightProjection =
         BuildOrthographicMatrix(-orthoRadius, orthoRadius, -orthoRadius, orthoRadius, 6.0f, 180.0f);
 
@@ -1820,7 +1822,8 @@ CpuMeshGeometry BuildIndexedMeshGeometryUv(const std::vector<ri::math::Vec3>& po
                                            const std::vector<ri::math::Vec2>& texCoords,
                                            const std::vector<std::uint32_t>& indices,
                                            bool hasUv,
-                                           bool flatShaded) {
+                                           bool flatShaded,
+                                           const std::vector<ri::math::Vec3>* colors) {
     CpuMeshGeometry geometry{};
     if (positions.empty() || indices.empty() || (indices.size() % 3U) != 0U) {
         return geometry;
@@ -1892,6 +1895,12 @@ CpuMeshGeometry BuildIndexedMeshGeometryUv(const std::vector<ri::math::Vec3>& po
                             positions[corner],
                             flatShaded && explicitNormals == nullptr ? faceNormal : vertexNormals[corner],
                             cornerUv(corner));
+            if (colors != nullptr && colors->size() == positions.size()) {
+                const auto& color = (*colors)[corner];
+                vertex.color[0] = std::isfinite(color.x) ? std::max(0.0f,color.x) : 1.0f;
+                vertex.color[1] = std::isfinite(color.y) ? std::max(0.0f,color.y) : 1.0f;
+                vertex.color[2] = std::isfinite(color.z) ? std::max(0.0f,color.z) : 1.0f;
+            }
             geometry.vertices.push_back(vertex);
             geometry.indices.push_back(static_cast<std::uint32_t>(geometry.vertices.size() - 1U));
         }
@@ -1964,7 +1973,7 @@ CpuMeshGeometry BuildNativeMeshGeometry(const ri::scene::Mesh& mesh) {
                                               mesh.texCoords,
                                               indices,
                                               hasUv,
-                                              flatShaded);
+                                              flatShaded, &mesh.colors);
         }
         return BuildIndexedMeshGeometryUv(
             mesh.positions,
@@ -1972,7 +1981,7 @@ CpuMeshGeometry BuildNativeMeshGeometry(const ri::scene::Mesh& mesh) {
             mesh.texCoords,
             BuildSequentialIndices(mesh.positions),
             hasUv,
-            flatShaded);
+            flatShaded, &mesh.colors);
     }
     }
     return {};
@@ -2046,7 +2055,8 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                                  const ri::math::Mat4* cameraWorldOverride,
                                  NativeScenePreviewData* outData,
                                  std::string* error,
-                                 const std::uint32_t shadowMapResolution) {
+                                 const std::uint32_t shadowMapResolution,
+                                 const float shadowCoverageRadius) {
     try {
         if (outData == nullptr) {
             throw std::runtime_error("Native scene preview output was null.");
@@ -2317,7 +2327,7 @@ bool BuildNativeScenePreviewData(const ri::scene::Scene& scene,
                 data.cameraWorldPosition[1],
                 data.cameraWorldPosition[2],
             };
-            PopulateNativeGpuLightingFromScene(scene, cameraPos, data, shadowMapResolution);
+            PopulateNativeGpuLightingFromScene(scene, cameraPos, data, shadowMapResolution, shadowCoverageRadius);
         }
 
         return true;
@@ -2367,7 +2377,8 @@ bool BuildNativeScenePreviewData(const VulkanNativeSceneFrame& frame,
                                                 frame.cameraWorldOverrideEnabled ? &frame.cameraWorldOverride : nullptr,
                                                 outData,
                                                 error,
-                                                shadowMapResolution);
+                                                shadowMapResolution,
+                                                frame.shadowCoverageRadius);
     if (!ok) {
         return false;
     }
@@ -7599,7 +7610,7 @@ bool RunVulkanNativeSceneLoop(const int width,
             .stride = static_cast<std::uint32_t>(sizeof(NativeSceneVertex)),
             .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
         };
-        const std::array<VkVertexInputAttributeDescription, 4> vertexAttributes = {{
+        const std::array<VkVertexInputAttributeDescription, 5> vertexAttributes = {{
             VkVertexInputAttributeDescription{
                 .location = 0,
                 .binding = 0,
@@ -7623,6 +7634,10 @@ bool RunVulkanNativeSceneLoop(const int width,
                 .binding = 0,
                 .format = VK_FORMAT_R32G32_SFLOAT,
                 .offset = static_cast<std::uint32_t>(offsetof(NativeSceneVertex, billboardOffset)),
+            },
+            VkVertexInputAttributeDescription{
+                .location = 4, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT,
+                .offset = static_cast<std::uint32_t>(offsetof(NativeSceneVertex, color)),
             },
         }};
         const VkPipelineVertexInputStateCreateInfo vertexInputInfo{

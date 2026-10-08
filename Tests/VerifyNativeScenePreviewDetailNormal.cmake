@@ -34,3 +34,8 @@ endif()
 if(SHADER_TEXT MATCHES "vec3[ \t\r\n]+detailNormal[ \t\r\n]*=[ \t\r\n]*texture\\(detailTex,[ \t\r\n]*detailUv\\)")
   message(FATAL_ERROR "NativeScenePreview.frag must not decode detailTex as a tangent-space normal map")
 endif()
+
+# Directional visibility must not darken an unrelated point light.
+if(SHADER_TEXT MATCHES "litRgb \\+= \\(localDiffuse \\+ localSpec\\)[^;]*shadow")
+  message(FATAL_ERROR "Native point lighting incorrectly consumes directional shadow visibility")
+endif()

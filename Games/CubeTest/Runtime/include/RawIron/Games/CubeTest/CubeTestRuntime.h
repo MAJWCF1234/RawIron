@@ -30,6 +30,7 @@ struct StandaloneOptions {
     bool extendedPostProcess = false;
     bool jiggleTest = false;
     int jigglePreviewFrames = 0;
+    int featureFrame = -1;
 };
 
 bool RunStandalone(const StandaloneOptions& options,

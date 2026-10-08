@@ -92,7 +92,8 @@ void AppendHardwareTriangle(std::vector<ri::xr::HardwareSceneVertex>& output,
                             const std::array<float, 4>& atlasRect,
                             const std::array<float, 4>& normalAtlasRect,
                             const ri::scene::Material& material,
-                            const std::array<ri::math::Vec3, 3>& localNormals = {}) {
+                            const std::array<ri::math::Vec3, 3>& localNormals = {},
+                            const std::array<ri::math::Vec3, 3>& localColors = {{{1,1,1},{1,1,1},{1,1,1}}}) {
     const ri::math::Vec3 positions[]{
         ri::math::TransformPoint(world, a),
         ri::math::TransformPoint(world, b),
@@ -113,7 +114,7 @@ void AppendHardwareTriangle(std::vector<ri::xr::HardwareSceneVertex>& output,
         output.push_back({
             {position.x, position.y, position.z},
             {vertexNormal.x, vertexNormal.y, vertexNormal.z},
-            {baseColor.x, baseColor.y, baseColor.z},
+            {baseColor.x*localColors[index].x, baseColor.y*localColors[index].y, baseColor.z*localColors[index].z},
             {texCoords[index].x, texCoords[index].y},
             {atlasRect[0], atlasRect[1], atlasRect[2], atlasRect[3]},
             {normalAtlasRect[0], normalAtlasRect[1], normalAtlasRect[2], normalAtlasRect[3]},
@@ -172,7 +173,10 @@ void AppendHardwareMesh(std::vector<ri::xr::HardwareSceneVertex>& output,
                 material,
                 {mesh.normals.size() == mesh.positions.size() ? mesh.normals[static_cast<std::size_t>(ia)] : ri::math::Vec3{},
                  mesh.normals.size() == mesh.positions.size() ? mesh.normals[static_cast<std::size_t>(ib)] : ri::math::Vec3{},
-                 mesh.normals.size() == mesh.positions.size() ? mesh.normals[static_cast<std::size_t>(ic)] : ri::math::Vec3{}});
+                 mesh.normals.size() == mesh.positions.size() ? mesh.normals[static_cast<std::size_t>(ic)] : ri::math::Vec3{}},
+                {mesh.colors.size()==mesh.positions.size()?mesh.colors[ia]:ri::math::Vec3{1,1,1},
+                 mesh.colors.size()==mesh.positions.size()?mesh.colors[ib]:ri::math::Vec3{1,1,1},
+                 mesh.colors.size()==mesh.positions.size()?mesh.colors[ic]:ri::math::Vec3{1,1,1}});
         }
         return;
     }

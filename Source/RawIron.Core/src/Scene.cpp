@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <stdexcept>
 
 namespace ri::scene {
 
@@ -536,7 +537,9 @@ bool Scene::SetParent(int child, int parent) {
 
     childNode.parent = parent;
     if (parent != kInvalidHandle) {
-        nodes_.at(static_cast<std::size_t>(parent)).children.push_back(child);
+        auto& children = nodes_.at(static_cast<std::size_t>(parent)).children;
+        // Repairing a raw parent edit may encounter an already-present child reference.
+        if (std::find(children.begin(),children.end(),child) == children.end()) children.push_back(child);
     }
     InvalidateTransformCaches();
 
@@ -778,12 +781,34 @@ const ri::math::Mat4& Scene::ComputeWorldMatrixCached(int nodeHandle) const {
         return worldMatrixCache_[index];
     }
 
-    const Node& node = nodes_[index];
-    const ri::math::Mat4 local = node.localTransform.LocalMatrix();
-    if (node.parent == kInvalidHandle) {
-        worldMatrixCache_[index] = local;
+    const int parent = nodes_[index].parent;
+    // Keep the ordinary root/cached-parent path allocation-free.
+    if (parent == kInvalidHandle) {
+        worldMatrixCache_[index] = nodes_[index].localTransform.LocalMatrix();
+    } else if (IsValidNodeHandle(parent) && worldMatrixValid_[static_cast<std::size_t>(parent)] != 0U) {
+        worldMatrixCache_[index] = ri::math::Multiply(worldMatrixCache_[static_cast<std::size_t>(parent)],
+            nodes_[index].localTransform.LocalMatrix());
     } else {
-        worldMatrixCache_[index] = ri::math::Multiply(ComputeWorldMatrixCached(node.parent), local);
+        // Collect before publishing any cache entries: a malformed chain must not
+        // leave partially valid transforms. Bound traversal even after raw Node edits.
+        std::vector<int> path;
+        int current = nodeHandle;
+        while (current != kInvalidHandle) {
+            if (!IsValidNodeHandle(current)) throw std::logic_error("Scene hierarchy has an invalid parent");
+            const auto currentIndex = static_cast<std::size_t>(current);
+            if (worldMatrixValid_[currentIndex] != 0U) break;
+            if (path.size() >= nodes_.size()) throw std::logic_error("Scene hierarchy contains a parent cycle");
+            path.push_back(current);
+            current = nodes_[currentIndex].parent;
+        }
+        ri::math::Mat4 world = current == kInvalidHandle ? ri::math::IdentityMatrix()
+            : worldMatrixCache_[static_cast<std::size_t>(current)];
+        for (auto it = path.rbegin(); it != path.rend(); ++it) {
+            const auto pathIndex = static_cast<std::size_t>(*it);
+            world = ri::math::Multiply(world,nodes_[pathIndex].localTransform.LocalMatrix());
+            worldMatrixCache_[pathIndex] = world;
+            worldMatrixValid_[pathIndex] = std::uint8_t{1};
+        }
     }
     worldMatrixValid_[index] = std::uint8_t{1};
     return worldMatrixCache_[index];
@@ -802,8 +827,9 @@ void Scene::RebuildRenderableNodeCache() const {
 
 bool Scene::WouldCreateCycle(int child, int parent) const {
     int current = parent;
+    std::size_t visited = 0;
     while (current != kInvalidHandle) {
-        if (current == child) {
+        if (current == child || !IsValidNodeHandle(current) || visited++ >= nodes_.size()) {
             return true;
         }
         current = nodes_.at(static_cast<std::size_t>(current)).parent;

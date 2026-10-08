@@ -18,7 +18,7 @@ target_link_libraries(RawIron.Game.LiminalHall
     RawIron::Content
     RawIron::Core
     RawIron::EditorPreview
-    RawIron::Game.RuntimeDiagnosticsDraw
+    RawIron::GameHost
     RawIron::Logic
     RawIron::RenderSoftware
     RawIron::RenderVulkan
@@ -43,6 +43,12 @@ if (WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 
 if (RAWIRON_BUILD_TESTS)
+  if (WIN32)
+    add_executable(LiminalHallProjectBootSmoke ${CMAKE_SOURCE_DIR}/Tests/LiminalHallProjectBootSmoke.cpp)
+    target_link_libraries(LiminalHallProjectBootSmoke PRIVATE RawIron::Game.LiminalHall)
+    add_test(NAME RawIron.LiminalHall.ProjectBootSmoke COMMAND LiminalHallProjectBootSmoke ${CMAKE_SOURCE_DIR})
+    set_tests_properties(RawIron.LiminalHall.ProjectBootSmoke PROPERTIES TIMEOUT 60)
+  endif()
   add_executable(LiminalHallSemanticStructuralSmoke ${CMAKE_SOURCE_DIR}/Tests/LiminalHallSemanticStructuralSmoke.cpp)
   target_link_libraries(LiminalHallSemanticStructuralSmoke PRIVATE RawIron::Game.LiminalHall)
   add_test(

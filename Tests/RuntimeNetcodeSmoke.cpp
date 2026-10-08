@@ -232,6 +232,19 @@ int main() {
 
     server.OnRuntimeShutdown(serverContext);
     client.OnRuntimeShutdown(clientContext);
+    // Transport peer IDs may recur in a new session. Old package approval must not.
+    link->serverToClient.clear();link->clientToServer.clear();
+    ri::runtime::RuntimeContext restartedServerContext({},{}), restartedClientContext({},{});
+    if (!Check(server.OnRuntimeStartup(restartedServerContext,commandLine),"server restart failed")
+        || !Check(client.OnRuntimeStartup(restartedClientContext,commandLine),"client restart failed")
+        || !Check(server.PeerSessionExtensionState(7U)==ri::runtime::SessionExtensionPeerState::Pending,
+            "server retained old peer package approval")
+        || !Check(client.SessionExtensionState()==ri::runtime::SessionExtensionPeerState::Pending,
+            "client retained old package approval")
+        || !Check(!client.SendPacket(0U,command,ri::runtime::NetChannelKind::Authority),
+            "restarted client bypassed package agreement")) return EXIT_FAILURE;
+    server.OnRuntimeShutdown(restartedServerContext);
+    client.OnRuntimeShutdown(restartedClientContext);
 
     // A client with a different package revision must be kept out of gameplay.
     auto rejectedLink = std::make_shared<TestLink>();

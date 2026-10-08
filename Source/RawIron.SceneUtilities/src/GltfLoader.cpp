@@ -264,12 +264,31 @@ bool BuildMeshFromPrimitive(const cgltf_primitive& primitive,
 
     std::vector<ri::math::Vec3> normals;
     std::vector<ri::math::Vec2> texCoords;
+    std::vector<ri::math::Vec3> colors;
     for (cgltf_size attributeIndex = 0; attributeIndex < primitive.attributes_count; ++attributeIndex) {
         const cgltf_attribute& attribute = primitive.attributes[attributeIndex];
         if (attribute.data == nullptr || attribute.index != 0) {
             continue;
         }
-        if (attribute.type == cgltf_attribute_type_normal && attribute.data->type == cgltf_type_vec3) {
+        if (attribute.type == cgltf_attribute_type_color) {
+            const std::size_t channels=attribute.data->type==cgltf_type_vec3?3U:
+                attribute.data->type==cgltf_type_vec4?4U:0U;
+            if (channels==0 || attribute.data->count!=positions.size()) {
+                error="Invalid COLOR_0 stream";return false;
+            }
+            std::vector<float> unpacked(positions.size()*channels);
+            if(cgltf_accessor_unpack_floats(attribute.data,unpacked.data(),unpacked.size())!=unpacked.size()) {
+                error="Cannot decode COLOR_0";return false;
+            }
+            for(std::size_t i=0;i<unpacked.size();i+=channels) {
+                for(std::size_t channel=0;channel<channels;++channel) {
+                    if(!std::isfinite(unpacked[i+channel]) || unpacked[i+channel]<0 || unpacked[i+channel]>1) {
+                        error="Invalid COLOR_0 value";return false;
+                    }
+                }
+                colors.push_back({unpacked[i],unpacked[i+1],unpacked[i+2]});
+            }
+        } else if (attribute.type == cgltf_attribute_type_normal && attribute.data->type == cgltf_type_vec3) {
             const cgltf_size count = cgltf_accessor_unpack_floats(attribute.data, nullptr, 0);
             if (count == positions.size() * 3U) {
                 std::vector<float> unpacked(count);
@@ -328,6 +347,7 @@ bool BuildMeshFromPrimitive(const cgltf_primitive& primitive,
         .positions = std::move(positions),
         .normals = std::move(normals),
         .texCoords = std::move(texCoords),
+        .colors = std::move(colors),
         .indices = std::move(indices),
     };
     error.clear();

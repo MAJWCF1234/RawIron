@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -285,6 +286,162 @@ std::size_t InsertNativeAnimationRestKeys(
     return changed;
 }
 
+bool HoldNativeAnimationKey(
+    ri::content::NativeAnimationDocument& document,
+    const std::string_view boneName,
+    const double timeSeconds) {
+    if (boneName.empty() || !std::isfinite(timeSeconds) || timeSeconds < 0.0) {
+        return false;
+    }
+    const std::optional<double> previousTime =
+        FindNearestNativeAnimationKeyTime(document, timeSeconds, true, boneName);
+    if (!previousTime.has_value()) {
+        return false;
+    }
+    if (std::abs(*previousTime - timeSeconds) <= kKeySnap) {
+        return false;
+    }
+    const ri::content::NativeAnimationTrack* track = nullptr;
+    for (const ri::content::NativeAnimationTrack& candidate : document.tracks) {
+        if (candidate.boneName == boneName) {
+            track = &candidate;
+            break;
+        }
+    }
+    if (track == nullptr || track->keys.empty()) {
+        return false;
+    }
+    Transform held{};
+    bool found = false;
+    for (const ri::content::NativeAnimationKeyframe& key : track->keys) {
+        if (std::abs(key.timeSeconds - *previousTime) <= kKeySnap) {
+            held = FromKey(key);
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        return false;
+    }
+    UpsertNativeAnimationKey(document, boneName, timeSeconds, held);
+    return true;
+}
+
+std::size_t HoldNativeAnimationPose(
+    ri::content::NativeAnimationDocument& document,
+    const double timeSeconds) {
+    if (!std::isfinite(timeSeconds) || timeSeconds < 0.0 || document.tracks.empty()) {
+        return 0;
+    }
+    // Snapshot bone names first — Upsert may reallocate tracks.
+    std::vector<std::string> boneNames;
+    boneNames.reserve(document.tracks.size());
+    for (const ri::content::NativeAnimationTrack& track : document.tracks) {
+        if (!track.boneName.empty() && !track.keys.empty()) {
+            boneNames.push_back(track.boneName);
+        }
+    }
+    std::size_t held = 0;
+    for (const std::string& boneName : boneNames) {
+        if (HoldNativeAnimationKey(document, boneName, timeSeconds)) {
+            ++held;
+        }
+    }
+    return held;
+}
+
+bool BreakdownNativeAnimationKey(
+    ri::content::NativeAnimationDocument& document,
+    const std::string_view boneName,
+    const double timeSeconds) {
+    if (boneName.empty() || !std::isfinite(timeSeconds) || timeSeconds < 0.0) {
+        return false;
+    }
+    const std::optional<double> previousTime =
+        FindNearestNativeAnimationKeyTime(document, timeSeconds, true, boneName);
+    const std::optional<double> nextTime =
+        FindNearestNativeAnimationKeyTime(document, timeSeconds, false, boneName);
+    if (!previousTime.has_value() || !nextTime.has_value()) {
+        return false;
+    }
+    if (std::abs(*previousTime - timeSeconds) <= kKeySnap
+        || std::abs(*nextTime - timeSeconds) <= kKeySnap) {
+        return false;
+    }
+    const ri::content::NativeAnimationTrack* track = nullptr;
+    for (const ri::content::NativeAnimationTrack& candidate : document.tracks) {
+        if (candidate.boneName == boneName) {
+            track = &candidate;
+            break;
+        }
+    }
+    if (track == nullptr || track->keys.size() < 2U) {
+        return false;
+    }
+    Transform a{};
+    Transform b{};
+    bool haveA = false;
+    bool haveB = false;
+    for (const ri::content::NativeAnimationKeyframe& key : track->keys) {
+        if (std::abs(key.timeSeconds - *previousTime) <= kKeySnap) {
+            a = FromKey(key);
+            haveA = true;
+        }
+        if (std::abs(key.timeSeconds - *nextTime) <= kKeySnap) {
+            b = FromKey(key);
+            haveB = true;
+        }
+    }
+    if (!haveA || !haveB) {
+        return false;
+    }
+    const double span = *nextTime - *previousTime;
+    const float t = span <= 1.0e-12
+        ? 0.0f
+        : static_cast<float>(std::clamp((timeSeconds - *previousTime) / span, 0.0, 1.0));
+    const auto lerp = [](const float lhs, const float rhs, const float alpha) {
+        return lhs + (rhs - lhs) * alpha;
+    };
+    const Transform stamped{
+        .position =
+            {lerp(a.position.x, b.position.x, t),
+             lerp(a.position.y, b.position.y, t),
+             lerp(a.position.z, b.position.z, t)},
+        .rotationDegrees =
+            {lerp(a.rotationDegrees.x, b.rotationDegrees.x, t),
+             lerp(a.rotationDegrees.y, b.rotationDegrees.y, t),
+             lerp(a.rotationDegrees.z, b.rotationDegrees.z, t)},
+        .scale =
+            {lerp(a.scale.x, b.scale.x, t),
+             lerp(a.scale.y, b.scale.y, t),
+             lerp(a.scale.z, b.scale.z, t)},
+    };
+    UpsertNativeAnimationKey(document, boneName, timeSeconds, stamped);
+    return true;
+}
+
+std::size_t BreakdownNativeAnimationPose(
+    ri::content::NativeAnimationDocument& document,
+    const double timeSeconds) {
+    if (!std::isfinite(timeSeconds) || timeSeconds < 0.0 || document.tracks.empty()) {
+        return 0;
+    }
+    std::vector<std::string> boneNames;
+    boneNames.reserve(document.tracks.size());
+    for (const ri::content::NativeAnimationTrack& track : document.tracks) {
+        if (!track.boneName.empty() && track.keys.size() >= 2U) {
+            boneNames.push_back(track.boneName);
+        }
+    }
+    std::size_t stamped = 0;
+    for (const std::string& boneName : boneNames) {
+        if (BreakdownNativeAnimationKey(document, boneName, timeSeconds)) {
+            ++stamped;
+        }
+    }
+    return stamped;
+}
+
 std::size_t MirrorNativeAnimationTrackAcrossX(
     ri::content::NativeAnimationDocument& document,
     const std::string_view sourceBoneName) {
@@ -346,6 +503,56 @@ bool ScaleNativeAnimationTime(
     return true;
 }
 
+std::size_t ScaleNativeAnimationTransforms(
+    ri::content::NativeAnimationDocument& document,
+    const float factor) {
+    if (!std::isfinite(factor) || factor <= 0.0f) {
+        return 0;
+    }
+    if (std::abs(factor - 1.0f) <= 1.0e-6f) {
+        return 0;
+    }
+    std::size_t changed = 0;
+    for (ri::content::NativeAnimationTrack& track : document.tracks) {
+        for (ri::content::NativeAnimationKeyframe& key : track.keys) {
+            const float tx = key.translation.x * factor;
+            const float ty = key.translation.y * factor;
+            const float tz = key.translation.z * factor;
+            const float rx = key.rotationDegrees.x * factor;
+            const float ry = key.rotationDegrees.y * factor;
+            const float rz = key.rotationDegrees.z * factor;
+            if (std::abs(tx - key.translation.x) <= 1.0e-7f
+                && std::abs(ty - key.translation.y) <= 1.0e-7f
+                && std::abs(tz - key.translation.z) <= 1.0e-7f
+                && std::abs(rx - key.rotationDegrees.x) <= 1.0e-7f
+                && std::abs(ry - key.rotationDegrees.y) <= 1.0e-7f
+                && std::abs(rz - key.rotationDegrees.z) <= 1.0e-7f) {
+                continue;
+            }
+            key.translation = {tx, ty, tz};
+            key.rotationDegrees = {rx, ry, rz};
+            ++changed;
+        }
+    }
+    return changed;
+}
+
+static void CollapseKeysWithinSnap(ri::content::NativeAnimationTrack& track) {
+    if (track.keys.size() < 2U) {
+        return;
+    }
+    std::vector<ri::content::NativeAnimationKeyframe> kept{};
+    kept.reserve(track.keys.size());
+    for (const ri::content::NativeAnimationKeyframe& key : track.keys) {
+        if (!kept.empty() && std::abs(kept.back().timeSeconds - key.timeSeconds) <= kKeySnap) {
+            kept.back() = key;
+            continue;
+        }
+        kept.push_back(key);
+    }
+    track.keys = std::move(kept);
+}
+
 bool OffsetNativeAnimationTimes(
     ri::content::NativeAnimationDocument& document,
     const double deltaSeconds) {
@@ -363,6 +570,7 @@ bool OffsetNativeAnimationTimes(
                const ri::content::NativeAnimationKeyframe& rhs) {
                 return lhs.timeSeconds < rhs.timeSeconds;
             });
+        CollapseKeysWithinSnap(track);
     }
     for (ri::content::NativeAnimationEvent& event : document.events) {
         event.timeSeconds = std::clamp(event.timeSeconds + deltaSeconds, 0.0, kMaxDurationSeconds);
@@ -373,6 +581,64 @@ bool OffsetNativeAnimationTimes(
             std::clamp(document.durationSeconds + deltaSeconds, kKeySnap, kMaxDurationSeconds);
     }
     return true;
+}
+
+bool OffsetNativeAnimationBoneTimes(
+    ri::content::NativeAnimationDocument& document,
+    const std::string_view boneName,
+    const double deltaSeconds) {
+    if (boneName.empty() || !std::isfinite(deltaSeconds) || std::abs(deltaSeconds) <= 1.0e-12) {
+        return false;
+    }
+    ri::content::NativeAnimationTrack* track = nullptr;
+    for (ri::content::NativeAnimationTrack& candidate : document.tracks) {
+        if (candidate.boneName == boneName) {
+            track = &candidate;
+            break;
+        }
+    }
+    if (track == nullptr || track->keys.empty()) {
+        return false;
+    }
+    double maxTime = document.durationSeconds;
+    for (ri::content::NativeAnimationKeyframe& key : track->keys) {
+        key.timeSeconds = std::clamp(key.timeSeconds + deltaSeconds, 0.0, kMaxDurationSeconds);
+        maxTime = (std::max)(maxTime, key.timeSeconds);
+    }
+    std::sort(
+        track->keys.begin(),
+        track->keys.end(),
+        [](const ri::content::NativeAnimationKeyframe& lhs,
+           const ri::content::NativeAnimationKeyframe& rhs) {
+            return lhs.timeSeconds < rhs.timeSeconds;
+        });
+    CollapseKeysWithinSnap(*track);
+    if (maxTime > document.durationSeconds) {
+        document.durationSeconds = std::clamp(maxTime, kKeySnap, kMaxDurationSeconds);
+    }
+    return true;
+}
+
+std::size_t ReplaceNativeAnimationTrackKeys(
+    ri::content::NativeAnimationDocument& document,
+    const std::string_view destinationBoneName,
+    const std::span<const ri::content::NativeAnimationKeyframe> keys) {
+    if (destinationBoneName.empty() || keys.empty()) {
+        return 0;
+    }
+    const std::vector<ri::content::NativeAnimationKeyframe> copied(keys.begin(), keys.end());
+    for (auto track = document.tracks.begin(); track != document.tracks.end(); ++track) {
+        if (track->boneName == destinationBoneName) {
+            document.tracks.erase(track);
+            break;
+        }
+    }
+    std::size_t changed = 0;
+    for (const ri::content::NativeAnimationKeyframe& key : copied) {
+        UpsertNativeAnimationKey(document, destinationBoneName, key.timeSeconds, FromKey(key));
+        ++changed;
+    }
+    return changed;
 }
 
 std::size_t CopyNativeAnimationTrack(
@@ -393,20 +659,7 @@ std::size_t CopyNativeAnimationTrack(
     if (source == nullptr || source->keys.empty()) {
         return 0;
     }
-    const std::vector<ri::content::NativeAnimationKeyframe> keys = source->keys;
-    // Drop the destination track first so Upsert recreates a clean copy.
-    for (auto track = document.tracks.begin(); track != document.tracks.end(); ++track) {
-        if (track->boneName == destinationBoneName) {
-            document.tracks.erase(track);
-            break;
-        }
-    }
-    std::size_t changed = 0;
-    for (const ri::content::NativeAnimationKeyframe& key : keys) {
-        UpsertNativeAnimationKey(document, destinationBoneName, key.timeSeconds, FromKey(key));
-        ++changed;
-    }
-    return changed;
+    return ReplaceNativeAnimationTrackKeys(document, destinationBoneName, source->keys);
 }
 
 [[nodiscard]] std::optional<double> FindEarliestNativeAnimationTime(
@@ -880,9 +1133,13 @@ std::size_t DeduplicateNativeAnimationKeys(
 
 std::size_t QuantizeNativeAnimationTimes(
     ri::content::NativeAnimationDocument& document,
-    const double framesPerSecond) {
+    const double framesPerSecond,
+    std::size_t* collapsedOut) {
     if (!std::isfinite(framesPerSecond) || framesPerSecond < 1.0 || framesPerSecond > 240.0) {
         return 0;
+    }
+    if (collapsedOut != nullptr) {
+        *collapsedOut = 0;
     }
     const double frame = 1.0 / framesPerSecond;
     const auto quantize = [frame](const double timeSeconds) {
@@ -916,6 +1173,9 @@ std::size_t QuantizeNativeAnimationTimes(
                 if (!kept.empty() && std::abs(kept.back().timeSeconds - key.timeSeconds) <= kKeySnap) {
                     kept.back() = key;
                     ++changed;
+                    if (collapsedOut != nullptr) {
+                        ++(*collapsedOut);
+                    }
                     continue;
                 }
                 kept.push_back(key);
@@ -939,6 +1199,381 @@ std::size_t QuantizeNativeAnimationTimes(
         document.durationSeconds = kKeySnap;
     }
     return changed;
+}
+
+bool ReverseNativeAnimation(ri::content::NativeAnimationDocument& document) {
+    if (!std::isfinite(document.durationSeconds) || document.durationSeconds <= kKeySnap) {
+        return false;
+    }
+    const double duration = document.durationSeconds;
+    bool touched = false;
+    for (ri::content::NativeAnimationTrack& track : document.tracks) {
+        for (ri::content::NativeAnimationKeyframe& key : track.keys) {
+            if (!std::isfinite(key.timeSeconds)) {
+                continue;
+            }
+            const double next = std::clamp(duration - key.timeSeconds, 0.0, kMaxDurationSeconds);
+            if (std::abs(next - key.timeSeconds) > 1.0e-12) {
+                key.timeSeconds = next;
+                touched = true;
+            }
+        }
+        std::sort(
+            track.keys.begin(),
+            track.keys.end(),
+            [](const ri::content::NativeAnimationKeyframe& lhs,
+               const ri::content::NativeAnimationKeyframe& rhs) {
+                return lhs.timeSeconds < rhs.timeSeconds;
+            });
+    }
+    for (ri::content::NativeAnimationEvent& event : document.events) {
+        if (!std::isfinite(event.timeSeconds)) {
+            continue;
+        }
+        const double next = std::clamp(duration - event.timeSeconds, 0.0, kMaxDurationSeconds);
+        if (std::abs(next - event.timeSeconds) > 1.0e-12) {
+            event.timeSeconds = next;
+            touched = true;
+        }
+    }
+    SortNativeAnimationEvents(document);
+    return touched;
+}
+
+std::size_t DensifyNativeAnimationKeys(
+    ri::content::NativeAnimationDocument& document,
+    const double framesPerSecond) {
+    if (!std::isfinite(framesPerSecond) || framesPerSecond < 1.0 || framesPerSecond > 240.0) {
+        return 0;
+    }
+    const double frame = 1.0 / framesPerSecond;
+    const auto lerpScalar = [](const float a, const float b, const float t) {
+        return a + (b - a) * t;
+    };
+    const auto sampleAt =
+        [&](const std::vector<ri::content::NativeAnimationKeyframe>& keys, const double timeSeconds) {
+            if (keys.empty()) {
+                return Transform{};
+            }
+            if (timeSeconds <= keys.front().timeSeconds + kKeySnap) {
+                return FromKey(keys.front());
+            }
+            if (timeSeconds >= keys.back().timeSeconds - kKeySnap) {
+                return FromKey(keys.back());
+            }
+            for (std::size_t index = 1; index < keys.size(); ++index) {
+                const ri::content::NativeAnimationKeyframe& rhs = keys[index];
+                const ri::content::NativeAnimationKeyframe& lhs = keys[index - 1U];
+                if (timeSeconds > rhs.timeSeconds + kKeySnap) {
+                    continue;
+                }
+                const double span = rhs.timeSeconds - lhs.timeSeconds;
+                const float t = span <= 1.0e-12
+                    ? 0.0f
+                    : static_cast<float>(std::clamp((timeSeconds - lhs.timeSeconds) / span, 0.0, 1.0));
+                const Transform a = FromKey(lhs);
+                const Transform b = FromKey(rhs);
+                return Transform{
+                    .position =
+                        {lerpScalar(a.position.x, b.position.x, t),
+                         lerpScalar(a.position.y, b.position.y, t),
+                         lerpScalar(a.position.z, b.position.z, t)},
+                    .rotationDegrees =
+                        {lerpScalar(a.rotationDegrees.x, b.rotationDegrees.x, t),
+                         lerpScalar(a.rotationDegrees.y, b.rotationDegrees.y, t),
+                         lerpScalar(a.rotationDegrees.z, b.rotationDegrees.z, t)},
+                    .scale =
+                        {lerpScalar(a.scale.x, b.scale.x, t),
+                         lerpScalar(a.scale.y, b.scale.y, t),
+                         lerpScalar(a.scale.z, b.scale.z, t)},
+                };
+            }
+            return FromKey(keys.back());
+        };
+
+    struct Range {
+        std::string boneName{};
+        std::vector<ri::content::NativeAnimationKeyframe> keys{};
+    };
+    std::vector<Range> ranges{};
+    ranges.reserve(document.tracks.size());
+    std::size_t before = 0;
+    for (const ri::content::NativeAnimationTrack& track : document.tracks) {
+        before += track.keys.size();
+        if (track.keys.size() < 2U || track.boneName.empty()) {
+            continue;
+        }
+        ranges.push_back(Range{.boneName = track.boneName, .keys = track.keys});
+    }
+    for (const Range& range : ranges) {
+        const double start = range.keys.front().timeSeconds;
+        const double end = range.keys.back().timeSeconds;
+        if (end <= start + frame * 0.5) {
+            continue;
+        }
+        for (double time = start; time <= end + 1.0e-9; time += frame) {
+            const double stamped = std::clamp(time, 0.0, kMaxDurationSeconds);
+            UpsertNativeAnimationKey(document, range.boneName, stamped, sampleAt(range.keys, stamped));
+        }
+    }
+    std::size_t after = 0;
+    for (const ri::content::NativeAnimationTrack& track : document.tracks) {
+        after += track.keys.size();
+    }
+    return after > before ? after - before : 0;
+}
+
+std::size_t DecimateNativeAnimationKeys(
+    ri::content::NativeAnimationDocument& document,
+    const float positionEpsilon,
+    const float rotationEpsilonDegrees,
+    const float scaleEpsilon) {
+    if (positionEpsilon < 0.0f || rotationEpsilonDegrees < 0.0f || scaleEpsilon < 0.0f) {
+        return 0;
+    }
+    const auto lerpScalar = [](const float a, const float b, const float t) {
+        return a + (b - a) * t;
+    };
+    const auto lerpKey =
+        [&](const ri::content::NativeAnimationKeyframe& lhs,
+            const ri::content::NativeAnimationKeyframe& rhs,
+            const double timeSeconds) {
+            const double span = rhs.timeSeconds - lhs.timeSeconds;
+            const float t = span <= 1.0e-12
+                ? 0.0f
+                : static_cast<float>(std::clamp((timeSeconds - lhs.timeSeconds) / span, 0.0, 1.0));
+            return ri::content::NativeAnimationKeyframe{
+                .timeSeconds = timeSeconds,
+                .translation =
+                    {lerpScalar(lhs.translation.x, rhs.translation.x, t),
+                     lerpScalar(lhs.translation.y, rhs.translation.y, t),
+                     lerpScalar(lhs.translation.z, rhs.translation.z, t)},
+                .rotationDegrees =
+                    {lerpScalar(lhs.rotationDegrees.x, rhs.rotationDegrees.x, t),
+                     lerpScalar(lhs.rotationDegrees.y, rhs.rotationDegrees.y, t),
+                     lerpScalar(lhs.rotationDegrees.z, rhs.rotationDegrees.z, t)},
+                .scale =
+                    {lerpScalar(lhs.scale.x, rhs.scale.x, t),
+                     lerpScalar(lhs.scale.y, rhs.scale.y, t),
+                     lerpScalar(lhs.scale.z, rhs.scale.z, t)},
+            };
+        };
+
+    std::size_t removed = 0;
+    for (ri::content::NativeAnimationTrack& track : document.tracks) {
+        if (track.keys.size() < 3U) {
+            continue;
+        }
+        std::vector<ri::content::NativeAnimationKeyframe> kept{};
+        kept.reserve(track.keys.size());
+        kept.push_back(track.keys.front());
+        for (std::size_t index = 1; index + 1U < track.keys.size(); ++index) {
+            const ri::content::NativeAnimationKeyframe& candidate = track.keys[index];
+            const ri::content::NativeAnimationKeyframe predicted =
+                lerpKey(kept.back(), track.keys[index + 1U], candidate.timeSeconds);
+            if (KeysNearlyEqual(
+                    candidate, predicted, positionEpsilon, rotationEpsilonDegrees, scaleEpsilon)) {
+                ++removed;
+                continue;
+            }
+            kept.push_back(candidate);
+        }
+        kept.push_back(track.keys.back());
+        track.keys = std::move(kept);
+    }
+    return removed;
+}
+
+std::size_t SmoothNativeAnimationKeys(
+    ri::content::NativeAnimationDocument& document,
+    const float blend) {
+    if (!std::isfinite(blend) || blend <= 0.0f) {
+        return 0;
+    }
+    const float amount = std::clamp(blend, 0.0f, 1.0f);
+    const auto lerpScalar = [](const float a, const float b, const float t) {
+        return a + (b - a) * t;
+    };
+    const auto mix =
+        [&](const ri::content::NativeAnimationKeyframe& current,
+            const ri::content::NativeAnimationKeyframe& predicted) {
+            return ri::content::NativeAnimationKeyframe{
+                .timeSeconds = current.timeSeconds,
+                .translation =
+                    {lerpScalar(current.translation.x, predicted.translation.x, amount),
+                     lerpScalar(current.translation.y, predicted.translation.y, amount),
+                     lerpScalar(current.translation.z, predicted.translation.z, amount)},
+                .rotationDegrees =
+                    {lerpScalar(current.rotationDegrees.x, predicted.rotationDegrees.x, amount),
+                     lerpScalar(current.rotationDegrees.y, predicted.rotationDegrees.y, amount),
+                     lerpScalar(current.rotationDegrees.z, predicted.rotationDegrees.z, amount)},
+                .scale =
+                    {lerpScalar(current.scale.x, predicted.scale.x, amount),
+                     lerpScalar(current.scale.y, predicted.scale.y, amount),
+                     lerpScalar(current.scale.z, predicted.scale.z, amount)},
+            };
+        };
+    const auto predictedAt =
+        [&](const ri::content::NativeAnimationKeyframe& lhs,
+            const ri::content::NativeAnimationKeyframe& rhs,
+            const double timeSeconds) {
+            const double span = rhs.timeSeconds - lhs.timeSeconds;
+            const float t = span <= 1.0e-12
+                ? 0.0f
+                : static_cast<float>(std::clamp((timeSeconds - lhs.timeSeconds) / span, 0.0, 1.0));
+            return ri::content::NativeAnimationKeyframe{
+                .timeSeconds = timeSeconds,
+                .translation =
+                    {lerpScalar(lhs.translation.x, rhs.translation.x, t),
+                     lerpScalar(lhs.translation.y, rhs.translation.y, t),
+                     lerpScalar(lhs.translation.z, rhs.translation.z, t)},
+                .rotationDegrees =
+                    {lerpScalar(lhs.rotationDegrees.x, rhs.rotationDegrees.x, t),
+                     lerpScalar(lhs.rotationDegrees.y, rhs.rotationDegrees.y, t),
+                     lerpScalar(lhs.rotationDegrees.z, rhs.rotationDegrees.z, t)},
+                .scale =
+                    {lerpScalar(lhs.scale.x, rhs.scale.x, t),
+                     lerpScalar(lhs.scale.y, rhs.scale.y, t),
+                     lerpScalar(lhs.scale.z, rhs.scale.z, t)},
+            };
+        };
+
+    std::size_t changed = 0;
+    for (ri::content::NativeAnimationTrack& track : document.tracks) {
+        if (track.keys.size() < 3U) {
+            continue;
+        }
+        const auto previous = track.keys;
+        for (std::size_t index = 1; index + 1U < previous.size(); ++index) {
+            const ri::content::NativeAnimationKeyframe predicted =
+                predictedAt(previous[index - 1U], previous[index + 1U], previous[index].timeSeconds);
+            const ri::content::NativeAnimationKeyframe next = mix(previous[index], predicted);
+            if (KeysNearlyEqual(previous[index], next, 0.000001f, 0.0001f, 0.000001f)) {
+                continue;
+            }
+            track.keys[index] = next;
+            ++changed;
+        }
+    }
+    return changed;
+}
+
+namespace {
+
+[[nodiscard]] Transform RestLocalOrIdentity(const RigDefinition& rig, const std::string_view bone) {
+    for (const RigBone& rigBone : rig.bones) {
+        if (rigBone.name == bone) {
+            return rigBone.restLocal;
+        }
+    }
+    return {};
+}
+
+void UpsertRestDelta(
+    ri::content::NativeAnimationDocument& document,
+    const RigDefinition& rig,
+    const std::string_view bone,
+    const double time,
+    const float rx,
+    const float ry,
+    const float rz,
+    const float tx,
+    const float ty,
+    const float tz) {
+    Transform transform = RestLocalOrIdentity(rig, bone);
+    transform.position.x += tx;
+    transform.position.y += ty;
+    transform.position.z += tz;
+    transform.rotationDegrees.x += rx;
+    transform.rotationDegrees.y += ry;
+    transform.rotationDegrees.z += rz;
+    UpsertNativeAnimationKey(document, bone, time, transform);
+}
+
+} // namespace
+
+void AuthorHumanoidIdleClip(
+    ri::content::NativeAnimationDocument& document,
+    const RigDefinition& rig,
+    const HumanoidMotionAuthorOptions& options) {
+    const float k = std::clamp(options.intensity, 0.25f, 2.5f);
+    SeedNativeAnimationFromRig(document, rig);
+    (void)InsertNativeAnimationRestKeys(document, rig, 0.0, "");
+    // Weight left + inhale
+    UpsertRestDelta(document, rig, "pelvis", 0.25, 0.0f, 0.0f, 3.0f * k, -0.015f * k, 0.01f * k, 0.0f);
+    UpsertRestDelta(document, rig, "spine", 0.25, 2.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "chest", 0.25, 3.0f * k, 0.0f, 0.0f, 0.0f, 0.008f * k, 0.012f * k);
+    UpsertRestDelta(document, rig, "head", 0.25, 0.0f, 4.0f * k, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "left_upper_arm", 0.25, 0.0f, 0.0f, -6.0f * k, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_upper_arm", 0.25, 0.0f, 0.0f, 6.0f * k, 0.0f, 0.0f, 0.0f);
+    // Mid breath hold
+    UpsertRestDelta(document, rig, "pelvis", 0.50, 0.0f, 0.0f, 0.0f, 0.0f, 0.02f * k, 0.0f);
+    UpsertRestDelta(document, rig, "chest", 0.50, 5.0f * k, 0.0f, 0.0f, 0.0f, 0.012f * k, 0.018f * k);
+    UpsertRestDelta(document, rig, "head", 0.50, 2.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    // Weight right + exhale
+    UpsertRestDelta(document, rig, "pelvis", 0.75, 0.0f, 0.0f, -3.0f * k, 0.015f * k, 0.01f * k, 0.0f);
+    UpsertRestDelta(document, rig, "spine", 0.75, 1.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "chest", 0.75, 2.0f * k, 0.0f, 0.0f, 0.0f, 0.004f * k, 0.006f * k);
+    UpsertRestDelta(document, rig, "head", 0.75, 0.0f, -4.0f * k, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "left_upper_arm", 0.75, 0.0f, 0.0f, -4.0f * k, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_upper_arm", 0.75, 0.0f, 0.0f, 4.0f * k, 0.0f, 0.0f, 0.0f);
+    (void)InsertNativeAnimationRestKeys(document, rig, 1.0, "");
+    document.looping = options.looping;
+    (void)FitNativeAnimationDuration(document);
+}
+
+void AuthorHumanoidWalkClip(
+    ri::content::NativeAnimationDocument& document,
+    const RigDefinition& rig,
+    const HumanoidMotionAuthorOptions& options) {
+    const float k = std::clamp(options.intensity, 0.25f, 2.5f);
+    SeedNativeAnimationFromRig(document, rig);
+    (void)InsertNativeAnimationRestKeys(document, rig, 0.0, "");
+    // Contact L — opposite arm, counter torso, hip bounce
+    UpsertRestDelta(document, rig, "left_upper_leg", 0.18, 52.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "left_lower_leg", 0.18, 40.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "left_foot", 0.18, -12.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_upper_leg", 0.18, -44.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_lower_leg", 0.18, 14.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_foot", 0.18, 8.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "left_upper_arm", 0.18, 0.0f, -48.0f * k, -16.0f * k, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "left_lower_arm", 0.18, 0.0f, -18.0f * k, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_upper_arm", 0.18, 0.0f, -48.0f * k, 16.0f * k, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_lower_arm", 0.18, 0.0f, -18.0f * k, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "pelvis", 0.18, 0.0f, 0.0f, 7.0f * k, 0.0f, 0.035f * k, 0.07f * k);
+    UpsertRestDelta(document, rig, "spine", 0.18, 4.0f * k, 6.0f * k, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "chest", 0.18, 6.0f * k, 12.0f * k, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "head", 0.18, 0.0f, -8.0f * k, 0.0f, 0.0f, 0.0f, 0.0f);
+    // Passing
+    UpsertRestDelta(document, rig, "left_upper_leg", 0.42, 14.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "left_lower_leg", 0.42, 48.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_upper_leg", 0.42, 14.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_lower_leg", 0.42, 48.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "left_upper_arm", 0.42, 0.0f, 0.0f, -16.0f * k, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_upper_arm", 0.42, 0.0f, 0.0f, 16.0f * k, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "pelvis", 0.42, 0.0f, 0.0f, 0.0f, 0.0f, 0.07f * k, 0.0f);
+    UpsertRestDelta(document, rig, "chest", 0.42, 10.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "head", 0.42, 4.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    // Contact R
+    UpsertRestDelta(document, rig, "left_upper_leg", 0.68, -44.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "left_lower_leg", 0.68, 14.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "left_foot", 0.68, 8.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_upper_leg", 0.68, 52.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_lower_leg", 0.68, 40.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_foot", 0.68, -12.0f * k, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "left_upper_arm", 0.68, 0.0f, 48.0f * k, -16.0f * k, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "left_lower_arm", 0.68, 0.0f, 18.0f * k, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_upper_arm", 0.68, 0.0f, 48.0f * k, 16.0f * k, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "right_lower_arm", 0.68, 0.0f, 18.0f * k, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "pelvis", 0.68, 0.0f, 0.0f, -7.0f * k, 0.0f, 0.035f * k, -0.07f * k);
+    UpsertRestDelta(document, rig, "spine", 0.68, 4.0f * k, -6.0f * k, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "chest", 0.68, 6.0f * k, -12.0f * k, 0.0f, 0.0f, 0.0f, 0.0f);
+    UpsertRestDelta(document, rig, "head", 0.68, 0.0f, 8.0f * k, 0.0f, 0.0f, 0.0f, 0.0f);
+    (void)InsertNativeAnimationRestKeys(document, rig, 1.0, "");
+    (void)UpsertNativeAnimationEvent(document, 0.18, "foot_plant_L");
+    (void)UpsertNativeAnimationEvent(document, 0.68, "foot_plant_R");
+    document.looping = options.looping;
+    (void)FitNativeAnimationDuration(document);
 }
 
 } // namespace ri::scene

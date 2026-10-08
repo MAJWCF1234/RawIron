@@ -7,21 +7,30 @@
 #include "RawIron/Content/PluginRuntime.h"
 #include "RawIron/Content/AssetDocument.h"
 #include "RawIron/Content/AssetPackageManifest.h"
+#include "RawIron/Content/AuthoringHandoff.h"
+#include "RawIron/Content/BlockCharacterDocument.h"
+#include "RawIron/Content/NativeAnimationDocument.h"
+#include "RawIron/Content/NativeSculptDocument.h"
 #include "RawIron/Content/PackageMountRegistry.h"
 #include "RawIron/Content/PackageResolver.h"
 #include "RawIron/Core/Detail/JsonScan.h"
 #include "RawIron/Core/Log.h"
 #include "RawIron/Core/Version.h"
+#include "RawIron/Math/Mat4.h"
+#include "RawIron/Math/Vec3.h"
 #include "RawIron/Render/PostProcessProfiles.h"
 #include "RawIron/Render/VulkanBootstrap.h"
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Render/SoftwarePreview.h"
+#include "RawIron/Scene/NativeAnimation.h"
+#include "RawIron/Scene/NativeSculpt.h"
 #include "RawIron/Scene/Raycast.h"
 #include "RawIron/Scene/WorkspaceSandbox.h"
 #include "RawIron/Scene/SceneKit.h"
 #include "RawIron/Scene/SceneStateIO.h"
 #include "RawIron/Scene/SceneUtils.h"
 #include "RawIron/Scene/RigAuthoring.h"
+#include "RawIron/Scene/Transform.h"
 #include "EditorProjectScaffolding.h"
 #include "EditorWorkspace.h"
 #include "SecureRipakArchive.h"
@@ -37,6 +46,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <optional>
 #include <random>
 #include <set>
@@ -44,6 +54,7 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -1061,7 +1072,8 @@ void PrintRigToolchainReport() {
     ri::core::LogInfo("  Validation: hierarchy cycles, duplicate names, rest-transform validity, and humanoid coverage.");
     ri::core::LogInfo("  Mesh inputs: OBJ, glTF/GLB, and FBX import through RawIron.SceneUtilities.");
     ri::core::LogInfo("  Animation: imported transform clips plus stable humanoid bone-name canonicalization.");
-    ri::core::LogInfo("  Editor workflow: save rigs under Assets/Source/rigs, then inspect/package them with project assets.");
+    ri::core::LogInfo("  Forge clay/motion: .ri_sculpt.json + .ri_anim.json via --sculpt-* / --anim-* / --forge-*.");
+    ri::core::LogInfo("  Editor workflow: save under Assets/Source/{rigs,sculpts,anims}, then inspect/package with project assets.");
 }
 
 void CreateHumanoidRig(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
@@ -1099,12 +1111,14 @@ void CreateHumanoidRig(const WorkspaceLayout& workspace, const ri::core::Command
                       std::to_string(report.humanoidRequiredBoneCount));
 }
 
-void ValidateRig(const ri::core::CommandLine& commandLine) {
+fs::path ResolveAuthoringPath(const WorkspaceLayout& workspace, const fs::path& path);
+
+void ValidateRig(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
     const auto pathArg = commandLine.GetValue("--rig-validate");
     if (!pathArg.has_value() || pathArg->empty()) {
         throw std::runtime_error("Missing --rig-validate <file.ri_rig.json>.");
     }
-    const fs::path path = fs::path(*pathArg);
+    const fs::path path = ResolveAuthoringPath(workspace, fs::path(*pathArg));
     const std::optional<ri::scene::RigDefinition> rig = ri::scene::LoadRigDefinition(path);
     if (!rig.has_value()) {
         throw std::runtime_error("Could not parse RawIron rig: " + path.string());
@@ -1127,6 +1141,2536 @@ void ValidateRig(const ri::core::CommandLine& commandLine) {
             ri::core::LogInfo("  Error: " + error);
         }
         throw std::runtime_error("RawIron rig validation failed.");
+    }
+    ri::core::LogInfo("  Result: valid");
+}
+
+fs::path ResolveAuthoringPath(const WorkspaceLayout& workspace, const fs::path& path) {
+    if (path.empty()) {
+        return {};
+    }
+    if (path.is_absolute()) {
+        return path;
+    }
+    const fs::path fromRoot = workspace.root / path;
+    std::error_code existsError{};
+    if (fs::exists(fromRoot, existsError)) {
+        return fromRoot;
+    }
+    const fs::path fromSource = workspace.assetsSource / path;
+    if (fs::exists(fromSource, existsError)) {
+        return fromSource;
+    }
+    return fromRoot;
+}
+
+std::string RelativeAuthoringSourcePath(const WorkspaceLayout& workspace, const fs::path& absolutePath) {
+    std::error_code error{};
+    const fs::path relative = fs::relative(absolutePath, workspace.assetsSource, error);
+    if (!error) {
+        const std::string relativeText = relative.generic_string();
+        // Animation docs reject directory traversal in stored relative paths.
+        if (relativeText.find("..") == std::string::npos) {
+            return relativeText;
+        }
+    }
+    return fs::weakly_canonical(absolutePath, error).generic_string();
+}
+
+fs::path ResolveClipRigPath(
+    const WorkspaceLayout& workspace,
+    const std::string& rigPathText,
+    const fs::path& animPath) {
+    if (rigPathText.empty()) {
+        return {};
+    }
+    const fs::path rigPath(rigPathText);
+    std::error_code existsError{};
+    if (rigPath.is_absolute() && fs::exists(rigPath, existsError)) {
+        return rigPath;
+    }
+    const fs::path fromSource = workspace.assetsSource / rigPath;
+    if (fs::exists(fromSource, existsError)) {
+        return fromSource;
+    }
+    const fs::path fromRoot = workspace.root / rigPath;
+    if (fs::exists(fromRoot, existsError)) {
+        return fromRoot;
+    }
+    const fs::path besideClip = animPath.parent_path() / rigPath;
+    if (fs::exists(besideClip, existsError)) {
+        return besideClip;
+    }
+    return {};
+}
+
+void PrintForgeToolchainReport(const WorkspaceLayout& workspace) {
+    auto countSuffix = [](const fs::path& folder, const std::string_view suffix) {
+        std::size_t count = 0U;
+        std::error_code error{};
+        if (!fs::exists(folder, error) || !fs::is_directory(folder, error)) {
+            return count;
+        }
+        for (const fs::directory_entry& entry : fs::directory_iterator(folder, error)) {
+            if (!entry.is_regular_file(error)) {
+                continue;
+            }
+            const std::string name = entry.path().filename().string();
+            if (name.size() >= suffix.size()
+                && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0) {
+                ++count;
+            }
+        }
+        return count;
+    };
+
+    ri::core::LogInfo("RawIron Forge authoring (CLI — no UI required):");
+    ri::core::LogInfo("  Clay: --sculpt-create / --sculpt-bind / --sculpt-fit-rig / --sculpt-flood-weights / --sculpt-flood-free");
+    ri::core::LogInfo("  Clay: --sculpt-soft / --sculpt-soft-bone / --sculpt-cap4 / --sculpt-normalize / --sculpt-prune");
+    ri::core::LogInfo("  Clay: --sculpt-mirror / --sculpt-seal / --sculpt-invert / --sculpt-ceil / --sculpt-harden");
+    ri::core::LogInfo("  Clay: --sculpt-transfer / --sculpt-swap / --sculpt-grow / --sculpt-shrink / --sculpt-paint");
+    ri::core::LogInfo("  Clay: --sculpt-bounds / --sculpt-bone-weights / --sculpt-audit-weights / --sculpt-validate");
+    ri::core::LogInfo("  Clay: --sculpt-unbind / --sculpt-clear-weights");
+    ri::core::LogInfo("  Motion: --anim-create / --anim-key-rest / --anim-key / --anim-hold / --anim-breakdown");
+    ri::core::LogInfo("  Motion: --anim-event / --anim-trim / --anim-fit-duration / --anim-align-start");
+    ri::core::LogInfo("  Motion: --anim-validate / --anim-report");
+    ri::core::LogInfo("  Scaffold: --forge-character-create <id> [--cage sphere|cube] (clay only)");
+    ri::core::LogInfo("  Block model: --blockchar-create / --blockchar-add-part / --blockchar-set-part / --blockchar-nudge");
+    ri::core::LogInfo("  Block sync: --blockchar-sync-sculpt | recipes: --function <name> (Tools/ri_tool/functions)");
+    ri::core::LogInfo("  Inspect: --forge-assets-list | --forge-report | --forge-handoff-probe <asset>");
+    ri::core::LogInfo("  Rigs: --rig-create-humanoid / --rig-validate (shared with Forge UI)");
+    ri::core::LogInfo("  Source roots:");
+    ri::core::LogInfo("    sculpts: " + (workspace.assetsSource / "sculpts").string());
+    ri::core::LogInfo("    rigs: " + (workspace.assetsSource / "rigs").string());
+    ri::core::LogInfo("    anims: " + (workspace.assetsSource / "anims").string());
+    ri::core::LogInfo(
+        "  Counts: sculpt=" + std::to_string(countSuffix(workspace.assetsSource / "sculpts", ".ri_sculpt.json"))
+        + " rig=" + std::to_string(countSuffix(workspace.assetsSource / "rigs", ".ri_rig.json"))
+        + " anim=" + std::to_string(countSuffix(workspace.assetsSource / "anims", ".ri_anim.json")));
+}
+
+void ListForgeAssets(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const std::string kind = commandLine.GetValue("--kind").value_or("all");
+    auto listFolder = [&](const std::string_view label, const fs::path& folder, const std::string_view suffix) {
+        if (kind != "all" && kind != label) {
+            return;
+        }
+        std::error_code error{};
+        if (!fs::exists(folder, error) || !fs::is_directory(folder, error)) {
+            return;
+        }
+        for (const fs::directory_entry& entry : fs::directory_iterator(folder, error)) {
+            if (!entry.is_regular_file(error)) {
+                continue;
+            }
+            const std::string name = entry.path().filename().string();
+            if (name.size() < suffix.size()
+                || name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0) {
+                continue;
+            }
+            const std::string relative = RelativeAuthoringSourcePath(workspace, entry.path());
+            bool valid = false;
+            if (label == "sculpt") {
+                valid = ri::content::LoadNativeSculptDocument(entry.path()).has_value();
+            } else if (label == "rig") {
+                const auto rig = ri::scene::LoadRigDefinition(entry.path());
+                valid = rig.has_value() && ri::scene::ValidateRigDefinition(*rig).valid;
+            } else if (label == "anim") {
+                const auto clip = ri::content::LoadNativeAnimationDocument(entry.path());
+                valid = clip.has_value() && ri::content::ValidateNativeAnimationDocument(*clip).valid;
+            }
+            ri::core::LogInfo(
+                std::string(label) + "\t" + (valid ? "ok" : "bad") + "\t" + relative);
+        }
+    };
+    listFolder("sculpt", workspace.assetsSource / "sculpts", ".ri_sculpt.json");
+    listFolder("rig", workspace.assetsSource / "rigs", ".ri_rig.json");
+    listFolder("anim", workspace.assetsSource / "anims", ".ri_anim.json");
+}
+
+[[nodiscard]] ri::math::Vec3 ParseAtVec3(const std::string_view raw) {
+    std::string text(raw);
+    for (char& ch : text) {
+        if (ch == ',' || ch == ';') {
+            ch = ' ';
+        }
+    }
+    std::istringstream stream(text);
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    if (!(stream >> x >> y >> z)) {
+        throw std::runtime_error("--at must be three numbers like 0,1.2,0 or \"0 1.2 0\".");
+    }
+    return ri::math::Vec3{x, y, z};
+}
+
+[[nodiscard]] ri::scene::NativeSculptWeightPaint ParseWeightPaintMode(const std::string_view raw) {
+    if (raw == "assign" || raw == "set") {
+        return ri::scene::NativeSculptWeightPaint::Assign;
+    }
+    if (raw == "add" || raw == "blend") {
+        return ri::scene::NativeSculptWeightPaint::Add;
+    }
+    if (raw == "smooth" || raw == "smth") {
+        return ri::scene::NativeSculptWeightPaint::Smooth;
+    }
+    if (raw == "clear" || raw == "erase") {
+        return ri::scene::NativeSculptWeightPaint::Clear;
+    }
+    throw std::runtime_error("--mode must be assign|add|smooth|clear.");
+}
+
+struct SculptBounds {
+    ri::math::Vec3 min{0.0f, 0.0f, 0.0f};
+    ri::math::Vec3 max{0.0f, 0.0f, 0.0f};
+    ri::math::Vec3 center{0.0f, 0.0f, 0.0f};
+    ri::math::Vec3 extent{0.0f, 0.0f, 0.0f};
+};
+
+[[nodiscard]] SculptBounds ComputeSculptBounds(const ri::content::NativeSculptDocument& document) {
+    SculptBounds bounds{};
+    if (document.mesh.positions.empty()) {
+        return bounds;
+    }
+    bounds.min = document.mesh.positions.front();
+    bounds.max = document.mesh.positions.front();
+    for (const ri::math::Vec3& position : document.mesh.positions) {
+        bounds.min.x = std::min(bounds.min.x, position.x);
+        bounds.min.y = std::min(bounds.min.y, position.y);
+        bounds.min.z = std::min(bounds.min.z, position.z);
+        bounds.max.x = std::max(bounds.max.x, position.x);
+        bounds.max.y = std::max(bounds.max.y, position.y);
+        bounds.max.z = std::max(bounds.max.z, position.z);
+    }
+    bounds.center = (bounds.min + bounds.max) * 0.5f;
+    bounds.extent = bounds.max - bounds.min;
+    return bounds;
+}
+
+/// Uniformly scales/translates clay so its AABB covers deform-bone rest positions (with padding).
+[[nodiscard]] bool FitSculptMeshToRig(
+    ri::content::NativeSculptDocument& document,
+    const ri::scene::RigDefinition& rig,
+    const float padding = 1.15f) {
+    if (document.mesh.positions.empty()) {
+        return false;
+    }
+    const auto restWorld = ri::scene::RestBoneWorldMatrices(rig);
+    bool any = false;
+    ri::math::Vec3 boneMin{};
+    ri::math::Vec3 boneMax{};
+    for (const ri::scene::RigBone& bone : rig.bones) {
+        if (!bone.deform || bone.name.empty()) {
+            continue;
+        }
+        const auto found = restWorld.find(bone.name);
+        if (found == restWorld.end()) {
+            continue;
+        }
+        const ri::math::Vec3 position = ri::math::ExtractTranslation(found->second);
+        if (!any) {
+            boneMin = position;
+            boneMax = position;
+            any = true;
+        } else {
+            boneMin.x = std::min(boneMin.x, position.x);
+            boneMin.y = std::min(boneMin.y, position.y);
+            boneMin.z = std::min(boneMin.z, position.z);
+            boneMax.x = std::max(boneMax.x, position.x);
+            boneMax.y = std::max(boneMax.y, position.y);
+            boneMax.z = std::max(boneMax.z, position.z);
+        }
+    }
+    if (!any) {
+        return false;
+    }
+    const ri::math::Vec3 boneCenter = (boneMin + boneMax) * 0.5f;
+    ri::math::Vec3 boneExtent = boneMax - boneMin;
+    // Keep a usable volume even for skinny skeletons.
+    boneExtent.x = std::max(boneExtent.x, 0.35f);
+    boneExtent.y = std::max(boneExtent.y, 0.35f);
+    boneExtent.z = std::max(boneExtent.z, 0.35f);
+    boneExtent = boneExtent * std::max(padding, 1.0f);
+
+    const SculptBounds meshBounds = ComputeSculptBounds(document);
+    const float meshSpan = std::max({meshBounds.extent.x, meshBounds.extent.y, meshBounds.extent.z, 0.0001f});
+    const float boneSpan = std::max({boneExtent.x, boneExtent.y, boneExtent.z});
+    const float scale = boneSpan / meshSpan;
+    for (ri::math::Vec3& position : document.mesh.positions) {
+        position = boneCenter + (position - meshBounds.center) * scale;
+    }
+    if (!document.mesh.normals.empty()) {
+        ri::scene::RecalculateSculptNormals(document.mesh);
+    }
+    return true;
+}
+
+void WriteSolidColorTga(
+    const fs::path& path,
+    const float r,
+    const float g,
+    const float b,
+    const int size = 32) {
+    EnsureParentDirectoryExists(path);
+    std::vector<std::uint8_t> bytes{};
+    bytes.reserve(18U + static_cast<std::size_t>(size * size * 3));
+    bytes.insert(bytes.end(), {0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0});
+    bytes.push_back(static_cast<std::uint8_t>(size & 0xff));
+    bytes.push_back(static_cast<std::uint8_t>((size >> 8) & 0xff));
+    bytes.push_back(static_cast<std::uint8_t>(size & 0xff));
+    bytes.push_back(static_cast<std::uint8_t>((size >> 8) & 0xff));
+    bytes.push_back(24);
+    bytes.push_back(0x20); // top-left origin
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            // Cheap facet noise + edge darken so solid maps read as PS1 tiles, not flat wash.
+            const float nx = static_cast<float>(x) / static_cast<float>(std::max(1, size - 1));
+            const float ny = static_cast<float>(y) / static_cast<float>(std::max(1, size - 1));
+            const float edge = std::min({nx, ny, 1.0f - nx, 1.0f - ny});
+            const float dither =
+                0.06f * (((x * 17 + y * 31) & 7) / 7.0f - 0.5f) + (edge < 0.12f ? -0.08f : 0.0f);
+            const auto channel = [dither](const float c) {
+                return static_cast<std::uint8_t>(
+                    std::clamp(c + dither, 0.0f, 1.0f) * 255.0f + 0.5f);
+            };
+            bytes.push_back(channel(b));
+            bytes.push_back(channel(g));
+            bytes.push_back(channel(r));
+        }
+    }
+    std::ofstream out(path, std::ios::binary);
+    if (!out) {
+        throw std::runtime_error("Failed to write texture: " + path.string());
+    }
+    out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
+[[nodiscard]] fs::path RiToolPackageRoot(const WorkspaceLayout& workspace) {
+#if defined(_WIN32)
+    wchar_t modulePath[MAX_PATH]{};
+    if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) != 0U) {
+        const fs::path exeDir = fs::path(modulePath).parent_path();
+        const std::vector<fs::path> climb = {
+            exeDir / ".." / ".." / ".." / ".." / ".." / ".." / "Tools" / "ri_tool",
+            exeDir / ".." / ".." / ".." / ".." / "Tools" / "ri_tool",
+        };
+        std::error_code ec{};
+        for (const fs::path& candidate : climb) {
+            if (fs::is_directory(candidate, ec)) {
+                return fs::weakly_canonical(candidate, ec);
+            }
+        }
+    }
+#endif
+    if (fs::is_directory(workspace.tools / "ri_tool")) {
+        return workspace.tools / "ri_tool";
+    }
+    return workspace.root / "Tools" / "ri_tool";
+}
+
+[[nodiscard]] float ParseFloatOr(const std::optional<std::string>& raw, const float fallback) {
+    if (!raw.has_value() || raw->empty()) {
+        return fallback;
+    }
+    return std::stof(*raw);
+}
+
+[[nodiscard]] ri::content::DeclarativeVec3 ParseRgbOr(
+    const std::optional<std::string>& raw,
+    const ri::content::DeclarativeVec3 fallback) {
+    if (!raw.has_value() || raw->empty()) {
+        return fallback;
+    }
+    float r = fallback.x;
+    float g = fallback.y;
+    float b = fallback.z;
+    char sep = ',';
+    std::istringstream stream(*raw);
+    if (!(stream >> r >> sep >> g >> sep >> b)) {
+        throw std::runtime_error("Expected --color r,g,b (0-1 floats).");
+    }
+    return {.x = r, .y = g, .z = b};
+}
+
+[[nodiscard]] fs::path ResolveBlockCharPath(const WorkspaceLayout& workspace, const std::string& raw) {
+    const fs::path path(raw);
+    if (path.is_absolute()) {
+        return path;
+    }
+    std::error_code ec{};
+    const fs::path fromSource = workspace.assetsSource / path;
+    if (fs::exists(fromSource, ec) || path.extension().string().find("blockchar") != std::string::npos
+        || path.generic_string().find("blockchar") != std::string::npos) {
+        return fromSource;
+    }
+    return ResolveAuthoringPath(workspace, path);
+}
+
+void LaunchForgePreview(const WorkspaceLayout& workspace, const fs::path& assetPath) {
+#if defined(_WIN32)
+    wchar_t modulePath[MAX_PATH]{};
+    if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) == 0U) {
+        throw std::runtime_error("Could not resolve ri_tool path to locate RawIron.Forge.");
+    }
+    const fs::path toolExe = fs::path(modulePath);
+    const fs::path configName = toolExe.parent_path().filename();
+    // .../build/<cfg>/Tools/ri_tool/<Config>/ri_tool.exe → Apps/RawIron.Forge/<Config>/
+    const fs::path buildRoot =
+        toolExe.parent_path().parent_path().parent_path().parent_path();
+    const fs::path forgeExe =
+        buildRoot / "Apps" / "RawIron.Forge" / configName / "RawIron.Forge.exe";
+    std::error_code existsError{};
+    if (!fs::exists(forgeExe, existsError)) {
+        throw std::runtime_error("RawIron.Forge.exe not found next to this build: " + forgeExe.string());
+    }
+    const std::wstring command = L"\"" + forgeExe.wstring() + L"\" --open-asset \""
+        + assetPath.wstring() + L"\" --auto-play --root \"" + workspace.root.wstring() + L"\"";
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    std::wstring mutableCommand = command;
+    if (!CreateProcessW(
+            nullptr,
+            mutableCommand.data(),
+            nullptr,
+            nullptr,
+            FALSE,
+            0,
+            nullptr,
+            workspace.root.wstring().c_str(),
+            &startup,
+            &process)) {
+        throw std::runtime_error("Failed to launch RawIron.Forge (CreateProcess).");
+    }
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    ri::core::LogInfo("Opened Forge preview: " + assetPath.string());
+#else
+    (void)workspace;
+    (void)assetPath;
+    throw std::runtime_error("--open is only supported on Windows builds of ri_tool.");
+#endif
+}
+
+[[nodiscard]] ri::content::BlockCharacterDocument LoadRequiredBlockChar(
+    const WorkspaceLayout& workspace,
+    const ri::core::CommandLine& commandLine) {
+    const auto pathArg = commandLine.GetValue("--blockchar");
+    if (!pathArg.has_value() || pathArg->empty()) {
+        throw std::runtime_error("Requires --blockchar <path>.");
+    }
+    const fs::path path = ResolveBlockCharPath(workspace, *pathArg);
+    auto document = ri::content::LoadBlockCharacterDocument(path);
+    if (!document.has_value()) {
+        throw std::runtime_error("Could not load block character: " + path.string());
+    }
+    return *document;
+}
+
+void SaveRequiredBlockChar(
+    const WorkspaceLayout& workspace,
+    const ri::core::CommandLine& commandLine,
+    const ri::content::BlockCharacterDocument& document) {
+    const auto pathArg = commandLine.GetValue("--blockchar");
+    const fs::path path = ResolveBlockCharPath(workspace, *pathArg);
+    const auto report = ri::content::ValidateBlockCharacterDocument(document);
+    if (!report.valid) {
+        std::string detail = "Block character failed validation.";
+        for (const std::string& error : report.errors) {
+            detail += " ";
+            detail += error;
+        }
+        throw std::runtime_error(detail);
+    }
+    EnsureParentDirectoryExists(path);
+    if (!ri::content::SaveBlockCharacterDocument(path, document)) {
+        throw std::runtime_error("Failed to write block character: " + path.string());
+    }
+}
+
+[[nodiscard]] ri::content::BlockCharacterPart* FindPartByIdOrName(
+    ri::content::BlockCharacterDocument& document,
+    const std::string& key) {
+    for (ri::content::BlockCharacterPart& part : document.parts) {
+        if (part.id == key || part.name == key) {
+            return &part;
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] std::unordered_map<std::string, ri::math::Vec3> ComputeRigBoneWorldPositions(
+    const ri::scene::RigDefinition& rig) {
+    std::unordered_map<std::string, ri::math::Vec3> worlds{};
+    std::vector<ri::math::Mat4> worldMats(rig.bones.size(), ri::math::Mat4{});
+    for (std::size_t i = 0; i < rig.bones.size(); ++i) {
+        const ri::scene::RigBone& bone = rig.bones[i];
+        const ri::math::Mat4 local = bone.restLocal.LocalMatrix();
+        if (bone.parentIndex < 0 || bone.parentIndex >= static_cast<int>(rig.bones.size())) {
+            worldMats[i] = local;
+        } else {
+            worldMats[i] = ri::math::Multiply(worldMats[static_cast<std::size_t>(bone.parentIndex)], local);
+        }
+        worlds[bone.name] = ri::math::ExtractTranslation(worldMats[i]);
+    }
+    return worlds;
+}
+
+[[nodiscard]] ri::content::BlockCharacterPart BuildPartFromCommandLine(
+    const ri::core::CommandLine& commandLine, const std::string& fallbackId) {
+    const auto boneArg = commandLine.GetValue("--bone");
+    if (!boneArg.has_value() || boneArg->empty()) {
+        throw std::runtime_error("Part requires --bone <name>.");
+    }
+    ri::content::BlockCharacterPart part{};
+    part.id = SanitizeAssetId(commandLine.GetValue("--part").value_or(fallbackId));
+    part.name = commandLine.GetValue("--part-name").value_or(part.id);
+    part.boneName = *boneArg;
+    part.shape = commandLine.GetValue("--shape").value_or("box");
+    part.center = {
+        .x = ParseFloatOr(commandLine.GetValue("--x"), 0.0f),
+        .y = ParseFloatOr(commandLine.GetValue("--y"), 0.0f),
+        .z = ParseFloatOr(commandLine.GetValue("--z"), 0.0f),
+    };
+    part.halfExtent = {
+        .x = ParseFloatOr(commandLine.GetValue("--sx"), 0.1f),
+        .y = ParseFloatOr(commandLine.GetValue("--sy"), 0.1f),
+        .z = ParseFloatOr(commandLine.GetValue("--sz"), 0.1f),
+    };
+    part.halfExtentTop = {
+        .x = ParseFloatOr(commandLine.GetValue("--tsx"), 0.0f),
+        .y = ParseFloatOr(commandLine.GetValue("--tsy"), 0.0f),
+        .z = ParseFloatOr(commandLine.GetValue("--tsz"), 0.0f),
+    };
+    part.rotationDegrees = {
+        .x = ParseFloatOr(commandLine.GetValue("--rx"), 0.0f),
+        .y = ParseFloatOr(commandLine.GetValue("--ry"), 0.0f),
+        .z = ParseFloatOr(commandLine.GetValue("--rz"), 0.0f),
+    };
+    part.albedoColor = ParseRgbOr(commandLine.GetValue("--color"), {.x = 0.62f, .y = 0.55f, .z = 0.46f});
+    part.roughness = ParseFloatOr(commandLine.GetValue("--roughness"), 0.88f);
+    part.metallic = ParseFloatOr(commandLine.GetValue("--metallic"), 0.0f);
+    part.sides = static_cast<int>(ParseFloatOr(commandLine.GetValue("--sides"), 0.0f));
+    part.bevel = std::clamp(ParseFloatOr(commandLine.GetValue("--bevel"), 0.0f), 0.0f, 0.45f);
+    part.albedoTexture = commandLine.GetValue("--texture").value_or("");
+    return part;
+}
+
+void CreateBlockCharacter(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto idArg = commandLine.GetValue("--blockchar-create");
+    if (!idArg.has_value() || idArg->empty()) {
+        throw std::runtime_error("Missing --blockchar-create <character-id>.");
+    }
+    const std::string characterId = SanitizeAssetId(*idArg);
+    const std::string displayName = commandLine.GetValue("--name").value_or(*idArg);
+    fs::path output = workspace.assetsSource / "blockchars" / (characterId + ".ri_blockchar.json");
+    if (const auto outputArg = commandLine.GetValue("--output"); outputArg.has_value() && !outputArg->empty()) {
+        output = ResolveBlockCharPath(workspace, *outputArg);
+    }
+    std::error_code existsError{};
+    if (fs::exists(output, existsError) && !commandLine.HasFlag("--overwrite")) {
+        throw std::runtime_error("Block character already exists (use --overwrite): " + output.string());
+    }
+
+    ri::content::BlockCharacterDocument document{};
+    document.id = characterId;
+    document.displayName = displayName;
+    if (const auto rigArg = commandLine.GetValue("--rig"); rigArg.has_value() && !rigArg->empty()) {
+        const fs::path rigPath = ResolveAuthoringPath(workspace, fs::path(*rigArg));
+        document.rigPath = RelativeAuthoringSourcePath(workspace, rigPath);
+    }
+    // Optional clone of a USER file (not an engine recipe). Empty document is the default.
+    if (const auto fromArg = commandLine.GetValue("--from"); fromArg.has_value() && !fromArg->empty()) {
+        const fs::path fromPath = ResolveBlockCharPath(workspace, *fromArg);
+        auto seeded = ri::content::LoadBlockCharacterDocument(fromPath);
+        if (!seeded.has_value()) {
+            throw std::runtime_error("Could not load --from block character: " + fromPath.string());
+        }
+        document.parts = std::move(seeded->parts);
+        if (document.rigPath.empty()) {
+            document.rigPath = seeded->rigPath;
+        }
+    }
+
+    EnsureParentDirectoryExists(output);
+    if (!ri::content::ValidateBlockCharacterDocument(document).valid
+        || !ri::content::SaveBlockCharacterDocument(output, document)) {
+        throw std::runtime_error("Failed to write block character: " + output.string());
+    }
+    ri::core::LogInfo("Created block character (empty model — add parts with --blockchar-add-part):");
+    ri::core::LogInfo("  Id: " + characterId);
+    ri::core::LogInfo("  Output: " + output.string());
+    ri::core::LogInfo("  Parts: " + std::to_string(document.parts.size()));
+}
+
+void AddBlockCharacterPart(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    if (!commandLine.GetValue("--blockchar").has_value()) {
+        throw std::runtime_error("--blockchar-add-part requires --blockchar <path>.");
+    }
+    auto document = LoadRequiredBlockChar(workspace, commandLine);
+    const std::string fallbackId = "part_" + std::to_string(document.parts.size());
+    ri::content::BlockCharacterPart part = BuildPartFromCommandLine(commandLine, fallbackId);
+    if (FindPartByIdOrName(document, part.id) != nullptr) {
+        throw std::runtime_error("Part id already exists: " + part.id + " (use --blockchar-set-part).");
+    }
+    document.parts.push_back(std::move(part));
+    SaveRequiredBlockChar(workspace, commandLine, document);
+    ri::core::LogInfo(
+        "Added part '" + document.parts.back().id + "' on bone '" + document.parts.back().boneName
+        + "' (" + document.parts.back().shape + "). Parts now: "
+        + std::to_string(document.parts.size()));
+}
+
+void SetBlockCharacterPart(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    if (!commandLine.GetValue("--blockchar").has_value()) {
+        throw std::runtime_error("--blockchar-set-part requires --blockchar <path>.");
+    }
+    const auto partArg = commandLine.GetValue("--part");
+    if (!partArg.has_value() || partArg->empty()) {
+        throw std::runtime_error("--blockchar-set-part requires --part <id>.");
+    }
+    auto document = LoadRequiredBlockChar(workspace, commandLine);
+    ri::content::BlockCharacterPart* part = FindPartByIdOrName(document, *partArg);
+    if (part == nullptr) {
+        throw std::runtime_error("Part not found: " + *partArg);
+    }
+    if (const auto bone = commandLine.GetValue("--bone"); bone.has_value() && !bone->empty()) {
+        part->boneName = *bone;
+    }
+    if (const auto shape = commandLine.GetValue("--shape"); shape.has_value() && !shape->empty()) {
+        part->shape = *shape;
+    }
+    if (commandLine.GetValue("--x").has_value()) {
+        part->center.x = ParseFloatOr(commandLine.GetValue("--x"), part->center.x);
+    }
+    if (commandLine.GetValue("--y").has_value()) {
+        part->center.y = ParseFloatOr(commandLine.GetValue("--y"), part->center.y);
+    }
+    if (commandLine.GetValue("--z").has_value()) {
+        part->center.z = ParseFloatOr(commandLine.GetValue("--z"), part->center.z);
+    }
+    if (commandLine.GetValue("--sx").has_value()) {
+        part->halfExtent.x = ParseFloatOr(commandLine.GetValue("--sx"), part->halfExtent.x);
+    }
+    if (commandLine.GetValue("--sy").has_value()) {
+        part->halfExtent.y = ParseFloatOr(commandLine.GetValue("--sy"), part->halfExtent.y);
+    }
+    if (commandLine.GetValue("--sz").has_value()) {
+        part->halfExtent.z = ParseFloatOr(commandLine.GetValue("--sz"), part->halfExtent.z);
+    }
+    if (commandLine.GetValue("--tsx").has_value()) {
+        part->halfExtentTop.x = ParseFloatOr(commandLine.GetValue("--tsx"), part->halfExtentTop.x);
+    }
+    if (commandLine.GetValue("--tsy").has_value()) {
+        part->halfExtentTop.y = ParseFloatOr(commandLine.GetValue("--tsy"), part->halfExtentTop.y);
+    }
+    if (commandLine.GetValue("--tsz").has_value()) {
+        part->halfExtentTop.z = ParseFloatOr(commandLine.GetValue("--tsz"), part->halfExtentTop.z);
+    }
+    if (commandLine.GetValue("--rx").has_value()) {
+        part->rotationDegrees.x = ParseFloatOr(commandLine.GetValue("--rx"), part->rotationDegrees.x);
+    }
+    if (commandLine.GetValue("--ry").has_value()) {
+        part->rotationDegrees.y = ParseFloatOr(commandLine.GetValue("--ry"), part->rotationDegrees.y);
+    }
+    if (commandLine.GetValue("--rz").has_value()) {
+        part->rotationDegrees.z = ParseFloatOr(commandLine.GetValue("--rz"), part->rotationDegrees.z);
+    }
+    if (commandLine.GetValue("--color").has_value()) {
+        part->albedoColor = ParseRgbOr(commandLine.GetValue("--color"), part->albedoColor);
+    }
+    if (commandLine.GetValue("--roughness").has_value()) {
+        part->roughness = ParseFloatOr(commandLine.GetValue("--roughness"), part->roughness);
+    }
+    if (commandLine.GetValue("--metallic").has_value()) {
+        part->metallic = ParseFloatOr(commandLine.GetValue("--metallic"), part->metallic);
+    }
+    if (commandLine.GetValue("--texture").has_value()) {
+        part->albedoTexture = commandLine.GetValue("--texture").value_or("");
+    }
+    if (commandLine.GetValue("--sides").has_value()) {
+        part->sides = static_cast<int>(ParseFloatOr(commandLine.GetValue("--sides"), 0.0f));
+    }
+    if (commandLine.GetValue("--bevel").has_value()) {
+        part->bevel = std::clamp(ParseFloatOr(commandLine.GetValue("--bevel"), part->bevel), 0.0f, 0.45f);
+    }
+    SaveRequiredBlockChar(workspace, commandLine, document);
+    ri::core::LogInfo("Updated part '" + part->id + "'.");
+}
+
+void NudgeBlockCharacterPart(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    if (!commandLine.GetValue("--blockchar").has_value()) {
+        throw std::runtime_error("--blockchar-nudge requires --blockchar <path>.");
+    }
+    const auto partArg = commandLine.GetValue("--part");
+    if (!partArg.has_value() || partArg->empty()) {
+        throw std::runtime_error("--blockchar-nudge requires --part <id>.");
+    }
+    auto document = LoadRequiredBlockChar(workspace, commandLine);
+    ri::content::BlockCharacterPart* part = FindPartByIdOrName(document, *partArg);
+    if (part == nullptr) {
+        throw std::runtime_error("Part not found: " + *partArg);
+    }
+    part->center.x += ParseFloatOr(commandLine.GetValue("--dx"), 0.0f);
+    part->center.y += ParseFloatOr(commandLine.GetValue("--dy"), 0.0f);
+    part->center.z += ParseFloatOr(commandLine.GetValue("--dz"), 0.0f);
+    part->halfExtent.x = std::max(0.001f, part->halfExtent.x * ParseFloatOr(commandLine.GetValue("--scale"), 1.0f));
+    part->halfExtent.y = std::max(0.001f, part->halfExtent.y * ParseFloatOr(commandLine.GetValue("--scale"), 1.0f));
+    part->halfExtent.z = std::max(0.001f, part->halfExtent.z * ParseFloatOr(commandLine.GetValue("--scale"), 1.0f));
+    if (commandLine.GetValue("--dsx").has_value()) {
+        part->halfExtent.x = std::max(0.001f, part->halfExtent.x + ParseFloatOr(commandLine.GetValue("--dsx"), 0.0f));
+    }
+    if (commandLine.GetValue("--dsy").has_value()) {
+        part->halfExtent.y = std::max(0.001f, part->halfExtent.y + ParseFloatOr(commandLine.GetValue("--dsy"), 0.0f));
+    }
+    if (commandLine.GetValue("--dsz").has_value()) {
+        part->halfExtent.z = std::max(0.001f, part->halfExtent.z + ParseFloatOr(commandLine.GetValue("--dsz"), 0.0f));
+    }
+    part->rotationDegrees.x += ParseFloatOr(commandLine.GetValue("--drx"), 0.0f);
+    part->rotationDegrees.y += ParseFloatOr(commandLine.GetValue("--dry"), 0.0f);
+    part->rotationDegrees.z += ParseFloatOr(commandLine.GetValue("--drz"), 0.0f);
+    SaveRequiredBlockChar(workspace, commandLine, document);
+    ri::core::LogInfo(
+        "Nudged '" + part->id + "' to (" + std::to_string(part->center.x) + ", "
+        + std::to_string(part->center.y) + ", " + std::to_string(part->center.z) + ")");
+}
+
+void RemoveBlockCharacterPart(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    if (!commandLine.GetValue("--blockchar").has_value()) {
+        throw std::runtime_error("--blockchar-remove-part requires --blockchar <path>.");
+    }
+    const auto partArg = commandLine.GetValue("--part");
+    if (!partArg.has_value() || partArg->empty()) {
+        throw std::runtime_error("--blockchar-remove-part requires --part <id>.");
+    }
+    auto document = LoadRequiredBlockChar(workspace, commandLine);
+    const auto before = document.parts.size();
+    document.parts.erase(
+        std::remove_if(
+            document.parts.begin(),
+            document.parts.end(),
+            [&](const ri::content::BlockCharacterPart& part) {
+                return part.id == *partArg || part.name == *partArg;
+            }),
+        document.parts.end());
+    if (document.parts.size() == before) {
+        throw std::runtime_error("Part not found: " + *partArg);
+    }
+    // Allow empty after remove: write via Serialize if valid, else empty shell.
+    const fs::path path = ResolveBlockCharPath(workspace, *commandLine.GetValue("--blockchar"));
+    if (document.parts.empty()) {
+        document.parts.clear();
+        std::ostringstream json;
+        json << "{\n"
+             << "  \"formatVersion\": " << document.formatVersion << ",\n"
+             << "  \"id\": \"" << document.id << "\",\n"
+             << "  \"displayName\": \"" << document.displayName << "\",\n"
+             << "  \"rigPath\": \"" << document.rigPath << "\",\n"
+             << "  \"parts\": []\n"
+             << "}\n";
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        out << json.str();
+    } else {
+        SaveRequiredBlockChar(workspace, commandLine, document);
+    }
+    ri::core::LogInfo("Removed part '" + *partArg + "'. Parts now: " + std::to_string(document.parts.size()));
+}
+
+void ListBlockCharacterShapes() {
+    ri::core::LogInfo("Block character primitives:");
+    ri::core::LogInfo("  box       tapered box (--tsx/--tsy/--tsz optional)");
+    ri::core::LogInfo("  prism     N-gon limb tube (--sides 4..16, default 6)");
+    ri::core::LogInfo("  cylinder  rounder prism (--sides default 10)");
+    ri::core::LogInfo("  dome      faceted helmet mass");
+    ri::core::LogInfo("  wedge     boot / pointed mass along +Z");
+    ri::core::LogInfo("  spike     pyramid / antenna tip (--sides default 4)");
+    ri::core::LogInfo("  slab      thin armor plate with chamfer (--bevel)");
+    ri::core::LogInfo("  bevel     chamfered box (--bevel 0..0.45)");
+    ri::core::LogInfo("  capsule   cylinder + dome caps (--sides)");
+}
+
+void DuplicateBlockCharacterPart(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    if (!commandLine.GetValue("--blockchar").has_value()) {
+        throw std::runtime_error("--blockchar-duplicate requires --blockchar <path>.");
+    }
+    const auto partArg = commandLine.GetValue("--part");
+    const auto asArg = commandLine.GetValue("--as");
+    if (!partArg.has_value() || partArg->empty() || !asArg.has_value() || asArg->empty()) {
+        throw std::runtime_error("--blockchar-duplicate requires --part <id> --as <new-id>.");
+    }
+    auto document = LoadRequiredBlockChar(workspace, commandLine);
+    const ri::content::BlockCharacterPart* source = FindPartByIdOrName(document, *partArg);
+    if (source == nullptr) {
+        throw std::runtime_error("Part not found: " + *partArg);
+    }
+    if (FindPartByIdOrName(document, *asArg) != nullptr) {
+        throw std::runtime_error("Target part id already exists: " + *asArg);
+    }
+    ri::content::BlockCharacterPart copy = *source;
+    copy.id = SanitizeAssetId(*asArg);
+    copy.name = copy.id;
+    copy.center.x += ParseFloatOr(commandLine.GetValue("--dx"), 0.0f);
+    copy.center.y += ParseFloatOr(commandLine.GetValue("--dy"), 0.0f);
+    copy.center.z += ParseFloatOr(commandLine.GetValue("--dz"), 0.0f);
+    if (const auto bone = commandLine.GetValue("--bone"); bone.has_value() && !bone->empty()) {
+        copy.boneName = *bone;
+    }
+    document.parts.push_back(std::move(copy));
+    SaveRequiredBlockChar(workspace, commandLine, document);
+    ri::core::LogInfo("Duplicated '" + *partArg + "' → '" + SanitizeAssetId(*asArg) + "'.");
+}
+
+void MirrorBlockCharacterPart(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    if (!commandLine.GetValue("--blockchar").has_value()) {
+        throw std::runtime_error("--blockchar-mirror requires --blockchar <path>.");
+    }
+    const auto partArg = commandLine.GetValue("--part");
+    if (!partArg.has_value() || partArg->empty()) {
+        throw std::runtime_error("--blockchar-mirror requires --part <id>.");
+    }
+    auto document = LoadRequiredBlockChar(workspace, commandLine);
+    const ri::content::BlockCharacterPart* source = FindPartByIdOrName(document, *partArg);
+    if (source == nullptr) {
+        throw std::runtime_error("Part not found: " + *partArg);
+    }
+    const std::string axis = commandLine.GetValue("--axis").value_or("x");
+    ri::content::BlockCharacterPart copy = *source;
+    const std::string asId = commandLine.GetValue("--as").value_or(copy.id + "_mir");
+    if (FindPartByIdOrName(document, asId) != nullptr) {
+        throw std::runtime_error("Target part id already exists: " + asId);
+    }
+    copy.id = SanitizeAssetId(asId);
+    copy.name = copy.id;
+    if (axis == "x" || axis == "X") {
+        copy.center.x = -copy.center.x;
+        copy.rotationDegrees.y = -copy.rotationDegrees.y;
+        copy.rotationDegrees.z = -copy.rotationDegrees.z;
+    } else if (axis == "z" || axis == "Z") {
+        copy.center.z = -copy.center.z;
+        copy.rotationDegrees.x = -copy.rotationDegrees.x;
+        copy.rotationDegrees.y = -copy.rotationDegrees.y;
+    } else {
+        throw std::runtime_error("--axis must be x or z for character mirroring.");
+    }
+    // Swap left_/right_ bone names when present.
+    const std::string bone = copy.boneName;
+    if (bone.rfind("left_", 0) == 0) {
+        copy.boneName = "right_" + bone.substr(5);
+    } else if (bone.rfind("right_", 0) == 0) {
+        copy.boneName = "left_" + bone.substr(6);
+    }
+    document.parts.push_back(std::move(copy));
+    SaveRequiredBlockChar(workspace, commandLine, document);
+    ri::core::LogInfo("Mirrored '" + *partArg + "' → '" + SanitizeAssetId(asId) + "' across " + axis + ".");
+}
+
+void InsetBlockCharacterDetail(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    if (!commandLine.GetValue("--blockchar").has_value()) {
+        throw std::runtime_error("--blockchar-inset requires --blockchar <path>.");
+    }
+    const auto partArg = commandLine.GetValue("--part");
+    if (!partArg.has_value() || partArg->empty()) {
+        throw std::runtime_error("--blockchar-inset requires --part <parent-id>.");
+    }
+    auto document = LoadRequiredBlockChar(workspace, commandLine);
+    const ri::content::BlockCharacterPart* parent = FindPartByIdOrName(document, *partArg);
+    if (parent == nullptr) {
+        throw std::runtime_error("Part not found: " + *partArg);
+    }
+    const float inset = std::clamp(ParseFloatOr(commandLine.GetValue("--inset"), 0.78f), 0.2f, 0.98f);
+    const float depth = ParseFloatOr(commandLine.GetValue("--depth"), parent->halfExtent.z * 0.08f);
+    const std::string face = commandLine.GetValue("--face").value_or("front");
+    ri::content::BlockCharacterPart detail = *parent;
+    const std::string asId = commandLine.GetValue("--as").value_or(parent->id + "_inset");
+    if (FindPartByIdOrName(document, asId) != nullptr) {
+        throw std::runtime_error("Target part id already exists: " + asId);
+    }
+    detail.id = SanitizeAssetId(asId);
+    detail.name = detail.id;
+    detail.shape = commandLine.GetValue("--shape").value_or("slab");
+    detail.bevel = std::clamp(ParseFloatOr(commandLine.GetValue("--bevel"), 0.16f), 0.0f, 0.45f);
+    detail.halfExtent.x = std::max(0.001f, parent->halfExtent.x * inset);
+    detail.halfExtent.y = std::max(0.001f, parent->halfExtent.y * inset);
+    detail.halfExtent.z = std::max(0.001f, std::min(parent->halfExtent.z * 0.35f, depth + 0.01f));
+    detail.halfExtentTop = {};
+    if (face == "front") {
+        detail.center.z = parent->center.z + parent->halfExtent.z + detail.halfExtent.z * 0.15f;
+    } else if (face == "back") {
+        detail.center.z = parent->center.z - parent->halfExtent.z - detail.halfExtent.z * 0.15f;
+    } else if (face == "top") {
+        detail.center.y = parent->center.y + parent->halfExtent.y + detail.halfExtent.y * 0.15f;
+        std::swap(detail.halfExtent.y, detail.halfExtent.z);
+    } else if (face == "bottom") {
+        detail.center.y = parent->center.y - parent->halfExtent.y - detail.halfExtent.y * 0.15f;
+        std::swap(detail.halfExtent.y, detail.halfExtent.z);
+    } else {
+        throw std::runtime_error("--face must be front|back|top|bottom.");
+    }
+    if (commandLine.GetValue("--color").has_value()) {
+        detail.albedoColor = ParseRgbOr(commandLine.GetValue("--color"), detail.albedoColor);
+    } else {
+        detail.albedoColor.x = std::clamp(detail.albedoColor.x * 0.82f, 0.0f, 1.0f);
+        detail.albedoColor.y = std::clamp(detail.albedoColor.y * 0.82f, 0.0f, 1.0f);
+        detail.albedoColor.z = std::clamp(detail.albedoColor.z * 0.82f, 0.0f, 1.0f);
+    }
+    if (const auto tex = commandLine.GetValue("--texture"); tex.has_value()) {
+        detail.albedoTexture = *tex;
+    }
+    document.parts.push_back(std::move(detail));
+    SaveRequiredBlockChar(workspace, commandLine, document);
+    ri::core::LogInfo("Inset detail '" + SanitizeAssetId(asId) + "' on '" + *partArg + "' (" + face + ").");
+}
+
+void AttachBlockCharacterDetail(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    if (!commandLine.GetValue("--blockchar").has_value()) {
+        throw std::runtime_error("--blockchar-attach requires --blockchar <path>.");
+    }
+    const auto parentArg = commandLine.GetValue("--parent");
+    if (!parentArg.has_value() || parentArg->empty()) {
+        throw std::runtime_error("--blockchar-attach requires --parent <part-id>.");
+    }
+    auto document = LoadRequiredBlockChar(workspace, commandLine);
+    const ri::content::BlockCharacterPart* parent = FindPartByIdOrName(document, *parentArg);
+    if (parent == nullptr) {
+        throw std::runtime_error("Parent part not found: " + *parentArg);
+    }
+    const std::string along = commandLine.GetValue("--along").value_or("front");
+    const float offset = ParseFloatOr(commandLine.GetValue("--offset"), 0.0f);
+    ri::content::BlockCharacterPart detail{};
+    detail.id = SanitizeAssetId(commandLine.GetValue("--part").value_or(
+        parent->id + "_detail_" + std::to_string(document.parts.size())));
+    detail.name = commandLine.GetValue("--part-name").value_or(detail.id);
+    detail.boneName = commandLine.GetValue("--bone").value_or(parent->boneName);
+    detail.shape = commandLine.GetValue("--shape").value_or("box");
+    detail.halfExtent = {
+        .x = ParseFloatOr(commandLine.GetValue("--sx"), 0.06f),
+        .y = ParseFloatOr(commandLine.GetValue("--sy"), 0.06f),
+        .z = ParseFloatOr(commandLine.GetValue("--sz"), 0.06f),
+    };
+    detail.halfExtentTop = {
+        .x = ParseFloatOr(commandLine.GetValue("--tsx"), 0.0f),
+        .y = ParseFloatOr(commandLine.GetValue("--tsy"), 0.0f),
+        .z = ParseFloatOr(commandLine.GetValue("--tsz"), 0.0f),
+    };
+    detail.rotationDegrees = parent->rotationDegrees;
+    detail.rotationDegrees.x += ParseFloatOr(commandLine.GetValue("--rx"), 0.0f);
+    detail.rotationDegrees.y += ParseFloatOr(commandLine.GetValue("--ry"), 0.0f);
+    detail.rotationDegrees.z += ParseFloatOr(commandLine.GetValue("--rz"), 0.0f);
+    detail.albedoColor = ParseRgbOr(commandLine.GetValue("--color"), parent->albedoColor);
+    detail.roughness = ParseFloatOr(commandLine.GetValue("--roughness"), parent->roughness);
+    detail.metallic = ParseFloatOr(commandLine.GetValue("--metallic"), parent->metallic);
+    detail.sides = static_cast<int>(ParseFloatOr(commandLine.GetValue("--sides"), 0.0f));
+    detail.bevel = std::clamp(ParseFloatOr(commandLine.GetValue("--bevel"), 0.0f), 0.0f, 0.45f);
+    detail.albedoTexture = commandLine.GetValue("--texture").value_or(parent->albedoTexture);
+    detail.center = parent->center;
+    if (along == "front") {
+        detail.center.z += parent->halfExtent.z + detail.halfExtent.z + offset;
+    } else if (along == "back") {
+        detail.center.z -= parent->halfExtent.z + detail.halfExtent.z + offset;
+    } else if (along == "top") {
+        detail.center.y += parent->halfExtent.y + detail.halfExtent.y + offset;
+    } else if (along == "bottom") {
+        detail.center.y -= parent->halfExtent.y + detail.halfExtent.y + offset;
+    } else if (along == "left") {
+        detail.center.x -= parent->halfExtent.x + detail.halfExtent.x + offset;
+    } else if (along == "right") {
+        detail.center.x += parent->halfExtent.x + detail.halfExtent.x + offset;
+    } else {
+        throw std::runtime_error("--along must be front|back|top|bottom|left|right.");
+    }
+    if (commandLine.GetValue("--x").has_value()) {
+        detail.center.x = ParseFloatOr(commandLine.GetValue("--x"), detail.center.x);
+    }
+    if (commandLine.GetValue("--y").has_value()) {
+        detail.center.y = ParseFloatOr(commandLine.GetValue("--y"), detail.center.y);
+    }
+    if (commandLine.GetValue("--z").has_value()) {
+        detail.center.z = ParseFloatOr(commandLine.GetValue("--z"), detail.center.z);
+    }
+    if (FindPartByIdOrName(document, detail.id) != nullptr) {
+        throw std::runtime_error("Part id already exists: " + detail.id);
+    }
+    document.parts.push_back(std::move(detail));
+    SaveRequiredBlockChar(workspace, commandLine, document);
+    ri::core::LogInfo(
+        "Attached '" + document.parts.back().id + "' to '" + *parentArg + "' along " + along + ".");
+}
+
+void RecolorBlockCharacterParts(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    if (!commandLine.GetValue("--blockchar").has_value()) {
+        throw std::runtime_error("--blockchar-recolor requires --blockchar <path>.");
+    }
+    auto document = LoadRequiredBlockChar(workspace, commandLine);
+    const auto partArg = commandLine.GetValue("--part");
+    const auto mul = ParseRgbOr(commandLine.GetValue("--mul"), {.x = 1.0f, .y = 1.0f, .z = 1.0f});
+    const bool hasColor = commandLine.GetValue("--color").has_value();
+    const auto color = ParseRgbOr(commandLine.GetValue("--color"), {});
+    std::size_t touched = 0;
+    for (ri::content::BlockCharacterPart& part : document.parts) {
+        if (partArg.has_value() && !partArg->empty() && part.id != *partArg && part.name != *partArg) {
+            continue;
+        }
+        if (hasColor) {
+            part.albedoColor = color;
+        } else {
+            part.albedoColor.x = std::clamp(part.albedoColor.x * mul.x, 0.0f, 1.0f);
+            part.albedoColor.y = std::clamp(part.albedoColor.y * mul.y, 0.0f, 1.0f);
+            part.albedoColor.z = std::clamp(part.albedoColor.z * mul.z, 0.0f, 1.0f);
+        }
+        if (commandLine.GetValue("--roughness").has_value()) {
+            part.roughness = ParseFloatOr(commandLine.GetValue("--roughness"), part.roughness);
+        }
+        if (commandLine.GetValue("--metallic").has_value()) {
+            part.metallic = ParseFloatOr(commandLine.GetValue("--metallic"), part.metallic);
+        }
+        ++touched;
+    }
+    if (touched == 0U) {
+        throw std::runtime_error("No parts matched for recolor.");
+    }
+    SaveRequiredBlockChar(workspace, commandLine, document);
+    ri::core::LogInfo("Recolored " + std::to_string(touched) + " part(s).");
+}
+
+void BevelBlockCharacterPart(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    if (!commandLine.GetValue("--blockchar").has_value()) {
+        throw std::runtime_error("--blockchar-bevel requires --blockchar <path>.");
+    }
+    const auto partArg = commandLine.GetValue("--part");
+    if (!partArg.has_value() || partArg->empty()) {
+        throw std::runtime_error("--blockchar-bevel requires --part <id>.");
+    }
+    auto document = LoadRequiredBlockChar(workspace, commandLine);
+    ri::content::BlockCharacterPart* part = FindPartByIdOrName(document, *partArg);
+    if (part == nullptr) {
+        throw std::runtime_error("Part not found: " + *partArg);
+    }
+    part->shape = "bevel";
+    part->bevel = std::clamp(ParseFloatOr(commandLine.GetValue("--bevel"), 0.2f), 0.02f, 0.45f);
+    SaveRequiredBlockChar(workspace, commandLine, document);
+    ri::core::LogInfo("Beveled '" + part->id + "' amount=" + std::to_string(part->bevel));
+}
+
+void ReportBlockCharacter(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto pathArg = commandLine.GetValue("--blockchar-report");
+    const std::string pathText = pathArg.has_value() && !pathArg->empty()
+        ? *pathArg
+        : commandLine.GetValue("--blockchar").value_or("");
+    if (pathText.empty()) {
+        throw std::runtime_error("Missing --blockchar-report <path> (or --blockchar <path>).");
+    }
+    const fs::path path = ResolveBlockCharPath(workspace, pathText);
+    const auto document = ri::content::LoadBlockCharacterDocument(path);
+    if (!document.has_value()) {
+        throw std::runtime_error("Could not load block character: " + path.string());
+    }
+    const auto report = ri::content::ValidateBlockCharacterDocument(*document);
+    ri::core::LogInfo("Block character report:");
+    ri::core::LogInfo("  Path: " + path.string());
+    ri::core::LogInfo("  Id: " + document->id);
+    ri::core::LogInfo("  Name: " + document->displayName);
+    ri::core::LogInfo("  Rig: " + (document->rigPath.empty() ? "(none)" : document->rigPath));
+    ri::core::LogInfo("  Parts: " + std::to_string(document->parts.size()));
+    ri::core::LogInfo(std::string("  Valid: ") + (report.valid ? "yes" : "no"));
+    for (const auto& part : document->parts) {
+        ri::core::LogInfo(
+            "  - " + part.id + " | bone=" + part.boneName + " | shape=" + part.shape
+            + " | pos=(" + std::to_string(part.center.x) + "," + std::to_string(part.center.y) + ","
+            + std::to_string(part.center.z) + ")"
+            + " | half=(" + std::to_string(part.halfExtent.x) + "," + std::to_string(part.halfExtent.y)
+            + "," + std::to_string(part.halfExtent.z) + ")"
+            + " | rot=(" + std::to_string(part.rotationDegrees.x) + ","
+            + std::to_string(part.rotationDegrees.y) + "," + std::to_string(part.rotationDegrees.z)
+            + ")"
+            + (part.sides > 0 ? (" | sides=" + std::to_string(part.sides)) : "")
+            + (part.bevel > 0.0f ? (" | bevel=" + std::to_string(part.bevel)) : "")
+            + (part.albedoTexture.empty() ? "" : (" | tex=" + part.albedoTexture)));
+    }
+    for (const std::string& error : report.errors) {
+        ri::core::LogInfo("  Error: " + error);
+    }
+}
+
+void WriteBlockCharacterTextures(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    if (!commandLine.GetValue("--blockchar").has_value()) {
+        throw std::runtime_error("--blockchar-write-textures requires --blockchar <path>.");
+    }
+    const auto document = LoadRequiredBlockChar(workspace, commandLine);
+    std::unordered_map<std::string, ri::content::DeclarativeVec3> textureColors{};
+    for (const auto& part : document.parts) {
+        if (!part.albedoTexture.empty()) {
+            textureColors[part.albedoTexture] = part.albedoColor;
+        }
+    }
+    std::size_t written = 0;
+    for (const auto& [relativeTexture, color] : textureColors) {
+        WriteSolidColorTga(
+            workspace.root / "Assets" / "Textures" / relativeTexture, color.x, color.y, color.z);
+        ++written;
+    }
+    ri::core::LogInfo("Wrote " + std::to_string(written) + " solid albedo map(s) under Assets/Textures.");
+}
+
+void SyncBlockCharacterSculpt(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    if (!commandLine.GetValue("--blockchar").has_value()) {
+        throw std::runtime_error("--blockchar-sync-sculpt requires --blockchar <path>.");
+    }
+    const auto document = LoadRequiredBlockChar(workspace, commandLine);
+    if (document.parts.empty()) {
+        throw std::runtime_error("Block character has no parts to sync — model with --blockchar-add-part first.");
+    }
+    const fs::path blockCharPath = ResolveBlockCharPath(workspace, *commandLine.GetValue("--blockchar"));
+    fs::path sculptPath = workspace.assetsSource / "sculpts" / (document.id + ".ri_sculpt.json");
+    if (const auto sculptArg = commandLine.GetValue("--sculpt"); sculptArg.has_value() && !sculptArg->empty()) {
+        sculptPath = ResolveAuthoringPath(workspace, fs::path(*sculptArg));
+    }
+    std::error_code existsError{};
+    if (fs::exists(sculptPath, existsError) && !commandLine.HasFlag("--overwrite")) {
+        throw std::runtime_error("Sculpt already exists (use --overwrite): " + sculptPath.string());
+    }
+
+    fs::path rigPath{};
+    if (const auto rigArg = commandLine.GetValue("--rig"); rigArg.has_value() && !rigArg->empty()) {
+        rigPath = ResolveAuthoringPath(workspace, fs::path(*rigArg));
+    } else if (!document.rigPath.empty()) {
+        rigPath = ResolveAuthoringPath(workspace, fs::path(document.rigPath));
+    }
+    if (rigPath.empty()) {
+        throw std::runtime_error("--blockchar-sync-sculpt needs --rig <path> or blockchar.rigPath.");
+    }
+    const auto rig = ri::scene::LoadRigDefinition(rigPath);
+    if (!rig.has_value() || !ri::scene::ValidateRigDefinition(*rig).valid) {
+        throw std::runtime_error("Invalid rig: " + rigPath.string());
+    }
+
+    ri::content::NativeSculptDocument sculpt =
+        ri::scene::CreateBlockCharacterSculptDocument(document.id, document.displayName, document);
+    sculpt.blockCharPath = RelativeAuthoringSourcePath(workspace, blockCharPath);
+    const std::string relativeRig = RelativeAuthoringSourcePath(workspace, rigPath);
+    const ri::scene::NativeSculptBindResult bound =
+        ri::scene::BindNativeSculptToRig(sculpt, *rig, relativeRig, false);
+    if (!bound.valid) {
+        throw std::runtime_error(bound.summary.empty() ? "Bind failed." : bound.summary);
+    }
+    ri::scene::LimitNativeSculptInfluences(sculpt);
+    ri::scene::NormalizeAllNativeSculptWeights(sculpt);
+    EnsureParentDirectoryExists(sculptPath);
+    if (!ri::content::SaveNativeSculptDocument(sculptPath, sculpt)) {
+        throw std::runtime_error("Failed to write sculpt: " + sculptPath.string());
+    }
+    ri::core::LogInfo("Synced sculpt from authored block character:");
+    ri::core::LogInfo("  BlockChar: " + blockCharPath.string());
+    ri::core::LogInfo("  Sculpt: " + sculptPath.string());
+    ri::core::LogInfo("  Parts: " + std::to_string(document.parts.size()));
+    ri::core::LogInfo("  Verts: " + std::to_string(sculpt.mesh.positions.size()));
+    ri::core::LogInfo("  Bind: " + bound.summary);
+}
+
+void AuthorHumanoidMotionClip(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine, const bool walk) {
+    const char* flag = walk ? "--anim-author-walk" : "--anim-author-idle";
+    const auto animArg = commandLine.GetValue(flag);
+    if (!animArg.has_value() || animArg->empty()) {
+        throw std::runtime_error(std::string("Missing ") + flag + " <anim-path>.");
+    }
+    const fs::path animPath = ResolveAuthoringPath(workspace, fs::path(*animArg));
+    auto clip = ri::content::LoadNativeAnimationDocument(animPath);
+    if (!clip.has_value()) {
+        throw std::runtime_error("Could not load animation: " + animPath.string());
+    }
+    fs::path rigPath{};
+    if (const auto rigArg = commandLine.GetValue("--rig"); rigArg.has_value() && !rigArg->empty()) {
+        rigPath = ResolveAuthoringPath(workspace, fs::path(*rigArg));
+    } else if (!clip->rigPath.empty()) {
+        rigPath = ResolveAuthoringPath(workspace, fs::path(clip->rigPath));
+    }
+    if (rigPath.empty()) {
+        throw std::runtime_error(std::string(flag) + " needs --rig <path> or clip.rigPath.");
+    }
+    const auto rig = ri::scene::LoadRigDefinition(rigPath);
+    if (!rig.has_value() || !ri::scene::ValidateRigDefinition(*rig).valid) {
+        throw std::runtime_error("Invalid rig: " + rigPath.string());
+    }
+    const float intensity = std::clamp(ParseFloatOr(commandLine.GetValue("--motion-intensity"), 1.0f), 0.25f, 2.5f);
+    const ri::scene::HumanoidMotionAuthorOptions options{.intensity = intensity, .looping = true};
+    if (walk) {
+        ri::scene::AuthorHumanoidWalkClip(*clip, *rig, options);
+    } else {
+        ri::scene::AuthorHumanoidIdleClip(*clip, *rig, options);
+    }
+    if (!ri::content::SaveNativeAnimationDocument(animPath, *clip)) {
+        throw std::runtime_error("Failed to write animation: " + animPath.string());
+    }
+    ri::core::LogInfo(
+        std::string(walk ? "Authored walk" : "Authored idle") + " keys on " + animPath.string()
+        + " (intensity=" + std::to_string(intensity) + ")");
+}
+
+[[nodiscard]] std::vector<fs::path> ListFunctionDirectories(const WorkspaceLayout& workspace) {
+    return {
+        RiToolPackageRoot(workspace) / "functions",
+        workspace.root / "Tools" / "ri_tool" / "functions",
+        workspace.assetsSource / "functions",
+    };
+}
+
+[[nodiscard]] fs::path FindFunctionFile(const WorkspaceLayout& workspace, const std::string& name) {
+    const std::vector<std::string> names = {
+        name,
+        name + ".rifunction",
+        name + ".cmd",
+        name + ".bat",
+        name + ".ps1",
+    };
+    std::error_code ec{};
+    for (const fs::path& dir : ListFunctionDirectories(workspace)) {
+        if (!fs::is_directory(dir, ec)) {
+            continue;
+        }
+        for (const std::string& fileName : names) {
+            const fs::path candidate = dir / fileName;
+            if (fs::is_regular_file(candidate, ec)) {
+                return fs::weakly_canonical(candidate, ec);
+            }
+        }
+    }
+    throw std::runtime_error(
+        "Function not found: " + name
+        + " (drop a .rifunction into Tools/ri_tool/functions or Assets/Source/functions)");
+}
+
+void ListToolFunctions(const WorkspaceLayout& workspace) {
+    ri::core::LogInfo("ri_tool functions (user-dropped recipes — not engine content):");
+    std::error_code ec{};
+    std::size_t count = 0;
+    for (const fs::path& dir : ListFunctionDirectories(workspace)) {
+        if (!fs::is_directory(dir, ec)) {
+            continue;
+        }
+        ri::core::LogInfo("  Folder: " + dir.string());
+        for (const fs::directory_entry& entry : fs::directory_iterator(dir, ec)) {
+            if (!entry.is_regular_file(ec)) {
+                continue;
+            }
+            const std::string ext = entry.path().extension().string();
+            if (ext != ".rifunction" && ext != ".cmd" && ext != ".bat" && ext != ".ps1") {
+                continue;
+            }
+            ri::core::LogInfo("    " + entry.path().filename().string());
+            ++count;
+        }
+    }
+    if (count == 0U) {
+        ri::core::LogInfo("  (none yet — model with --blockchar-add-part, or drop a .rifunction recipe)");
+    }
+}
+
+[[nodiscard]] std::string SubstituteFunctionVars(
+    std::string line,
+    const std::unordered_map<std::string, std::string>& vars) {
+    for (const auto& [key, value] : vars) {
+        const std::string dollar = "$" + key;
+        const std::string braced = "${" + key + "}";
+        for (std::string::size_type pos = 0; (pos = line.find(braced, pos)) != std::string::npos;) {
+            line.replace(pos, braced.size(), value);
+            pos += value.size();
+        }
+        for (std::string::size_type pos = 0; (pos = line.find(dollar, pos)) != std::string::npos;) {
+            // Avoid replacing $id inside $identity-like tokens: require end or non-alnum.
+            const std::string::size_type end = pos + dollar.size();
+            if (end < line.size() && (std::isalnum(static_cast<unsigned char>(line[end])) || line[end] == '_')) {
+                pos = end;
+                continue;
+            }
+            line.replace(pos, dollar.size(), value);
+            pos += value.size();
+        }
+    }
+    return line;
+}
+
+[[nodiscard]] std::vector<std::string> TokenizeFunctionLine(const std::string& line) {
+    std::vector<std::string> tokens{};
+    std::string current{};
+    bool inQuotes = false;
+    for (const char character : line) {
+        if (character == '"') {
+            inQuotes = !inQuotes;
+            continue;
+        }
+        if (!inQuotes && std::isspace(static_cast<unsigned char>(character))) {
+            if (!current.empty()) {
+                tokens.push_back(current);
+                current.clear();
+            }
+            continue;
+        }
+        current.push_back(character);
+    }
+    if (!current.empty()) {
+        tokens.push_back(current);
+    }
+    return tokens;
+}
+
+void RunToolFunctionStep(
+    const WorkspaceLayout& workspace,
+    const fs::path& toolExe,
+    const std::vector<std::string>& tokens) {
+    if (tokens.empty()) {
+        return;
+    }
+#if defined(_WIN32)
+    std::wstring command = L"\"" + toolExe.wstring() + L"\" --root \"" + workspace.root.wstring() + L"\"";
+    for (const std::string& token : tokens) {
+        command.push_back(L' ');
+        command.push_back(L'"');
+        command += std::wstring(token.begin(), token.end());
+        command.push_back(L'"');
+    }
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    std::wstring mutableCommand = command;
+    if (!CreateProcessW(
+            nullptr,
+            mutableCommand.data(),
+            nullptr,
+            nullptr,
+            FALSE,
+            0,
+            nullptr,
+            workspace.root.wstring().c_str(),
+            &startup,
+            &process)) {
+        throw std::runtime_error("Function step failed to launch: " + tokens.front());
+    }
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exitCode = 1;
+    GetExitCodeProcess(process.hProcess, &exitCode);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    if (exitCode != 0) {
+        throw std::runtime_error("Function step failed (" + std::to_string(exitCode) + "): " + tokens.front());
+    }
+#else
+    (void)workspace;
+    (void)toolExe;
+    throw std::runtime_error("--function is only supported on Windows builds of ri_tool currently.");
+#endif
+}
+
+void RunToolFunction(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto nameArg = commandLine.GetValue("--function");
+    if (!nameArg.has_value() || nameArg->empty()) {
+        throw std::runtime_error("Missing --function <name>.");
+    }
+    const auto idArg = commandLine.GetValue("--id");
+    if (!idArg.has_value() || idArg->empty()) {
+        throw std::runtime_error("--function requires --id <character-id>.");
+    }
+    const std::string characterId = SanitizeAssetId(*idArg);
+    const std::string displayName = commandLine.GetValue("--name").value_or(*idArg);
+    const fs::path functionPath = FindFunctionFile(workspace, *nameArg);
+    const std::string ext = functionPath.extension().string();
+
+#if defined(_WIN32)
+    wchar_t modulePath[MAX_PATH]{};
+    if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) == 0U) {
+        throw std::runtime_error("Could not resolve ri_tool path.");
+    }
+    const fs::path toolExe = fs::path(modulePath);
+#else
+    const fs::path toolExe{};
+#endif
+
+    ri::core::LogInfo("Running user function: " + functionPath.string());
+    if (ext == ".ps1" || ext == ".cmd" || ext == ".bat") {
+#if defined(_WIN32)
+        std::wstring command;
+        if (ext == ".ps1") {
+            command = L"powershell -NoProfile -ExecutionPolicy Bypass -File \"" + functionPath.wstring()
+                + L"\" -Id \"" + std::wstring(characterId.begin(), characterId.end())
+                + L"\" -Name \"" + std::wstring(displayName.begin(), displayName.end())
+                + L"\" -Root \"" + workspace.root.wstring() + L"\" -Tool \"" + toolExe.wstring() + L"\"";
+        } else {
+            command = L"cmd /C \"" + functionPath.wstring() + L"\" \""
+                + std::wstring(characterId.begin(), characterId.end()) + L"\" \""
+                + std::wstring(displayName.begin(), displayName.end()) + L"\" \""
+                + workspace.root.wstring() + L"\" \"" + toolExe.wstring() + L"\"";
+        }
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        PROCESS_INFORMATION process{};
+        std::wstring mutableCommand = command;
+        if (!CreateProcessW(
+                nullptr,
+                mutableCommand.data(),
+                nullptr,
+                nullptr,
+                FALSE,
+                0,
+                nullptr,
+                workspace.root.wstring().c_str(),
+                &startup,
+                &process)) {
+            throw std::runtime_error("Failed to launch function script.");
+        }
+        WaitForSingleObject(process.hProcess, INFINITE);
+        DWORD exitCode = 1;
+        GetExitCodeProcess(process.hProcess, &exitCode);
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        if (exitCode != 0) {
+            throw std::runtime_error("Function script failed with exit " + std::to_string(exitCode));
+        }
+#else
+        throw std::runtime_error("Script functions require Windows.");
+#endif
+        return;
+    }
+
+    std::unordered_map<std::string, std::string> vars{
+        {"id", characterId},
+        {"name", displayName},
+        {"root", workspace.root.generic_string()},
+    };
+    if (commandLine.HasFlag("--overwrite")) {
+        vars.emplace("overwrite", "--overwrite");
+    } else {
+        vars.emplace("overwrite", "");
+    }
+
+    std::ifstream input(functionPath);
+    if (!input) {
+        throw std::runtime_error("Could not read function: " + functionPath.string());
+    }
+    std::string line;
+    std::size_t step = 0;
+    while (std::getline(input, line)) {
+        const auto hash = line.find('#');
+        if (hash != std::string::npos) {
+            line = line.substr(0, hash);
+        }
+        line = SubstituteFunctionVars(line, vars);
+        // Collapse leftover empty overwrite token spacing.
+        while (line.find("  ") != std::string::npos) {
+            const auto pos = line.find("  ");
+            line.replace(pos, 2, " ");
+        }
+        auto tokens = TokenizeFunctionLine(line);
+        if (tokens.empty()) {
+            continue;
+        }
+        ++step;
+        ri::core::LogInfo("  Step " + std::to_string(step) + ": " + tokens.front());
+        RunToolFunctionStep(workspace, toolExe, tokens);
+    }
+    ri::core::LogInfo("Function complete: " + *nameArg + " → " + characterId);
+    if (commandLine.HasFlag("--open")) {
+        const fs::path walkPath =
+            workspace.assetsSource / "anims" / (characterId + "_walk.ri_anim.json");
+        const fs::path blockPath =
+            workspace.assetsSource / "blockchars" / (characterId + ".ri_blockchar.json");
+        std::error_code ec{};
+        if (fs::is_regular_file(walkPath, ec)) {
+            LaunchForgePreview(workspace, walkPath);
+        } else if (fs::is_regular_file(blockPath, ec)) {
+            LaunchForgePreview(workspace, blockPath);
+        }
+    }
+}
+
+void CreateForgeCharacter(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto idArg = commandLine.GetValue("--forge-character-create");
+    if (!idArg.has_value() || idArg->empty()) {
+        throw std::runtime_error("Missing --forge-character-create <character-id>.");
+    }
+    const std::string styleOrCage = commandLine.GetValue("--style").value_or(
+        commandLine.GetValue("--cage").value_or("sphere"));
+    const std::string styleLower = [&]() {
+        std::string value = styleOrCage;
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return value;
+    }();
+    if (styleLower == "psx" || styleLower == "psx_humanoid" || styleLower == "block"
+        || styleLower == "blockchar") {
+        throw std::runtime_error(
+            "--forge-character-create no longer emits prebuilt characters. "
+            "Model with --blockchar-create / --blockchar-add-part / --blockchar-set-part / "
+            "--blockchar-nudge / --blockchar-sync-sculpt (and optional --function recipes you drop "
+            "in Tools/ri_tool/functions). Clay scaffold: --style sphere|cube.");
+    }
+
+    const std::string characterId = SanitizeAssetId(*idArg);
+    const std::string displayName = commandLine.GetValue("--name").value_or(*idArg);
+    const bool overwrite = commandLine.HasFlag("--overwrite");
+    const ri::scene::NativeSculptCage cage = ri::scene::ParseNativeSculptCage(styleOrCage);
+    if (cage == ri::scene::NativeSculptCage::PsxHumanoid) {
+        throw std::runtime_error(
+            "psx cage is not a clay scaffold. Author parts with --blockchar-add-part instead.");
+    }
+    const bool wantWalk = commandLine.HasFlag("--walk");
+    const bool openForge = commandLine.HasFlag("--open");
+    const float motionIntensity = std::clamp(
+        ParseFloatOr(commandLine.GetValue("--motion-intensity"), 1.0f), 0.25f, 2.5f);
+    const ri::scene::HumanoidMotionAuthorOptions motionOptions{.intensity = motionIntensity, .looping = true};
+
+    const fs::path rigPath = workspace.assetsSource / "rigs" / (characterId + ".ri_rig.json");
+    const fs::path sculptPath =
+        workspace.assetsSource / "sculpts" / (characterId + ".ri_sculpt.json");
+    const fs::path idlePath =
+        workspace.assetsSource / "anims" / (characterId + "_idle.ri_anim.json");
+    const fs::path walkPath =
+        workspace.assetsSource / "anims" / (characterId + "_walk.ri_anim.json");
+
+    std::error_code existsError{};
+    std::vector<fs::path> outputs = {rigPath, sculptPath, idlePath};
+    if (wantWalk) {
+        outputs.push_back(walkPath);
+    }
+    for (const fs::path& path : outputs) {
+        if (fs::exists(path, existsError) && !overwrite) {
+            throw std::runtime_error(
+                "Character output already exists (use --overwrite): " + path.string());
+        }
+    }
+
+    EnsureParentDirectoryExists(rigPath);
+    EnsureParentDirectoryExists(sculptPath);
+    EnsureParentDirectoryExists(idlePath);
+    if (wantWalk) {
+        EnsureParentDirectoryExists(walkPath);
+    }
+
+    const ri::scene::RigDefinition rig =
+        ri::scene::CreateHumanoidRigDefinition(characterId, displayName);
+    if (!ri::scene::ValidateRigDefinition(rig).valid) {
+        throw std::runtime_error("Internal humanoid rig template failed validation.");
+    }
+    if (!ri::scene::SaveRigDefinition(rigPath, rig)) {
+        throw std::runtime_error("Failed to write rig: " + rigPath.string());
+    }
+
+    const std::string relativeRig = RelativeAuthoringSourcePath(workspace, rigPath);
+    ri::content::NativeSculptDocument sculpt =
+        ri::scene::CreateNativeSculptDocument(characterId, displayName + " Clay", cage);
+    if (!FitSculptMeshToRig(sculpt, rig)) {
+        throw std::runtime_error("Could not fit clay cage to humanoid bone bounds.");
+    }
+    const ri::scene::NativeSculptBindResult bound =
+        ri::scene::BindNativeSculptToRig(sculpt, rig, relativeRig, true);
+    if (!bound.valid) {
+        throw std::runtime_error(bound.summary.empty() ? "Bind failed." : bound.summary);
+    }
+    const std::size_t softA = ri::scene::SmoothNativeSculptWeights(sculpt);
+    const std::size_t softB = ri::scene::SmoothNativeSculptWeights(sculpt);
+    const std::size_t capped = ri::scene::LimitNativeSculptInfluences(sculpt);
+    const std::size_t normalized = ri::scene::NormalizeAllNativeSculptWeights(sculpt);
+    if (!ri::content::SaveNativeSculptDocument(sculptPath, sculpt)) {
+        throw std::runtime_error("Failed to write sculpt: " + sculptPath.string());
+    }
+
+    ri::content::NativeAnimationDocument idle =
+        ri::content::CreateNativeAnimationDocument(
+            characterId + "_idle", displayName + " Idle", relativeRig);
+    ri::scene::AuthorHumanoidIdleClip(idle, rig, motionOptions);
+    if (!ri::content::SaveNativeAnimationDocument(idlePath, idle)) {
+        throw std::runtime_error("Failed to write animation: " + idlePath.string());
+    }
+    if (wantWalk) {
+        ri::content::NativeAnimationDocument walk = ri::content::CreateNativeAnimationDocument(
+            characterId + "_walk", displayName + " Walk", relativeRig);
+        ri::scene::AuthorHumanoidWalkClip(walk, rig, motionOptions);
+        if (!ri::content::SaveNativeAnimationDocument(walkPath, walk)) {
+            throw std::runtime_error("Failed to write walk animation: " + walkPath.string());
+        }
+    }
+
+    ri::core::LogInfo("Created clay character scaffold (not a prebuilt look):");
+    ri::core::LogInfo("  Id: " + characterId);
+    ri::core::LogInfo("  Cage: " + std::string(ri::scene::NativeSculptCageName(cage)));
+    ri::core::LogInfo("  Rig: " + rigPath.string());
+    ri::core::LogInfo("  Sculpt: " + sculptPath.string());
+    ri::core::LogInfo("  Idle: " + idlePath.string());
+    if (wantWalk) {
+        ri::core::LogInfo("  Walk: " + walkPath.string());
+    }
+    ri::core::LogInfo("  Bind: " + bound.summary);
+    ri::core::LogInfo(
+        "  Soft/Cap/Norm: soft=" + std::to_string(softA + softB) + " cap=" + std::to_string(capped)
+        + " norm=" + std::to_string(normalized));
+    ri::core::LogInfo(
+        "  Tip: block characters are modeled with --blockchar-add-part (place/scale/rotate primitives)");
+    if (openForge) {
+        LaunchForgePreview(workspace, wantWalk ? walkPath : sculptPath);
+    }
+}
+
+
+void ProbeForgeHandoff(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    auto pathArg = commandLine.GetValue("--forge-handoff-probe");
+    if (!pathArg.has_value() || pathArg->empty()) {
+        pathArg = commandLine.GetValue("--asset");
+    }
+    if (!pathArg.has_value() || pathArg->empty()) {
+        throw std::runtime_error(
+            "Missing --forge-handoff-probe <asset> (or --asset <path>).");
+    }
+    const fs::path assetPath = ResolveAuthoringPath(workspace, fs::path(*pathArg));
+    const ri::content::AuthoringHandoffReport report = ri::content::BuildAuthoringHandoff({
+        .workspaceRoot = workspace.root,
+        .assetPath = assetPath,
+        .gameId = commandLine.GetValue("--game").value_or(""),
+    });
+    ri::core::LogInfo(
+        std::string("Forge handoff: ") + (report.valid ? "ready" : "rejected"));
+    ri::core::LogInfo(std::string("Asset kind: ") + std::string(ri::content::ToString(report.assetKind)));
+    ri::core::LogInfo("Asset: " + report.assetPath.string());
+    if (!report.workspaceRelativePath.empty()) {
+        ri::core::LogInfo("Relative: " + report.workspaceRelativePath.generic_string());
+    }
+    if (!report.editorArguments.empty()) {
+        std::string args = "Editor args:";
+        for (const std::string& argument : report.editorArguments) {
+            args += " ";
+            args += argument;
+        }
+        ri::core::LogInfo(args);
+    }
+    for (const std::string& issue : report.issues) {
+        ri::core::LogInfo("Issue: " + issue);
+    }
+    if (!report.valid) {
+        throw std::runtime_error("Forge handoff rejected.");
+    }
+}
+
+void CreateNativeSculptAsset(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto idArg = commandLine.GetValue("--sculpt-create");
+    if (!idArg.has_value() || idArg->empty()) {
+        throw std::runtime_error("Missing --sculpt-create <sculpt-id>.");
+    }
+    const ri::scene::NativeSculptCage cage =
+        ri::scene::ParseNativeSculptCage(commandLine.GetValue("--cage").value_or("sphere"));
+    const std::string sculptId = SanitizeAssetId(*idArg);
+    fs::path output = workspace.assetsSource / "sculpts" / (sculptId + ".ri_sculpt.json");
+    if (const auto outputArg = commandLine.GetValue("--output"); outputArg.has_value() && !outputArg->empty()) {
+        output = ResolveAuthoringPath(workspace, fs::path(*outputArg));
+    }
+    std::error_code existsError{};
+    if (fs::exists(output, existsError) && !commandLine.HasFlag("--overwrite")) {
+        throw std::runtime_error("Sculpt output already exists (use --overwrite to replace it): " + output.string());
+    }
+    EnsureParentDirectoryExists(output);
+    const std::string displayName = commandLine.GetValue("--name").value_or(
+        cage == ri::scene::NativeSculptCage::Cube
+            ? "Hard Surface Block"
+            : (cage == ri::scene::NativeSculptCage::PsxHumanoid ? "PSX Humanoid" : "Clay Sphere"));
+    const ri::content::NativeSculptDocument document =
+        ri::scene::CreateNativeSculptDocument(sculptId, displayName, cage);
+    if (!ri::content::SaveNativeSculptDocument(output, document)) {
+        throw std::runtime_error("Failed to write sculpt: " + output.string());
+    }
+    ri::core::LogInfo("Created native sculpt:");
+    ri::core::LogInfo("  Id: " + document.id);
+    ri::core::LogInfo("  Cage: " + document.cage);
+    ri::core::LogInfo("  Output: " + output.string());
+    ri::core::LogInfo("  Vertices: " + std::to_string(document.mesh.positions.size()));
+}
+
+void CreateNativeAnimationAsset(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto idArg = commandLine.GetValue("--anim-create");
+    if (!idArg.has_value() || idArg->empty()) {
+        throw std::runtime_error("Missing --anim-create <clip-id>.");
+    }
+    const auto rigArg = commandLine.GetValue("--rig");
+    if (!rigArg.has_value() || rigArg->empty()) {
+        throw std::runtime_error("--anim-create requires --rig <path>.");
+    }
+    const fs::path rigPath = ResolveAuthoringPath(workspace, fs::path(*rigArg));
+    const auto rig = ri::scene::LoadRigDefinition(rigPath);
+    if (!rig.has_value() || !ri::scene::ValidateRigDefinition(*rig).valid) {
+        throw std::runtime_error("Clip needs a valid rig document: " + rigPath.string());
+    }
+    const std::string clipId = SanitizeAssetId(*idArg);
+    fs::path output = workspace.assetsSource / "anims" / (clipId + ".ri_anim.json");
+    if (const auto outputArg = commandLine.GetValue("--output"); outputArg.has_value() && !outputArg->empty()) {
+        output = ResolveAuthoringPath(workspace, fs::path(*outputArg));
+    }
+    std::error_code existsError{};
+    if (fs::exists(output, existsError) && !commandLine.HasFlag("--overwrite")) {
+        throw std::runtime_error("Animation output already exists (use --overwrite to replace it): " + output.string());
+    }
+    EnsureParentDirectoryExists(output);
+    const std::string displayName = commandLine.GetValue("--name").value_or(*idArg);
+    ri::content::NativeAnimationDocument document = ri::content::CreateNativeAnimationDocument(
+        clipId, displayName, RelativeAuthoringSourcePath(workspace, rigPath));
+    ri::scene::SeedNativeAnimationFromRig(document, *rig);
+    const ri::content::NativeAnimationValidationReport validation =
+        ri::content::ValidateNativeAnimationDocument(document);
+    if (!validation.valid) {
+        std::string detail = "Animation document failed validation.";
+        for (const std::string& error : validation.errors) {
+            detail += " ";
+            detail += error;
+        }
+        throw std::runtime_error(detail);
+    }
+    if (!ri::content::SaveNativeAnimationDocument(output, document)) {
+        throw std::runtime_error("Failed to write animation: " + output.string());
+    }
+    ri::core::LogInfo("Created motion clip:");
+    ri::core::LogInfo("  Id: " + document.id);
+    ri::core::LogInfo("  Rig: " + document.rigPath);
+    ri::core::LogInfo("  Output: " + output.string());
+    ri::core::LogInfo("  Tracks: " + std::to_string(document.tracks.size()));
+}
+
+void BindSculptToRig(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto sculptArg = commandLine.GetValue("--sculpt");
+    const auto rigArg = commandLine.GetValue("--rig");
+    if (!sculptArg.has_value() || sculptArg->empty() || !rigArg.has_value() || rigArg->empty()) {
+        throw std::runtime_error("--sculpt-bind requires --sculpt <path> and --rig <path>.");
+    }
+    const fs::path sculptPath = ResolveAuthoringPath(workspace, fs::path(*sculptArg));
+    const fs::path rigPath = ResolveAuthoringPath(workspace, fs::path(*rigArg));
+    auto sculpt = ri::content::LoadNativeSculptDocument(sculptPath);
+    if (!sculpt.has_value()) {
+        throw std::runtime_error("Could not load clay: " + sculptPath.string());
+    }
+    const auto rig = ri::scene::LoadRigDefinition(rigPath);
+    if (!rig.has_value() || !ri::scene::ValidateRigDefinition(*rig).valid) {
+        throw std::runtime_error("Invalid rig: " + rigPath.string());
+    }
+    const ri::scene::NativeSculptBindResult bound = ri::scene::BindNativeSculptToRig(
+        *sculpt, *rig, RelativeAuthoringSourcePath(workspace, rigPath), commandLine.HasFlag("--replace"));
+    if (!bound.valid) {
+        throw std::runtime_error(bound.summary.empty() ? "Bind failed." : bound.summary);
+    }
+    if (!ri::content::SaveNativeSculptDocument(sculptPath, *sculpt)) {
+        throw std::runtime_error("Could not save clay: " + sculptPath.string());
+    }
+    ri::core::LogInfo(bound.summary);
+    ri::core::LogInfo("Bound sculpt: " + sculptPath.string());
+}
+
+void FloodSculptWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto sculptArg = commandLine.GetValue("--sculpt");
+    const auto boneArg = commandLine.GetValue("--bone");
+    if (!sculptArg.has_value() || sculptArg->empty() || !boneArg.has_value() || boneArg->empty()) {
+        throw std::runtime_error("--sculpt-flood-weights requires --sculpt <path> and --bone <name>.");
+    }
+    const fs::path sculptPath = ResolveAuthoringPath(workspace, fs::path(*sculptArg));
+    auto sculpt = ri::content::LoadNativeSculptDocument(sculptPath);
+    if (!sculpt.has_value()) {
+        throw std::runtime_error("Could not load clay: " + sculptPath.string());
+    }
+    const std::size_t changed = ri::scene::FloodNativeSculptWeights(*sculpt, *boneArg);
+    if (!ri::content::SaveNativeSculptDocument(sculptPath, *sculpt)) {
+        throw std::runtime_error("Could not save clay: " + sculptPath.string());
+    }
+    ri::core::LogInfo("Flooded " + std::to_string(changed) + " verts onto " + *boneArg);
+}
+
+void SoftSculptBoneWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto sculptArg = commandLine.GetValue("--sculpt");
+    const auto boneArg = commandLine.GetValue("--bone");
+    if (!sculptArg.has_value() || sculptArg->empty() || !boneArg.has_value() || boneArg->empty()) {
+        throw std::runtime_error("--sculpt-soft-bone requires --sculpt <path> and --bone <name>.");
+    }
+    const fs::path sculptPath = ResolveAuthoringPath(workspace, fs::path(*sculptArg));
+    auto sculpt = ri::content::LoadNativeSculptDocument(sculptPath);
+    if (!sculpt.has_value()) {
+        throw std::runtime_error("Could not load clay: " + sculptPath.string());
+    }
+    const std::size_t changed = ri::scene::SmoothNativeSculptBoneWeights(*sculpt, *boneArg);
+    if (!ri::content::SaveNativeSculptDocument(sculptPath, *sculpt)) {
+        throw std::runtime_error("Could not save clay: " + sculptPath.string());
+    }
+    ri::core::LogInfo("Softened " + *boneArg + " on " + std::to_string(changed) + " verts");
+}
+
+void CapSculptInfluences(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto sculptArg = commandLine.GetValue("--sculpt");
+    if (!sculptArg.has_value() || sculptArg->empty()) {
+        throw std::runtime_error("--sculpt-cap4 requires --sculpt <path>.");
+    }
+    const fs::path sculptPath = ResolveAuthoringPath(workspace, fs::path(*sculptArg));
+    auto sculpt = ri::content::LoadNativeSculptDocument(sculptPath);
+    if (!sculpt.has_value()) {
+        throw std::runtime_error("Could not load clay: " + sculptPath.string());
+    }
+    const std::size_t changed = ri::scene::LimitNativeSculptInfluences(*sculpt);
+    if (!ri::content::SaveNativeSculptDocument(sculptPath, *sculpt)) {
+        throw std::runtime_error("Could not save clay: " + sculptPath.string());
+    }
+    ri::core::LogInfo("Capped influences on " + std::to_string(changed) + " verts");
+}
+
+void AuditSculptWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto sculptArg = commandLine.GetValue("--sculpt");
+    if (!sculptArg.has_value() || sculptArg->empty()) {
+        throw std::runtime_error("--sculpt-audit-weights requires --sculpt <path>.");
+    }
+    const fs::path sculptPath = ResolveAuthoringPath(workspace, fs::path(*sculptArg));
+    const auto sculpt = ri::content::LoadNativeSculptDocument(sculptPath);
+    if (!sculpt.has_value()) {
+        throw std::runtime_error("Could not load clay: " + sculptPath.string());
+    }
+    const ri::scene::NativeSculptWeightAudit audit = ri::scene::AuditNativeSculptWeights(*sculpt);
+    ri::core::LogInfo("sculpt\t" + sculptPath.string());
+    ri::core::LogInfo("verts\t" + std::to_string(audit.vertexCount));
+    ri::core::LogInfo("bound\t" + std::to_string(audit.boundCount));
+    ri::core::LogInfo("unbound\t" + std::to_string(audit.unboundCount));
+    ri::core::LogInfo("blended\t" + std::to_string(audit.blendedCount));
+    ri::core::LogInfo("over_cap\t" + std::to_string(audit.overInfluencedCount));
+    ri::core::LogInfo("non_normalized\t" + std::to_string(audit.nonNormalizedCount));
+}
+
+void UnbindSculptFromRig(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto sculptArg = commandLine.GetValue("--sculpt");
+    if (!sculptArg.has_value() || sculptArg->empty()) {
+        throw std::runtime_error("--sculpt-unbind requires --sculpt <path>.");
+    }
+    const fs::path sculptPath = ResolveAuthoringPath(workspace, fs::path(*sculptArg));
+    auto sculpt = ri::content::LoadNativeSculptDocument(sculptPath);
+    if (!sculpt.has_value()) {
+        throw std::runtime_error("Could not load clay: " + sculptPath.string());
+    }
+    const std::size_t changed = ri::scene::UnbindNativeSculptFromRig(*sculpt);
+    if (!ri::content::SaveNativeSculptDocument(sculptPath, *sculpt)) {
+        throw std::runtime_error("Could not save clay: " + sculptPath.string());
+    }
+    ri::core::LogInfo("Unbound sculpt (" + std::to_string(changed) + " verts): " + sculptPath.string());
+}
+
+void ClearSculptWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto sculptArg = commandLine.GetValue("--sculpt");
+    if (!sculptArg.has_value() || sculptArg->empty()) {
+        throw std::runtime_error("--sculpt-clear-weights requires --sculpt <path>.");
+    }
+    const fs::path sculptPath = ResolveAuthoringPath(workspace, fs::path(*sculptArg));
+    auto sculpt = ri::content::LoadNativeSculptDocument(sculptPath);
+    if (!sculpt.has_value()) {
+        throw std::runtime_error("Could not load clay: " + sculptPath.string());
+    }
+    const std::size_t changed = ri::scene::ClearNativeSculptWeights(*sculpt);
+    if (!ri::content::SaveNativeSculptDocument(sculptPath, *sculpt)) {
+        throw std::runtime_error("Could not save clay: " + sculptPath.string());
+    }
+    ri::core::LogInfo("Cleared weights on " + std::to_string(changed) + " verts");
+}
+
+[[nodiscard]] float RequireOptionalFloat(
+    const ri::core::CommandLine& commandLine,
+    const std::string_view flag,
+    const float fallback) {
+    const auto value = commandLine.GetValue(flag);
+    if (!value.has_value() || value->empty()) {
+        return fallback;
+    }
+    try {
+        return std::stof(*value);
+    } catch (...) {
+        throw std::runtime_error(std::string(flag) + " must be a number.");
+    }
+}
+
+[[nodiscard]] double RequireOptionalDouble(
+    const ri::core::CommandLine& commandLine,
+    const std::string_view flag,
+    const double fallback) {
+    const auto value = commandLine.GetValue(flag);
+    if (!value.has_value() || value->empty()) {
+        return fallback;
+    }
+    try {
+        return std::stod(*value);
+    } catch (...) {
+        throw std::runtime_error(std::string(flag) + " must be a number.");
+    }
+}
+
+struct LoadedSculptEdit {
+    fs::path path{};
+    ri::content::NativeSculptDocument document{};
+};
+
+[[nodiscard]] LoadedSculptEdit LoadSculptForEdit(
+    const WorkspaceLayout& workspace,
+    const ri::core::CommandLine& commandLine,
+    const std::string_view commandName) {
+    const auto sculptArg = commandLine.GetValue("--sculpt");
+    if (!sculptArg.has_value() || sculptArg->empty()) {
+        throw std::runtime_error(std::string(commandName) + " requires --sculpt <path>.");
+    }
+    LoadedSculptEdit loaded{};
+    loaded.path = ResolveAuthoringPath(workspace, fs::path(*sculptArg));
+    auto sculpt = ri::content::LoadNativeSculptDocument(loaded.path);
+    if (!sculpt.has_value()) {
+        throw std::runtime_error("Could not load clay: " + loaded.path.string());
+    }
+    loaded.document = std::move(*sculpt);
+    return loaded;
+}
+
+void SaveSculptEdit(const LoadedSculptEdit& loaded) {
+    if (!ri::content::SaveNativeSculptDocument(loaded.path, loaded.document)) {
+        throw std::runtime_error("Could not save clay: " + loaded.path.string());
+    }
+}
+
+[[nodiscard]] std::string RequireBoneName(
+    const ri::core::CommandLine& commandLine,
+    const std::string_view commandName) {
+    const auto boneArg = commandLine.GetValue("--bone");
+    if (!boneArg.has_value() || boneArg->empty()) {
+        throw std::runtime_error(std::string(commandName) + " requires --bone <name>.");
+    }
+    return *boneArg;
+}
+
+void NormalizeSculptWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-normalize");
+    const std::size_t changed = ri::scene::NormalizeAllNativeSculptWeights(loaded.document);
+    SaveSculptEdit(loaded);
+    ri::core::LogInfo("Normalized weights on " + std::to_string(changed) + " verts");
+}
+
+void PruneSculptWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-prune");
+    const float minWeight = RequireOptionalFloat(commandLine, "--min", 0.05f);
+    const std::size_t changed = ri::scene::PruneAllNativeSculptWeights(loaded.document, minWeight);
+    SaveSculptEdit(loaded);
+    ri::core::LogInfo(
+        "Pruned weights below " + std::to_string(minWeight) + " on " + std::to_string(changed) + " verts");
+}
+
+void MirrorSculptWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-mirror");
+    const std::string axis = commandLine.GetValue("--axis").value_or("x");
+    bool mirrorX = false;
+    bool mirrorY = false;
+    bool mirrorZ = false;
+    if (axis == "x" || axis == "X") {
+        mirrorX = true;
+    } else if (axis == "y" || axis == "Y") {
+        mirrorY = true;
+    } else if (axis == "z" || axis == "Z") {
+        mirrorZ = true;
+    } else {
+        throw std::runtime_error("--axis must be x, y, or z.");
+    }
+    const std::size_t changed =
+        ri::scene::MirrorNativeSculptWeights(loaded.document, mirrorX, mirrorY, mirrorZ);
+    SaveSculptEdit(loaded);
+    ri::core::LogInfo("Mirrored weights on axis " + axis + " for " + std::to_string(changed) + " verts");
+}
+
+void SealSculptWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-seal");
+    const std::size_t changed = ri::scene::SealUnboundNativeSculptWeightsFromNeighbors(loaded.document);
+    SaveSculptEdit(loaded);
+    ri::core::LogInfo("Sealed " + std::to_string(changed) + " unbound verts from neighbors");
+}
+
+void InvertSculptBoneWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-invert");
+    const std::string bone = RequireBoneName(commandLine, "--sculpt-invert");
+    const std::size_t changed = ri::scene::InvertNativeSculptBoneWeights(loaded.document, bone);
+    SaveSculptEdit(loaded);
+    ri::core::LogInfo("Inverted " + bone + " on " + std::to_string(changed) + " verts");
+}
+
+void CeilSculptBoneWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-ceil");
+    const std::string bone = RequireBoneName(commandLine, "--sculpt-ceil");
+    const float maxWeight = RequireOptionalFloat(commandLine, "--max", 0.85f);
+    const std::size_t changed =
+        ri::scene::CeilNativeSculptBoneWeights(loaded.document, bone, maxWeight);
+    SaveSculptEdit(loaded);
+    ri::core::LogInfo(
+        "Ceiled " + bone + " to " + std::to_string(maxWeight) + " on " + std::to_string(changed)
+        + " verts");
+}
+
+void HardenSculptBoneWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-harden");
+    const std::string bone = RequireBoneName(commandLine, "--sculpt-harden");
+    const float threshold = RequireOptionalFloat(commandLine, "--threshold", 0.5f);
+    const std::size_t changed =
+        ri::scene::HardenNativeSculptBoneWeights(loaded.document, bone, threshold);
+    SaveSculptEdit(loaded);
+    ri::core::LogInfo(
+        "Hardened " + bone + " at " + std::to_string(threshold) + " on " + std::to_string(changed)
+        + " verts");
+}
+
+void FloodUnboundSculptWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-flood-free");
+    const std::string bone = RequireBoneName(commandLine, "--sculpt-flood-free");
+    const std::size_t changed = ri::scene::FloodUnboundNativeSculptWeights(loaded.document, bone);
+    SaveSculptEdit(loaded);
+    ri::core::LogInfo("Flooded " + std::to_string(changed) + " free verts onto " + bone);
+}
+
+void FitSculptToRigCommand(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-fit-rig");
+    const auto rigArg = commandLine.GetValue("--rig");
+    if (!rigArg.has_value() || rigArg->empty()) {
+        throw std::runtime_error("--sculpt-fit-rig requires --rig <path>.");
+    }
+    const fs::path rigPath = ResolveAuthoringPath(workspace, fs::path(*rigArg));
+    const auto rig = ri::scene::LoadRigDefinition(rigPath);
+    if (!rig.has_value() || !ri::scene::ValidateRigDefinition(*rig).valid) {
+        throw std::runtime_error("Invalid rig: " + rigPath.string());
+    }
+    const float padding = RequireOptionalFloat(commandLine, "--padding", 1.15f);
+    if (!FitSculptMeshToRig(loaded.document, *rig, padding)) {
+        throw std::runtime_error("Could not fit clay to rig bone bounds.");
+    }
+    SaveSculptEdit(loaded);
+    const SculptBounds bounds = ComputeSculptBounds(loaded.document);
+    ri::core::LogInfo("Fitted sculpt to rig bone bounds:");
+    ri::core::LogInfo("  Sculpt: " + loaded.path.string());
+    ri::core::LogInfo("  Rig: " + rigPath.string());
+    ri::core::LogInfo(
+        "  Bounds: min=(" + std::to_string(bounds.min.x) + "," + std::to_string(bounds.min.y) + ","
+        + std::to_string(bounds.min.z) + ") max=(" + std::to_string(bounds.max.x) + ","
+        + std::to_string(bounds.max.y) + "," + std::to_string(bounds.max.z) + ")");
+}
+
+void SoftenAllSculptWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-soft");
+    const std::size_t changed = ri::scene::SmoothNativeSculptWeights(loaded.document);
+    SaveSculptEdit(loaded);
+    ri::core::LogInfo("Softened all weights on " + std::to_string(changed) + " verts");
+}
+
+void ReportSculptBounds(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-bounds");
+    const SculptBounds bounds = ComputeSculptBounds(loaded.document);
+    ri::core::LogInfo("sculpt\t" + loaded.path.string());
+    ri::core::LogInfo(
+        "min\t" + std::to_string(bounds.min.x) + "\t" + std::to_string(bounds.min.y) + "\t"
+        + std::to_string(bounds.min.z));
+    ri::core::LogInfo(
+        "max\t" + std::to_string(bounds.max.x) + "\t" + std::to_string(bounds.max.y) + "\t"
+        + std::to_string(bounds.max.z));
+    ri::core::LogInfo(
+        "center\t" + std::to_string(bounds.center.x) + "\t" + std::to_string(bounds.center.y) + "\t"
+        + std::to_string(bounds.center.z));
+    ri::core::LogInfo(
+        "extent\t" + std::to_string(bounds.extent.x) + "\t" + std::to_string(bounds.extent.y) + "\t"
+        + std::to_string(bounds.extent.z));
+    ri::core::LogInfo("verts\t" + std::to_string(loaded.document.mesh.positions.size()));
+}
+
+void ReportSculptBoneWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-bone-weights");
+    const auto weights = [&]() {
+        if (const auto boneArg = commandLine.GetValue("--bone");
+            boneArg.has_value() && !boneArg->empty()) {
+            return std::vector<std::string>{*boneArg};
+        }
+        std::set<std::string> names{};
+        for (const std::string& name : loaded.document.vertexBoneNames) {
+            if (!name.empty()) {
+                names.insert(name);
+            }
+        }
+        for (const auto& influences : loaded.document.vertexInfluences) {
+            for (const auto& influence : influences) {
+                if (!influence.boneName.empty()) {
+                    names.insert(influence.boneName);
+                }
+            }
+        }
+        return std::vector<std::string>(names.begin(), names.end());
+    }();
+    ri::core::LogInfo("sculpt\t" + loaded.path.string());
+    for (const std::string& bone : weights) {
+        const std::vector<float> values =
+            ri::scene::ExtractNativeSculptBoneWeights(loaded.document, bone);
+        float sum = 0.0f;
+        std::size_t nonzero = 0U;
+        float peak = 0.0f;
+        for (const float value : values) {
+            if (value > 0.0001f) {
+                ++nonzero;
+                sum += value;
+                peak = std::max(peak, value);
+            }
+        }
+        ri::core::LogInfo(
+            "bone\t" + bone + "\tverts=" + std::to_string(nonzero) + "\tsum=" + std::to_string(sum)
+            + "\tpeak=" + std::to_string(peak));
+    }
+}
+
+void TransferSculptWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-transfer");
+    const auto fromArg = commandLine.GetValue("--from");
+    const auto toArg = commandLine.GetValue("--to");
+    if (!fromArg.has_value() || fromArg->empty() || !toArg.has_value() || toArg->empty()) {
+        throw std::runtime_error("--sculpt-transfer requires --from <bone> and --to <bone>.");
+    }
+    const std::size_t changed =
+        ri::scene::TransferNativeSculptWeights(loaded.document, *fromArg, *toArg);
+    SaveSculptEdit(loaded);
+    ri::core::LogInfo(
+        "Transferred " + *fromArg + " → " + *toArg + " on " + std::to_string(changed) + " verts");
+}
+
+void SwapSculptWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-swap");
+    const auto leftArg = commandLine.GetValue("--left");
+    const auto rightArg = commandLine.GetValue("--right");
+    if (!leftArg.has_value() || leftArg->empty() || !rightArg.has_value() || rightArg->empty()) {
+        throw std::runtime_error("--sculpt-swap requires --left <bone> and --right <bone>.");
+    }
+    const std::size_t changed =
+        ri::scene::SwapNativeSculptWeights(loaded.document, *leftArg, *rightArg);
+    SaveSculptEdit(loaded);
+    ri::core::LogInfo(
+        "Swapped " + *leftArg + " ↔ " + *rightArg + " on " + std::to_string(changed) + " verts");
+}
+
+void GrowSculptBoneWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-grow");
+    const std::string bone = RequireBoneName(commandLine, "--sculpt-grow");
+    const std::size_t changed = ri::scene::GrowNativeSculptBoneWeights(loaded.document, bone);
+    SaveSculptEdit(loaded);
+    ri::core::LogInfo("Grew " + bone + " onto " + std::to_string(changed) + " verts");
+}
+
+void ShrinkSculptBoneWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-shrink");
+    const std::string bone = RequireBoneName(commandLine, "--sculpt-shrink");
+    const std::size_t changed = ri::scene::ShrinkNativeSculptBoneWeights(loaded.document, bone);
+    SaveSculptEdit(loaded);
+    ri::core::LogInfo("Shrunk " + bone + " from " + std::to_string(changed) + " verts");
+}
+
+void PaintSculptWeights(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedSculptEdit loaded = LoadSculptForEdit(workspace, commandLine, "--sculpt-paint");
+    const std::string bone = RequireBoneName(commandLine, "--sculpt-paint");
+    const auto atArg = commandLine.GetValue("--at");
+    const bool atBone = commandLine.HasFlag("--at-bone");
+    if ((!atArg.has_value() || atArg->empty()) && !atBone) {
+        throw std::runtime_error(
+            "--sculpt-paint requires --at <x,y,z> and/or --at-bone (uses bone rest from --rig or sculpt rigPath).");
+    }
+
+    ri::math::Vec3 at{};
+    if (atBone) {
+        fs::path rigPath{};
+        if (const auto rigArg = commandLine.GetValue("--rig"); rigArg.has_value() && !rigArg->empty()) {
+            rigPath = ResolveAuthoringPath(workspace, fs::path(*rigArg));
+        } else if (!loaded.document.rigPath.empty()) {
+            rigPath = ResolveClipRigPath(workspace, loaded.document.rigPath, loaded.path);
+            if (rigPath.empty()) {
+                rigPath = ResolveAuthoringPath(workspace, fs::path(loaded.document.rigPath));
+            }
+        }
+        if (rigPath.empty()) {
+            throw std::runtime_error("--at-bone needs --rig <path> or a sculpt already bound to a rig.");
+        }
+        const auto rig = ri::scene::LoadRigDefinition(rigPath);
+        if (!rig.has_value()) {
+            throw std::runtime_error("Could not load rig for --at-bone: " + rigPath.string());
+        }
+        const auto restWorld = ri::scene::RestBoneWorldMatrices(*rig);
+        const auto found = restWorld.find(bone);
+        if (found == restWorld.end()) {
+            throw std::runtime_error("Bone not found on rig for --at-bone: " + bone);
+        }
+        at = ri::math::ExtractTranslation(found->second);
+    } else {
+        at = ParseAtVec3(*atArg);
+        if (commandLine.HasFlag("--unit")) {
+            const SculptBounds bounds = ComputeSculptBounds(loaded.document);
+            at = ri::math::Vec3{
+                bounds.min.x + bounds.extent.x * std::clamp(at.x, 0.0f, 1.0f),
+                bounds.min.y + bounds.extent.y * std::clamp(at.y, 0.0f, 1.0f),
+                bounds.min.z + bounds.extent.z * std::clamp(at.z, 0.0f, 1.0f),
+            };
+        }
+    }
+
+    if (commandLine.HasFlag("--snap") || atBone) {
+        // Sphere cages leave empty AABB corners; snap to nearest surface vert.
+        float best = std::numeric_limits<float>::max();
+        ri::math::Vec3 nearest = at;
+        for (const ri::math::Vec3& position : loaded.document.mesh.positions) {
+            const float dx = position.x - at.x;
+            const float dy = position.y - at.y;
+            const float dz = position.z - at.z;
+            const float distance = dx * dx + dy * dy + dz * dz;
+            if (distance < best) {
+                best = distance;
+                nearest = position;
+            }
+        }
+        at = nearest;
+    }
+
+    const SculptBounds bounds = ComputeSculptBounds(loaded.document);
+    const float defaultRadius =
+        std::max({bounds.extent.x, bounds.extent.y, bounds.extent.z, 0.35f}) * (atBone ? 0.12f : 0.16f);
+    const float radius = RequireOptionalFloat(commandLine, "--radius", defaultRadius);
+    const float strength = RequireOptionalFloat(commandLine, "--strength", 1.0f);
+    const ri::scene::NativeSculptWeightPaint mode =
+        ParseWeightPaintMode(commandLine.GetValue("--mode").value_or(atBone ? "assign" : "add"));
+    const bool mirrorX = commandLine.HasFlag("--mirror-x") || commandLine.HasFlag("--mirror");
+    const bool mirrorY = commandLine.HasFlag("--mirror-y");
+    const bool mirrorZ = commandLine.HasFlag("--mirror-z");
+    const std::size_t changed = ri::scene::PaintNativeSculptWeights(
+        loaded.document, at, radius, bone, mode, mirrorX, mirrorY, mirrorZ, strength);
+    SaveSculptEdit(loaded);
+    ri::core::LogInfo(
+        "Painted " + bone + " (" + commandLine.GetValue("--mode").value_or(atBone ? "assign" : "add")
+        + ") at " + std::to_string(at.x) + "," + std::to_string(at.y) + "," + std::to_string(at.z)
+        + " r=" + std::to_string(radius) + " on " + std::to_string(changed) + " verts");
+}
+
+void ValidateNativeSculptAsset(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    auto pathArg = commandLine.GetValue("--sculpt-validate");
+    if (!pathArg.has_value() || pathArg->empty()) {
+        pathArg = commandLine.GetValue("--sculpt");
+    }
+    if (!pathArg.has_value() || pathArg->empty()) {
+        throw std::runtime_error(
+            "Missing --sculpt-validate <file.ri_sculpt.json> (or --sculpt <path>).");
+    }
+    const fs::path path = ResolveAuthoringPath(workspace, fs::path(*pathArg));
+    const auto sculpt = ri::content::LoadNativeSculptDocument(path);
+    if (!sculpt.has_value()) {
+        throw std::runtime_error("Could not parse RawIron sculpt: " + path.string());
+    }
+    const ri::content::NativeSculptValidationReport report =
+        ri::content::ValidateNativeSculptDocument(*sculpt);
+    ri::core::LogInfo("RawIron sculpt validation:");
+    ri::core::LogInfo("  Input: " + path.string());
+    ri::core::LogInfo("  Id: " + sculpt->id);
+    ri::core::LogInfo("  Cage: " + sculpt->cage);
+    ri::core::LogInfo("  Rig: " + (sculpt->rigPath.empty() ? std::string("(unbound)") : sculpt->rigPath));
+    ri::core::LogInfo("  Verts: " + std::to_string(report.vertexCount));
+    ri::core::LogInfo("  Tris: " + std::to_string(report.triangleCount));
+    ri::core::LogInfo("  Unbound: " + std::to_string(report.unboundVertexCount));
+    ri::core::LogInfo("  Blended: " + std::to_string(report.blendedVertexCount));
+    for (const std::string& warning : report.warnings) {
+        ri::core::LogInfo("  Warning: " + warning);
+    }
+    if (!report.valid) {
+        for (const std::string& error : report.errors) {
+            ri::core::LogInfo("  Error: " + error);
+        }
+        throw std::runtime_error("RawIron sculpt validation failed.");
+    }
+    ri::core::LogInfo("  Result: valid");
+}
+
+struct LoadedAnimEdit {
+    fs::path path{};
+    ri::content::NativeAnimationDocument document{};
+};
+
+[[nodiscard]] LoadedAnimEdit LoadAnimForEdit(
+    const WorkspaceLayout& workspace,
+    const ri::core::CommandLine& commandLine,
+    const std::string_view commandName) {
+    const auto animArg = commandLine.GetValue("--anim");
+    if (!animArg.has_value() || animArg->empty()) {
+        throw std::runtime_error(std::string(commandName) + " requires --anim <path>.");
+    }
+    LoadedAnimEdit loaded{};
+    loaded.path = ResolveAuthoringPath(workspace, fs::path(*animArg));
+    auto clip = ri::content::LoadNativeAnimationDocument(loaded.path);
+    if (!clip.has_value()) {
+        throw std::runtime_error("Could not load animation: " + loaded.path.string());
+    }
+    loaded.document = std::move(*clip);
+    return loaded;
+}
+
+void SaveAnimEdit(const LoadedAnimEdit& loaded) {
+    if (!ri::content::SaveNativeAnimationDocument(loaded.path, loaded.document)) {
+        throw std::runtime_error("Could not save animation: " + loaded.path.string());
+    }
+}
+
+void HoldAnimationPose(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedAnimEdit loaded = LoadAnimForEdit(workspace, commandLine, "--anim-hold");
+    const double timeSeconds = RequireOptionalDouble(commandLine, "--time", 0.0);
+    const std::string bone = commandLine.GetValue("--bone").value_or("");
+    std::size_t changed = 0U;
+    if (bone.empty()) {
+        changed = ri::scene::HoldNativeAnimationPose(loaded.document, timeSeconds);
+    } else if (ri::scene::HoldNativeAnimationKey(loaded.document, bone, timeSeconds)) {
+        changed = 1U;
+    } else {
+        throw std::runtime_error("Hold failed: no earlier key for bone '" + bone + "'.");
+    }
+    SaveAnimEdit(loaded);
+    ri::core::LogInfo("Held " + std::to_string(changed) + " track(s) at " + std::to_string(timeSeconds) + "s");
+}
+
+void BreakdownAnimationPose(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedAnimEdit loaded = LoadAnimForEdit(workspace, commandLine, "--anim-breakdown");
+    const double timeSeconds = RequireOptionalDouble(commandLine, "--time", 0.0);
+    const std::string bone = commandLine.GetValue("--bone").value_or("");
+    std::size_t changed = 0U;
+    if (bone.empty()) {
+        changed = ri::scene::BreakdownNativeAnimationPose(loaded.document, timeSeconds);
+    } else if (ri::scene::BreakdownNativeAnimationKey(loaded.document, bone, timeSeconds)) {
+        changed = 1U;
+    } else {
+        throw std::runtime_error(
+            "Breakdown failed: playhead must sit strictly between two keys"
+            + (bone.empty() ? "." : (" on '" + bone + "'.")));
+    }
+    SaveAnimEdit(loaded);
+    ri::core::LogInfo(
+        "Breakdown keyed " + std::to_string(changed) + " track(s) at " + std::to_string(timeSeconds) + "s");
+}
+
+void FitAnimationDuration(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedAnimEdit loaded = LoadAnimForEdit(workspace, commandLine, "--anim-fit-duration");
+    if (!ri::scene::FitNativeAnimationDuration(loaded.document)) {
+        throw std::runtime_error("Fit duration failed (clip may have no keys).");
+    }
+    SaveAnimEdit(loaded);
+    ri::core::LogInfo("Fitted duration to " + std::to_string(loaded.document.durationSeconds) + "s");
+}
+
+void AlignAnimationStart(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedAnimEdit loaded = LoadAnimForEdit(workspace, commandLine, "--anim-align-start");
+    if (!ri::scene::AlignNativeAnimationStart(loaded.document)) {
+        throw std::runtime_error("Align start failed (clip may have no keys).");
+    }
+    SaveAnimEdit(loaded);
+    ri::core::LogInfo("Aligned clip start to 0s; duration " + std::to_string(loaded.document.durationSeconds) + "s");
+}
+
+void TrimAnimationClip(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedAnimEdit loaded = LoadAnimForEdit(workspace, commandLine, "--anim-trim");
+    const auto startArg = commandLine.GetValue("--start");
+    const auto endArg = commandLine.GetValue("--end");
+    if (!startArg.has_value() || startArg->empty() || !endArg.has_value() || endArg->empty()) {
+        throw std::runtime_error("--anim-trim requires --start <seconds> and --end <seconds>.");
+    }
+    double startSeconds = 0.0;
+    double endSeconds = 0.0;
+    try {
+        startSeconds = std::stod(*startArg);
+        endSeconds = std::stod(*endArg);
+    } catch (...) {
+        throw std::runtime_error("--start and --end must be numbers.");
+    }
+    const bool shiftToZero = !commandLine.HasFlag("--no-shift");
+    const ri::scene::NativeAnimationTrimResult trim =
+        ri::scene::TrimNativeAnimation(loaded.document, startSeconds, endSeconds, shiftToZero);
+    if (!trim.valid) {
+        throw std::runtime_error(trim.summary.empty() ? "Trim failed." : trim.summary);
+    }
+    SaveAnimEdit(loaded);
+    ri::core::LogInfo(trim.summary);
+    ri::core::LogInfo(
+        "Removed keys=" + std::to_string(trim.removedKeys) + " events="
+        + std::to_string(trim.removedEvents));
+}
+
+void ReportAnimationClip(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto pathArg = commandLine.GetValue("--anim-report");
+    if (!pathArg.has_value() || pathArg->empty()) {
+        throw std::runtime_error("Missing --anim-report <file.ri_anim.json>.");
+    }
+    const fs::path path = ResolveAuthoringPath(workspace, fs::path(*pathArg));
+    const auto clip = ri::content::LoadNativeAnimationDocument(path);
+    if (!clip.has_value()) {
+        throw std::runtime_error("Could not load animation: " + path.string());
+    }
+    const ri::content::NativeAnimationValidationReport report =
+        ri::content::ValidateNativeAnimationDocument(*clip);
+    ri::core::LogInfo("anim\t" + path.string());
+    ri::core::LogInfo("id\t" + clip->id);
+    ri::core::LogInfo("rig\t" + clip->rigPath);
+    ri::core::LogInfo("duration\t" + std::to_string(clip->durationSeconds));
+    ri::core::LogInfo("tracks\t" + std::to_string(report.trackCount));
+    ri::core::LogInfo("keys\t" + std::to_string(report.keyCount));
+    ri::core::LogInfo("events\t" + std::to_string(report.eventCount));
+    ri::core::LogInfo("valid\t" + std::string(report.valid ? "yes" : "no"));
+    for (const auto& track : clip->tracks) {
+        ri::core::LogInfo("track\t" + track.boneName + "\t" + std::to_string(track.keys.size()));
+    }
+}
+
+void UpsertAnimationEvent(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedAnimEdit loaded = LoadAnimForEdit(workspace, commandLine, "--anim-event");
+    const auto nameArg = commandLine.GetValue("--name");
+    if (!nameArg.has_value() || nameArg->empty()) {
+        throw std::runtime_error("--anim-event requires --name <marker>.");
+    }
+    const double timeSeconds = RequireOptionalDouble(commandLine, "--time", 0.0);
+    if (!ri::scene::UpsertNativeAnimationEvent(loaded.document, timeSeconds, *nameArg)) {
+        throw std::runtime_error("Could not upsert animation event '" + *nameArg + "'.");
+    }
+    SaveAnimEdit(loaded);
+    ri::core::LogInfo(
+        "Event '" + *nameArg + "' at " + std::to_string(timeSeconds) + "s (events="
+        + std::to_string(loaded.document.events.size()) + ")");
+}
+
+void UpsertAnimationKey(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    LoadedAnimEdit loaded = LoadAnimForEdit(workspace, commandLine, "--anim-key");
+    const std::string bone = RequireBoneName(commandLine, "--anim-key");
+    const double timeSeconds = RequireOptionalDouble(commandLine, "--time", 0.0);
+    const bool fromPrevious = commandLine.HasFlag("--from-previous");
+
+    ri::scene::Transform transform{};
+    bool haveBase = false;
+
+    // Default: deltas are relative to rest pose so --rx 25 means "25° from rest", not compounded.
+    const fs::path rigPath = ResolveClipRigPath(workspace, loaded.document.rigPath, loaded.path);
+    if (!rigPath.empty()) {
+        if (const auto rig = ri::scene::LoadRigDefinition(rigPath); rig.has_value()) {
+            for (const auto& rigBone : rig->bones) {
+                if (rigBone.name != bone) {
+                    continue;
+                }
+                transform = rigBone.restLocal;
+                haveBase = true;
+                break;
+            }
+        }
+    }
+
+    if (fromPrevious || !haveBase) {
+        for (const auto& track : loaded.document.tracks) {
+            if (track.boneName != bone) {
+                continue;
+            }
+            std::optional<ri::content::NativeAnimationKeyframe> base{};
+            for (const auto& key : track.keys) {
+                if (key.timeSeconds <= timeSeconds + 1.0e-6) {
+                    if (!base.has_value() || key.timeSeconds >= base->timeSeconds) {
+                        base = key;
+                    }
+                }
+            }
+            if (!base.has_value() && !track.keys.empty()) {
+                base = track.keys.front();
+            }
+            if (base.has_value()) {
+                transform.position = {base->translation.x, base->translation.y, base->translation.z};
+                transform.rotationDegrees = {
+                    base->rotationDegrees.x, base->rotationDegrees.y, base->rotationDegrees.z};
+                transform.scale = {base->scale.x, base->scale.y, base->scale.z};
+                haveBase = true;
+            }
+            break;
+        }
+    }
+    if (!haveBase) {
+        transform.scale = {1.0f, 1.0f, 1.0f};
+    }
+
+    transform.position.x += RequireOptionalFloat(commandLine, "--tx", 0.0f);
+    transform.position.y += RequireOptionalFloat(commandLine, "--ty", 0.0f);
+    transform.position.z += RequireOptionalFloat(commandLine, "--tz", 0.0f);
+    transform.rotationDegrees.x += RequireOptionalFloat(commandLine, "--rx", 0.0f);
+    transform.rotationDegrees.y += RequireOptionalFloat(commandLine, "--ry", 0.0f);
+    transform.rotationDegrees.z += RequireOptionalFloat(commandLine, "--rz", 0.0f);
+    if (commandLine.GetValue("--sx").has_value()) {
+        transform.scale.x = RequireOptionalFloat(commandLine, "--sx", transform.scale.x);
+    }
+    if (commandLine.GetValue("--sy").has_value()) {
+        transform.scale.y = RequireOptionalFloat(commandLine, "--sy", transform.scale.y);
+    }
+    if (commandLine.GetValue("--sz").has_value()) {
+        transform.scale.z = RequireOptionalFloat(commandLine, "--sz", transform.scale.z);
+    }
+
+    ri::scene::UpsertNativeAnimationKey(loaded.document, bone, timeSeconds, transform);
+    if (timeSeconds > loaded.document.durationSeconds) {
+        loaded.document.durationSeconds = timeSeconds;
+    }
+    SaveAnimEdit(loaded);
+    ri::core::LogInfo(
+        "Keyed " + bone + " at " + std::to_string(timeSeconds) + "s"
+        + " t=(" + std::to_string(transform.position.x) + "," + std::to_string(transform.position.y)
+        + "," + std::to_string(transform.position.z) + ")"
+        + " r=(" + std::to_string(transform.rotationDegrees.x) + ","
+        + std::to_string(transform.rotationDegrees.y) + ","
+        + std::to_string(transform.rotationDegrees.z) + ")");
+}
+
+void KeyAnimationRest(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto animArg = commandLine.GetValue("--anim");
+    if (!animArg.has_value() || animArg->empty()) {
+        throw std::runtime_error("--anim-key-rest requires --anim <path>.");
+    }
+    const fs::path animPath = ResolveAuthoringPath(workspace, fs::path(*animArg));
+    auto clip = ri::content::LoadNativeAnimationDocument(animPath);
+    if (!clip.has_value()) {
+        throw std::runtime_error("Could not load animation: " + animPath.string());
+    }
+    const fs::path rigPath = ResolveClipRigPath(workspace, clip->rigPath, animPath);
+    if (rigPath.empty()) {
+        throw std::runtime_error("Clip has no resolvable rig path: " + clip->rigPath);
+    }
+    const auto rig = ri::scene::LoadRigDefinition(rigPath);
+    if (!rig.has_value()) {
+        throw std::runtime_error("Could not load rig: " + rigPath.string());
+    }
+    double timeSeconds = 0.0;
+    if (const auto typed = commandLine.GetValue("--time"); typed.has_value() && !typed->empty()) {
+        try {
+            timeSeconds = std::stod(*typed);
+        } catch (...) {
+            throw std::runtime_error("--time must be a number.");
+        }
+    }
+    const std::string bone = commandLine.GetValue("--bone").value_or("");
+    const std::size_t changed =
+        ri::scene::InsertNativeAnimationRestKeys(*clip, *rig, timeSeconds, bone);
+    if (!ri::content::SaveNativeAnimationDocument(animPath, *clip)) {
+        throw std::runtime_error("Could not save animation: " + animPath.string());
+    }
+    ri::core::LogInfo(
+        "Rest-keyed " + std::to_string(changed) + " bones at " + std::to_string(timeSeconds) + "s");
+}
+
+void ValidateNativeAnimationAsset(const WorkspaceLayout& workspace, const ri::core::CommandLine& commandLine) {
+    const auto pathArg = commandLine.GetValue("--anim-validate");
+    if (!pathArg.has_value() || pathArg->empty()) {
+        throw std::runtime_error("Missing --anim-validate <file.ri_anim.json>.");
+    }
+    const fs::path path = ResolveAuthoringPath(workspace, fs::path(*pathArg));
+    const auto clip = ri::content::LoadNativeAnimationDocument(path);
+    if (!clip.has_value()) {
+        throw std::runtime_error("Could not parse RawIron animation: " + path.string());
+    }
+    const ri::content::NativeAnimationValidationReport report =
+        ri::content::ValidateNativeAnimationDocument(*clip);
+    ri::core::LogInfo("RawIron animation validation:");
+    ri::core::LogInfo("  Input: " + path.string());
+    ri::core::LogInfo("  Id: " + clip->id);
+    ri::core::LogInfo("  Rig: " + clip->rigPath);
+    ri::core::LogInfo("  Tracks: " + std::to_string(report.trackCount));
+    ri::core::LogInfo("  Keys: " + std::to_string(report.keyCount));
+    for (const std::string& warning : report.warnings) {
+        ri::core::LogInfo("  Warning: " + warning);
+    }
+    if (!report.valid) {
+        for (const std::string& error : report.errors) {
+            ri::core::LogInfo("  Error: " + error);
+        }
+        throw std::runtime_error("RawIron animation validation failed.");
     }
     ri::core::LogInfo("  Result: valid");
 }
@@ -2549,6 +5093,47 @@ void PrintToolHelp() {
     ri::core::LogInfo("  --asset-package-mount-check <id> [--package-version <range>] [--project <root>]");
     ri::core::LogInfo("  --game-package-mount-check --game <id> | --game-root <path>");
     ri::core::LogInfo("  --rig-toolchain-report | --rig-create-humanoid <id> | --rig-validate <path>");
+    ri::core::LogInfo("Forge clay, block modeling, and motion (headless — no UI):");
+    ri::core::LogInfo("  --forge-report | --forge-assets-list [--kind sculpt|rig|anim|block|all]");
+    ri::core::LogInfo("  --forge-character-create <id> [--name] [--style sphere|cube] [--walk] [--open] [--overwrite]");
+    ri::core::LogInfo("  --blockchar-create <id> [--name] [--rig <path>] [--from <user-blockchar>] [--overwrite]");
+    ri::core::LogInfo("  --blockchar-list-shapes");
+    ri::core::LogInfo("  --blockchar-add-part --blockchar <path> --bone <name> [--part <id>] [--shape box|prism|dome|wedge|cylinder|spike|slab|bevel|capsule]");
+    ri::core::LogInfo("      [--x|--y|--z] [--sx|--sy|--sz] [--rx|--ry|--rz] [--tsx|--tsy|--tsz] [--sides N] [--bevel 0..0.45]");
+    ri::core::LogInfo("      [--color r,g,b] [--texture <rel>] [--roughness] [--metallic]");
+    ri::core::LogInfo("  --blockchar-set-part --blockchar <path> --part <id> (same transform/look/shape flags)");
+    ri::core::LogInfo("  --blockchar-nudge --blockchar <path> --part <id> [--dx|--dy|--dz|--drx|--dry|--drz|--dsx|--dsy|--dsz|--scale]");
+    ri::core::LogInfo("  --blockchar-duplicate --blockchar <path> --part <id> --as <new-id> [--dx|--dy|--dz] [--bone]");
+    ri::core::LogInfo("  --blockchar-mirror --blockchar <path> --part <id> [--axis x|z] [--as <new-id>]");
+    ri::core::LogInfo("  --blockchar-inset --blockchar <path> --part <id> [--face front|back|top|bottom] [--inset] [--depth] [--as] [--shape] [--bevel]");
+    ri::core::LogInfo("  --blockchar-attach --blockchar <path> --parent <id> --along front|back|top|bottom|left|right [--offset] [--shape] [--sx|--sy|--sz] ...");
+    ri::core::LogInfo("  --blockchar-recolor --blockchar <path> [--part <id>|all] [--color r,g,b|--mul r,g,b]");
+    ri::core::LogInfo("  --blockchar-bevel --blockchar <path> --part <id> [--bevel 0.2]");
+    ri::core::LogInfo("  --blockchar-remove-part --blockchar <path> --part <id>");
+    ri::core::LogInfo("  --blockchar-report <path> | --blockchar-write-textures --blockchar <path>");
+    ri::core::LogInfo("  --blockchar-sync-sculpt --blockchar <path> [--rig <path>] [--sculpt <path>] [--overwrite]");
+    ri::core::LogInfo("  --function <name> --id <character-id> [--name] [--overwrite] [--open] | --functions-list");
+    ri::core::LogInfo("  --forge-handoff-probe <asset> [--game <id>]");
+    ri::core::LogInfo("  --sculpt-create <id> [--cage sphere|cube] [--output <path>] [--overwrite] [--name <label>]");
+    ri::core::LogInfo("  --sculpt-bind --sculpt <path> --rig <path> [--replace]");
+    ri::core::LogInfo("  --sculpt-fit-rig --sculpt <path> --rig <path> [--padding <scale>]");
+    ri::core::LogInfo("  --sculpt-flood-weights|--sculpt-flood-free --sculpt <path> --bone <name>");
+    ri::core::LogInfo("  --sculpt-soft|--sculpt-soft-bone|--sculpt-cap4|--sculpt-normalize|--sculpt-seal --sculpt <path>");
+    ri::core::LogInfo("  --sculpt-prune --sculpt <path> [--min <w>] | --sculpt-mirror --sculpt <path> [--axis x|y|z]");
+    ri::core::LogInfo("  --sculpt-invert|--sculpt-ceil|--sculpt-harden|--sculpt-grow|--sculpt-shrink --sculpt <path> --bone <name>");
+    ri::core::LogInfo("  --sculpt-transfer --sculpt <path> --from <bone> --to <bone>");
+    ri::core::LogInfo("  --sculpt-swap --sculpt <path> --left <bone> --right <bone>");
+    ri::core::LogInfo("  --sculpt-paint --sculpt <path> --bone <name> (--at <x,y,z> [--unit]|--at-bone) [--snap] [--radius] [--mode] [--mirror]");
+    ri::core::LogInfo("  --sculpt-bounds|--sculpt-bone-weights|--sculpt-audit-weights|--sculpt-validate --sculpt <path>");
+    ri::core::LogInfo("  --sculpt-unbind|--sculpt-clear-weights --sculpt <path>");
+    ri::core::LogInfo("  --anim-create <id> --rig <path> [--output <path>] [--overwrite] [--name <label>]");
+    ri::core::LogInfo("  --anim-author-idle|--anim-author-walk <path> [--rig <path>] [--motion-intensity <0.25-2.5>]");
+    ri::core::LogInfo("  --anim-key-rest|--anim-hold|--anim-breakdown --anim <path> [--bone <name>] [--time <s>]");
+    ri::core::LogInfo("  --anim-key --anim <path> --bone <name> --time <s> [--tx|--ty|--tz|--rx|--ry|--rz] [--from-previous]");
+    ri::core::LogInfo("  --anim-event --anim <path> --name <marker> [--time <s>]");
+    ri::core::LogInfo("  --anim-trim --anim <path> --start <s> --end <s> [--no-shift]");
+    ri::core::LogInfo("  --anim-fit-duration|--anim-align-start --anim <path>");
+    ri::core::LogInfo("  --anim-validate <path> | --anim-report <path>");
     ri::core::LogInfo("Rendering and diagnostics:");
     ri::core::LogInfo("  --scenekit-targets | --scenekit-checks | --scenekit-example <slug>");
     ri::core::LogInfo("  --postprocess-presets | --vulkan-diagnostics | --render-cube | --sample-scene");
@@ -2560,7 +5145,7 @@ bool CommandRequested(const ri::core::CommandLine& commandLine, const std::strin
 }
 
 void ValidateSinglePrimaryCommand(const ri::core::CommandLine& commandLine) {
-    static constexpr std::array<std::string_view, 36> commands = {{
+    static constexpr std::array<std::string_view, 97> commands = {{
         "--workspace",
         "--list-projects",
         "--ensure-workspace",
@@ -2579,6 +5164,66 @@ void ValidateSinglePrimaryCommand(const ri::core::CommandLine& commandLine) {
         "--rig-toolchain-report",
         "--rig-create-humanoid",
         "--rig-validate",
+        "--forge-report",
+        "--forge-assets-list",
+        "--forge-character-create",
+        "--blockchar-create",
+        "--blockchar-add-part",
+        "--blockchar-set-part",
+        "--blockchar-nudge",
+        "--blockchar-remove-part",
+        "--blockchar-list-shapes",
+        "--blockchar-duplicate",
+        "--blockchar-mirror",
+        "--blockchar-inset",
+        "--blockchar-attach",
+        "--blockchar-recolor",
+        "--blockchar-bevel",
+        "--blockchar-report",
+        "--blockchar-write-textures",
+        "--blockchar-sync-sculpt",
+        "--function",
+        "--functions-list",
+        "--forge-handoff-probe",
+        "--sculpt-create",
+        "--sculpt-bind",
+        "--sculpt-fit-rig",
+        "--sculpt-flood-weights",
+        "--sculpt-flood-free",
+        "--sculpt-soft",
+        "--sculpt-soft-bone",
+        "--sculpt-cap4",
+        "--sculpt-normalize",
+        "--sculpt-prune",
+        "--sculpt-mirror",
+        "--sculpt-seal",
+        "--sculpt-invert",
+        "--sculpt-ceil",
+        "--sculpt-harden",
+        "--sculpt-transfer",
+        "--sculpt-swap",
+        "--sculpt-grow",
+        "--sculpt-shrink",
+        "--sculpt-paint",
+        "--sculpt-bounds",
+        "--sculpt-bone-weights",
+        "--sculpt-audit-weights",
+        "--sculpt-validate",
+        "--sculpt-unbind",
+        "--sculpt-clear-weights",
+        "--anim-create",
+        "--anim-author-idle",
+        "--anim-author-walk",
+        "--anim-key-rest",
+        "--anim-key",
+        "--anim-hold",
+        "--anim-breakdown",
+        "--anim-event",
+        "--anim-trim",
+        "--anim-fit-duration",
+        "--anim-align-start",
+        "--anim-validate",
+        "--anim-report",
         "--asset-standardize",
         "--asset-standardize-dir",
         "--asset-package-build",
@@ -3069,6 +5714,8 @@ int main(int argc, char** argv) {
             ri::core::LogInfo("  .ri_package.json  (portable asset/resource package manifest)");
             ri::core::LogInfo("  .ripak  (ZIP-compatible RawIron package archive containing package.ri_package.json)");
             ri::core::LogInfo("  .ri_rig.json  (portable skeleton/rest-pose source with humanoid validation)");
+            ri::core::LogInfo("  .ri_sculpt.json  (Forge clay cage + skin weights)");
+            ri::core::LogInfo("  .ri_anim.json  (Forge motion clip bound to a rig)");
             ri::core::LogInfo("  .riscript  (RawIron-owned Lua-like scripting language for behavior/config/tests)");
             ri::core::LogInfo("Third-party authoring/import inputs:");
             ri::core::LogInfo("  .blend  (Blender authoring source; export/rebuild into RawIron mesh/material outputs before shipping)");
@@ -3118,7 +5765,289 @@ int main(int argc, char** argv) {
         }
 
         if (CommandRequested(commandLine, "--rig-validate")) {
-            ValidateRig(commandLine);
+            ValidateRig(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--forge-report")) {
+            PrintForgeToolchainReport(workspace);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--forge-assets-list")) {
+            ListForgeAssets(workspace, commandLine);
+            return 0;
+        }
+
+        if (CommandRequested(commandLine, "--forge-character-create")) {
+            CreateForgeCharacter(workspace, commandLine);
+            return 0;
+        }
+
+        if (CommandRequested(commandLine, "--blockchar-create")) {
+            CreateBlockCharacter(workspace, commandLine);
+            return 0;
+        }
+        if (commandLine.HasFlag("--blockchar-add-part")) {
+            AddBlockCharacterPart(workspace, commandLine);
+            return 0;
+        }
+        if (commandLine.HasFlag("--blockchar-set-part")) {
+            SetBlockCharacterPart(workspace, commandLine);
+            return 0;
+        }
+        if (commandLine.HasFlag("--blockchar-nudge")) {
+            NudgeBlockCharacterPart(workspace, commandLine);
+            return 0;
+        }
+        if (commandLine.HasFlag("--blockchar-remove-part")) {
+            RemoveBlockCharacterPart(workspace, commandLine);
+            return 0;
+        }
+        if (commandLine.HasFlag("--blockchar-list-shapes")) {
+            ListBlockCharacterShapes();
+            return 0;
+        }
+        if (commandLine.HasFlag("--blockchar-duplicate")) {
+            DuplicateBlockCharacterPart(workspace, commandLine);
+            return 0;
+        }
+        if (commandLine.HasFlag("--blockchar-mirror")) {
+            MirrorBlockCharacterPart(workspace, commandLine);
+            return 0;
+        }
+        if (commandLine.HasFlag("--blockchar-inset")) {
+            InsetBlockCharacterDetail(workspace, commandLine);
+            return 0;
+        }
+        if (commandLine.HasFlag("--blockchar-attach")) {
+            AttachBlockCharacterDetail(workspace, commandLine);
+            return 0;
+        }
+        if (commandLine.HasFlag("--blockchar-recolor")) {
+            RecolorBlockCharacterParts(workspace, commandLine);
+            return 0;
+        }
+        if (commandLine.HasFlag("--blockchar-bevel")) {
+            BevelBlockCharacterPart(workspace, commandLine);
+            return 0;
+        }
+        if (CommandRequested(commandLine, "--blockchar-report")) {
+            ReportBlockCharacter(workspace, commandLine);
+            return 0;
+        }
+        if (commandLine.HasFlag("--blockchar-write-textures")) {
+            WriteBlockCharacterTextures(workspace, commandLine);
+            return 0;
+        }
+        if (commandLine.HasFlag("--blockchar-sync-sculpt")) {
+            SyncBlockCharacterSculpt(workspace, commandLine);
+            return 0;
+        }
+        if (commandLine.HasFlag("--functions-list")) {
+            ListToolFunctions(workspace);
+            return 0;
+        }
+        if (CommandRequested(commandLine, "--function")) {
+            RunToolFunction(workspace, commandLine);
+            return 0;
+        }
+        if (CommandRequested(commandLine, "--anim-author-idle")) {
+            AuthorHumanoidMotionClip(workspace, commandLine, false);
+            return 0;
+        }
+        if (CommandRequested(commandLine, "--anim-author-walk")) {
+            AuthorHumanoidMotionClip(workspace, commandLine, true);
+            return 0;
+        }
+
+        if (CommandRequested(commandLine, "--forge-handoff-probe")) {
+            ProbeForgeHandoff(workspace, commandLine);
+            return 0;
+        }
+
+        if (CommandRequested(commandLine, "--sculpt-create")) {
+            CreateNativeSculptAsset(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-bind")) {
+            BindSculptToRig(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-fit-rig")) {
+            FitSculptToRigCommand(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-flood-weights")) {
+            FloodSculptWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-soft-bone")) {
+            SoftSculptBoneWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-cap4")) {
+            CapSculptInfluences(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-audit-weights")) {
+            AuditSculptWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-unbind")) {
+            UnbindSculptFromRig(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-clear-weights")) {
+            ClearSculptWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-normalize")) {
+            NormalizeSculptWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-prune")) {
+            PruneSculptWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-mirror")) {
+            MirrorSculptWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-seal")) {
+            SealSculptWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-invert")) {
+            InvertSculptBoneWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-ceil")) {
+            CeilSculptBoneWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-harden")) {
+            HardenSculptBoneWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-flood-free")) {
+            FloodUnboundSculptWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-soft")) {
+            SoftenAllSculptWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-transfer")) {
+            TransferSculptWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-swap")) {
+            SwapSculptWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-grow")) {
+            GrowSculptBoneWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-shrink")) {
+            ShrinkSculptBoneWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-paint")) {
+            PaintSculptWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-bounds")) {
+            ReportSculptBounds(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--sculpt-bone-weights")) {
+            ReportSculptBoneWeights(workspace, commandLine);
+            return 0;
+        }
+
+        if (CommandRequested(commandLine, "--sculpt-validate")) {
+            ValidateNativeSculptAsset(workspace, commandLine);
+            return 0;
+        }
+
+        if (CommandRequested(commandLine, "--anim-create")) {
+            CreateNativeAnimationAsset(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--anim-key-rest")) {
+            KeyAnimationRest(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--anim-key")) {
+            UpsertAnimationKey(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--anim-hold")) {
+            HoldAnimationPose(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--anim-breakdown")) {
+            BreakdownAnimationPose(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--anim-event")) {
+            UpsertAnimationEvent(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--anim-trim")) {
+            TrimAnimationClip(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--anim-fit-duration")) {
+            FitAnimationDuration(workspace, commandLine);
+            return 0;
+        }
+
+        if (commandLine.HasFlag("--anim-align-start")) {
+            AlignAnimationStart(workspace, commandLine);
+            return 0;
+        }
+
+        if (CommandRequested(commandLine, "--anim-validate")) {
+            ValidateNativeAnimationAsset(workspace, commandLine);
+            return 0;
+        }
+
+        if (CommandRequested(commandLine, "--anim-report")) {
+            ReportAnimationClip(workspace, commandLine);
             return 0;
         }
 

@@ -83,6 +83,8 @@ int main(int argc, char** argv) {
         return 0;
     }
     ri::games::liminal::StandaloneOptions options{};
+    options.launchArgc = argc;
+    options.launchArgv = argv;
     if (const auto game = commandLine.GetValue("--game"); game.has_value() && !game->empty()) {
         options.gameId = *game;
     }
@@ -229,8 +231,6 @@ int main(int argc, char** argv) {
         }
         return 0;
     }
-    options.launchArgc = argc;
-    options.launchArgv = argv;
     if (!ri::games::liminal::RunStandalone(options, &error)) {
         if (!error.empty()) {
             ri::core::LogSection("Liminal Game Failure");

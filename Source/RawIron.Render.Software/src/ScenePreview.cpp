@@ -31,6 +31,7 @@ struct ScreenVertex {
     float y = 0.0f;
     float depth = 0.0f;
     ri::math::Vec2 uv{0.0f, 0.0f};
+    ri::math::Vec3 color{1,1,1};
 };
 
 struct CameraBasis {
@@ -47,6 +48,7 @@ struct CameraBasis {
 struct ClipVertex {
     ri::math::Vec3 p{};
     ri::math::Vec2 uv{};
+    ri::math::Vec3 color{1,1,1};
 };
 
 struct TextureSample {
@@ -775,7 +777,8 @@ void RasterizeTriangleProjected(SoftwareImage& image,
             if (!additivePass && !transparentPass) {
                 depthBuffer[pixelIndex] = depth;
             }
-            ri::math::Vec3 shaded = MultiplyColor(modulate, sample.color);
+            const auto vertexColor = (screenA.color*(w0*invZa)+screenB.color*(w1*invZb)+screenC.color*(w2*invZc))*(1.0f/wInvZ);
+            ri::math::Vec3 shaded = MultiplyColor(MultiplyColor(modulate, vertexColor), sample.color);
             if (material.albedoAlphaIsSmoothness && texturedSample) {
                 const float smoothness = std::clamp(sample.alpha, 0.0f, 1.0f);
                 shaded = ClampColor(shaded * (0.90f + 0.10f * smoothness));
@@ -845,6 +848,7 @@ int ClipPolygonToPlane(const ClipVertex* input,
                 ClipVertex edge{};
                 edge.p = previous.p + ((current.p - previous.p) * t);
                 edge.uv = previous.uv + ((current.uv - previous.uv) * t);
+                edge.color = ri::math::Lerp(previous.color,current.color,t);
                 output[static_cast<std::size_t>(outputCount++)] = edge;
             }
         }
@@ -916,9 +920,10 @@ void RasterizeTriangleClipped(SoftwareImage& image,
         const ClipVertex& a = scratch[0];
         const ClipVertex& b = scratch[static_cast<std::size_t>(i)];
         const ClipVertex& c = scratch[static_cast<std::size_t>(i + 1)];
-        const ScreenVertex sa = ProjectPoint(a.p, a.uv, options.width, options.height, camera.focalLength, camera.aspectRatio);
-        const ScreenVertex sb = ProjectPoint(b.p, b.uv, options.width, options.height, camera.focalLength, camera.aspectRatio);
-        const ScreenVertex sc = ProjectPoint(c.p, c.uv, options.width, options.height, camera.focalLength, camera.aspectRatio);
+        ScreenVertex sa = ProjectPoint(a.p, a.uv, options.width, options.height, camera.focalLength, camera.aspectRatio);
+        ScreenVertex sb = ProjectPoint(b.p, b.uv, options.width, options.height, camera.focalLength, camera.aspectRatio);
+        ScreenVertex sc = ProjectPoint(c.p, c.uv, options.width, options.height, camera.focalLength, camera.aspectRatio);
+        sa.color=a.color; sb.color=b.color; sc.color=c.color;
         RasterizeTriangleProjected(image, depthBuffer, options, sa, sb, sc, material, modulate, texture, camera);
     }
 }
@@ -1057,7 +1062,10 @@ void DrawPrimitiveNode(SoftwareImage& image,
                                        const ri::math::Vec3* localNormalA = nullptr,
                                        const ri::math::Vec3* localNormalB = nullptr,
                                        const ri::math::Vec3* localNormalC = nullptr,
-                                       const bool positionsAreWorld = false) {
+                                       const bool positionsAreWorld = false,
+                                       const ri::math::Vec3 colorA={1,1,1},
+                                       const ri::math::Vec3 colorB={1,1,1},
+                                       const ri::math::Vec3 colorC={1,1,1}) {
         const ri::math::Vec3 worldA = positionsAreWorld ? localA : ri::math::TransformPoint(world, localA);
         const ri::math::Vec3 worldB = positionsAreWorld ? localB : ri::math::TransformPoint(world, localB);
         const ri::math::Vec3 worldC = positionsAreWorld ? localC : ri::math::TransformPoint(world, localC);
@@ -1070,6 +1078,7 @@ void DrawPrimitiveNode(SoftwareImage& image,
         ClipVertex cc{};
         cc.p = ToCameraSpace(camera, worldC);
         cc.uv = ri::math::Vec2{uvC.x * tiling.x, uvC.y * tiling.y};
+        ca.color=colorA; cb.color=colorB; cc.color=colorC;
 
         ri::math::Vec3 worldNormal = ri::math::Cross(worldB - worldA, worldC - worldA);
         if (localNormalA != nullptr && localNormalB != nullptr && localNormalC != nullptr) {
@@ -1182,7 +1191,10 @@ void DrawPrimitiveNode(SoftwareImage& image,
                     cameraFacingSprites || vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ia)],
                     cameraFacingSprites || vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ib)],
                     cameraFacingSprites || vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ic)],
-                    cameraFacingSprites);
+                    cameraFacingSprites,
+                    mesh.colors.size()==mesh.positions.size()?mesh.colors[ia]:ri::math::Vec3{1,1,1},
+                    mesh.colors.size()==mesh.positions.size()?mesh.colors[ib]:ri::math::Vec3{1,1,1},
+                    mesh.colors.size()==mesh.positions.size()?mesh.colors[ic]:ri::math::Vec3{1,1,1});
             }
             break;
         }
@@ -1221,7 +1233,10 @@ void DrawPrimitiveNode(SoftwareImage& image,
                     uvc,
                     vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ia)],
                     vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ib)],
-                    vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ic)]);
+                    vertexNormals.empty() ? nullptr : &vertexNormals[static_cast<std::size_t>(ic)], false,
+                    mesh.colors.size()==mesh.positions.size()?mesh.colors[ia]:ri::math::Vec3{1,1,1},
+                    mesh.colors.size()==mesh.positions.size()?mesh.colors[ib]:ri::math::Vec3{1,1,1},
+                    mesh.colors.size()==mesh.positions.size()?mesh.colors[ic]:ri::math::Vec3{1,1,1});
             }
             break;
         }

@@ -18,7 +18,8 @@ All games:
 
 ## Shared support code
 
-`Games/Common` contains shared game-facing support such as config contract enforcement and runtime boot helpers used across multiple projects.
+`Source/RawIron.GameHost` owns shared game-facing support, including config contract enforcement,
+runtime boot helpers, plugins, and overlays. `Games/Common` retains the compatibility/test entry point.
 
 ## Shared authored families
 

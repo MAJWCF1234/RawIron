@@ -162,12 +162,12 @@ so portal travel cannot leave the startup radius and enter missing geometry.
 
 ## Repeatable room benchmark
 
-The gallery now has ten rooms. `--start-room=lathe`, `--start-room=tubes`, and
+The gallery now has 22 rooms. `--start-room=lathe`, `--start-room=tubes`, and
 `--start-room=surfaces` select the new structural geometry platforms in either
 desktop or VR. Their nine exhibits use the existing `StructuralPrimitiveBundle`
 path: enhanced `revolve`, `spline_sweep`, and `torus`, plus cataloged `mobius` and
 `parametric_patch`. F1 describes each reference and expected observation; the
-eighteen portal routes connect all rooms in both directions. See
+42 portal routes connect all rooms in both directions. See
 [structural surface scope and validation](../../docs/STRUCTURAL_SURFACE_SHOWCASE_VALIDATION.md).
 
 From the repository root run `Scripts/Benchmark-CubeTestRooms.ps1`. It launches every room twice,
@@ -224,3 +224,23 @@ Scripts/Test-StructuralShowcase.ps1 -BuildDirectory build/demo-expansion-msvc
 ```
 
 See [expansion evidence and remaining limits](../../docs/STRUCTURAL_EXPANSION_VALIDATION.md).
+
+## Mesh feature exhibits
+
+The projectile authority demo also validates fixed command scheduling independently
+of snapshots. Run `RawIron.CubeTest.CommandCadenceSmoke` through CTest for the actual
+demo pool/emitter behind the engine network module, including burst, disconnect,
+hitch and byte-budget cases. See [command cadence validation](../../docs/COMMAND_CADENCE_VALIDATION.md).
+
+`--start-room=vertex-colors`, `uv-transform`, `morph-targets`, and `clipping` select
+the four mesh feature platforms. RawIron.SceneUtilities owns the reusable operators;
+the game supplies layout, materials, and animation samples. F4 cycles automatic
+animation and fixed poses 0/8/16/24; `--feature-frame=0..31` pins a capture pose.
+`Scripts/Test-MeshFeatureRoster.ps1` captures both phases through native Vulkan.
+See [scope and validation](../../docs/MESH_FEATURE_ROSTER_VALIDATION.md).
+
+`native_shadow_radius` in `scripts/postprocess.riscript` controls the camera-follow
+directional shadow half-width in metres (8..256). Cube Test requests 16 metres:
+a 32-metre footprint instead of the engine compatibility default of 180 metres.
+This improves nearby precision at the cost of distant directional shadow coverage.
+Large worlds need cascaded coverage rather than simply increasing this radius.

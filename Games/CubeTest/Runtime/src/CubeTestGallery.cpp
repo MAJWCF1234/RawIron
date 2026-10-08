@@ -5,7 +5,7 @@
 
 namespace ri::games::cubetest {
 namespace {
-constexpr std::array<GalleryRoomGuide, 18> rooms{{
+constexpr std::array<GalleryRoomGuide, 22> rooms{{
     {"baseline", "Baseline materials", 0, "SceneUtilities primitives / native Vulkan PBR",
      "misc_exporter_gltf.html: hardwood2_diffuse.jpg and uv_grid_opengl.jpg",
      "Walk around the five samples; compare tint, roughness, metalness and opacity.",
@@ -78,6 +78,22 @@ constexpr std::array<GalleryRoomGuide, 18> rooms{{
      "webgl_geometry_terrain.html: heightfield geometry; local uv_grid_opengl.jpg (native procedural height source)",
      "Compare the same native ridge at 8 and 48 cells per axis.",
      "This compares tessellation, not Three.js terrain-noise parity. Height samples and meshing are engine capabilities."},
+    {"vertex-colors","Vertex color fields",468,"Scene Mesh::colors / Vulkan and software interpolants",
+     "webgl_geometry_colors.html (behavior reference; native geometry)",
+     "Compare the white control with RGB position and permuted-channel spheres.",
+     "Linear vertex colors modulate materials through a GPU vertex stream; geometry and texture remain identical."},
+    {"uv-transform","Texture transforms",494,"SceneUtilities TransformMeshUvs / native texture sampling",
+     "webgl_materials_texture_rotation.html: local uv_grid_opengl.jpg",
+     "Compare identity, animated center rotation/offset/repeat, and mirrored UVs.",
+     "The engine owns center/repeat/offset math. Bounded prebuilt samples avoid mesh uploads every frame."},
+    {"morph-targets","Morph target blending",520,"SceneUtilities BlendMeshMorphTargets",
+     "webgl_morphtargets.html (behavior reference; native cube-to-sphere and twist)",
+     "Compare the base, animated two-target blend, and round target.",
+     "Absolute targets blend without cumulative drift; normals are recomputed. This lane samples 32 cached poses, not GPU morph attributes."},
+    {"clipping","Clipping half spaces",546,"SceneUtilities ClipMeshPlanes / shared renderable geometry",
+     "webgl_clipping.html (behavior reference; native sphere)",
+     "Compare the whole sphere, animated slice, and two-plane intersection.",
+     "Clipping interpolates normals, UVs and colors; no section caps. The same geometry feeds presentation and shadows."},
 }};
 }
 
@@ -101,6 +117,7 @@ std::string DescribeCubeTestRoom(const GalleryRoomGuide& room) {
         + "\nControls: " + std::string(room.controls) + "\nObserve: " + std::string(room.observation)
         + "\nWASD / mouse look | Shift sprint | Space jump | Home reset to starting room | Esc exit"
           "\nColored gates link adjacent rooms in both directions. F1 opens this room guide."
+          "\nF4 cycles automatic / frozen mesh-feature poses 0, 8, 16, 24."
           "\nAll copied assets live under Games/CubeTest/assets/reference/threejs-r185.\n";
 }
 std::string CubeTestGalleryHelp() {

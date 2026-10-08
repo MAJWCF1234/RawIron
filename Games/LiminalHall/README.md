@@ -2,6 +2,11 @@
 
 Format contract: `rawiron-game-v1.3.7`
 
+Desktop/headless launch and software-benchmark preflight use engine-owned
+`RawIron.GameHost`. The game owns its hall content, simulation and UI choices;
+the engine prepares project settings, services and runtime identity before setup.
+See [boundary and validation](../../docs/LIMINAL_HOST_BOUNDARY_VALIDATION.md).
+
 ## Identity
 
 - `id`: `liminal-hall`

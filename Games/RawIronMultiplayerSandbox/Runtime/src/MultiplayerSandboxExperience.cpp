@@ -10,6 +10,8 @@
 #include "RawIron/Content/ShaderAsset.h"
 #include "RawIron/Core/Log.h"
 #include "RawIron/Games/GameConfigContracts.h"
+#include "RawIron/Games/GameNetworkTuning.h"
+#include "RawIron/Games/GamePhysicsTuning.h"
 #include "RawIron/Games/GamePluginRuntimeBridge.h"
 #include "RawIron/Games/GameRuntimeCore.h"
 #include "RawIron/Render/ShaderConfig.h"
@@ -476,7 +478,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     std::string contractError;
     if (!ri::games::EnforceGameConfigContracts(
             manifest.rootPath,
-            ri::games::GameConfigContractOptions{.mode = ri::games::GameConfigContractMode::Balanced},
+            ri::games::GameConfigContractOptions{.mode = ri::games::GameConfigContractMode::Balanced, .networkTuningMounted = true},
             &contractError)) {
         ri::core::LogInfo(contractError);
         return false;
@@ -556,6 +558,7 @@ bool InitializeRuntimeState(const StandaloneOptions& options,
     state.movementOptions.maxAirSpeed =
         std::clamp(state.movementOptions.maxAirSpeed * movementSpeedScale, 2.0f, 18.0f);
 
+    state.movementOptions = ri::games::ResolveGamePhysicsTuning(state.movementOptions, physics);
     const ri::math::Vec3 fallbackSpawn{
         -state.world.catalogExtents.x + 28.5f,
         4.30f,
@@ -800,7 +803,8 @@ bool RunStandaloneNativeVulkanLoop(const StandaloneOptions& options,
 
 void AttachSandboxNetModules(ri::runtime::RuntimeCore& runtime,
                              const StandaloneOptions& options,
-                             const ri::core::CommandLine& commandLine) {
+                             const ri::core::CommandLine& commandLine,
+                             const ri::content::GameManifest& manifest) {
     ri::runtime::AuthoritativeNetConfig net{};
     net.enabled = !commandLine.HasFlag("--offline");
 #if !defined(RAWIRON_HAS_ENET)
@@ -836,6 +840,9 @@ void AttachSandboxNetModules(ri::runtime::RuntimeCore& runtime,
     net.latencySimulation.baseDelayMs = options.simDelayMs;
     net.latencySimulation.jitterMs = options.simJitterMs;
     net.latencySimulation.packetLossPercent = static_cast<float>(options.simLossPct);
+
+    ri::games::ApplyGameNetworkTuning(net,
+        ri::content::LoadGameScriptBundle(manifest.rootPath, {.logMissing = false}).network, commandLine);
 
     auto netModule = std::make_unique<ri::runtime::AuthoritativeNetModule>(net);
     ri::runtime::AuthoritativeNetModule* netPtr = netModule.get();
@@ -921,7 +928,7 @@ bool RunStandalone3D(const StandaloneOptions& options,
                 .support = std::move(supportService),
             });
 
-        AttachSandboxNetModules(runtime, options, commandLine);
+        AttachSandboxNetModules(runtime, options, commandLine, *manifest);
 
         RuntimeState state{};
         if (!InitializeRuntimeState(options, *manifest, state)) {

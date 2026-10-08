@@ -3,7 +3,8 @@ param(
     [string]$OutputRoot = 'Saved/benchmarks/cube-test',
     [ValidateRange(1,10)][int]$Repetitions = 2,
     [ValidateRange(1,10000)][int]$WarmupIntervals = 30,
-    [ValidateRange(10,10000)][int]$SampleIntervals = 120
+    [ValidateRange(10,10000)][int]$SampleIntervals = 120,
+    [string[]]$Rooms = @('baseline','sprites','normals','exporter','interaction','projectile','teleport','lathe','tubes','surfaces','knots','helices','lathe-poles','extrusion','rounded','superellipsoids','hulls','heightfields','vertex-colors','uv-transform','morph-targets','clipping')
 )
 $ErrorActionPreference = 'Stop'
 $workspace = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -14,7 +15,7 @@ $run = Join-Path (Join-Path $workspace $OutputRoot) (Get-Date -Format 'yyyyMMdd-
 New-Item -ItemType Directory -Path $run -Force | Out-Null
 $rows = @()
 $frames = $WarmupIntervals + $SampleIntervals + 1
-foreach ($room in @('baseline','sprites','normals','exporter','interaction','projectile','teleport','lathe','tubes','surfaces','knots','helices','lathe-poles','extrusion','rounded','superellipsoids','hulls','heightfields')) {
+foreach ($room in $Rooms) {
     for ($repeat=1; $repeat -le $Repetitions; ++$repeat) {
         $csv = Join-Path $run "$room-$repeat.csv"
         $log = Join-Path $run "$room-$repeat.log"

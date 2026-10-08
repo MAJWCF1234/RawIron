@@ -102,6 +102,8 @@ fs::path ResolveWorkspacePath(const fs::path& workspaceRoot, const fs::path& pat
     return path.is_absolute() ? path : workspaceRoot / path;
 }
 
+int PrintHandoffProbe(const fs::path& workspaceRoot, const fs::path& assetPath);
+
 void PrintHeadlessSummary(const ri::forge::AssetCatalog& catalog) {
     std::cout << "[Forge Ready]\n";
     std::cout << "Workspace: " << catalog.workspaceRoot.string() << "\n";
@@ -115,6 +117,439 @@ void PrintHeadlessSummary(const ri::forge::AssetCatalog& catalog) {
     std::cout << "Invalid sculpts: " << catalog.invalidSculptCount << "\n";
     std::cout << "Invalid rigs: " << catalog.invalidRigCount << "\n";
     std::cout << "Invalid animations: " << catalog.invalidAnimationCount << "\n";
+}
+
+void PrintForgeCliHelp() {
+    std::cout
+        << "RawIron Forge — UI app with optional headless verbs\n"
+        << "\n"
+        << "Preferred headless authoring lives on the main CLI:\n"
+        << "  ri_tool --forge-report\n"
+        << "  ri_tool --blockchar-create <id> --rig <path>\n"
+        << "  ri_tool --blockchar-add-part --blockchar <path> --bone <name> [--shape] [--x|--y|--z] [--sx|--sy|--sz] [--rx|--ry|--rz]\n"
+        << "  ri_tool --blockchar-set-part|--blockchar-nudge|--blockchar-sync-sculpt --blockchar <path> ...\n"
+        << "  ri_tool --forge-character-create <id> [--style sphere|cube] [--walk] [--overwrite]  (clay scaffold only)\n"
+        << "  ri_tool --forge-handoff-probe <asset>\n"
+        << "  ri_tool --sculpt-create <id> [--cage sphere|cube]\n"
+        << "  ri_tool --sculpt-bind --sculpt <path> --rig <path> [--replace]\n"
+        << "  ri_tool --sculpt-flood-weights|--sculpt-flood-free --sculpt <path> --bone <name>\n"
+        << "  ri_tool --sculpt-soft|--sculpt-soft-bone|--sculpt-cap4|--sculpt-normalize|--sculpt-seal --sculpt <path>\n"
+        << "  ri_tool --sculpt-prune|--sculpt-mirror|--sculpt-audit-weights|--sculpt-validate --sculpt <path>\n"
+        << "  ri_tool --sculpt-invert|--sculpt-ceil|--sculpt-harden|--sculpt-grow|--sculpt-shrink --sculpt <path> --bone <name>\n"
+        << "  ri_tool --sculpt-transfer|--sculpt-swap|--sculpt-paint --sculpt <path> ...\n"
+        << "  ri_tool --anim-create <id> --rig <path>\n"
+        << "  ri_tool --anim-key-rest|--anim-hold|--anim-breakdown --anim <path> [--bone] [--time]\n"
+        << "  ri_tool --anim-trim --anim <path> --start <s> --end <s> [--no-shift]\n"
+        << "  ri_tool --anim-fit-duration|--anim-align-start|--anim-validate|--anim-report\n"
+        << "  ri_tool --forge-assets-list [--kind sculpt|rig|anim|all]\n"
+        << "\n"
+        << "Forge-local inspect / stock helpers (this executable):\n"
+        << "  --workspace|--workspace-root|--root <path>\n"
+        << "  --headless | --list-assets [--kind all|sculpt|rig|anim|model|stock]\n"
+        << "  --list-primitives | --handoff-probe <asset>\n"
+        << "  --create-rig | --create-sculpt [--cage] | --create-anim --rig <path>\n"
+        << "  --create-primitive-model\n"
+        << "  --bind-sculpt|--flood-weights|--soft-bone|--cap4|--audit-weights\n"
+        << "  --key-rest --anim <path>\n"
+        << "  --add-primitive|--add-group|--bake-primitive-model\n"
+        << "  --help | -h\n"
+        << "\n"
+        << "UI (Windows): launch only when no create/edit/inspect verb is given.\n"
+        << "  --background\n"
+        << "  --open-asset|--asset <path>   select sculpt/rig/clip on startup\n"
+        << "  --auto-play                   play the opened motion clip on startup\n";
+}
+
+[[nodiscard]] std::string KindLabel(const ri::forge::AssetKind kind) {
+    switch (kind) {
+    case ri::forge::AssetKind::ModelSource:
+        return "model";
+    case ri::forge::AssetKind::PrimitiveModel:
+        return "stock";
+    case ri::forge::AssetKind::BlockCharacter:
+        return "block";
+    case ri::forge::AssetKind::Sculpt:
+        return "sculpt";
+    case ri::forge::AssetKind::Rig:
+        return "rig";
+    case ri::forge::AssetKind::Animation:
+        return "anim";
+    default:
+        return "asset";
+    }
+}
+
+[[nodiscard]] bool KindMatchesFilter(const ri::forge::AssetKind kind, const std::string_view filter) {
+    if (filter.empty() || filter == "all") {
+        return true;
+    }
+    return KindLabel(kind) == filter;
+}
+
+void PrintAssetList(const ri::forge::AssetCatalog& catalog, const std::string_view kindFilter) {
+    for (const ri::forge::AssetEntry& entry : catalog.entries) {
+        if (!KindMatchesFilter(entry.kind, kindFilter)) {
+            continue;
+        }
+        std::cout << KindLabel(entry.kind) << "\t" << (entry.valid ? "ok" : "bad") << "\t"
+                  << entry.relativePath << "\n";
+    }
+}
+
+[[nodiscard]] std::string RelativeSourcePath(
+    const fs::path& workspaceRoot,
+    const fs::path& absolutePath) {
+    std::error_code error{};
+    const fs::path relative = fs::relative(absolutePath, workspaceRoot / "Assets" / "Source", error);
+    if (error) {
+        return absolutePath.filename().generic_string();
+    }
+    return relative.generic_string();
+}
+
+[[nodiscard]] std::optional<ri::content::NativeSculptDocument> LoadCliSculpt(
+    const fs::path& path,
+    std::string* error) {
+    auto document = ri::content::LoadNativeSculptDocument(path);
+    if (!document.has_value()) {
+        if (error != nullptr) {
+            *error = "Could not load clay: " + path.string();
+        }
+        return std::nullopt;
+    }
+    return document;
+}
+
+[[nodiscard]] bool SaveCliSculpt(
+    const fs::path& path,
+    const ri::content::NativeSculptDocument& document,
+    std::string* error) {
+    if (!ri::content::SaveNativeSculptDocument(path, document)) {
+        if (error != nullptr) {
+            *error = "Could not save clay: " + path.string();
+        }
+        return false;
+    }
+    return true;
+}
+
+/// Returns nullopt when no CLI authoring/inspect verb was requested (caller may open UI).
+[[nodiscard]] std::optional<int> TryRunForgeCli(
+    const ri::core::CommandLine& commandLine,
+    const fs::path& workspaceRoot) {
+    if (commandLine.HasFlag("--help") || commandLine.HasFlag("-h")) {
+        PrintForgeCliHelp();
+        return 0;
+    }
+
+    if (commandLine.HasFlag("--list-primitives")) {
+        for (const auto& preset : ri::scene::kStructuralPrimitivePresets) {
+            std::cout << preset.label << "\n";
+        }
+        return 0;
+    }
+
+    if (commandLine.HasFlag("--headless")) {
+        PrintHeadlessSummary(ri::forge::ScanAssetCatalog(workspaceRoot));
+        return 0;
+    }
+
+    if (commandLine.HasFlag("--list-assets")) {
+        const std::string kind = commandLine.GetValue("--kind").value_or("all");
+        PrintAssetList(ri::forge::ScanAssetCatalog(workspaceRoot), kind);
+        return 0;
+    }
+
+    if (commandLine.HasFlag("--create-rig")) {
+        std::string error;
+        const fs::path output = ri::forge::CreateUniqueHumanoidRig(workspaceRoot, &error);
+        if (output.empty()) {
+            std::cerr << "Forge create-rig failed: " << error << "\n";
+            return 1;
+        }
+        std::cout << "Created humanoid rig: " << output.string() << "\n";
+        return 0;
+    }
+
+    if (commandLine.HasFlag("--create-sculpt")) {
+        std::string error;
+        const fs::path output = ri::forge::CreateUniqueNativeSculpt(
+            workspaceRoot, commandLine.GetValue("--cage").value_or("sphere"), &error);
+        if (output.empty()) {
+            std::cerr << "Forge create-sculpt failed: " << error << "\n";
+            return 1;
+        }
+        std::cout << "Created native sculpt: " << output.string() << "\n";
+        return 0;
+    }
+
+    if (commandLine.HasFlag("--create-anim") || commandLine.HasFlag("--create-clip")) {
+        const auto rigValue = commandLine.GetValue("--rig");
+        if (!rigValue.has_value() || rigValue->empty()) {
+            std::cerr << "Forge create-anim failed: --rig <path> is required.\n";
+            return 1;
+        }
+        std::string error;
+        const fs::path output = ri::forge::CreateUniqueNativeAnimation(
+            workspaceRoot, ResolveWorkspacePath(workspaceRoot, fs::path(*rigValue)), &error);
+        if (output.empty()) {
+            std::cerr << "Forge create-anim failed: " << error << "\n";
+            return 1;
+        }
+        std::cout << "Created motion clip: " << output.string() << "\n";
+        return 0;
+    }
+
+    if (commandLine.HasFlag("--create-primitive-model")) {
+        std::string error;
+        const fs::path output = ri::forge::CreateUniquePrimitiveModel(workspaceRoot, &error);
+        if (output.empty()) {
+            std::cerr << "Forge create failed: " << error << "\n";
+            return 1;
+        }
+        std::cout << "Created primitive model: " << output.string() << "\n";
+        return 0;
+    }
+
+    if (commandLine.HasFlag("--bind-sculpt")) {
+        const auto sculptValue = commandLine.GetValue("--sculpt");
+        const auto rigValue = commandLine.GetValue("--rig");
+        if (!sculptValue.has_value() || sculptValue->empty() || !rigValue.has_value()
+            || rigValue->empty()) {
+            std::cerr << "Forge bind-sculpt failed: --sculpt and --rig are required.\n";
+            return 1;
+        }
+        const fs::path sculptPath = ResolveWorkspacePath(workspaceRoot, fs::path(*sculptValue));
+        const fs::path rigPath = ResolveWorkspacePath(workspaceRoot, fs::path(*rigValue));
+        std::string error;
+        auto sculpt = LoadCliSculpt(sculptPath, &error);
+        if (!sculpt.has_value()) {
+            std::cerr << "Forge bind-sculpt failed: " << error << "\n";
+            return 1;
+        }
+        const auto rig = ri::scene::LoadRigDefinition(rigPath);
+        if (!rig.has_value() || !ri::scene::ValidateRigDefinition(*rig).valid) {
+            std::cerr << "Forge bind-sculpt failed: invalid rig " << rigPath.string() << "\n";
+            return 1;
+        }
+        const std::string relativeRig = RelativeSourcePath(workspaceRoot, rigPath);
+        const ri::scene::NativeSculptBindResult bound = ri::scene::BindNativeSculptToRig(
+            *sculpt, *rig, relativeRig, commandLine.HasFlag("--replace"));
+        if (!bound.valid) {
+            std::cerr << "Forge bind-sculpt failed: " << bound.summary << "\n";
+            return 1;
+        }
+        if (!SaveCliSculpt(sculptPath, *sculpt, &error)) {
+            std::cerr << "Forge bind-sculpt failed: " << error << "\n";
+            return 1;
+        }
+        std::cout << bound.summary << "\n";
+        std::cout << "Bound sculpt: " << sculptPath.string() << "\n";
+        return 0;
+    }
+
+    if (commandLine.HasFlag("--flood-weights")) {
+        const auto sculptValue = commandLine.GetValue("--sculpt");
+        const auto boneValue = commandLine.GetValue("--bone");
+        if (!sculptValue.has_value() || sculptValue->empty() || !boneValue.has_value()
+            || boneValue->empty()) {
+            std::cerr << "Forge flood-weights failed: --sculpt and --bone are required.\n";
+            return 1;
+        }
+        const fs::path sculptPath = ResolveWorkspacePath(workspaceRoot, fs::path(*sculptValue));
+        std::string error;
+        auto sculpt = LoadCliSculpt(sculptPath, &error);
+        if (!sculpt.has_value()) {
+            std::cerr << "Forge flood-weights failed: " << error << "\n";
+            return 1;
+        }
+        const std::size_t changed = ri::scene::FloodNativeSculptWeights(*sculpt, *boneValue);
+        if (!SaveCliSculpt(sculptPath, *sculpt, &error)) {
+            std::cerr << "Forge flood-weights failed: " << error << "\n";
+            return 1;
+        }
+        std::cout << "Flooded " << changed << " verts onto " << *boneValue << "\n";
+        return 0;
+    }
+
+    if (commandLine.HasFlag("--soft-bone")) {
+        const auto sculptValue = commandLine.GetValue("--sculpt");
+        const auto boneValue = commandLine.GetValue("--bone");
+        if (!sculptValue.has_value() || sculptValue->empty() || !boneValue.has_value()
+            || boneValue->empty()) {
+            std::cerr << "Forge soft-bone failed: --sculpt and --bone are required.\n";
+            return 1;
+        }
+        const fs::path sculptPath = ResolveWorkspacePath(workspaceRoot, fs::path(*sculptValue));
+        std::string error;
+        auto sculpt = LoadCliSculpt(sculptPath, &error);
+        if (!sculpt.has_value()) {
+            std::cerr << "Forge soft-bone failed: " << error << "\n";
+            return 1;
+        }
+        const std::size_t changed = ri::scene::SmoothNativeSculptBoneWeights(*sculpt, *boneValue);
+        if (!SaveCliSculpt(sculptPath, *sculpt, &error)) {
+            std::cerr << "Forge soft-bone failed: " << error << "\n";
+            return 1;
+        }
+        std::cout << "Softened " << *boneValue << " on " << changed << " verts\n";
+        return 0;
+    }
+
+    if (commandLine.HasFlag("--cap4")) {
+        const auto sculptValue = commandLine.GetValue("--sculpt");
+        if (!sculptValue.has_value() || sculptValue->empty()) {
+            std::cerr << "Forge cap4 failed: --sculpt is required.\n";
+            return 1;
+        }
+        const fs::path sculptPath = ResolveWorkspacePath(workspaceRoot, fs::path(*sculptValue));
+        std::string error;
+        auto sculpt = LoadCliSculpt(sculptPath, &error);
+        if (!sculpt.has_value()) {
+            std::cerr << "Forge cap4 failed: " << error << "\n";
+            return 1;
+        }
+        const std::size_t changed = ri::scene::LimitNativeSculptInfluences(*sculpt);
+        if (!SaveCliSculpt(sculptPath, *sculpt, &error)) {
+            std::cerr << "Forge cap4 failed: " << error << "\n";
+            return 1;
+        }
+        std::cout << "Capped influences on " << changed << " verts\n";
+        return 0;
+    }
+
+    if (commandLine.HasFlag("--audit-weights")) {
+        const auto sculptValue = commandLine.GetValue("--sculpt");
+        if (!sculptValue.has_value() || sculptValue->empty()) {
+            std::cerr << "Forge audit-weights failed: --sculpt is required.\n";
+            return 1;
+        }
+        const fs::path sculptPath = ResolveWorkspacePath(workspaceRoot, fs::path(*sculptValue));
+        std::string error;
+        const auto sculpt = LoadCliSculpt(sculptPath, &error);
+        if (!sculpt.has_value()) {
+            std::cerr << "Forge audit-weights failed: " << error << "\n";
+            return 1;
+        }
+        const ri::scene::NativeSculptWeightAudit audit =
+            ri::scene::AuditNativeSculptWeights(*sculpt);
+        std::cout << "sculpt\t" << sculptPath.string() << "\n";
+        std::cout << "verts\t" << audit.vertexCount << "\n";
+        std::cout << "bound\t" << audit.boundCount << "\n";
+        std::cout << "unbound\t" << audit.unboundCount << "\n";
+        std::cout << "blended\t" << audit.blendedCount << "\n";
+        std::cout << "over_cap\t" << audit.overInfluencedCount << "\n";
+        std::cout << "non_normalized\t" << audit.nonNormalizedCount << "\n";
+        return 0;
+    }
+
+    if (commandLine.HasFlag("--key-rest")) {
+        const auto animValue = commandLine.GetValue("--anim");
+        if (!animValue.has_value() || animValue->empty()) {
+            std::cerr << "Forge key-rest failed: --anim is required.\n";
+            return 1;
+        }
+        const fs::path animPath = ResolveWorkspacePath(workspaceRoot, fs::path(*animValue));
+        auto clip = ri::content::LoadNativeAnimationDocument(animPath);
+        if (!clip.has_value()) {
+            std::cerr << "Forge key-rest failed: could not load " << animPath.string() << "\n";
+            return 1;
+        }
+        const fs::path rigPath = ri::forge::ResolveCatalogRigPath(
+            ri::forge::ScanAssetCatalog(workspaceRoot), clip->rigPath, animPath);
+        if (rigPath.empty()) {
+            std::cerr << "Forge key-rest failed: clip has no resolvable rig.\n";
+            return 1;
+        }
+        const auto rig = ri::scene::LoadRigDefinition(rigPath);
+        if (!rig.has_value()) {
+            std::cerr << "Forge key-rest failed: could not load rig " << rigPath.string() << "\n";
+            return 1;
+        }
+        double timeSeconds = 0.0;
+        if (const auto typed = commandLine.GetValue("--time"); typed.has_value() && !typed->empty()) {
+            try {
+                timeSeconds = std::stod(*typed);
+            } catch (...) {
+                std::cerr << "Forge key-rest failed: --time must be a number.\n";
+                return 1;
+            }
+        }
+        const std::string bone = commandLine.GetValue("--bone").value_or("");
+        const std::size_t changed =
+            ri::scene::InsertNativeAnimationRestKeys(*clip, *rig, timeSeconds, bone);
+        if (!ri::content::SaveNativeAnimationDocument(animPath, *clip)) {
+            std::cerr << "Forge key-rest failed: could not save " << animPath.string() << "\n";
+            return 1;
+        }
+        std::cout << "Rest-keyed " << changed << " bones at " << timeSeconds << "s\n";
+        return 0;
+    }
+
+    if (const auto model = commandLine.GetValue("--add-primitive");
+        model.has_value() && !model->empty()) {
+        const auto preset = commandLine.GetValue("--preset");
+        if (!preset.has_value() || preset->empty()) {
+            std::cerr << "Forge add failed: --preset is required.\n";
+            return 1;
+        }
+        std::string partId;
+        std::string error;
+        if (!ri::forge::AppendPrimitiveToModel(
+                ResolveWorkspacePath(workspaceRoot, fs::path(*model)),
+                *preset,
+                commandLine.GetValue("--group").value_or("root"),
+                &partId,
+                &error)) {
+            std::cerr << "Forge add failed: " << error << "\n";
+            return 1;
+        }
+        std::cout << "Added primitive part: " << partId << "\n";
+        return 0;
+    }
+
+    if (const auto model = commandLine.GetValue("--add-group");
+        model.has_value() && !model->empty()) {
+        std::string groupId;
+        std::string error;
+        if (!ri::forge::AppendGroupToModel(
+                ResolveWorkspacePath(workspaceRoot, fs::path(*model)),
+                commandLine.GetValue("--name").value_or("Part Group"),
+                commandLine.GetValue("--parent").value_or("root"),
+                commandLine.GetValue("--bone").value_or(""),
+                &groupId,
+                &error)) {
+            std::cerr << "Forge group failed: " << error << "\n";
+            return 1;
+        }
+        std::cout << "Added primitive group: " << groupId << "\n";
+        return 0;
+    }
+
+    if (const auto model = commandLine.GetValue("--bake-primitive-model");
+        model.has_value() && !model->empty()) {
+        fs::path output{};
+        if (const auto value = commandLine.GetValue("--output"); value.has_value() && !value->empty()) {
+            output = ResolveWorkspacePath(workspaceRoot, fs::path(*value));
+        }
+        const ri::forge::PrimitiveModelBakeSummary bake = ri::forge::BakePrimitiveModelAsset(
+            ResolveWorkspacePath(workspaceRoot, fs::path(*model)), output);
+        std::cout << bake.summary << "\n";
+        if (!bake.outputPath.empty()) {
+            std::cout << "Output: " << bake.outputPath.string() << "\n";
+        }
+        if (!bake.rigMapPath.empty()) {
+            std::cout << "Rig map: " << bake.rigMapPath.string() << "\n";
+        }
+        return bake.valid ? 0 : 1;
+    }
+
+    if (const std::optional<std::string> handoffAsset = commandLine.GetValue("--handoff-probe");
+        handoffAsset.has_value() && !handoffAsset->empty()) {
+        return PrintHandoffProbe(workspaceRoot, fs::path(*handoffAsset));
+    }
+
+    return std::nullopt;
 }
 
 int PrintHandoffProbe(const fs::path& workspaceRoot, const fs::path& assetPath) {
@@ -288,6 +723,35 @@ enum ControlId : int {
     kSmoothWeights = 224,
     kStripAnimTracks = 225,
     kClearAnimEvents = 226,
+    kReverseAnim = 227,
+    kGrowWeights = 228,
+    kShrinkWeights = 229,
+    kHardenWeights = 230,
+    kDensifyAnimKeys = 231,
+    kWeightPaintAdd = 232,
+    kWeightPaintAssign = 233,
+    kWeightPaintSmooth = 234,
+    kWeightPaintClear = 235,
+    kLimitWeights = 236,
+    kDecimateAnimKeys = 237,
+    kSealWeights = 238,
+    kSmoothAnimKeys = 239,
+    kStripOrphanWeights = 240,
+    kAnimHalfAmp = 241,
+    kAnimDoubleAmp = 242,
+    kSmoothBoneWeights = 243,
+    kDiagnoseAnimBind = 244,
+    kCopyBoneWeights = 245,
+    kPasteBoneWeights = 246,
+    kHoldAnimKey = 247,
+    kFloorBoneWeights = 248,
+    kHoldAnimPose = 249,
+    kCeilBoneWeights = 250,
+    kBreakdownAnimKey = 251,
+    kBreakdownAnimPose = 252,
+    kBakeSculptSkin = 253,
+    kAnimNudgeBoneBack = 254,
+    kAnimNudgeBoneForward = 255,
     kPrimitivePresetBase = 2000,
 };
 
@@ -320,11 +784,17 @@ std::wstring JoinArguments(const std::vector<std::string>& arguments) {
 
 class ForgeWindow {
 public:
-    explicit ForgeWindow(fs::path workspaceRoot, const bool background)
+    explicit ForgeWindow(
+        fs::path workspaceRoot,
+        const bool background,
+        fs::path openAsset = {},
+        const bool autoPlay = false)
         : workspaceRoot_(std::move(workspaceRoot)),
           catalogIndex_(workspaceRoot_),
           previewBuilder_(),
-          background_(background) {}
+          background_(background),
+          openAssetPath_(std::move(openAsset)),
+          autoPlayOnOpen_(autoPlay) {}
 
     int Run(HINSTANCE instance) {
         instance_ = instance;
@@ -398,6 +868,527 @@ private:
     static constexpr COLORREF kAccentColor = RGB(168, 186, 92);
     static constexpr COLORREF kTextColor = RGB(226, 220, 204);
     static constexpr COLORREF kMutedTextColor = RGB(126, 122, 108);
+
+    void DispatchForgeCommand(const int id, const int notification) {
+        if (id == kRefresh) {
+            RefreshCatalog();
+            return;
+        }
+        if (id == kNewPrimitiveModel) {
+            CreatePrimitiveModel();
+            return;
+        }
+        if (id == kDuplicateModel) {
+            DuplicateSelectedModel();
+            return;
+        }
+        if (id == kDeleteModel) {
+            DeleteSelectedModel();
+            return;
+        }
+        if (id == kNewSculpt) {
+            CreateNativeSculpt();
+            return;
+        }
+        if (id == kDuplicateSculpt) {
+            DuplicateSelectedSculpt();
+            return;
+        }
+        if (id == kDeleteSculpt) {
+            DeleteSelectedSculpt();
+            return;
+        }
+        if (id == kNewHumanoid) {
+            CreateHumanoidRig();
+            return;
+        }
+        if (id == kDuplicateRig) {
+            DuplicateSelectedRig();
+            return;
+        }
+        if (id == kDeleteRig) {
+            DeleteSelectedRig();
+            return;
+        }
+        if (id == kNewAnimation) {
+            CreateNativeAnimation();
+            return;
+        }
+        if (id == kBayStock || id == kBayClay || id == kBayLook || id == kBayMotion) {
+            SetForgeBay(id);
+            return;
+        }
+        if (id == kApplyLook) {
+            ApplySelectedLook();
+            return;
+        }
+        if (id == kAnimPlay) {
+            PlaySelectedClip();
+            return;
+        }
+        if (id == kAnimStop) {
+            StopSelectedClip();
+            return;
+        }
+        if (id == kAnimLoop) {
+            ToggleAnimLoop();
+            return;
+        }
+        if (id == kAnimRootMotion) {
+            ToggleRootMotion();
+            return;
+        }
+        if (id == kAnimKey) {
+            KeyCurrentPose();
+            return;
+        }
+        if (id == kAnimKeyBone) {
+            KeySelectedBone();
+            return;
+        }
+        if (id == kDeleteAnimKey) {
+            DeleteSelectedBoneKey();
+            return;
+        }
+        if (id == kClearAnimTrack) {
+            ClearSelectedAnimTrack();
+            return;
+        }
+        if (id == kClearAnimKeys) {
+            ClearAllAnimKeys();
+            return;
+        }
+        if (id == kDedupAnimKeys) {
+            DeduplicateAnimKeys();
+            return;
+        }
+        if (id == kQuantizeAnimKeys) {
+            QuantizeAnimKeys();
+            return;
+        }
+        if (id == kStripAnimTracks) {
+            StripMissingAnimTracks();
+            return;
+        }
+        if (id == kDiagnoseAnimBind) {
+            DiagnoseSelectedAnimBind();
+            return;
+        }
+        if (id == kReverseAnim) {
+            ReverseSelectedClip();
+            return;
+        }
+        if (id == kDensifyAnimKeys) {
+            DensifyAnimKeys();
+            return;
+        }
+        if (id == kDecimateAnimKeys) {
+            DecimateAnimKeys();
+            return;
+        }
+        if (id == kSmoothAnimKeys) {
+            SmoothAnimKeys();
+            return;
+        }
+        if (id == kDuplicateClip) {
+            DuplicateSelectedClip();
+            return;
+        }
+        if (id == kAnimTrim) {
+            TrimSelectedClip();
+            return;
+        }
+        if (id == kAnimStampIn) {
+            StampAnimWindowFromPlayhead(false);
+            return;
+        }
+        if (id == kAnimStampOut) {
+            StampAnimWindowFromPlayhead(true);
+            return;
+        }
+        if (id == kAnimAddEvent) {
+            AddEventAtPlayhead();
+            return;
+        }
+        if (id == kAnimDelEvent) {
+            DeleteSelectedEvent();
+            return;
+        }
+        if (id == kAnimRenameEvent) {
+            RenameSelectedEvent();
+            return;
+        }
+        if (id == kAnimEventToTime) {
+            MoveSelectedEventToPlayhead();
+            return;
+        }
+        if (id == kAnimDupEvent) {
+            DuplicateSelectedEventAtPlayhead();
+            return;
+        }
+        if (id == kClearAnimEvents) {
+            ClearAllAnimEvents();
+            return;
+        }
+        if (id == kAnimPrevEvent) {
+            StepSelectedEvent(true);
+            return;
+        }
+        if (id == kAnimNextEvent) {
+            StepSelectedEvent(false);
+            return;
+        }
+        if (id == kAnimEventList && notification == LBN_SELCHANGE) {
+            JumpToSelectedEvent();
+            return;
+        }
+        if (id == kAddPrimitive) {
+            ShowPrimitiveMenuAndAdd();
+            return;
+        }
+        if (id == kAddGroup) {
+            AddGroupToSelectedModel();
+            return;
+        }
+        if (id == kDuplicatePart) {
+            DuplicateSelectedStockElement();
+            return;
+        }
+        if (id == kDeletePart) {
+            DeleteSelectedStockElement();
+            return;
+        }
+        if (id == kBakeModel) {
+            BakeSelectedModel();
+            return;
+        }
+        if (id == kBindRig) {
+            BindSelectedRig();
+            return;
+        }
+        if (id == kBakeSculptSkin) {
+            BakeSelectedSculptSkin();
+            return;
+        }
+        if (id == kBindBone) {
+            BindSelectedBone();
+            return;
+        }
+        if (id == kFloodBone) {
+            FloodSelectedBone();
+            return;
+        }
+        if (id == kFloodUnbound) {
+            FloodUnboundSelectedBone();
+            return;
+        }
+        if (id == kSealWeights) {
+            SealUnboundSculptWeights();
+            return;
+        }
+        if (id == kTransferWeights) {
+            TransferSelectedBoneWeights();
+            return;
+        }
+        if (id == kSwapWeights) {
+            SwapSelectedBoneWeights();
+            return;
+        }
+        if (id == kNormWeights) {
+            NormalizeSelectedSculptWeights();
+            return;
+        }
+        if (id == kPruneWeights) {
+            PruneSelectedSculptWeights();
+            return;
+        }
+        if (id == kMirrorWeights) {
+            MirrorSelectedSculptWeights();
+            return;
+        }
+        if (id == kMirrorRest) {
+            MirrorSelectedBoneRest();
+            return;
+        }
+        if (id == kBoneRename) {
+            RenameSelectedBone();
+            return;
+        }
+        if (id == kAddChildBone) {
+            AddChildToSelectedBone();
+            return;
+        }
+        if (id == kDeleteBone) {
+            DeleteSelectedBone();
+            return;
+        }
+        if (id == kReparentBone) {
+            ReparentSelectedBone();
+            return;
+        }
+        if (id == kAddSlotBone) {
+            AddSelectedHumanoidSlot();
+            return;
+        }
+        if (id == kAuditWeights) {
+            AuditSelectedSculptWeights();
+            return;
+        }
+        if (id == kSmoothWeights) {
+            SoftenSelectedSculptWeights();
+            return;
+        }
+        if (id == kSmoothBoneWeights) {
+            SoftenSelectedBoneWeights();
+            return;
+        }
+        if (id == kGrowWeights) {
+            GrowSelectedBoneWeights();
+            return;
+        }
+        if (id == kShrinkWeights) {
+            ShrinkSelectedBoneWeights();
+            return;
+        }
+        if (id == kHardenWeights) {
+            HardenSelectedBoneWeights();
+            return;
+        }
+        if (id == kFloorBoneWeights) {
+            FloorSelectedBoneWeights();
+            return;
+        }
+        if (id == kCeilBoneWeights) {
+            CeilSelectedBoneWeights();
+            return;
+        }
+        if (id == kLimitWeights) {
+            LimitSelectedSculptInfluences();
+            return;
+        }
+        if (id == kStripOrphanWeights) {
+            StripOrphanSculptWeights();
+            return;
+        }
+        if (id == kCopyBoneWeights) {
+            CopySelectedBoneWeights();
+            return;
+        }
+        if (id == kPasteBoneWeights) {
+            PasteSelectedBoneWeights();
+            return;
+        }
+        if (id == kWeightPaintAdd) {
+            SetWeightPaintMode(ri::scene::NativeSculptWeightPaint::Add);
+            return;
+        }
+        if (id == kWeightPaintAssign) {
+            SetWeightPaintMode(ri::scene::NativeSculptWeightPaint::Assign);
+            return;
+        }
+        if (id == kWeightPaintSmooth) {
+            SetWeightPaintMode(ri::scene::NativeSculptWeightPaint::Smooth);
+            return;
+        }
+        if (id == kWeightPaintClear) {
+            SetWeightPaintMode(ri::scene::NativeSculptWeightPaint::Clear);
+            return;
+        }
+        if (id == kInvertWeights) {
+            InvertSelectedBoneWeights();
+            return;
+        }
+        if (id == kHalveBoneWeights) {
+            ScaleSelectedBoneWeights(0.5f);
+            return;
+        }
+        if (id == kDoubleBoneWeights) {
+            ScaleSelectedBoneWeights(2.0f);
+            return;
+        }
+        if (id == kClearWeights) {
+            ClearSelectedSculptWeights();
+            return;
+        }
+        if (id == kUnbindRig) {
+            UnbindSelectedTarget();
+            return;
+        }
+        if (id == kAnimPrevKey) {
+            JumpToNearestAnimKey(true);
+            return;
+        }
+        if (id == kAnimNextKey) {
+            JumpToNearestAnimKey(false);
+            return;
+        }
+        if (id == kSnapAnimKey) {
+            SnapToClosestAnimKey();
+            return;
+        }
+        if (id == kResetBone) {
+            ResetSelectedBonePose();
+            return;
+        }
+        if (id == kResetPose) {
+            ResetAllBonePoses();
+            return;
+        }
+        if (id == kMirrorPose) {
+            MirrorSelectedBonePose();
+            return;
+        }
+        if (id == kDeleteClip) {
+            DeleteSelectedClip();
+            return;
+        }
+        if (id == kRestAnimKey) {
+            KeyRestAtPlayhead();
+            return;
+        }
+        if (id == kHoldAnimKey) {
+            HoldSelectedAnimKey();
+            return;
+        }
+        if (id == kBreakdownAnimKey) {
+            BreakdownSelectedAnimKey();
+            return;
+        }
+        if (id == kHoldAnimPose) {
+            HoldSelectedAnimPose();
+            return;
+        }
+        if (id == kBreakdownAnimPose) {
+            BreakdownSelectedAnimPose();
+            return;
+        }
+        if (id == kMirrorAnimKeys) {
+            MirrorSelectedAnimKeys();
+            return;
+        }
+        if (id == kAnimHalfSpeed) {
+            ScaleSelectedClipTime(0.5);
+            return;
+        }
+        if (id == kAnimDoubleSpeed) {
+            ScaleSelectedClipTime(2.0);
+            return;
+        }
+        if (id == kAnimNudgeBack) {
+            NudgeSelectedClipTime(-0.1);
+            return;
+        }
+        if (id == kAnimNudgeForward) {
+            NudgeSelectedClipTime(0.1);
+            return;
+        }
+        if (id == kAnimNudgeBoneBack) {
+            NudgeSelectedBoneClipTime(-0.1);
+            return;
+        }
+        if (id == kAnimNudgeBoneForward) {
+            NudgeSelectedBoneClipTime(0.1);
+            return;
+        }
+        if (id == kAnimHalfAmp) {
+            ScaleSelectedClipAmp(0.5f);
+            return;
+        }
+        if (id == kAnimDoubleAmp) {
+            ScaleSelectedClipAmp(2.0f);
+            return;
+        }
+        if (id == kCopyAnimTrack) {
+            CopySelectedAnimTrack();
+            return;
+        }
+        if (id == kPasteAnimTrack) {
+            PasteSelectedAnimTrack();
+            return;
+        }
+        if (id == kRenameDisplay) {
+            RenameSelectedDisplayName();
+            return;
+        }
+        if (id == kAnimAlignStart) {
+            AlignSelectedClipStart();
+            return;
+        }
+        if (id == kAnimFitDuration) {
+            FitSelectedClipDuration();
+            return;
+        }
+        if (id == kAnimPlayheadToZero) {
+            ShiftClipPlayheadToZero();
+            return;
+        }
+        if (id == kApplyTransform) {
+            if (IsWindowEnabled(applyTransformButton_)) {
+                ApplySelectedTransform();
+            }
+            return;
+        }
+        if (id == kFocusAssetFilter) {
+            SetFocus(assetFilter_);
+            SendMessageW(assetFilter_, EM_SETSEL, 0, -1);
+            return;
+        }
+        if (id == kModelElement && notification == LBN_SELCHANGE) {
+            PopulateTransformFields();
+            SyncTransformGizmo();
+            PublishPreview();
+            return;
+        }
+        if (id == kBoneList && notification == LBN_SELCHANGE) {
+            PopulateBonePoseFields();
+            SyncAuthoringEnable();
+            SyncTransformGizmo();
+            ApplySculptDisplayMesh();
+            SyncPreviewOverlays(true);
+            return;
+        }
+        if (id == kClipList && notification == CBN_SELCHANGE) {
+            OnClipListSelChange();
+            return;
+        }
+        if (id == kTransformMode && notification == CBN_SELCHANGE) {
+            PopulateTransformFields();
+            return;
+        }
+        if (id == kAnimTime && notification == EN_KILLFOCUS) {
+            ApplyAnimTimeFromEdit();
+            return;
+        }
+        if (id == kAnimDuration && notification == EN_KILLFOCUS) {
+            ApplyAnimDurationFromEdit();
+            return;
+        }
+        if (id == kValidate) {
+            ValidateSelectedAsset();
+            return;
+        }
+        if (id == kOpenSource) {
+            OpenSelectedSource();
+            return;
+        }
+        if (id == kOpenInEditor) {
+            OpenSelectedInEditor();
+            return;
+        }
+        if (id == kAssetList && notification == LBN_SELCHANGE) {
+            UpdateInspector();
+            return;
+        }
+        if (id == kAssetList && notification == LBN_DBLCLK) {
+            OpenSelectedSource();
+            return;
+        }
+        if (id == kAssetFilter && notification == EN_CHANGE) {
+            PopulateAssetList();
+            return;
+        }
+    }
+
 
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
         ForgeWindow* self = reinterpret_cast<ForgeWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -516,19 +1507,35 @@ private:
         bakeButton_ = CreateButton(L"Bake", kBakeModel);
         bindRigButton_ = CreateButton(L"Bind Rig", kBindRig);
         unbindRigButton_ = CreateButton(L"Unbind", kUnbindRig);
+        bakeSkinButton_ = CreateButton(L"Bake Skin", kBakeSculptSkin);
         bindBoneButton_ = CreateButton(L"Bind Bone", kBindBone);
         floodBoneButton_ = CreateButton(L"Flood Bone", kFloodBone);
         floodUnboundButton_ = CreateButton(L"Flood Free", kFloodUnbound);
+        sealWeightsButton_ = CreateButton(L"Seal", kSealWeights);
         transferWeightsButton_ = CreateButton(L"Xfer→", kTransferWeights);
         swapWeightsButton_ = CreateButton(L"Swap↔", kSwapWeights);
+        weightPaintAddButton_ = CreateButton(L"Blend", kWeightPaintAdd);
+        weightPaintAssignButton_ = CreateButton(L"Set", kWeightPaintAssign);
+        weightPaintSmoothButton_ = CreateButton(L"Smth", kWeightPaintSmooth);
+        weightPaintClearButton_ = CreateButton(L"Erase", kWeightPaintClear);
         normWeightsButton_ = CreateButton(L"Norm", kNormWeights);
         pruneWeightsButton_ = CreateButton(L"Prune", kPruneWeights);
-        mirrorWeightsButton_ = CreateButton(L"Mir X", kMirrorWeights);
+        mirrorWeightsButton_ = CreateButton(L"Mirror X", kMirrorWeights);
         auditWeightsButton_ = CreateButton(L"Audit", kAuditWeights);
-        invertWeightsButton_ = CreateButton(L"Inv", kInvertWeights);
+        invertWeightsButton_ = CreateButton(L"1-W", kInvertWeights);
         halveWeightsButton_ = CreateButton(L"½W", kHalveBoneWeights);
         doubleWeightsButton_ = CreateButton(L"×2W", kDoubleBoneWeights);
         softWeightsButton_ = CreateButton(L"Soft", kSmoothWeights);
+        softBoneWeightsButton_ = CreateButton(L"Soft Bone", kSmoothBoneWeights);
+        growWeightsButton_ = CreateButton(L"Grow", kGrowWeights);
+        shrinkWeightsButton_ = CreateButton(L"Shrink", kShrinkWeights);
+        hardenWeightsButton_ = CreateButton(L"Harden", kHardenWeights);
+        floorWeightsButton_ = CreateButton(L"Floor", kFloorBoneWeights);
+        ceilWeightsButton_ = CreateButton(L"Ceil", kCeilBoneWeights);
+        limitWeightsButton_ = CreateButton(L"Cap4", kLimitWeights);
+        stripOrphanWeightsButton_ = CreateButton(L"Orphans", kStripOrphanWeights);
+        copyWeightsButton_ = CreateButton(L"Copy Wt", kCopyBoneWeights);
+        pasteWeightsButton_ = CreateButton(L"Paste Wt", kPasteBoneWeights);
         clearWeightsButton_ = CreateButton(L"Clear", kClearWeights);
         modelElement_ = CreateControl(
             L"LISTBOX",
@@ -625,12 +1632,17 @@ private:
         animRootButton_ = CreateButton(L"Root", kAnimRootMotion);
         animKeyBoneButton_ = CreateButton(L"Key Bone", kAnimKeyBone);
         animKeyButton_ = CreateButton(L"Key Pose", kAnimKey);
-        animDeleteKeyButton_ = CreateButton(L"Del Key", kDeleteAnimKey);
-        animClearTrackButton_ = CreateButton(L"Clr Track", kClearAnimTrack);
-        animClearKeysButton_ = CreateButton(L"Clr Keys", kClearAnimKeys);
+        animDeleteKeyButton_ = CreateButton(L"-Key", kDeleteAnimKey);
+        animClearTrackButton_ = CreateButton(L"Clear Track", kClearAnimTrack);
+        animClearKeysButton_ = CreateButton(L"Clear Keys", kClearAnimKeys);
         animDedupKeysButton_ = CreateButton(L"Clean Keys", kDedupAnimKeys);
-        animQuantizeKeysButton_ = CreateButton(L"Q30", kQuantizeAnimKeys);
+        animQuantizeKeysButton_ = CreateButton(L"Snap30", kQuantizeAnimKeys);
         animStripTracksButton_ = CreateButton(L"Strip", kStripAnimTracks);
+        animDiagnoseBindButton_ = CreateButton(L"Check Bind", kDiagnoseAnimBind);
+        animReverseButton_ = CreateButton(L"Reverse", kReverseAnim);
+        animDensifyKeysButton_ = CreateButton(L"Densify", kDensifyAnimKeys);
+        animDecimateKeysButton_ = CreateButton(L"Thin", kDecimateAnimKeys);
+        animSmoothKeysButton_ = CreateButton(L"Ease", kSmoothAnimKeys);
         animPrevKeyButton_ = CreateButton(L"< Key", kAnimPrevKey);
         animNextKeyButton_ = CreateButton(L"Key >", kAnimNextKey);
         animSnapKeyButton_ = CreateButton(L"Snap", kSnapAnimKey);
@@ -638,6 +1650,10 @@ private:
         animResetPoseButton_ = CreateButton(L"Rst Pose", kResetPose);
         animMirrorPoseButton_ = CreateButton(L"Mir Pose", kMirrorPose);
         animRestKeyButton_ = CreateButton(L"Rest Key", kRestAnimKey);
+        animHoldKeyButton_ = CreateButton(L"Hold", kHoldAnimKey);
+        animBreakdownKeyButton_ = CreateButton(L"Break", kBreakdownAnimKey);
+        animHoldPoseButton_ = CreateButton(L"Hold All", kHoldAnimPose);
+        animBreakdownPoseButton_ = CreateButton(L"Break All", kBreakdownAnimPose);
         animMirrorKeysButton_ = CreateButton(L"Mir Keys", kMirrorAnimKeys);
         animHalfSpeedButton_ = CreateButton(L"½ Speed", kAnimHalfSpeed);
         animDoubleSpeedButton_ = CreateButton(L"×2 Speed", kAnimDoubleSpeed);
@@ -646,6 +1662,10 @@ private:
         animPlayheadZeroButton_ = CreateButton(L"Play→0", kAnimPlayheadToZero);
         animNudgeBackButton_ = CreateButton(L"←0.1", kAnimNudgeBack);
         animNudgeForwardButton_ = CreateButton(L"0.1→", kAnimNudgeForward);
+        animNudgeBoneBackButton_ = CreateButton(L"←Track", kAnimNudgeBoneBack);
+        animNudgeBoneForwardButton_ = CreateButton(L"Track→", kAnimNudgeBoneForward);
+        animHalfAmpButton_ = CreateButton(L"½ Amp", kAnimHalfAmp);
+        animDoubleAmpButton_ = CreateButton(L"×2 Amp", kAnimDoubleAmp);
         animCopyTrackButton_ = CreateButton(L"Copy Keys", kCopyAnimTrack);
         animPasteTrackButton_ = CreateButton(L"Paste Keys", kPasteAnimTrack);
         animTrimButton_ = CreateButton(L"Trim", kAnimTrim);
@@ -693,7 +1713,10 @@ private:
             ApplyDarkControlTheme(control);
         }
         SetTimer(hwnd_, kCatalogPollTimer, 50U, nullptr);
-        RefreshCatalog();
+        RefreshCatalog(openAssetPath_);
+        openAssetPath_.clear();
+        // --auto-play waits until the async catalog + preview bind a clip
+        // (PlaySelectedClip here would no-op: boundClip_ is still empty).
     }
 
     void LayoutControls(int width, int height) {
@@ -738,6 +1761,7 @@ private:
         placeButton(bakeButton_, 48);
         placeButton(bindRigButton_, 64);
         placeButton(unbindRigButton_, 56);
+        placeButton(bakeSkinButton_, 68);
         buttonX += 6;
         placeButton(newRigButton_, 60);
         placeButton(duplicateRigButton_, 56);
@@ -904,26 +1928,86 @@ private:
         MoveWindow(
             animClearTrackButton_, inspectorLeft + (keyBtn + 4) * 3, motionKeysTop, keyBtn, 24, TRUE);
         const int poseToolsTop = motionKeysTop + 28;
-        MoveWindow(animResetBoneButton_, inspectorLeft, poseToolsTop, keyBtn, 24, TRUE);
-        MoveWindow(animResetPoseButton_, inspectorLeft + keyBtn + 4, poseToolsTop, keyBtn, 24, TRUE);
+        const int poseBtn = (inspectorWidth - 20) / 6;
+        MoveWindow(animResetBoneButton_, inspectorLeft, poseToolsTop, poseBtn, 24, TRUE);
+        MoveWindow(animResetPoseButton_, inspectorLeft + poseBtn + 4, poseToolsTop, poseBtn, 24, TRUE);
         MoveWindow(
-            animMirrorPoseButton_, inspectorLeft + (keyBtn + 4) * 2, poseToolsTop, keyBtn, 24, TRUE);
-        MoveWindow(animSnapKeyButton_, inspectorLeft + (keyBtn + 4) * 3, poseToolsTop, keyBtn, 24, TRUE);
+            animMirrorPoseButton_,
+            inspectorLeft + (poseBtn + 4) * 2,
+            poseToolsTop,
+            poseBtn,
+            24,
+            TRUE);
+        MoveWindow(
+            animSnapKeyButton_, inspectorLeft + (poseBtn + 4) * 3, poseToolsTop, poseBtn, 24, TRUE);
+        MoveWindow(
+            animHoldPoseButton_, inspectorLeft + (poseBtn + 4) * 4, poseToolsTop, poseBtn, 24, TRUE);
+        MoveWindow(
+            animBreakdownPoseButton_,
+            inspectorLeft + (poseBtn + 4) * 5,
+            poseToolsTop,
+            poseBtn,
+            24,
+            TRUE);
         const int keyToolsTop = poseToolsTop + 28;
-        MoveWindow(animRestKeyButton_, inspectorLeft, keyToolsTop, keyBtn, 24, TRUE);
+        const int keyToolBtn = (inspectorWidth - 20) / 6;
+        MoveWindow(animRestKeyButton_, inspectorLeft, keyToolsTop, keyToolBtn, 24, TRUE);
         MoveWindow(
-            animMirrorKeysButton_, inspectorLeft + keyBtn + 4, keyToolsTop, keyBtn, 24, TRUE);
+            animHoldKeyButton_, inspectorLeft + keyToolBtn + 4, keyToolsTop, keyToolBtn, 24, TRUE);
         MoveWindow(
-            animCopyTrackButton_, inspectorLeft + (keyBtn + 4) * 2, keyToolsTop, keyBtn, 24, TRUE);
+            animBreakdownKeyButton_,
+            inspectorLeft + (keyToolBtn + 4) * 2,
+            keyToolsTop,
+            keyToolBtn,
+            24,
+            TRUE);
         MoveWindow(
-            animPasteTrackButton_, inspectorLeft + (keyBtn + 4) * 3, keyToolsTop, keyBtn, 24, TRUE);
+            animMirrorKeysButton_,
+            inspectorLeft + (keyToolBtn + 4) * 3,
+            keyToolsTop,
+            keyToolBtn,
+            24,
+            TRUE);
+        MoveWindow(
+            animCopyTrackButton_,
+            inspectorLeft + (keyToolBtn + 4) * 4,
+            keyToolsTop,
+            keyToolBtn,
+            24,
+            TRUE);
+        MoveWindow(
+            animPasteTrackButton_,
+            inspectorLeft + (keyToolBtn + 4) * 5,
+            keyToolsTop,
+            keyToolBtn,
+            24,
+            TRUE);
         const int speedTop = keyToolsTop + 28;
-        MoveWindow(animHalfSpeedButton_, inspectorLeft, speedTop, keyBtn, 24, TRUE);
-        MoveWindow(animDoubleSpeedButton_, inspectorLeft + keyBtn + 4, speedTop, keyBtn, 24, TRUE);
+        const int speedBtn = (inspectorWidth - 28) / 8;
+        MoveWindow(animHalfSpeedButton_, inspectorLeft, speedTop, speedBtn, 24, TRUE);
+        MoveWindow(animDoubleSpeedButton_, inspectorLeft + speedBtn + 4, speedTop, speedBtn, 24, TRUE);
         MoveWindow(
-            animNudgeBackButton_, inspectorLeft + (keyBtn + 4) * 2, speedTop, keyBtn, 24, TRUE);
+            animNudgeBackButton_, inspectorLeft + (speedBtn + 4) * 2, speedTop, speedBtn, 24, TRUE);
         MoveWindow(
-            animNudgeForwardButton_, inspectorLeft + (keyBtn + 4) * 3, speedTop, keyBtn, 24, TRUE);
+            animNudgeForwardButton_, inspectorLeft + (speedBtn + 4) * 3, speedTop, speedBtn, 24, TRUE);
+        MoveWindow(
+            animNudgeBoneBackButton_,
+            inspectorLeft + (speedBtn + 4) * 4,
+            speedTop,
+            speedBtn,
+            24,
+            TRUE);
+        MoveWindow(
+            animNudgeBoneForwardButton_,
+            inspectorLeft + (speedBtn + 4) * 5,
+            speedTop,
+            speedBtn,
+            24,
+            TRUE);
+        MoveWindow(
+            animHalfAmpButton_, inspectorLeft + (speedBtn + 4) * 6, speedTop, speedBtn, 24, TRUE);
+        MoveWindow(
+            animDoubleAmpButton_, inspectorLeft + (speedBtn + 4) * 7, speedTop, speedBtn, 24, TRUE);
         const int alignTop = speedTop + 28;
         MoveWindow(animAlignStartButton_, inspectorLeft, alignTop, keyBtn, 24, TRUE);
         MoveWindow(animFitDurationButton_, inspectorLeft + keyBtn + 4, alignTop, keyBtn, 24, TRUE);
@@ -931,22 +2015,57 @@ private:
             animPlayheadZeroButton_, inspectorLeft + (keyBtn + 4) * 2, alignTop, keyBtn, 24, TRUE);
         MoveWindow(animTrimButton_, inspectorLeft + (keyBtn + 4) * 3, alignTop, keyBtn, 24, TRUE);
         const int clearTop = alignTop + 28;
-        const int clearQuarter = (inspectorWidth - 12) / 4;
-        MoveWindow(animClearKeysButton_, inspectorLeft, clearTop, clearQuarter, 24, TRUE);
+        const int clearNinth = (inspectorWidth - 32) / 9;
+        MoveWindow(animClearKeysButton_, inspectorLeft, clearTop, clearNinth, 24, TRUE);
         MoveWindow(
-            animDedupKeysButton_, inspectorLeft + clearQuarter + 4, clearTop, clearQuarter, 24, TRUE);
+            animDedupKeysButton_, inspectorLeft + clearNinth + 4, clearTop, clearNinth, 24, TRUE);
         MoveWindow(
             animQuantizeKeysButton_,
-            inspectorLeft + (clearQuarter + 4) * 2,
+            inspectorLeft + (clearNinth + 4) * 2,
             clearTop,
-            clearQuarter,
+            clearNinth,
             24,
             TRUE);
         MoveWindow(
             animStripTracksButton_,
-            inspectorLeft + (clearQuarter + 4) * 3,
+            inspectorLeft + (clearNinth + 4) * 3,
             clearTop,
-            clearQuarter,
+            clearNinth,
+            24,
+            TRUE);
+        MoveWindow(
+            animDiagnoseBindButton_,
+            inspectorLeft + (clearNinth + 4) * 4,
+            clearTop,
+            clearNinth,
+            24,
+            TRUE);
+        MoveWindow(
+            animReverseButton_,
+            inspectorLeft + (clearNinth + 4) * 5,
+            clearTop,
+            clearNinth,
+            24,
+            TRUE);
+        MoveWindow(
+            animDensifyKeysButton_,
+            inspectorLeft + (clearNinth + 4) * 6,
+            clearTop,
+            clearNinth,
+            24,
+            TRUE);
+        MoveWindow(
+            animDecimateKeysButton_,
+            inspectorLeft + (clearNinth + 4) * 7,
+            clearTop,
+            clearNinth,
+            24,
+            TRUE);
+        MoveWindow(
+            animSmoothKeysButton_,
+            inspectorLeft + (clearNinth + 4) * 8,
+            clearTop,
+            clearNinth,
             24,
             TRUE);
         const int scrubRow = clearTop + 28;
@@ -1048,31 +2167,57 @@ private:
         MoveWindow(animRootButton_, inspectorLeft + (motionBtn + 4) * 3, motionButtonsTop, motionBtn, 24, TRUE);
         MoveWindow(
             bindBoneButton_, inspectorLeft, boneListTop + boneListHeight + 4, inspectorWidth, 24, TRUE);
-        const int floodHalf = (inspectorWidth - 12) / 4;
+        const int floodFifth = (inspectorWidth - 16) / 5;
         MoveWindow(
-            floodBoneButton_, inspectorLeft, boneListTop + boneListHeight + 4, floodHalf, 24, TRUE);
+            floodBoneButton_, inspectorLeft, boneListTop + boneListHeight + 4, floodFifth, 24, TRUE);
         MoveWindow(
             floodUnboundButton_,
-            inspectorLeft + floodHalf + 4,
+            inspectorLeft + floodFifth + 4,
             boneListTop + boneListHeight + 4,
-            floodHalf,
+            floodFifth,
+            24,
+            TRUE);
+        MoveWindow(
+            sealWeightsButton_,
+            inspectorLeft + (floodFifth + 4) * 2,
+            boneListTop + boneListHeight + 4,
+            floodFifth,
             24,
             TRUE);
         MoveWindow(
             transferWeightsButton_,
-            inspectorLeft + (floodHalf + 4) * 2,
+            inspectorLeft + (floodFifth + 4) * 3,
             boneListTop + boneListHeight + 4,
-            floodHalf,
+            floodFifth,
             24,
             TRUE);
         MoveWindow(
             swapWeightsButton_,
-            inspectorLeft + (floodHalf + 4) * 3,
+            inspectorLeft + (floodFifth + 4) * 4,
             boneListTop + boneListHeight + 4,
-            floodHalf,
+            floodFifth,
             24,
             TRUE);
-        const int weightToolsTop = boneListTop + boneListHeight + 32;
+        const int paintModeTop = boneListTop + boneListHeight + 32;
+        const int paintBtn = (inspectorWidth - 12) / 4;
+        MoveWindow(weightPaintAddButton_, inspectorLeft, paintModeTop, paintBtn, 24, TRUE);
+        MoveWindow(
+            weightPaintAssignButton_, inspectorLeft + paintBtn + 4, paintModeTop, paintBtn, 24, TRUE);
+        MoveWindow(
+            weightPaintSmoothButton_,
+            inspectorLeft + (paintBtn + 4) * 2,
+            paintModeTop,
+            paintBtn,
+            24,
+            TRUE);
+        MoveWindow(
+            weightPaintClearButton_,
+            inspectorLeft + (paintBtn + 4) * 3,
+            paintModeTop,
+            paintBtn,
+            24,
+            TRUE);
+        const int weightToolsTop = paintModeTop + 28;
         const int weightBtn = (inspectorWidth - 12) / 4;
         MoveWindow(normWeightsButton_, inspectorLeft, weightToolsTop, weightBtn, 24, TRUE);
         MoveWindow(pruneWeightsButton_, inspectorLeft + weightBtn + 4, weightToolsTop, weightBtn, 24, TRUE);
@@ -1080,36 +2225,101 @@ private:
             mirrorWeightsButton_, inspectorLeft + (weightBtn + 4) * 2, weightToolsTop, weightBtn, 24, TRUE);
         MoveWindow(
             clearWeightsButton_, inspectorLeft + (weightBtn + 4) * 3, weightToolsTop, weightBtn, 24, TRUE);
-        const int softBtn = (inspectorWidth - 16) / 5;
+        const int softBtn = (inspectorWidth - 24) / 7;
         MoveWindow(softWeightsButton_, inspectorLeft, weightToolsTop + 28, softBtn, 24, TRUE);
         MoveWindow(
-            auditWeightsButton_, inspectorLeft + softBtn + 4, weightToolsTop + 28, softBtn, 24, TRUE);
+            softBoneWeightsButton_,
+            inspectorLeft + softBtn + 4,
+            weightToolsTop + 28,
+            softBtn,
+            24,
+            TRUE);
         MoveWindow(
-            invertWeightsButton_,
+            growWeightsButton_,
             inspectorLeft + (softBtn + 4) * 2,
             weightToolsTop + 28,
             softBtn,
             24,
             TRUE);
         MoveWindow(
-            halveWeightsButton_,
+            shrinkWeightsButton_,
             inspectorLeft + (softBtn + 4) * 3,
             weightToolsTop + 28,
             softBtn,
             24,
             TRUE);
         MoveWindow(
-            doubleWeightsButton_,
+            hardenWeightsButton_,
             inspectorLeft + (softBtn + 4) * 4,
             weightToolsTop + 28,
             softBtn,
+            24,
+            TRUE);
+        MoveWindow(
+            floorWeightsButton_,
+            inspectorLeft + (softBtn + 4) * 5,
+            weightToolsTop + 28,
+            softBtn,
+            24,
+            TRUE);
+        MoveWindow(
+            ceilWeightsButton_,
+            inspectorLeft + (softBtn + 4) * 6,
+            weightToolsTop + 28,
+            softBtn,
+            24,
+            TRUE);
+        const int scaleBtn = (inspectorWidth - 28) / 8;
+        MoveWindow(auditWeightsButton_, inspectorLeft, weightToolsTop + 56, scaleBtn, 24, TRUE);
+        MoveWindow(
+            invertWeightsButton_, inspectorLeft + scaleBtn + 4, weightToolsTop + 56, scaleBtn, 24, TRUE);
+        MoveWindow(
+            halveWeightsButton_,
+            inspectorLeft + (scaleBtn + 4) * 2,
+            weightToolsTop + 56,
+            scaleBtn,
+            24,
+            TRUE);
+        MoveWindow(
+            doubleWeightsButton_,
+            inspectorLeft + (scaleBtn + 4) * 3,
+            weightToolsTop + 56,
+            scaleBtn,
+            24,
+            TRUE);
+        MoveWindow(
+            limitWeightsButton_,
+            inspectorLeft + (scaleBtn + 4) * 4,
+            weightToolsTop + 56,
+            scaleBtn,
+            24,
+            TRUE);
+        MoveWindow(
+            stripOrphanWeightsButton_,
+            inspectorLeft + (scaleBtn + 4) * 5,
+            weightToolsTop + 56,
+            scaleBtn,
+            24,
+            TRUE);
+        MoveWindow(
+            copyWeightsButton_,
+            inspectorLeft + (scaleBtn + 4) * 6,
+            weightToolsTop + 56,
+            scaleBtn,
+            24,
+            TRUE);
+        MoveWindow(
+            pasteWeightsButton_,
+            inspectorLeft + (scaleBtn + 4) * 7,
+            weightToolsTop + 56,
+            scaleBtn,
             24,
             TRUE);
 
         const int detailTop = bay_ == kBayLook ? lookTop + 186
             : (motionBay ? eventTop + 80
                 : (stockBay ? boneListTop + boneListHeight + 34
-                    : clayBay ? boneListTop + boneListHeight + 90
+                    : clayBay ? boneListTop + boneListHeight + 146
                     : axisTop + 58));
         MoveWindow(detailHeading_, inspectorLeft, detailTop, inspectorWidth, 16, TRUE);
         const int nameTop = detailTop + 18;
@@ -1180,17 +2390,32 @@ private:
         show(bindBoneButton_, stock);
         show(floodBoneButton_, clay);
         show(floodUnboundButton_, clay);
+        show(sealWeightsButton_, clay);
         show(transferWeightsButton_, clay);
         show(swapWeightsButton_, clay);
+        show(weightPaintAddButton_, clay);
+        show(weightPaintAssignButton_, clay);
+        show(weightPaintSmoothButton_, clay);
+        show(weightPaintClearButton_, clay);
         show(normWeightsButton_, clay);
         show(pruneWeightsButton_, clay);
         show(mirrorWeightsButton_, clay);
         show(clearWeightsButton_, clay);
         show(softWeightsButton_, clay);
+        show(softBoneWeightsButton_, clay);
+        show(growWeightsButton_, clay);
+        show(shrinkWeightsButton_, clay);
+        show(hardenWeightsButton_, clay);
+        show(floorWeightsButton_, clay);
+        show(ceilWeightsButton_, clay);
         show(auditWeightsButton_, clay);
         show(invertWeightsButton_, clay);
         show(halveWeightsButton_, clay);
         show(doubleWeightsButton_, clay);
+        show(limitWeightsButton_, clay);
+        show(stripOrphanWeightsButton_, clay);
+        show(copyWeightsButton_, clay);
+        show(pasteWeightsButton_, clay);
         show(mirrorRestButton_, motion && ShouldPersistBoneRest());
         show(
             boneRenameLabel_,
@@ -1234,11 +2459,20 @@ private:
         show(animDedupKeysButton_, motion);
         show(animQuantizeKeysButton_, motion);
         show(animStripTracksButton_, motion);
+        show(animDiagnoseBindButton_, motion);
+        show(animReverseButton_, motion);
+        show(animDensifyKeysButton_, motion);
+        show(animDecimateKeysButton_, motion);
+        show(animSmoothKeysButton_, motion);
         show(animResetBoneButton_, motion);
         show(animResetPoseButton_, motion);
         show(animMirrorPoseButton_, motion);
         show(animSnapKeyButton_, motion);
+        show(animHoldPoseButton_, motion);
+        show(animBreakdownPoseButton_, motion);
         show(animRestKeyButton_, motion);
+        show(animHoldKeyButton_, motion);
+        show(animBreakdownKeyButton_, motion);
         show(animMirrorKeysButton_, motion);
         show(animCopyTrackButton_, motion);
         show(animPasteTrackButton_, motion);
@@ -1246,6 +2480,10 @@ private:
         show(animDoubleSpeedButton_, motion);
         show(animNudgeBackButton_, motion);
         show(animNudgeForwardButton_, motion);
+        show(animNudgeBoneBackButton_, motion);
+        show(animNudgeBoneForwardButton_, motion);
+        show(animHalfAmpButton_, motion);
+        show(animDoubleAmpButton_, motion);
         show(animAlignStartButton_, motion);
         show(animFitDurationButton_, motion);
         show(animPlayheadZeroButton_, motion);
@@ -1310,6 +2548,8 @@ private:
                 prefix = asset.valid ? "[CLIP]  " : "[CLIP!] ";
             } else if (asset.kind == ri::forge::AssetKind::Sculpt) {
                 prefix = asset.valid ? "[CLAY]  " : "[CLAY!] ";
+            } else if (asset.kind == ri::forge::AssetKind::BlockCharacter) {
+                prefix = asset.valid ? "[BLOCK] " : "[BLOCK!]";
             } else if (asset.kind == ri::forge::AssetKind::PrimitiveModel) {
                 prefix = asset.valid ? "[STOCK] " : "[STOCK!]";
             }
@@ -1328,13 +2568,15 @@ private:
 
         const std::string summary = std::to_string(visibleAssetIndices_.size()) + " shown / "
             + std::to_string(catalog_.entries.size()) + "  ·  "
+            + std::to_string(catalog_.blockCharacterCount) + " block  ·  "
             + std::to_string(catalog_.primitiveModelCount) + " stock  ·  "
             + std::to_string(catalog_.sculptCount) + " clay  ·  "
             + std::to_string(catalog_.modelCount) + " import  ·  "
             + std::to_string(catalog_.rigCount) + " rigs  ·  "
             + std::to_string(catalog_.animationCount) + " clips  ·  "
-            + std::to_string(catalog_.invalidPrimitiveModelCount + catalog_.invalidSculptCount
-                             + catalog_.invalidRigCount + catalog_.invalidAnimationCount)
+            + std::to_string(catalog_.invalidPrimitiveModelCount + catalog_.invalidBlockCharacterCount
+                             + catalog_.invalidSculptCount + catalog_.invalidRigCount
+                             + catalog_.invalidAnimationCount)
             + " bad  ·  " + catalog_.sourceRoot.string();
         SetWindowTextW(summary_, Widen(summary).c_str());
         UpdateInspector();
@@ -1423,6 +2665,7 @@ private:
             EnableWindow(bakeButton_, FALSE);
             EnableWindow(bindRigButton_, FALSE);
             EnableWindow(unbindRigButton_, FALSE);
+            EnableWindow(bakeSkinButton_, FALSE);
             EnableWindow(newAnimButton_, !PreferredRigPath().empty() ? TRUE : FALSE);
             PopulateDisplayNameField();
             RefreshModelControls(nullptr);
@@ -1436,6 +2679,8 @@ private:
             kind = "Rig";
         } else if (asset->kind == ri::forge::AssetKind::PrimitiveModel) {
             kind = "Stock model";
+        } else if (asset->kind == ri::forge::AssetKind::BlockCharacter) {
+            kind = "Block character";
         } else if (asset->kind == ri::forge::AssetKind::Sculpt) {
             kind = "Clay";
         } else if (asset->kind == ri::forge::AssetKind::Animation) {
@@ -1457,6 +2702,9 @@ private:
                     }
                 }
             }
+        } else if (asset->kind == ri::forge::AssetKind::BlockCharacter) {
+            text += "\r\n\r\nAuthored PSX/block parts + colors + textures. Edit with ri_tool "
+                "--blockchar-nudge / --blockchar-sync-sculpt, then open the walk clip to preview.";
         } else if (asset->kind == ri::forge::AssetKind::Sculpt) {
             text += "\r\n\r\nNative clay. LMB build, Shift smooth, Ctrl inflate, E extrude, X/Y/Z mirror. Bind Rig nearest-weights the cage.";
             text += " B paint weights (blend/assign/smooth/clear). Norm/Prune/Mir X fix the bind list.";
@@ -1547,6 +2795,7 @@ private:
             || (asset->kind == ri::forge::AssetKind::Sculpt && asset->valid)
             || (asset->kind == ri::forge::AssetKind::PrimitiveModel && asset->valid);
         EnableWindow(unbindRigButton_, canUnbind ? TRUE : FALSE);
+        EnableWindow(bakeSkinButton_, BoundSculptSkinnable() ? TRUE : FALSE);
         EnableWindow(newAnimButton_, !PreferredRigPath().empty() ? TRUE : FALSE);
         if (asset->kind == ri::forge::AssetKind::Animation && asset->valid
             && CanBindClipOntoLivePreview(asset->absolutePath)) {
@@ -2105,7 +3354,15 @@ private:
                 : "")
             + (BoundSculptSkinnable() ? "  |  MOTION SKINS CLAY" : "")
             + (!restStockParts_.empty() ? "  |  MOTION SKINS PARTS" : "")
-            + (editableSculpt_.has_value() && bay_ == kBayClay ? "  |  B PAINT" : "")
+            + (editableSculpt_.has_value() && bay_ == kBayClay
+                ? "  |  B PAINT ("
+                    + std::string(
+                        weightPaintMode_ == ri::scene::NativeSculptWeightPaint::Assign ? "SET"
+                            : weightPaintMode_ == ri::scene::NativeSculptWeightPaint::Smooth ? "SMTH"
+                            : weightPaintMode_ == ri::scene::NativeSculptWeightPaint::Clear ? "ERASE"
+                            : "BLEND")
+                    + "; Ctrl/Shift/Alt override)"
+                : "")
             + "  |  H WGHT" + (showWeights_ ? " ON" : " OFF")
             + "  |  W WIRE" + (showWireframe_ ? " ON" : " OFF")
             + "  |  N NRML" + (showNormals_ ? " ON" : " OFF")
@@ -2201,10 +3458,16 @@ private:
         previewGroupIds_ = std::move(result.groupIds);
         transformGizmo_ = {};
         previewBoneNodes_ = std::move(result.boneNodes);
-        CaptureRestBoneWorld();
+        if (!result.restBoneWorld.empty()) {
+            restBoneWorld_ = std::move(result.restBoneWorld);
+            restBoneLocal_ = std::move(result.restBoneLocal);
+        } else {
+            CaptureRestBoneWorld();
+        }
         previewGridNode_ = result.gridNode;
         previewAxesNode_ = result.axesNode;
         previewSculptNode_ = result.sculptNode;
+        companionIsRigidBlocks_ = result.companionIsRigidBlocks;
         previewWireframeNode_ = result.sculptWireframeNode;
         previewNormalsNode_ = result.sculptNormalsNode;
         previewCollisionNode_ = result.sculptCollisionNode;
@@ -2214,8 +3477,18 @@ private:
         previewRenderableCount_ = result.renderableNodeCount;
         previewElapsedMilliseconds_ = result.elapsedMilliseconds;
         previewOptions_.textureRoot = workspaceRoot_ / "Assets" / "Textures";
-        previewOptions_.fogStrength = 0.2F;
+        previewOptions_.fogStrength = 0.0F;
+        previewOptions_.fogStartDepth = 40.0F;
+        previewOptions_.fogEndDepth = 80.0F;
         previewOptions_.orderedDither = false;
+        previewOptions_.clearTop = {0.08F, 0.09F, 0.11F};
+        previewOptions_.clearBottom = {0.14F, 0.15F, 0.18F};
+        previewOptions_.fogColor = {0.08F, 0.09F, 0.11F};
+        previewOptions_.ambientLight = companionIsRigidBlocks_
+            ? ri::math::Vec3{0.14F, 0.14F, 0.16F}
+            : ri::math::Vec3{0.28F, 0.28F, 0.30F};
+        previewOptions_.previewBloomStrength = 0.0F;
+        previewOptions_.previewExposure = 1.0F;
         appliedPreviewAssetPath_ = result.assetPath;
         if (!keepLiveSculpt) {
             editableSculpt_.reset();
@@ -2224,9 +3497,16 @@ private:
             sculptStrokeCaptured_ = false;
             sculptWeightStroke_ = false;
             sculptDirty_ = false;
-            if (previewSculptNode_ != ri::scene::kInvalidHandle && !result.assetPath.empty()) {
-                editableSculpt_ = ri::content::LoadNativeSculptDocument(result.assetPath);
-                editableSculptPath_ = result.assetPath;
+            fs::path sculptLoadPath{};
+            if (!result.companionSculptPath.empty()) {
+                sculptLoadPath = result.companionSculptPath;
+            } else if (previewSculptNode_ != ri::scene::kInvalidHandle && !result.assetPath.empty()
+                && ri::forge::IsSculptPath(result.assetPath)) {
+                sculptLoadPath = result.assetPath;
+            }
+            if (!sculptLoadPath.empty()) {
+                editableSculpt_ = ri::content::LoadNativeSculptDocument(sculptLoadPath);
+                editableSculptPath_ = std::move(sculptLoadPath);
             }
         } else if (previewSculptNode_ != ri::scene::kInvalidHandle) {
             ri::scene::WriteNativeSculptMesh(
@@ -2238,6 +3518,7 @@ private:
         if (!keepLiveAnim) {
             editableAnim_.reset();
             editableAnimPath_.clear();
+            ClearAnimUndoStacks();
             if (!result.assetPath.empty() && ri::forge::IsAnimationPath(result.assetPath)) {
                 editableAnim_ = ri::content::LoadNativeAnimationDocument(result.assetPath);
                 editableAnimPath_ = result.assetPath;
@@ -2251,9 +3532,13 @@ private:
             animPlayer_.SetLooping(editableAnim_->looping);
             animPlayer_.SetTimeSeconds(keepLiveAnim ? keptAnimTime : 0.0);
             ApplyClipPoseToPreview();
+            if (autoPlayOnOpen_ && !boundClip_.nodeTracks.empty()) {
+                PlaySelectedClip();
+                autoPlayOnOpen_ = false;
+            }
         }
         PopulateClipList();
-        if (previewSculptNode_ != ri::scene::kInvalidHandle) {
+        if (!companionIsRigidBlocks_ && previewSculptNode_ != ri::scene::kInvalidHandle) {
             const int parent = previewScene_.GetNode(previewSculptNode_).parent;
             previewWeightNode_ =
                 ri::scene::InstantiateNativeSculptWeightOverlay(previewScene_, parent);
@@ -2544,7 +3829,11 @@ private:
         SyncPreviewOverlays(false);
         PublishPreview();
         SyncForgeTitle();
-        SetWindowTextW(status_, L"Undid clay edit. Ctrl+Y redo. Ctrl+S saves.");
+        // Weight tools auto-save; keep disk aligned so undo is not a silent drift.
+        if (!editableSculptPath_.empty()) {
+            SaveActiveSculpt();
+        }
+        SetWindowTextW(status_, L"Undid clay edit. Ctrl+Y redo.");
     }
 
     void RedoSculptStroke() {
@@ -2557,6 +3846,9 @@ private:
         SyncPreviewOverlays(false);
         PublishPreview();
         SyncForgeTitle();
+        if (!editableSculptPath_.empty()) {
+            SaveActiveSculpt();
+        }
         SetWindowTextW(status_, L"Redid clay edit.");
     }
 
@@ -2736,6 +4028,9 @@ private:
     }
 
     void ApplySculptDisplayMesh() {
+        if (companionIsRigidBlocks_) {
+            return;
+        }
         if (editableSculpt_.has_value() && previewSculptNode_ != ri::scene::kInvalidHandle) {
             ri::scene::Mesh displayed = editableSculpt_->mesh;
             if (bay_ == kBayMotion && BoundSculptSkinnable()) {
@@ -2903,6 +4198,7 @@ private:
         if (clipPath.empty()) {
             editableAnim_.reset();
             editableAnimPath_.clear();
+            ClearAnimUndoStacks();
             boundClip_ = {};
             animPlayer_.SetClip(nullptr);
             RestoreRestBoneLocals();
@@ -2927,6 +4223,7 @@ private:
         }
         editableAnim_ = std::move(loaded);
         editableAnimPath_ = clipPath;
+        ClearAnimUndoStacks();
         if (const fs::path resolved =
                 ri::forge::ResolveCatalogRigPath(catalog_, editableAnim_->rigPath, editableAnimPath_);
             !resolved.empty()) {
@@ -2987,6 +4284,23 @@ private:
         return previewScene_.GetNode(node).name;
     }
 
+    [[nodiscard]] std::vector<std::string> CollectPreviewBoneNames() const {
+        std::vector<std::string> names{};
+        names.reserve(previewBoneNodes_.size());
+        for (const int node : previewBoneNodes_) {
+            if (node == ri::scene::kInvalidHandle
+                || node < 0
+                || static_cast<std::size_t>(node) >= previewScene_.NodeCount()) {
+                continue;
+            }
+            const std::string& name = previewScene_.GetNode(node).name;
+            if (!name.empty()) {
+                names.push_back(name);
+            }
+        }
+        return names;
+    }
+
     void ApplySculptAt(const int x, const int y) {
         if (!editableSculpt_.has_value() || previewSculptNode_ == ri::scene::kInvalidHandle
             || previewCamera_.cameraNode == ri::scene::kInvalidHandle) {
@@ -3036,7 +4350,7 @@ private:
         }
         if (sculptWeightStroke_) {
             const std::string boneName = SelectedBoneName();
-            ri::scene::NativeSculptWeightPaint mode = ri::scene::NativeSculptWeightPaint::Add;
+            ri::scene::NativeSculptWeightPaint mode = weightPaintMode_;
             if (holdingShift) {
                 mode = ri::scene::NativeSculptWeightPaint::Smooth;
             } else if (holdingAlt) {
@@ -3049,13 +4363,13 @@ private:
                 && boneName.empty()) {
                 SetWindowTextW(
                     status_,
-                    L"Select a bone, then hold B and paint. B blends, B+Ctrl replaces, B+Shift smooths, B+Alt clears.");
+                    L"Select a bone, then hold B and paint. Sticky Blend/Set/Smth/Erase; Ctrl/Shift/Alt override.");
                 PublishPreview();
                 return;
             }
+            std::optional<ri::content::NativeSculptDocument> strokeBaseline{};
             if (!sculptStrokeCaptured_) {
-                sculptUndo_.Capture(*editableSculpt_);
-                sculptStrokeCaptured_ = true;
+                strokeBaseline = *editableSculpt_;
             }
             const std::size_t painted = ri::scene::PaintNativeSculptWeights(
                 *editableSculpt_,
@@ -3070,6 +4384,10 @@ private:
             if (painted == 0U) {
                 PublishPreview();
                 return;
+            }
+            if (strokeBaseline.has_value()) {
+                sculptUndo_.Capture(*strokeBaseline);
+                sculptStrokeCaptured_ = true;
             }
             if (!showWeights_) {
                 showWeights_ = true;
@@ -3098,9 +4416,9 @@ private:
                 Widen(std::string(verb) + " " + std::to_string(painted) + detail).c_str());
             return;
         }
+        std::optional<ri::content::NativeSculptDocument> strokeBaseline{};
         if (!sculptStrokeCaptured_) {
-            sculptUndo_.Capture(*editableSculpt_);
-            sculptStrokeCaptured_ = true;
+            strokeBaseline = *editableSculpt_;
         }
         ri::scene::NativeSculptStroke stroke{};
         stroke.worldPosition = hit->position;
@@ -3129,6 +4447,10 @@ private:
         if (!applied) {
             PublishPreview();
             return;
+        }
+        if (strokeBaseline.has_value()) {
+            sculptUndo_.Capture(*strokeBaseline);
+            sculptStrokeCaptured_ = true;
         }
         editableSculpt_->mesh = mesh;
         if (!sculptDirty_) {
@@ -3261,6 +4583,10 @@ private:
 
     [[nodiscard]] bool TransformGizmoVisible() const {
         if (bay_ == kBayMotion) {
+            // Clip + companion clay: gizmo axes read as opaque slabs in the hearth.
+            if (editableAnim_.has_value() && editableSculpt_.has_value()) {
+                return false;
+            }
             return SelectedBoneNode() != ri::scene::kInvalidHandle;
         }
         return editableModel_.has_value() && !editableSculpt_.has_value()
@@ -3639,13 +4965,24 @@ private:
             EnableWindow(
                 animStripTracksButton_,
                 clip && !previewBoneNodes_.empty() ? TRUE : FALSE);
+            EnableWindow(
+                animDiagnoseBindButton_,
+                clip && !previewBoneNodes_.empty() ? TRUE : FALSE);
+            EnableWindow(animReverseButton_, clip ? TRUE : FALSE);
+            EnableWindow(animDensifyKeysButton_, clip ? TRUE : FALSE);
+            EnableWindow(animDecimateKeysButton_, clip ? TRUE : FALSE);
+            EnableWindow(animSmoothKeysButton_, clip ? TRUE : FALSE);
             EnableWindow(animResetBoneButton_, posed && editableRig_.has_value() ? TRUE : FALSE);
             EnableWindow(
                 animResetPoseButton_,
                 editableRig_.has_value() && !previewBoneNodes_.empty() ? TRUE : FALSE);
             EnableWindow(animMirrorPoseButton_, posed && !restEdit ? TRUE : FALSE);
             EnableWindow(animSnapKeyButton_, clip ? TRUE : FALSE);
+            EnableWindow(animHoldPoseButton_, clip ? TRUE : FALSE);
+            EnableWindow(animBreakdownPoseButton_, clip ? TRUE : FALSE);
             EnableWindow(animRestKeyButton_, clip && editableRig_.has_value() ? TRUE : FALSE);
+            EnableWindow(animHoldKeyButton_, clip && posed ? TRUE : FALSE);
+            EnableWindow(animBreakdownKeyButton_, clip && posed ? TRUE : FALSE);
             EnableWindow(animMirrorKeysButton_, clip && posed ? TRUE : FALSE);
             EnableWindow(animCopyTrackButton_, clip && posed ? TRUE : FALSE);
             EnableWindow(animPasteTrackButton_, clip && posed && !copiedAnimTrack_.keys.empty() ? TRUE : FALSE);
@@ -3653,6 +4990,12 @@ private:
             EnableWindow(animDoubleSpeedButton_, clip ? TRUE : FALSE);
             EnableWindow(animNudgeBackButton_, clip ? TRUE : FALSE);
             EnableWindow(animNudgeForwardButton_, clip ? TRUE : FALSE);
+            EnableWindow(
+                animNudgeBoneBackButton_, clip && posed ? TRUE : FALSE);
+            EnableWindow(
+                animNudgeBoneForwardButton_, clip && posed ? TRUE : FALSE);
+            EnableWindow(animHalfAmpButton_, clip ? TRUE : FALSE);
+            EnableWindow(animDoubleAmpButton_, clip ? TRUE : FALSE);
             EnableWindow(animAlignStartButton_, clip ? TRUE : FALSE);
             EnableWindow(animFitDurationButton_, clip ? TRUE : FALSE);
             EnableWindow(animPlayheadZeroButton_, clip ? TRUE : FALSE);
@@ -3746,14 +5089,41 @@ private:
         EnableWindow(
             floodUnboundButton_,
             editableSculpt_.has_value() && !SelectedBoneName().empty() ? TRUE : FALSE);
+        EnableWindow(sealWeightsButton_, editableSculpt_.has_value() ? TRUE : FALSE);
         EnableWindow(
             transferWeightsButton_,
             editableSculpt_.has_value() && !SelectedBoneName().empty() ? TRUE : FALSE);
         EnableWindow(
             swapWeightsButton_,
             editableSculpt_.has_value() && !SelectedBoneName().empty() ? TRUE : FALSE);
-        EnableWindow(auditWeightsButton_, editableSculpt_.has_value() ? TRUE : FALSE);
-        EnableWindow(softWeightsButton_, editableSculpt_.has_value() ? TRUE : FALSE);
+        const BOOL paintReady = editableSculpt_.has_value() ? TRUE : FALSE;
+        EnableWindow(normWeightsButton_, paintReady);
+        EnableWindow(pruneWeightsButton_, paintReady);
+        EnableWindow(mirrorWeightsButton_, paintReady);
+        EnableWindow(weightPaintAddButton_, paintReady);
+        EnableWindow(weightPaintAssignButton_, paintReady);
+        EnableWindow(weightPaintSmoothButton_, paintReady);
+        EnableWindow(weightPaintClearButton_, paintReady);
+        EnableWindow(auditWeightsButton_, paintReady);
+        EnableWindow(softWeightsButton_, paintReady);
+        EnableWindow(
+            softBoneWeightsButton_,
+            editableSculpt_.has_value() && !SelectedBoneName().empty() ? TRUE : FALSE);
+        EnableWindow(
+            growWeightsButton_,
+            editableSculpt_.has_value() && !SelectedBoneName().empty() ? TRUE : FALSE);
+        EnableWindow(
+            shrinkWeightsButton_,
+            editableSculpt_.has_value() && !SelectedBoneName().empty() ? TRUE : FALSE);
+        EnableWindow(
+            hardenWeightsButton_,
+            editableSculpt_.has_value() && !SelectedBoneName().empty() ? TRUE : FALSE);
+        EnableWindow(
+            floorWeightsButton_,
+            editableSculpt_.has_value() && !SelectedBoneName().empty() ? TRUE : FALSE);
+        EnableWindow(
+            ceilWeightsButton_,
+            editableSculpt_.has_value() && !SelectedBoneName().empty() ? TRUE : FALSE);
         EnableWindow(
             invertWeightsButton_,
             editableSculpt_.has_value() && !SelectedBoneName().empty() ? TRUE : FALSE);
@@ -3763,7 +5133,19 @@ private:
         EnableWindow(
             doubleWeightsButton_,
             editableSculpt_.has_value() && !SelectedBoneName().empty() ? TRUE : FALSE);
-        EnableWindow(clearWeightsButton_, editableSculpt_.has_value() ? TRUE : FALSE);
+        EnableWindow(limitWeightsButton_, paintReady);
+        EnableWindow(
+            stripOrphanWeightsButton_,
+            editableSculpt_.has_value() && !previewBoneNodes_.empty() ? TRUE : FALSE);
+        EnableWindow(
+            copyWeightsButton_,
+            editableSculpt_.has_value() && !SelectedBoneName().empty() ? TRUE : FALSE);
+        EnableWindow(
+            pasteWeightsButton_,
+            editableSculpt_.has_value() && !SelectedBoneName().empty() && !copiedBoneWeights_.empty()
+                ? TRUE
+                : FALSE);
+        EnableWindow(clearWeightsButton_, paintReady);
     }
 
     [[nodiscard]] int SelectedBoneNode() const {
@@ -4037,10 +5419,14 @@ private:
         std::string sidecars{};
         if (editableSculpt_.has_value()
             && SidecarUsesEditableRig(editableSculpt_->rigPath, editableSculptPath_)) {
+            const ri::content::NativeSculptDocument previousClay = *editableSculpt_;
             if (ri::scene::RenameNativeSculptBone(*editableSculpt_, oldName, newName) > 0U) {
-                if (ri::content::SaveNativeSculptDocument(editableSculptPath_, *editableSculpt_)) {
-                    sidecars += " clay";
+                sculptUndo_.Capture(previousClay);
+                sculptDirty_ = true;
+                if (!SaveActiveSculpt()) {
+                    return;
                 }
+                sidecars += " clay";
             }
         }
         if (editableModel_.has_value()
@@ -4051,25 +5437,25 @@ private:
                 }
             }
         }
+        bool renamedClip = false;
         if (editableAnim_.has_value()
             && SidecarUsesEditableRig(editableAnim_->rigPath, editableAnimPath_)) {
             if (ri::scene::RenameNativeAnimationBone(*editableAnim_, oldName, newName)) {
-                if (ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
-                    sidecars += " clip";
-                }
+                renamedClip = true;
             }
         }
         if (!SaveEditableRig()) {
             return;
         }
+        if (renamedClip) {
+            if (!ReloadBoundClipAfterEdit(ReadCurrentAnimTime())) {
+                return;
+            }
+            sidecars += " clip";
+        }
         ResyncBoneList(newName);
         PopulateBonePoseFields();
         SyncTransformGizmo();
-        if (editableAnim_.has_value() && !previewBoneNodes_.empty()) {
-            boundClip_ = ri::scene::BindNativeAnimationClip(
-                *editableAnim_, previewScene_, previewBoneNodes_);
-            animPlayer_.SetClip(&boundClip_);
-        }
         ApplySculptDisplayMesh();
         PublishPreview();
         RefreshCatalog(editableRigPath_);
@@ -4144,10 +5530,14 @@ private:
         std::string sidecars{};
         if (editableSculpt_.has_value()
             && SidecarUsesEditableRig(editableSculpt_->rigPath, editableSculptPath_)) {
+            const ri::content::NativeSculptDocument previousClay = *editableSculpt_;
             if (ri::scene::RemoveNativeSculptBone(*editableSculpt_, boneName) > 0U) {
-                if (ri::content::SaveNativeSculptDocument(editableSculptPath_, *editableSculpt_)) {
-                    sidecars += " clay";
+                sculptUndo_.Capture(previousClay);
+                sculptDirty_ = true;
+                if (!SaveActiveSculpt()) {
+                    return;
                 }
+                sidecars += " clay";
             }
         }
         if (editableModel_.has_value()
@@ -4158,16 +5548,21 @@ private:
                 }
             }
         }
+        bool removedClipBone = false;
         if (editableAnim_.has_value()
             && SidecarUsesEditableRig(editableAnim_->rigPath, editableAnimPath_)) {
             if (ri::scene::RemoveNativeAnimationBone(*editableAnim_, boneName)) {
-                if (ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
-                    sidecars += " clip";
-                }
+                removedClipBone = true;
             }
         }
         if (!SaveEditableRig(true, false)) {
             return;
+        }
+        if (removedClipBone) {
+            if (!ReloadBoundClipAfterEdit(ReadCurrentAnimTime())) {
+                return;
+            }
+            sidecars += " clip";
         }
         pendingBoneSelect_ = parentName;
         Rebuild3DPreview(SelectedAsset(), true);
@@ -4231,6 +5626,9 @@ private:
         if (audit.nonNormalizedCount > 0U) {
             summary += " | " + std::to_string(audit.nonNormalizedCount) + " non-normalized";
         }
+        if (audit.overInfluencedCount > 0U) {
+            summary += " | " + std::to_string(audit.overInfluencedCount) + " over-cap";
+        }
         SetWindowTextW(status_, Widen("Weight audit: " + summary).c_str());
     }
 
@@ -4260,6 +5658,316 @@ private:
             status_, Widen("Softened weights on " + std::to_string(changed) + " verts.").c_str());
     }
 
+    void SoftenSelectedBoneWeights() {
+        if (!editableSculpt_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open clay before softening a bone.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::string boneName = SelectedBoneName();
+        if (boneName.empty()) {
+            MessageBoxW(
+                hwnd_, L"Select a bone in BONES, then Soft Bone.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const ri::content::NativeSculptDocument previous = *editableSculpt_;
+        const std::size_t changed =
+            ri::scene::SmoothNativeSculptBoneWeights(*editableSculpt_, boneName);
+        if (changed == 0U) {
+            SetWindowTextW(status_, Widen(boneName + " weights were already smooth.").c_str());
+            return;
+        }
+        sculptUndo_.Capture(previous);
+        sculptDirty_ = true;
+        showWeights_ = true;
+        ApplySculptDisplayMesh();
+        SyncPreviewOverlays(true);
+        RefreshViewportHeading();
+        SyncForgeTitle();
+        if (!SaveActiveSculpt()) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen("Softened " + boneName + " on " + std::to_string(changed) + " verts.").c_str());
+    }
+
+    void GrowSelectedBoneWeights() {
+        if (!editableSculpt_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open clay before growing weights.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::string boneName = SelectedBoneName();
+        if (boneName.empty()) {
+            MessageBoxW(
+                hwnd_, L"Select a bone in BONES, then Grow.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const ri::content::NativeSculptDocument previous = *editableSculpt_;
+        const std::size_t changed =
+            ri::scene::GrowNativeSculptBoneWeights(*editableSculpt_, boneName);
+        if (changed == 0U) {
+            SetWindowTextW(status_, Widen("No room to grow " + boneName + ".").c_str());
+            return;
+        }
+        sculptUndo_.Capture(previous);
+        sculptDirty_ = true;
+        showWeights_ = true;
+        ApplySculptDisplayMesh();
+        SyncPreviewOverlays(true);
+        RefreshViewportHeading();
+        SyncForgeTitle();
+        if (!SaveActiveSculpt()) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen("Grew " + boneName + " onto " + std::to_string(changed) + " verts.").c_str());
+    }
+
+    void ShrinkSelectedBoneWeights() {
+        if (!editableSculpt_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open clay before shrinking weights.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::string boneName = SelectedBoneName();
+        if (boneName.empty()) {
+            MessageBoxW(
+                hwnd_, L"Select a bone in BONES, then Shrink.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const ri::content::NativeSculptDocument previous = *editableSculpt_;
+        const std::size_t changed =
+            ri::scene::ShrinkNativeSculptBoneWeights(*editableSculpt_, boneName);
+        if (changed == 0U) {
+            SetWindowTextW(status_, Widen("No frontier verts to shrink off " + boneName + ".").c_str());
+            return;
+        }
+        sculptUndo_.Capture(previous);
+        sculptDirty_ = true;
+        showWeights_ = true;
+        ApplySculptDisplayMesh();
+        SyncPreviewOverlays(true);
+        RefreshViewportHeading();
+        SyncForgeTitle();
+        if (!SaveActiveSculpt()) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen("Shrunk " + boneName + " off " + std::to_string(changed) + " verts.").c_str());
+    }
+
+    void HardenSelectedBoneWeights() {
+        if (!editableSculpt_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open clay before hardening weights.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::string boneName = SelectedBoneName();
+        if (boneName.empty()) {
+            MessageBoxW(
+                hwnd_, L"Select a bone in BONES, then Harden.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const ri::content::NativeSculptDocument previous = *editableSculpt_;
+        const std::size_t changed =
+            ri::scene::HardenNativeSculptBoneWeights(*editableSculpt_, boneName, 0.5f);
+        if (changed == 0U) {
+            SetWindowTextW(
+                status_,
+                Widen("No verts at/above 0.5 on " + boneName + " to harden.").c_str());
+            return;
+        }
+        sculptUndo_.Capture(previous);
+        sculptDirty_ = true;
+        showWeights_ = true;
+        ApplySculptDisplayMesh();
+        SyncPreviewOverlays(true);
+        RefreshViewportHeading();
+        SyncForgeTitle();
+        if (!SaveActiveSculpt()) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen("Hardened " + boneName + " on " + std::to_string(changed) + " verts.").c_str());
+    }
+
+    void FloorSelectedBoneWeights() {
+        if (!editableSculpt_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open clay before flooring weights.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::string boneName = SelectedBoneName();
+        if (boneName.empty()) {
+            MessageBoxW(
+                hwnd_, L"Select a bone in BONES, then Floor.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const ri::content::NativeSculptDocument previous = *editableSculpt_;
+        const std::size_t changed =
+            ri::scene::FloorNativeSculptBoneWeights(*editableSculpt_, boneName, 0.05f);
+        if (changed == 0U) {
+            SetWindowTextW(
+                status_,
+                Widen("No weak " + boneName + " influences below 0.05 to floor.").c_str());
+            return;
+        }
+        sculptUndo_.Capture(previous);
+        sculptDirty_ = true;
+        showWeights_ = true;
+        ApplySculptDisplayMesh();
+        SyncPreviewOverlays(true);
+        RefreshViewportHeading();
+        SyncForgeTitle();
+        if (!SaveActiveSculpt()) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen("Floored " + boneName + " under 0.05 on " + std::to_string(changed) + " verts.")
+                .c_str());
+    }
+
+    void CeilSelectedBoneWeights() {
+        if (!editableSculpt_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open clay before ceiling weights.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::string boneName = SelectedBoneName();
+        if (boneName.empty()) {
+            MessageBoxW(
+                hwnd_, L"Select a bone in BONES, then Ceil.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const ri::content::NativeSculptDocument previous = *editableSculpt_;
+        const std::size_t changed =
+            ri::scene::CeilNativeSculptBoneWeights(*editableSculpt_, boneName, 0.85f);
+        if (changed == 0U) {
+            SetWindowTextW(
+                status_,
+                Widen("No blended " + boneName + " influences above 0.85 to ceil.").c_str());
+            return;
+        }
+        sculptUndo_.Capture(previous);
+        sculptDirty_ = true;
+        showWeights_ = true;
+        ApplySculptDisplayMesh();
+        SyncPreviewOverlays(true);
+        RefreshViewportHeading();
+        SyncForgeTitle();
+        if (!SaveActiveSculpt()) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen("Ceiled " + boneName + " over 0.85 on " + std::to_string(changed) + " verts.")
+                .c_str());
+    }
+
+    void LimitSelectedSculptInfluences() {
+        if (!editableSculpt_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open clay before capping influences.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const ri::content::NativeSculptDocument previous = *editableSculpt_;
+        const std::size_t changed = ri::scene::LimitNativeSculptInfluences(*editableSculpt_);
+        if (changed == 0U) {
+            SetWindowTextW(status_, L"No verts exceeded four influences.");
+            return;
+        }
+        sculptUndo_.Capture(previous);
+        sculptDirty_ = true;
+        showWeights_ = true;
+        ApplySculptDisplayMesh();
+        SyncPreviewOverlays(true);
+        RefreshViewportHeading();
+        SyncForgeTitle();
+        if (!SaveActiveSculpt()) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen("Capped influences on " + std::to_string(changed) + " verts to 4.").c_str());
+    }
+
+    void StripOrphanSculptWeights() {
+        if (!editableSculpt_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open clay before dropping orphan weights.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::vector<std::string> allowed = CollectPreviewBoneNames();
+        if (allowed.empty()) {
+            MessageBoxW(
+                hwnd_,
+                L"Open a rigged mesh so Orphans knows which bone names are valid.",
+                L"Forge weights",
+                MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const ri::content::NativeSculptDocument previous = *editableSculpt_;
+        const std::size_t changed =
+            ri::scene::StripNativeSculptOrphanInfluences(*editableSculpt_, allowed);
+        if (changed == 0U) {
+            SetWindowTextW(status_, L"No orphan bone influences to drop.");
+            return;
+        }
+        sculptUndo_.Capture(previous);
+        sculptDirty_ = true;
+        showWeights_ = true;
+        ApplySculptDisplayMesh();
+        SyncPreviewOverlays(true);
+        RefreshViewportHeading();
+        SyncForgeTitle();
+        if (!SaveActiveSculpt()) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen("Dropped orphan influences on " + std::to_string(changed) + " verts.").c_str());
+    }
+
+    void SetWeightPaintMode(const ri::scene::NativeSculptWeightPaint mode) {
+        if (weightPaintMode_ == mode) {
+            return;
+        }
+        weightPaintMode_ = mode;
+        UpdateWeightPaintModeButtons();
+        const char* label = "Blend";
+        if (mode == ri::scene::NativeSculptWeightPaint::Assign) {
+            label = "Set";
+        } else if (mode == ri::scene::NativeSculptWeightPaint::Smooth) {
+            label = "Smth";
+        } else if (mode == ri::scene::NativeSculptWeightPaint::Clear) {
+            label = "Erase";
+        }
+        SetWindowTextW(
+            status_,
+            Widen(std::string("Weight paint mode: ") + label
+                + " (hold B; Ctrl/Shift/Alt still override).")
+                .c_str());
+        RefreshViewportHeading();
+    }
+
+    void UpdateWeightPaintModeButtons() {
+        for (const HWND button :
+             {weightPaintAddButton_,
+              weightPaintAssignButton_,
+              weightPaintSmoothButton_,
+              weightPaintClearButton_}) {
+            if (button != nullptr) {
+                InvalidateRect(button, nullptr, TRUE);
+            }
+        }
+    }
+
     void InvertSelectedBoneWeights() {
         if (!editableSculpt_.has_value()) {
             MessageBoxW(
@@ -4270,7 +5978,7 @@ private:
         if (boneName.empty()) {
             MessageBoxW(
                 hwnd_,
-                L"Select a bone in BONES, then Inv.",
+                L"Select a bone in BONES, then 1-W.",
                 L"Forge weights",
                 MB_OK | MB_ICONWARNING);
             return;
@@ -4335,6 +6043,89 @@ private:
                 + std::to_string(changed) + " verts.").c_str());
     }
 
+    void CopySelectedBoneWeights() {
+        if (!editableSculpt_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open clay before copying weights.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::string boneName = SelectedBoneName();
+        if (boneName.empty()) {
+            MessageBoxW(
+                hwnd_,
+                L"Select a bone in BONES, then Copy Wt.",
+                L"Forge weights",
+                MB_OK | MB_ICONWARNING);
+            return;
+        }
+        copiedBoneWeights_ = ri::scene::ExtractNativeSculptBoneWeights(*editableSculpt_, boneName);
+        copiedBoneWeightsSource_ = boneName;
+        float peak = 0.0f;
+        for (const float weight : copiedBoneWeights_) {
+            peak = (std::max)(peak, weight);
+        }
+        SyncAuthoringEnable();
+        SetWindowTextW(
+            status_,
+            Widen(
+                "Copied " + boneName + " weights (" + std::to_string(copiedBoneWeights_.size())
+                + " verts, peak " + std::to_string(peak) + "). Select another bone and Paste Wt.")
+                .c_str());
+    }
+
+    void PasteSelectedBoneWeights() {
+        if (!editableSculpt_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open clay before pasting weights.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::string boneName = SelectedBoneName();
+        if (boneName.empty()) {
+            MessageBoxW(
+                hwnd_,
+                L"Select a bone in BONES, then Paste Wt.",
+                L"Forge weights",
+                MB_OK | MB_ICONWARNING);
+            return;
+        }
+        if (copiedBoneWeights_.empty()) {
+            MessageBoxW(
+                hwnd_, L"Copy Wt a bone weight map first.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        if (copiedBoneWeights_.size() != editableSculpt_->mesh.positions.size()) {
+            MessageBoxW(
+                hwnd_,
+                L"Clipboard vertex count does not match this clay. Copy Wt again.",
+                L"Forge weights",
+                MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const ri::content::NativeSculptDocument previous = *editableSculpt_;
+        const std::size_t changed = ri::scene::ApplyNativeSculptBoneWeights(
+            *editableSculpt_, boneName, copiedBoneWeights_);
+        if (changed == 0U) {
+            SetWindowTextW(status_, Widen("Paste Wt left " + boneName + " unchanged.").c_str());
+            return;
+        }
+        sculptUndo_.Capture(previous);
+        sculptDirty_ = true;
+        showWeights_ = true;
+        ApplySculptDisplayMesh();
+        SyncPreviewOverlays(true);
+        RefreshViewportHeading();
+        SyncForgeTitle();
+        if (!SaveActiveSculpt()) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen(
+                "Pasted " + copiedBoneWeightsSource_ + " → " + boneName + " on "
+                + std::to_string(changed) + " verts.")
+                .c_str());
+    }
+
     void ClearSelectedSculptWeights() {
         if (!editableSculpt_.has_value()) {
             MessageBoxW(
@@ -4374,6 +6165,43 @@ private:
                 Widen("Cleared " + boneName + " from " + std::to_string(changed) + " verts.")
                     .c_str());
         }
+    }
+
+    void BakeSelectedSculptSkin() {
+        if (!editableSculpt_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open clay before baking skin.", L"Forge clay", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        if (!BoundSculptSkinnable()) {
+            MessageBoxW(
+                hwnd_,
+                L"Bind a rig and open skinned clay before Bake Skin.",
+                L"Forge clay",
+                MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const ri::content::NativeSculptDocument previous = *editableSculpt_;
+        const auto posed = CollectPosedBoneWorld();
+        const std::size_t skinned =
+            ri::scene::BakeNativeSculptSkin(*editableSculpt_, restBoneWorld_, posed);
+        if (skinned == 0U) {
+            SetWindowTextW(status_, L"Bake Skin left the rest mesh unchanged.");
+            return;
+        }
+        sculptUndo_.Capture(previous);
+        sculptDirty_ = true;
+        CaptureRestBoneWorld();
+        ApplySculptDisplayMesh();
+        SyncPreviewOverlays(true);
+        RefreshViewportHeading();
+        SyncForgeTitle();
+        if (!SaveActiveSculpt()) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen("Baked posed skin into rest on " + std::to_string(skinned) + " verts.").c_str());
     }
 
     void UnbindSelectedTarget() {
@@ -4704,6 +6532,7 @@ private:
         if (clearingLive) {
             editableAnim_.reset();
             editableAnimPath_.clear();
+            ClearAnimUndoStacks();
             boundClip_ = {};
             animPlayer_.Stop();
             animPlayer_.SetClip(nullptr);
@@ -4967,8 +6796,7 @@ private:
                 MB_OK | MB_ICONWARNING);
             return;
         }
-        if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
-            MessageBoxW(hwnd_, L"Could not save clip events.", L"Forge", MB_OK | MB_ICONERROR);
+        if (!ReloadBoundClipAfterEdit(time)) {
             return;
         }
         int selected = 0;
@@ -4997,8 +6825,7 @@ private:
         if (!ri::scene::RemoveNativeAnimationEvent(*editableAnim_, static_cast<std::size_t>(selection))) {
             return;
         }
-        if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
-            MessageBoxW(hwnd_, L"Could not save clip events.", L"Forge", MB_OK | MB_ICONERROR);
+        if (!ReloadBoundClipAfterEdit(ReadCurrentAnimTime())) {
             return;
         }
         PopulateEventList();
@@ -5032,8 +6859,7 @@ private:
             MessageBoxW(hwnd_, L"Could not rename that event.", L"Forge clip", MB_OK | MB_ICONWARNING);
             return;
         }
-        if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
-            MessageBoxW(hwnd_, L"Could not save clip events.", L"Forge", MB_OK | MB_ICONERROR);
+        if (!ReloadBoundClipAfterEdit(ReadCurrentAnimTime())) {
             return;
         }
         int selected = static_cast<int>(selection);
@@ -5104,8 +6930,7 @@ private:
             MessageBoxW(hwnd_, L"Could not move that event.", L"Forge clip", MB_OK | MB_ICONWARNING);
             return;
         }
-        if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
-            MessageBoxW(hwnd_, L"Could not save clip events.", L"Forge", MB_OK | MB_ICONERROR);
+        if (!ReloadBoundClipAfterEdit(time)) {
             return;
         }
         int selected = 0;
@@ -5143,8 +6968,7 @@ private:
             MessageBoxW(hwnd_, L"Could not duplicate that event.", L"Forge clip", MB_OK | MB_ICONWARNING);
             return;
         }
-        if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
-            MessageBoxW(hwnd_, L"Could not save clip events.", L"Forge", MB_OK | MB_ICONERROR);
+        if (!ReloadBoundClipAfterEdit(time)) {
             return;
         }
         int selected = 0;
@@ -5204,22 +7028,11 @@ private:
                 MB_OK | MB_ICONWARNING);
             return;
         }
-        if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
-            MessageBoxW(hwnd_, L"Could not save clip duration.", L"Forge", MB_OK | MB_ICONERROR);
+        const double time = std::min(animPlayer_.TimeSeconds(), static_cast<double>(*typed));
+        if (!ReloadBoundClipAfterEdit(time)) {
+            SyncAnimDurationFromClip();
             return;
         }
-        boundClip_.durationSeconds = editableAnim_->durationSeconds;
-        const double time = std::min(animPlayer_.TimeSeconds(), ClipDurationSeconds());
-        animPlayer_.SetClip(boundClip_.nodeTracks.empty() ? nullptr : &boundClip_);
-        animPlayer_.SetTimeSeconds(time);
-        if (!boundClip_.nodeTracks.empty()) {
-            ApplyClipPoseToPreview();
-            ApplySculptDisplayMesh();
-            PublishPreview();
-        }
-        SetWindowTextW(animTime_, FormatTransformValue(static_cast<float>(animPlayer_.TimeSeconds())).c_str());
-        SyncAnimScrubFromPlayer();
-        SyncAnimDurationFromClip();
         SyncAnimWindowFromClip();
         PopulateEventList();
         SetWindowTextW(
@@ -5250,27 +7063,10 @@ private:
             MessageBoxW(hwnd_, Widen(trimmed.summary).c_str(), L"Forge clip", MB_OK | MB_ICONWARNING);
             return;
         }
-        if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
-            MessageBoxW(hwnd_, L"Could not save the trimmed clip.", L"Forge", MB_OK | MB_ICONERROR);
+        const double time = std::min(animPlayer_.TimeSeconds(), editableAnim_->durationSeconds);
+        if (!ReloadBoundClipAfterEdit(time)) {
             return;
         }
-        if (!previewBoneNodes_.empty()) {
-            boundClip_ = ri::scene::BindNativeAnimationClip(
-                *editableAnim_, previewScene_, previewBoneNodes_);
-            animPlayer_.SetClip(&boundClip_);
-        } else {
-            boundClip_.durationSeconds = editableAnim_->durationSeconds;
-        }
-        const double time = std::min(animPlayer_.TimeSeconds(), ClipDurationSeconds());
-        animPlayer_.SetTimeSeconds(time);
-        if (!boundClip_.nodeTracks.empty()) {
-            ApplyClipPoseToPreview();
-            ApplySculptDisplayMesh();
-            PublishPreview();
-        }
-        SetWindowTextW(animTime_, FormatTransformValue(static_cast<float>(animPlayer_.TimeSeconds())).c_str());
-        SyncAnimScrubFromPlayer();
-        SyncAnimDurationFromClip();
         SyncAnimWindowFromClip();
         PopulateEventList();
         SetWindowTextW(status_, Widen(trimmed.summary).c_str());
@@ -5294,18 +7090,12 @@ private:
             return;
         }
         editableAnim_->rootMotion = !editableAnim_->rootMotion;
-        if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
+        if (!ReloadBoundClipAfterEdit(ReadCurrentAnimTime())) {
             editableAnim_->rootMotion = !editableAnim_->rootMotion;
-            MessageBoxW(hwnd_, L"Could not save root-motion mode.", L"Forge", MB_OK | MB_ICONERROR);
             UpdateRootMotionButton();
             return;
         }
         UpdateRootMotionButton();
-        if (!boundClip_.nodeTracks.empty()) {
-            ApplyClipPoseToPreview();
-            ApplySculptDisplayMesh();
-            PublishPreview();
-        }
         SetWindowTextW(
             status_,
             editableAnim_->rootMotion ? L"Root motion travels with the clip."
@@ -5317,16 +7107,13 @@ private:
             return;
         }
         editableAnim_->looping = !editableAnim_->looping;
-        boundClip_.looping = editableAnim_->looping;
-        animPlayer_.SetLooping(editableAnim_->looping);
-        if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
+        if (!ReloadBoundClipAfterEdit(ReadCurrentAnimTime())) {
             editableAnim_->looping = !editableAnim_->looping;
-            boundClip_.looping = editableAnim_->looping;
-            animPlayer_.SetLooping(editableAnim_->looping);
-            MessageBoxW(hwnd_, L"Could not save loop mode.", L"Forge", MB_OK | MB_ICONERROR);
             UpdateLoopButton();
             return;
         }
+        boundClip_.looping = editableAnim_->looping;
+        animPlayer_.SetLooping(editableAnim_->looping);
         UpdateLoopButton();
         SetWindowTextW(status_, editableAnim_->looping ? L"Clip loops." : L"Clip plays once.");
     }
@@ -5391,17 +7178,11 @@ private:
             MessageBoxW(hwnd_, L"Open a motion clip before keying a pose.", L"Forge", MB_OK | MB_ICONWARNING);
             return;
         }
-        double time = ReadCurrentAnimTime();
+        const double time = ReadCurrentAnimTime();
         ri::scene::CaptureNativeAnimationPose(*editableAnim_, previewScene_, previewBoneNodes_, time);
-        if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
-            MessageBoxW(hwnd_, L"Could not save the keyed pose.", L"Forge", MB_OK | MB_ICONERROR);
+        if (!ReloadBoundClipAfterEdit(time)) {
             return;
         }
-        boundClip_ = ri::scene::BindNativeAnimationClip(*editableAnim_, previewScene_, previewBoneNodes_);
-        animPlayer_.SetClip(&boundClip_);
-        animPlayer_.SetTimeSeconds(time);
-        SyncAnimScrubFromPlayer();
-        SyncAnimDurationFromClip();
         SetWindowTextW(status_, Widen("Keyed pose at " + std::to_string(time) + "s").c_str());
     }
 
@@ -5418,25 +7199,32 @@ private:
         const ri::scene::Node& bone = previewScene_.GetNode(node);
         const double time = ReadCurrentAnimTime();
         ri::scene::UpsertNativeAnimationKey(*editableAnim_, bone.name, time, bone.localTransform);
-        if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
-            MessageBoxW(hwnd_, L"Could not save the keyed bone.", L"Forge", MB_OK | MB_ICONERROR);
+        if (!ReloadBoundClipAfterEdit(time)) {
             return;
         }
-        boundClip_ = ri::scene::BindNativeAnimationClip(*editableAnim_, previewScene_, previewBoneNodes_);
-        animPlayer_.SetClip(&boundClip_);
-        animPlayer_.SetTimeSeconds(time);
-        SyncAnimScrubFromPlayer();
-        SyncAnimDurationFromClip();
         SetWindowTextW(status_, Widen("Keyed " + bone.name + " at " + std::to_string(time) + "s").c_str());
     }
 
-    [[nodiscard]] bool ReloadBoundClipAfterEdit(const double timeSeconds) {
+    [[nodiscard]] bool ReloadBoundClipAfterEdit(
+        const double timeSeconds,
+        const bool recordUndo = true) {
         if (!editableAnim_.has_value() || editableAnimPath_.empty()) {
             return false;
+        }
+        std::optional<ri::content::NativeAnimationDocument> undoSnapshot{};
+        if (recordUndo) {
+            undoSnapshot = ri::content::LoadNativeAnimationDocument(editableAnimPath_);
         }
         if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
             MessageBoxW(hwnd_, L"Could not save the motion clip.", L"Forge", MB_OK | MB_ICONERROR);
             return false;
+        }
+        if (undoSnapshot.has_value()) {
+            animUndo_.push_back(std::move(*undoSnapshot));
+            if (animUndo_.size() > 48U) {
+                animUndo_.erase(animUndo_.begin());
+            }
+            animRedo_.clear();
         }
         if (!previewBoneNodes_.empty()) {
             boundClip_ = ri::scene::BindNativeAnimationClip(
@@ -5451,6 +7239,47 @@ private:
         SyncAnimDurationFromClip();
         PopulateBonePoseFields();
         return true;
+    }
+
+    void ClearAnimUndoStacks() {
+        animUndo_.clear();
+        animRedo_.clear();
+    }
+
+    void UndoAnimEdit() {
+        if (!editableAnim_.has_value() || animUndo_.empty()) {
+            return;
+        }
+        animRedo_.push_back(*editableAnim_);
+        if (animRedo_.size() > 48U) {
+            animRedo_.erase(animRedo_.begin());
+        }
+        *editableAnim_ = std::move(animUndo_.back());
+        animUndo_.pop_back();
+        if (!ReloadBoundClipAfterEdit(ReadCurrentAnimTime(), false)) {
+            return;
+        }
+        SyncAnimWindowFromClip();
+        PopulateEventList();
+        SetWindowTextW(status_, L"Undid motion edit. Ctrl+Y redo.");
+    }
+
+    void RedoAnimEdit() {
+        if (!editableAnim_.has_value() || animRedo_.empty()) {
+            return;
+        }
+        animUndo_.push_back(*editableAnim_);
+        if (animUndo_.size() > 48U) {
+            animUndo_.erase(animUndo_.begin());
+        }
+        *editableAnim_ = std::move(animRedo_.back());
+        animRedo_.pop_back();
+        if (!ReloadBoundClipAfterEdit(ReadCurrentAnimTime(), false)) {
+            return;
+        }
+        SyncAnimWindowFromClip();
+        PopulateEventList();
+        SetWindowTextW(status_, L"Redid motion edit.");
     }
 
     void KeyRestAtPlayhead() {
@@ -5487,6 +7316,122 @@ private:
                 status_,
                 Widen("Rest-keyed " + boneName + " at " + std::to_string(time) + "s").c_str());
         }
+    }
+
+    void HoldSelectedAnimKey() {
+        if (!editableAnim_.has_value()) {
+            MessageBoxW(hwnd_, L"Open a motion clip before Hold.", L"Forge", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::string boneName = SelectedBoneName();
+        if (boneName.empty()) {
+            MessageBoxW(
+                hwnd_,
+                L"Select a bone, then Hold to repeat the previous key at the playhead.",
+                L"Forge",
+                MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const double time = ReadCurrentAnimTime();
+        if (!ri::scene::HoldNativeAnimationKey(*editableAnim_, boneName, time)) {
+            MessageBoxW(
+                hwnd_,
+                Widen("No earlier key on " + boneName + " to hold at " + std::to_string(time) + "s.")
+                    .c_str(),
+                L"Forge",
+                MB_OK | MB_ICONWARNING);
+            return;
+        }
+        if (!ReloadBoundClipAfterEdit(time)) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen("Held " + boneName + " previous key at " + std::to_string(time) + "s").c_str());
+    }
+
+    void BreakdownSelectedAnimKey() {
+        if (!editableAnim_.has_value()) {
+            MessageBoxW(hwnd_, L"Open a motion clip before Break.", L"Forge", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::string boneName = SelectedBoneName();
+        if (boneName.empty()) {
+            MessageBoxW(
+                hwnd_,
+                L"Select a bone, then Break to stamp an interpolated key at the playhead.",
+                L"Forge",
+                MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const double time = ReadCurrentAnimTime();
+        if (!ri::scene::BreakdownNativeAnimationKey(*editableAnim_, boneName, time)) {
+            MessageBoxW(
+                hwnd_,
+                Widen("Need surrounding keys on " + boneName + " around " + std::to_string(time)
+                    + "s.")
+                    .c_str(),
+                L"Forge",
+                MB_OK | MB_ICONWARNING);
+            return;
+        }
+        if (!ReloadBoundClipAfterEdit(time)) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen("Broke " + boneName + " at " + std::to_string(time) + "s").c_str());
+    }
+
+    void HoldSelectedAnimPose() {
+        if (!editableAnim_.has_value()) {
+            MessageBoxW(hwnd_, L"Open a motion clip before Hold All.", L"Forge", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const double time = ReadCurrentAnimTime();
+        const std::size_t held = ri::scene::HoldNativeAnimationPose(*editableAnim_, time);
+        if (held == 0U) {
+            MessageBoxW(
+                hwnd_,
+                Widen("No tracks had an earlier key to hold at " + std::to_string(time) + "s.").c_str(),
+                L"Forge",
+                MB_OK | MB_ICONWARNING);
+            return;
+        }
+        if (!ReloadBoundClipAfterEdit(time)) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen("Held pose on " + std::to_string(held) + " bones at " + std::to_string(time) + "s")
+                .c_str());
+    }
+
+    void BreakdownSelectedAnimPose() {
+        if (!editableAnim_.has_value()) {
+            MessageBoxW(hwnd_, L"Open a motion clip before Break All.", L"Forge", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const double time = ReadCurrentAnimTime();
+        const std::size_t stamped = ri::scene::BreakdownNativeAnimationPose(*editableAnim_, time);
+        if (stamped == 0U) {
+            MessageBoxW(
+                hwnd_,
+                Widen("No tracks had surrounding keys to breakdown at " + std::to_string(time)
+                    + "s.")
+                    .c_str(),
+                L"Forge",
+                MB_OK | MB_ICONWARNING);
+            return;
+        }
+        if (!ReloadBoundClipAfterEdit(time)) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen("Broke pose on " + std::to_string(stamped) + " bones at "
+                + std::to_string(time) + "s")
+                .c_str());
     }
 
     void MirrorSelectedAnimKeys() {
@@ -5613,18 +7558,9 @@ private:
                 MB_OK | MB_ICONWARNING);
             return;
         }
-        if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
-            MessageBoxW(hwnd_, L"Could not save after deleting the key.", L"Forge", MB_OK | MB_ICONERROR);
+        if (!ReloadBoundClipAfterEdit(time)) {
             return;
         }
-        boundClip_ = ri::scene::BindNativeAnimationClip(*editableAnim_, previewScene_, previewBoneNodes_);
-        animPlayer_.SetClip(&boundClip_);
-        animPlayer_.SetTimeSeconds(time);
-        ApplyClipPoseToPreview();
-        ApplySculptDisplayMesh();
-        PublishPreview();
-        SyncAnimScrubFromPlayer();
-        SyncAnimDurationFromClip();
         SetWindowTextW(status_, Widen("Deleted " + bone.name + " key at " + std::to_string(time) + "s").c_str());
     }
 
@@ -5702,7 +7638,9 @@ private:
                 hwnd_, L"Open a motion clip before quantizing.", L"Forge", MB_OK | MB_ICONWARNING);
             return;
         }
-        const std::size_t changed = ri::scene::QuantizeNativeAnimationTimes(*editableAnim_, 30.0);
+        std::size_t collapsed = 0;
+        const std::size_t changed =
+            ri::scene::QuantizeNativeAnimationTimes(*editableAnim_, 30.0, &collapsed);
         if (changed == 0U) {
             SetWindowTextW(status_, L"Clip already sits on the 30fps grid.");
             return;
@@ -5712,9 +7650,12 @@ private:
         }
         SyncAnimWindowFromClip();
         PopulateEventList();
-        SetWindowTextW(
-            status_,
-            Widen("Quantized " + std::to_string(changed) + " stamps to 30fps.").c_str());
+        std::string status = "Snapped " + std::to_string(changed) + " stamps to 30fps";
+        if (collapsed > 0U) {
+            status += " (collapsed " + std::to_string(collapsed) + " duplicates)";
+        }
+        status += ".";
+        SetWindowTextW(status_, Widen(status).c_str());
     }
 
     void StripMissingAnimTracks() {
@@ -5744,6 +7685,117 @@ private:
             status_, Widen("Stripped " + std::to_string(removed) + " unbound tracks.").c_str());
     }
 
+    void DiagnoseSelectedAnimBind() {
+        if (!editableAnim_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open a motion clip before Check Bind.", L"Forge", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        if (previewBoneNodes_.empty()) {
+            MessageBoxW(
+                hwnd_,
+                L"Open a skinned mesh or rig so Check Bind can see which bones exist.",
+                L"Forge",
+                MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const ri::scene::NativeAnimationBindReport report = ri::scene::DiagnoseNativeAnimationBind(
+            *editableAnim_, previewScene_, previewBoneNodes_);
+        std::string status = report.summary;
+        if (!report.missingBones.empty()) {
+            status += " Missing:";
+            const std::size_t shown = (std::min)(report.missingBones.size(), std::size_t{4});
+            for (std::size_t index = 0; index < shown; ++index) {
+                status += (index == 0 ? " " : ", ") + report.missingBones[index];
+            }
+            if (report.missingBones.size() > shown) {
+                status += ", ...";
+            }
+        }
+        SetWindowTextW(status_, Widen(status).c_str());
+    }
+
+    void ReverseSelectedClip() {
+        if (!editableAnim_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open a motion clip before reversing.", L"Forge", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        if (!ri::scene::ReverseNativeAnimation(*editableAnim_)) {
+            SetWindowTextW(status_, L"Clip timing was unchanged.");
+            return;
+        }
+        const double time = ReadCurrentAnimTime();
+        const double flipped = std::clamp(
+            editableAnim_->durationSeconds - time, 0.0, editableAnim_->durationSeconds);
+        if (!ReloadBoundClipAfterEdit(flipped)) {
+            return;
+        }
+        SyncAnimWindowFromClip();
+        PopulateEventList();
+        SetWindowTextW(status_, L"Reversed clip timing around the midpoint.");
+    }
+
+    void DensifyAnimKeys() {
+        if (!editableAnim_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open a motion clip before densifying.", L"Forge", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::size_t written = ri::scene::DensifyNativeAnimationKeys(*editableAnim_, 30.0);
+        if (written == 0U) {
+            SetWindowTextW(status_, L"Clip already has a 30fps key grid (or no span).");
+            return;
+        }
+        if (!ReloadBoundClipAfterEdit(ReadCurrentAnimTime())) {
+            return;
+        }
+        SyncAnimWindowFromClip();
+        SetWindowTextW(
+            status_,
+            Widen("Densified " + std::to_string(written) + " keys at 30fps.").c_str());
+    }
+
+    void DecimateAnimKeys() {
+        if (!editableAnim_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open a motion clip before thinning keys.", L"Forge", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::size_t removed = ri::scene::DecimateNativeAnimationKeys(*editableAnim_);
+        if (removed == 0U) {
+            SetWindowTextW(status_, L"No linearly redundant keys to thin.");
+            return;
+        }
+        if (!ReloadBoundClipAfterEdit(ReadCurrentAnimTime())) {
+            return;
+        }
+        SyncAnimWindowFromClip();
+        SetWindowTextW(
+            status_,
+            Widen("Thinned " + std::to_string(removed) + " redundant keys.").c_str());
+    }
+
+    void SmoothAnimKeys() {
+        if (!editableAnim_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open a motion clip before easing keys.", L"Forge", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::size_t changed = ri::scene::SmoothNativeAnimationKeys(*editableAnim_, 0.5f);
+        if (changed == 0U) {
+            SetWindowTextW(status_, L"No interior keys to ease.");
+            return;
+        }
+        if (!ReloadBoundClipAfterEdit(ReadCurrentAnimTime())) {
+            return;
+        }
+        SyncAnimWindowFromClip();
+        SetWindowTextW(
+            status_,
+            Widen("Eased " + std::to_string(changed) + " interior keys.").c_str());
+    }
+
     void ClearAllAnimEvents() {
         if (!editableAnim_.has_value()) {
             MessageBoxW(
@@ -5763,8 +7815,7 @@ private:
             return;
         }
         const std::size_t removed = ri::scene::ClearNativeAnimationEvents(*editableAnim_);
-        if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
-            MessageBoxW(hwnd_, L"Could not save clip events.", L"Forge", MB_OK | MB_ICONERROR);
+        if (!ReloadBoundClipAfterEdit(ReadCurrentAnimTime())) {
             return;
         }
         PopulateEventList();
@@ -6207,6 +8258,34 @@ private:
             Widen("Flooded " + std::to_string(painted) + " free verts onto " + boneName).c_str());
     }
 
+    void SealUnboundSculptWeights() {
+        if (!editableSculpt_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open clay before sealing unbound weights.", L"Forge weights", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const ri::content::NativeSculptDocument previous = *editableSculpt_;
+        const std::size_t sealed =
+            ri::scene::SealUnboundNativeSculptWeightsFromNeighbors(*editableSculpt_);
+        if (sealed == 0U) {
+            SetWindowTextW(status_, L"No unbound verts bordered by weighted neighbors.");
+            return;
+        }
+        sculptUndo_.Capture(previous);
+        sculptDirty_ = true;
+        showWeights_ = true;
+        ApplySculptDisplayMesh();
+        SyncPreviewOverlays(true);
+        RefreshViewportHeading();
+        SyncForgeTitle();
+        if (!SaveActiveSculpt()) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen("Sealed " + std::to_string(sealed) + " unbound verts from neighbors.").c_str());
+    }
+
     void TransferSelectedBoneWeights() {
         if (!editableSculpt_.has_value()) {
             MessageBoxW(
@@ -6330,6 +8409,28 @@ private:
                 + (factor < 1.0 ? "0.5" : "2.0") + "x.").c_str());
     }
 
+    void ScaleSelectedClipAmp(const float factor) {
+        if (!editableAnim_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open a motion clip before scaling amplitude.", L"Forge", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::size_t changed = ri::scene::ScaleNativeAnimationTransforms(*editableAnim_, factor);
+        if (changed == 0U) {
+            SetWindowTextW(status_, L"Clip transforms were unchanged.");
+            return;
+        }
+        if (!ReloadBoundClipAfterEdit(ReadCurrentAnimTime())) {
+            return;
+        }
+        SyncAnimWindowFromClip();
+        SetWindowTextW(
+            status_,
+            Widen(std::string("Scaled key amplitude by ")
+                + (factor < 1.0f ? "0.5" : "2.0") + "x on "
+                + std::to_string(changed) + " keys.").c_str());
+    }
+
     void NudgeSelectedClipTime(const double deltaSeconds) {
         if (!editableAnim_.has_value()) {
             MessageBoxW(hwnd_, L"Open a motion clip before nudging.", L"Forge", MB_OK | MB_ICONWARNING);
@@ -6349,6 +8450,38 @@ private:
         SetWindowTextW(
             status_,
             Widen(std::string("Nudged clip by ") + (deltaSeconds < 0.0 ? "-" : "+") + "0.1s.").c_str());
+    }
+
+    void NudgeSelectedBoneClipTime(const double deltaSeconds) {
+        if (!editableAnim_.has_value()) {
+            MessageBoxW(
+                hwnd_, L"Open a motion clip before nudging a bone track.", L"Forge", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        const std::string boneName = SelectedBoneName();
+        if (boneName.empty()) {
+            MessageBoxW(
+                hwnd_,
+                L"Select a bone, then ←Track / Track→ to shift only that track.",
+                L"Forge",
+                MB_OK | MB_ICONWARNING);
+            return;
+        }
+        if (!ri::scene::OffsetNativeAnimationBoneTimes(*editableAnim_, boneName, deltaSeconds)) {
+            SetWindowTextW(status_, Widen("No keys on " + boneName + " to nudge.").c_str());
+            return;
+        }
+        const double time = std::clamp(
+            ReadCurrentAnimTime() + deltaSeconds, 0.0, editableAnim_->durationSeconds);
+        if (!ReloadBoundClipAfterEdit(time)) {
+            return;
+        }
+        SetWindowTextW(
+            status_,
+            Widen(
+                std::string("Nudged ") + boneName + " by " + (deltaSeconds < 0.0 ? "-" : "+")
+                + "0.1s.")
+                .c_str());
     }
 
     void CopySelectedAnimTrack() {
@@ -6394,20 +8527,13 @@ private:
             MessageBoxW(hwnd_, L"Select a destination bone for Paste Keys.", L"Forge", MB_OK | MB_ICONWARNING);
             return;
         }
-        // Ensure clipboard source track exists, then copy onto the destination bone.
-        bool hasSource = false;
-        for (ri::content::NativeAnimationTrack& track : editableAnim_->tracks) {
-            if (track.boneName == copiedAnimTrack_.boneName) {
-                track.keys = copiedAnimTrack_.keys;
-                hasSource = true;
-                break;
-            }
+        // Paste clipboard keys onto the destination only — never rewrite the source track.
+        if (boneName == copiedAnimTrack_.boneName) {
+            SetWindowTextW(status_, L"Paste Keys onto a different bone.");
+            return;
         }
-        if (!hasSource) {
-            editableAnim_->tracks.push_back(copiedAnimTrack_);
-        }
-        const std::size_t changed = ri::scene::CopyNativeAnimationTrack(
-            *editableAnim_, copiedAnimTrack_.boneName, boneName);
+        const std::size_t changed = ri::scene::ReplaceNativeAnimationTrackKeys(
+            *editableAnim_, boneName, copiedAnimTrack_.keys);
         if (changed == 0U) {
             SetWindowTextW(status_, L"Paste Keys wrote nothing.");
             return;
@@ -6473,8 +8599,7 @@ private:
             RefreshCatalog(editableModelPath_);
         } else if (editableAnim_.has_value() && !editableAnimPath_.empty()) {
             editableAnim_->displayName = name;
-            if (!ri::content::SaveNativeAnimationDocument(editableAnimPath_, *editableAnim_)) {
-                MessageBoxW(hwnd_, L"Could not save clip name.", L"Forge", MB_OK | MB_ICONERROR);
+            if (!ReloadBoundClipAfterEdit(ReadCurrentAnimTime())) {
                 return;
             }
             RefreshCatalog(editableAnimPath_);
@@ -6876,13 +9001,23 @@ private:
         const bool enabled = (item.itemState & ODS_DISABLED) == 0U;
         const bool pressed = (item.itemState & ODS_SELECTED) != 0U;
         const bool bayOn = item.CtlID == static_cast<UINT>(bay_);
+        const bool paintModeOn =
+            (item.CtlID == kWeightPaintAdd
+                && weightPaintMode_ == ri::scene::NativeSculptWeightPaint::Add)
+            || (item.CtlID == kWeightPaintAssign
+                && weightPaintMode_ == ri::scene::NativeSculptWeightPaint::Assign)
+            || (item.CtlID == kWeightPaintSmooth
+                && weightPaintMode_ == ri::scene::NativeSculptWeightPaint::Smooth)
+            || (item.CtlID == kWeightPaintClear
+                && weightPaintMode_ == ri::scene::NativeSculptWeightPaint::Clear);
+        const bool lit = bayOn || paintModeOn;
         RECT bounds = item.rcItem;
-        FillRect(item.hDC, &bounds, bayOn ? accentBrush_ : (pressed ? listBrush_ : raisedBrush_));
+        FillRect(item.hDC, &bounds, lit ? accentBrush_ : (pressed ? listBrush_ : raisedBrush_));
         FrameRect(
             item.hDC,
             &bounds,
             IsPrimaryButton(item.CtlID) && enabled ? accentBrush_ : borderBrush_);
-        if (IsPrimaryButton(item.CtlID) && enabled && !bayOn) {
+        if (IsPrimaryButton(item.CtlID) && enabled && !lit) {
             RECT marker{bounds.left + 1, bounds.top + 1, bounds.left + 3, bounds.bottom - 1};
             FillRect(item.hDC, &marker, accentBrush_);
         }
@@ -6890,7 +9025,7 @@ private:
         std::array<wchar_t, 128> label{};
         GetWindowTextW(item.hwndItem, label.data(), static_cast<int>(label.size()));
         SetBkMode(item.hDC, TRANSPARENT);
-        SetTextColor(item.hDC, enabled ? (bayOn ? kBackgroundColor : kTextColor) : RGB(90, 88, 78));
+        SetTextColor(item.hDC, enabled ? (lit ? kBackgroundColor : kTextColor) : RGB(90, 88, 78));
         SelectObject(item.hDC, bodyFont_);
         RECT textBounds = bounds;
         if (pressed) {
@@ -7220,11 +9355,27 @@ private:
                 }
                 if ((GetKeyState(VK_CONTROL) & 0x8000) != 0 && !FocusIsTextEntry()) {
                     if (wParam == 'Z') {
-                        UndoSculptStroke();
+                        if (bay_ == kBayMotion) {
+                            if (editableAnim_.has_value() && !animUndo_.empty()) {
+                                UndoAnimEdit();
+                            } else {
+                                SetWindowTextW(status_, L"Nothing to undo in MOTION.");
+                            }
+                        } else {
+                            UndoSculptStroke();
+                        }
                         return 0;
                     }
                     if (wParam == 'Y') {
-                        RedoSculptStroke();
+                        if (bay_ == kBayMotion) {
+                            if (editableAnim_.has_value() && !animRedo_.empty()) {
+                                RedoAnimEdit();
+                            } else {
+                                SetWindowTextW(status_, L"Nothing to redo in MOTION.");
+                            }
+                        } else {
+                            RedoSculptStroke();
+                        }
                         return 0;
                     }
                 }
@@ -7314,214 +9465,7 @@ private:
                 }
                 break;
             case WM_COMMAND: {
-                const int id = LOWORD(wParam);
-                const int notification = HIWORD(wParam);
-                if (id == kRefresh) {
-                    RefreshCatalog();
-                } else if (id == kNewPrimitiveModel) {
-                    CreatePrimitiveModel();
-                } else if (id == kDuplicateModel) {
-                    DuplicateSelectedModel();
-                } else if (id == kDeleteModel) {
-                    DeleteSelectedModel();
-                } else if (id == kNewSculpt) {
-                    CreateNativeSculpt();
-                } else if (id == kDuplicateSculpt) {
-                    DuplicateSelectedSculpt();
-                } else if (id == kDeleteSculpt) {
-                    DeleteSelectedSculpt();
-                } else if (id == kNewHumanoid) {
-                    CreateHumanoidRig();
-                } else if (id == kDuplicateRig) {
-                    DuplicateSelectedRig();
-                } else if (id == kDeleteRig) {
-                    DeleteSelectedRig();
-                } else if (id == kNewAnimation) {
-                    CreateNativeAnimation();
-                } else if (id == kBayStock || id == kBayClay || id == kBayLook || id == kBayMotion) {
-                    SetForgeBay(id);
-                } else if (id == kApplyLook) {
-                    ApplySelectedLook();
-                } else if (id == kAnimPlay) {
-                    PlaySelectedClip();
-                } else if (id == kAnimStop) {
-                    StopSelectedClip();
-                } else if (id == kAnimLoop) {
-                    ToggleAnimLoop();
-                } else if (id == kAnimRootMotion) {
-                    ToggleRootMotion();
-                } else if (id == kAnimKey) {
-                    KeyCurrentPose();
-                } else if (id == kAnimKeyBone) {
-                    KeySelectedBone();
-                } else if (id == kDeleteAnimKey) {
-                    DeleteSelectedBoneKey();
-                } else if (id == kClearAnimTrack) {
-                    ClearSelectedAnimTrack();
-                } else if (id == kClearAnimKeys) {
-                    ClearAllAnimKeys();
-                } else if (id == kDedupAnimKeys) {
-                    DeduplicateAnimKeys();
-                } else if (id == kQuantizeAnimKeys) {
-                    QuantizeAnimKeys();
-                } else if (id == kStripAnimTracks) {
-                    StripMissingAnimTracks();
-                } else if (id == kDuplicateClip) {
-                    DuplicateSelectedClip();
-                } else if (id == kAnimTrim) {
-                    TrimSelectedClip();
-                } else if (id == kAnimStampIn) {
-                    StampAnimWindowFromPlayhead(false);
-                } else if (id == kAnimStampOut) {
-                    StampAnimWindowFromPlayhead(true);
-                } else if (id == kAnimAddEvent) {
-                    AddEventAtPlayhead();
-                } else if (id == kAnimDelEvent) {
-                    DeleteSelectedEvent();
-                } else if (id == kAnimRenameEvent) {
-                    RenameSelectedEvent();
-                } else if (id == kAnimEventToTime) {
-                    MoveSelectedEventToPlayhead();
-                } else if (id == kAnimDupEvent) {
-                    DuplicateSelectedEventAtPlayhead();
-                } else if (id == kClearAnimEvents) {
-                    ClearAllAnimEvents();
-                } else if (id == kAnimPrevEvent) {
-                    StepSelectedEvent(true);
-                } else if (id == kAnimNextEvent) {
-                    StepSelectedEvent(false);
-                } else if (id == kAnimEventList && notification == LBN_SELCHANGE) {
-                    JumpToSelectedEvent();
-                } else if (id == kAddPrimitive) {
-                    ShowPrimitiveMenuAndAdd();
-                } else if (id == kAddGroup) {
-                    AddGroupToSelectedModel();
-                } else if (id == kDuplicatePart) {
-                    DuplicateSelectedStockElement();
-                } else if (id == kDeletePart) {
-                    DeleteSelectedStockElement();
-                } else if (id == kBakeModel) {
-                    BakeSelectedModel();
-                } else if (id == kBindRig) {
-                    BindSelectedRig();
-                } else if (id == kBindBone) {
-                    BindSelectedBone();
-                } else if (id == kFloodBone) {
-                    FloodSelectedBone();
-                } else if (id == kFloodUnbound) {
-                    FloodUnboundSelectedBone();
-                } else if (id == kTransferWeights) {
-                    TransferSelectedBoneWeights();
-                } else if (id == kSwapWeights) {
-                    SwapSelectedBoneWeights();
-                } else if (id == kNormWeights) {
-                    NormalizeSelectedSculptWeights();
-                } else if (id == kPruneWeights) {
-                    PruneSelectedSculptWeights();
-                } else if (id == kMirrorWeights) {
-                    MirrorSelectedSculptWeights();
-                } else if (id == kMirrorRest) {
-                    MirrorSelectedBoneRest();
-                } else if (id == kBoneRename) {
-                    RenameSelectedBone();
-                } else if (id == kAddChildBone) {
-                    AddChildToSelectedBone();
-                } else if (id == kDeleteBone) {
-                    DeleteSelectedBone();
-                } else if (id == kReparentBone) {
-                    ReparentSelectedBone();
-                } else if (id == kAddSlotBone) {
-                    AddSelectedHumanoidSlot();
-                } else if (id == kAuditWeights) {
-                    AuditSelectedSculptWeights();
-                } else if (id == kSmoothWeights) {
-                    SoftenSelectedSculptWeights();
-                } else if (id == kInvertWeights) {
-                    InvertSelectedBoneWeights();
-                } else if (id == kHalveBoneWeights) {
-                    ScaleSelectedBoneWeights(0.5f);
-                } else if (id == kDoubleBoneWeights) {
-                    ScaleSelectedBoneWeights(2.0f);
-                } else if (id == kClearWeights) {
-                    ClearSelectedSculptWeights();
-                } else if (id == kUnbindRig) {
-                    UnbindSelectedTarget();
-                } else if (id == kAnimPrevKey) {
-                    JumpToNearestAnimKey(true);
-                } else if (id == kAnimNextKey) {
-                    JumpToNearestAnimKey(false);
-                } else if (id == kSnapAnimKey) {
-                    SnapToClosestAnimKey();
-                } else if (id == kResetBone) {
-                    ResetSelectedBonePose();
-                } else if (id == kResetPose) {
-                    ResetAllBonePoses();
-                } else if (id == kMirrorPose) {
-                    MirrorSelectedBonePose();
-                } else if (id == kDeleteClip) {
-                    DeleteSelectedClip();
-                } else if (id == kRestAnimKey) {
-                    KeyRestAtPlayhead();
-                } else if (id == kMirrorAnimKeys) {
-                    MirrorSelectedAnimKeys();
-                } else if (id == kAnimHalfSpeed) {
-                    ScaleSelectedClipTime(0.5);
-                } else if (id == kAnimDoubleSpeed) {
-                    ScaleSelectedClipTime(2.0);
-                } else if (id == kAnimNudgeBack) {
-                    NudgeSelectedClipTime(-0.1);
-                } else if (id == kAnimNudgeForward) {
-                    NudgeSelectedClipTime(0.1);
-                } else if (id == kCopyAnimTrack) {
-                    CopySelectedAnimTrack();
-                } else if (id == kPasteAnimTrack) {
-                    PasteSelectedAnimTrack();
-                } else if (id == kRenameDisplay) {
-                    RenameSelectedDisplayName();
-                } else if (id == kAnimAlignStart) {
-                    AlignSelectedClipStart();
-                } else if (id == kAnimFitDuration) {
-                    FitSelectedClipDuration();
-                } else if (id == kAnimPlayheadToZero) {
-                    ShiftClipPlayheadToZero();
-                } else if (id == kApplyTransform) {
-                    if (IsWindowEnabled(applyTransformButton_)) {
-                        ApplySelectedTransform();
-                    }
-                } else if (id == kFocusAssetFilter) {
-                    SetFocus(assetFilter_);
-                    SendMessageW(assetFilter_, EM_SETSEL, 0, -1);
-                } else if (id == kModelElement && notification == LBN_SELCHANGE) {
-                    PopulateTransformFields();
-                    SyncTransformGizmo();
-                    PublishPreview();
-                } else if (id == kBoneList && notification == LBN_SELCHANGE) {
-                    PopulateBonePoseFields();
-                    SyncAuthoringEnable();
-                    SyncTransformGizmo();
-                    ApplySculptDisplayMesh();
-                    SyncPreviewOverlays(true);
-                } else if (id == kClipList && notification == CBN_SELCHANGE) {
-                    OnClipListSelChange();
-                } else if (id == kTransformMode && notification == CBN_SELCHANGE) {
-                    PopulateTransformFields();
-                } else if (id == kAnimTime && notification == EN_KILLFOCUS) {
-                    ApplyAnimTimeFromEdit();
-                } else if (id == kAnimDuration && notification == EN_KILLFOCUS) {
-                    ApplyAnimDurationFromEdit();
-                } else if (id == kValidate) {
-                    ValidateSelectedAsset();
-                } else if (id == kOpenSource) {
-                    OpenSelectedSource();
-                } else if (id == kOpenInEditor) {
-                    OpenSelectedInEditor();
-                } else if (id == kAssetList && notification == LBN_SELCHANGE) {
-                    UpdateInspector();
-                } else if (id == kAssetList && notification == LBN_DBLCLK) {
-                    OpenSelectedSource();
-                } else if (id == kAssetFilter && notification == EN_CHANGE) {
-                    PopulateAssetList();
-                }
+                DispatchForgeCommand(LOWORD(wParam), HIWORD(wParam));
                 return 0;
             }
             case WM_MEASUREITEM: {
@@ -7679,6 +9623,8 @@ private:
     ri::forge::AsyncAssetCatalogIndex catalogIndex_;
     ri::forge::AsyncForgePreviewBuilder previewBuilder_;
     bool background_ = false;
+    fs::path openAssetPath_{};
+    bool autoPlayOnOpen_ = false;
     ri::forge::AssetCatalog catalog_{};
     std::vector<std::size_t> visibleAssetIndices_{};
     HINSTANCE instance_ = nullptr;
@@ -7717,11 +9663,17 @@ private:
     HWND bakeButton_ = nullptr;
     HWND bindRigButton_ = nullptr;
     HWND unbindRigButton_ = nullptr;
+    HWND bakeSkinButton_ = nullptr;
     HWND bindBoneButton_ = nullptr;
     HWND floodBoneButton_ = nullptr;
     HWND floodUnboundButton_ = nullptr;
+    HWND sealWeightsButton_ = nullptr;
     HWND transferWeightsButton_ = nullptr;
     HWND swapWeightsButton_ = nullptr;
+    HWND weightPaintAddButton_ = nullptr;
+    HWND weightPaintAssignButton_ = nullptr;
+    HWND weightPaintSmoothButton_ = nullptr;
+    HWND weightPaintClearButton_ = nullptr;
     HWND normWeightsButton_ = nullptr;
     HWND pruneWeightsButton_ = nullptr;
     HWND mirrorWeightsButton_ = nullptr;
@@ -7741,6 +9693,16 @@ private:
     HWND auditWeightsButton_ = nullptr;
     HWND invertWeightsButton_ = nullptr;
     HWND softWeightsButton_ = nullptr;
+    HWND softBoneWeightsButton_ = nullptr;
+    HWND growWeightsButton_ = nullptr;
+    HWND shrinkWeightsButton_ = nullptr;
+    HWND hardenWeightsButton_ = nullptr;
+    HWND floorWeightsButton_ = nullptr;
+    HWND ceilWeightsButton_ = nullptr;
+    HWND limitWeightsButton_ = nullptr;
+    HWND stripOrphanWeightsButton_ = nullptr;
+    HWND copyWeightsButton_ = nullptr;
+    HWND pasteWeightsButton_ = nullptr;
     HWND halveWeightsButton_ = nullptr;
     HWND doubleWeightsButton_ = nullptr;
     HWND clearWeightsButton_ = nullptr;
@@ -7799,6 +9761,11 @@ private:
     HWND animDedupKeysButton_ = nullptr;
     HWND animQuantizeKeysButton_ = nullptr;
     HWND animStripTracksButton_ = nullptr;
+    HWND animDiagnoseBindButton_ = nullptr;
+    HWND animReverseButton_ = nullptr;
+    HWND animDensifyKeysButton_ = nullptr;
+    HWND animDecimateKeysButton_ = nullptr;
+    HWND animSmoothKeysButton_ = nullptr;
     HWND animPrevKeyButton_ = nullptr;
     HWND animNextKeyButton_ = nullptr;
     HWND animSnapKeyButton_ = nullptr;
@@ -7806,6 +9773,10 @@ private:
     HWND animResetPoseButton_ = nullptr;
     HWND animMirrorPoseButton_ = nullptr;
     HWND animRestKeyButton_ = nullptr;
+    HWND animHoldKeyButton_ = nullptr;
+    HWND animBreakdownKeyButton_ = nullptr;
+    HWND animHoldPoseButton_ = nullptr;
+    HWND animBreakdownPoseButton_ = nullptr;
     HWND animMirrorKeysButton_ = nullptr;
     HWND animCopyTrackButton_ = nullptr;
     HWND animPasteTrackButton_ = nullptr;
@@ -7813,6 +9784,10 @@ private:
     HWND animDoubleSpeedButton_ = nullptr;
     HWND animNudgeBackButton_ = nullptr;
     HWND animNudgeForwardButton_ = nullptr;
+    HWND animNudgeBoneBackButton_ = nullptr;
+    HWND animNudgeBoneForwardButton_ = nullptr;
+    HWND animHalfAmpButton_ = nullptr;
+    HWND animDoubleAmpButton_ = nullptr;
     HWND animAlignStartButton_ = nullptr;
     HWND animFitDurationButton_ = nullptr;
     HWND animPlayheadZeroButton_ = nullptr;
@@ -7852,6 +9827,7 @@ private:
     int previewGridNode_ = ri::scene::kInvalidHandle;
     int previewAxesNode_ = ri::scene::kInvalidHandle;
     int previewSculptNode_ = ri::scene::kInvalidHandle;
+    bool companionIsRigidBlocks_ = false;
     int previewWireframeNode_ = ri::scene::kInvalidHandle;
     int previewNormalsNode_ = ri::scene::kInvalidHandle;
     int previewCollisionNode_ = ri::scene::kInvalidHandle;
@@ -7879,6 +9855,7 @@ private:
     bool sculptDirty_ = false;
     bool sculptStrokeCaptured_ = false;
     bool sculptWeightStroke_ = false;
+    ri::scene::NativeSculptWeightPaint weightPaintMode_ = ri::scene::NativeSculptWeightPaint::Add;
     float sculptRadius_ = 0.18F;
     float sculptStrength_ = 0.06F;
     POINT lastOrbitPoint_{};
@@ -7895,6 +9872,8 @@ private:
     std::optional<ri::content::NativeAnimationDocument> editableAnim_{};
     fs::path editableAnimPath_{};
     ri::content::NativeAnimationTrack copiedAnimTrack_{};
+    std::vector<float> copiedBoneWeights_{};
+    std::string copiedBoneWeightsSource_{};
     std::optional<ri::scene::RigDefinition> editableRig_{};
     fs::path editableRigPath_{};
     ri::scene::AnimationClip boundClip_{};
@@ -7909,6 +9888,8 @@ private:
     std::vector<fs::path> clipListPaths_{};
     int bay_ = kBayStock;
     ri::scene::NativeSculptUndoStack sculptUndo_{};
+    std::vector<ri::content::NativeAnimationDocument> animUndo_{};
+    std::vector<ri::content::NativeAnimationDocument> animRedo_{};
     std::vector<ModelElementRef> modelElements_{};
     bool previewInitialized_ = false;
     fs::path previewedAssetPath_{};
@@ -7942,109 +9923,39 @@ int main(int argc, char** argv) {
     try {
         const ri::core::CommandLine commandLine(argc, argv);
         const fs::path workspaceRoot = ResolveWorkspaceRoot(commandLine);
-        if (commandLine.HasFlag("--list-primitives")) {
-            for (const auto& preset : ri::scene::kStructuralPrimitivePresets) {
-                std::cout << preset.label << "\n";
-            }
-            return 0;
-        }
-        if (commandLine.HasFlag("--create-primitive-model")) {
-            std::string error;
-            const fs::path output = ri::forge::CreateUniquePrimitiveModel(workspaceRoot, &error);
-            if (output.empty()) {
-                std::cerr << "Forge create failed: " << error << "\n";
-                return 1;
-            }
-            std::cout << "Created primitive model: " << output.string() << "\n";
-            return 0;
-        }
-        if (commandLine.HasFlag("--create-sculpt")) {
-            std::string error;
-            const fs::path output = ri::forge::CreateUniqueNativeSculpt(
-                workspaceRoot, commandLine.GetValue("--cage").value_or("sphere"), &error);
-            if (output.empty()) {
-                std::cerr << "Forge sculpt create failed: " << error << "\n";
-                return 1;
-            }
-            std::cout << "Created native sculpt: " << output.string() << "\n";
-            return 0;
-        }
-        if (const auto model = commandLine.GetValue("--add-primitive");
-            model.has_value() && !model->empty()) {
-            const auto preset = commandLine.GetValue("--preset");
-            if (!preset.has_value() || preset->empty()) {
-                std::cerr << "Forge add failed: --preset is required.\n";
-                return 1;
-            }
-            std::string partId;
-            std::string error;
-            if (!ri::forge::AppendPrimitiveToModel(
-                    ResolveWorkspacePath(workspaceRoot, fs::path(*model)),
-                    *preset,
-                    commandLine.GetValue("--group").value_or("root"),
-                    &partId,
-                    &error)) {
-                std::cerr << "Forge add failed: " << error << "\n";
-                return 1;
-            }
-            std::cout << "Added primitive part: " << partId << "\n";
-            return 0;
-        }
-        if (const auto model = commandLine.GetValue("--add-group");
-            model.has_value() && !model->empty()) {
-            std::string groupId;
-            std::string error;
-            if (!ri::forge::AppendGroupToModel(
-                    ResolveWorkspacePath(workspaceRoot, fs::path(*model)),
-                    commandLine.GetValue("--name").value_or("Part Group"),
-                    commandLine.GetValue("--parent").value_or("root"),
-                    commandLine.GetValue("--bone").value_or(""),
-                    &groupId,
-                    &error)) {
-                std::cerr << "Forge group failed: " << error << "\n";
-                return 1;
-            }
-            std::cout << "Added primitive group: " << groupId << "\n";
-            return 0;
-        }
-        if (const auto model = commandLine.GetValue("--bake-primitive-model");
-            model.has_value() && !model->empty()) {
-            fs::path output{};
-            if (const auto value = commandLine.GetValue("--output"); value.has_value() && !value->empty()) {
-                output = ResolveWorkspacePath(workspaceRoot, fs::path(*value));
-            }
-            const ri::forge::PrimitiveModelBakeSummary bake =
-                ri::forge::BakePrimitiveModelAsset(
-                    ResolveWorkspacePath(workspaceRoot, fs::path(*model)),
-                    output);
-            std::cout << bake.summary << "\n";
-        if (!bake.outputPath.empty()) {
-            std::cout << "Output: " << bake.outputPath.string() << "\n";
-        }
-        if (!bake.rigMapPath.empty()) {
-            std::cout << "Rig map: " << bake.rigMapPath.string() << "\n";
-        }
-            return bake.valid ? 0 : 1;
-        }
-        if (const std::optional<std::string> handoffAsset = commandLine.GetValue("--handoff-probe");
-            handoffAsset.has_value() && !handoffAsset->empty()) {
-            return PrintHandoffProbe(workspaceRoot, fs::path(*handoffAsset));
-        }
-        if (commandLine.HasFlag("--headless")) {
-            const ri::forge::AssetCatalog catalog = ri::forge::ScanAssetCatalog(workspaceRoot);
-            PrintHeadlessSummary(catalog);
-            return 0;
+        if (const std::optional<int> cliExit = TryRunForgeCli(commandLine, workspaceRoot)) {
+            return *cliExit;
         }
 
 #if defined(_WIN32)
         if (HWND console = GetConsoleWindow(); console != nullptr) {
             ShowWindow(console, SW_HIDE);
         }
-        ForgeWindow window(workspaceRoot, commandLine.HasFlag("--background"));
+        fs::path openAsset{};
+        for (const std::string_view option : {"--open-asset", "--asset"}) {
+            if (const auto value = commandLine.GetValue(option); value.has_value() && !value->empty()) {
+                openAsset = fs::path(*value);
+                if (!openAsset.is_absolute()) {
+                    openAsset = workspaceRoot / openAsset;
+                }
+                std::error_code canonicalError{};
+                const fs::path canonical = fs::weakly_canonical(openAsset, canonicalError);
+                if (!canonicalError) {
+                    openAsset = canonical;
+                }
+                break;
+            }
+        }
+        ForgeWindow window(
+            workspaceRoot,
+            commandLine.HasFlag("--background"),
+            std::move(openAsset),
+            commandLine.HasFlag("--auto-play"));
         return window.Run(GetModuleHandleW(nullptr));
 #else
         const ri::forge::AssetCatalog catalog = ri::forge::ScanAssetCatalog(workspaceRoot);
         PrintHeadlessSummary(catalog);
+        std::cout << "Tip: pass --help for headless authoring verbs (no UI on this platform).\n";
         return 0;
 #endif
     } catch (const std::exception& exception) {

@@ -562,8 +562,14 @@ float ComputeShadowFactor(vec3 normal, vec3 lightDir, vec3 worldPos) {
     // Each PCF tap samples a different point on the receiver plane. Comparing all
     // of them to the center depth shadows the receiver itself on sloped surfaces.
     // Evaluate derivatives before the coverage branches so every quad participates.
-    vec3 receiverDx = dFdx(vec3(uv, receiverDepth));
-    vec3 receiverDy = dFdy(vec3(uv, receiverDepth));
+    // Derive the actual triangle plane, not the normal-offset surface. Smooth
+    // vertex normals vary across a triangle; differentiating that offset bends
+    // the receiver plane and produces false occlusion within PCF taps.
+    vec4 planeClip = cameraData.lightViewProjection * vec4(worldPos, 1.0);
+    vec3 planeNdc = planeClip.xyz / planeClip.w;
+    vec3 planeReceiver = vec3(planeNdc.x * 0.5 + 0.5, 0.5 - planeNdc.y * 0.5, planeNdc.z);
+    vec3 receiverDx = dFdx(planeReceiver);
+    vec3 receiverDy = dFdy(planeReceiver);
     float receiverDet = receiverDx.x * receiverDy.y - receiverDx.y * receiverDy.x;
     vec2 receiverDepthGradient = vec2(0.0);
     if (abs(receiverDet) > 1e-10) {
@@ -966,8 +972,10 @@ void main() {
     }
     vec3 localDiffuse = ((vec3(1.0) - localF) * (1.0 - metallic) * albedo / kPi) * mix(max(localNdotL, 0.10), localNdotL, 0.8);
     float localLightScale = hybridHdrRadiance ? mix(1.0, 1.22, tier * 0.5) : 1.0;
+    // Directional visibility belongs to the sun. A point light has a different
+    // position and cannot reuse that shadow map (point shadows are not supplied).
     litRgb += (localDiffuse + localSpec) * localColor * localNdotL * localAtten * localLightScale
-        * mix(0.22, 1.0, shadow) * (foliageCard ? 0.72 : 1.0);
+        * (foliageCard ? 0.72 : 1.0);
     float minLitAlbedo = foliageCard ? 0.06 : (hybridHdrRadiance ? 0.038 : 0.012);
     litRgb = max(litRgb, albedo * minLitAlbedo);
     if (mixedMediaStyle) {

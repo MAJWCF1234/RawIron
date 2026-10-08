@@ -37,6 +37,7 @@ int main(int argc, char** argv) {
         ri::core::LogInfo("  --preview-hide-node=<name>      Hide one named node in headless preview captures");
         ri::core::LogInfo("  --export-gltf=<path>            Export the native capability gallery as glTF 2.0");
         ri::core::LogInfo("  --start-room=<name>             Choose a room listed by --gallery-help");
+        ri::core::LogInfo("  --feature-frame=0..31           Freeze new mesh-feature fixtures for repeatable GPU captures");
         ri::core::LogInfo("  --net-mode=<mode>               offline (default), listen, dedicated, or client");
         ri::core::LogInfo("  --port=<n> --connect-host=<h> --connect-port=<n>  Authority session endpoint");
         return 0;
@@ -70,6 +71,7 @@ int main(int argc, char** argv) {
     options.extendedPostProcess = commandLine.HasFlag("--extended-post");
     if (const auto stack = commandLine.GetValue("--processing-stack")) options.processingStackName = *stack;
     options.jiggleTest = commandLine.HasFlag("--jiggle-test");
+    options.featureFrame=std::clamp(commandLine.GetIntOr("--feature-frame",-1),-1,31);
     options.jigglePreviewFrames = std::max(0, commandLine.GetIntOr("--jiggle-frames", options.jigglePreviewFrames));
     if (commandLine.HasFlag("--hybrid-hdr")) {
         options.hybridHdr = true;

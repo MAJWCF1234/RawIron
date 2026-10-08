@@ -8,8 +8,10 @@
 #include "RawIron/Content/ShaderAsset.h"
 #include "RawIron/Core/Log.h"
 #include "RawIron/Games/GameConfigContracts.h"
+#include "RawIron/Games/GamePhysicsTuning.h"
 #include "RawIron/Games/GamePluginRuntimeBridge.h"
 #include "RawIron/Games/GameRuntimeCore.h"
+#include "RawIron/GameHost/GameProjectBoot.h"
 #include "RawIron/Games/CubeTest/CubeTestAuthority.h"
 #include "RawIron/Games/CubeTest/CubeTestWorld.h"
 #include "RawIron/Render/SceneTextureAudit.h"
@@ -97,15 +99,6 @@ fs::path ResolvePreviewOutputPath(const ri::core::CommandLine& commandLine) {
         return fs::path(*output);
     }
     return fs::current_path() / "cube_test_preview.bmp";
-}
-
-std::optional<ri::content::GameManifest> ResolveStandaloneGameManifest(
-    const StandaloneOptions& options,
-    const fs::path& resolvedWorkspaceRoot) {
-    if (!options.gameRoot.empty()) {
-        return ri::content::LoadGameManifest(options.gameRoot / "manifest.json");
-    }
-    return ri::content::ResolveGameManifest(resolvedWorkspaceRoot, options.gameId);
 }
 
 bool SavePreview(const CubeTestWorld& world,
@@ -234,6 +227,7 @@ struct PlayState {
     float renderContrast = 1.08f;
     float renderSaturation = 1.0f;
     float renderFogDensity = 0.002f;
+    float shadowCoverageRadius = 16.0f;
     float fogStart = 22.0f;
     float fogEnd = 96.0f;
     float fogStrength = 0.20f;
@@ -426,6 +420,12 @@ void CubeTestWin32Hook(void* user,
     state->mouseLook.HandleMessage(hwnd,message,wParam,lParam);
     switch (message) {
     case WM_KEYDOWN:
+        if (wParam == VK_F4 && (lParam & (1LL << 30)) == 0) {
+            auto& frame=state->world.featureFrameOverride;
+            frame=frame<0?0:frame>=24?-1:frame+8;
+            AnimateCubeTestMeshFeatures(state->world,state->elapsedSeconds);
+            ri::core::LogInfo("Mesh feature frame: " + std::to_string(frame) + " (-1=automatic)");
+        }
         if (wParam == 'H' && (lParam & (1LL << 30)) == 0 && !state->processingStackNames.empty()) {
             const auto current = std::find(state->processingStackNames.begin(), state->processingStackNames.end(),
                 state->requestedProcessingStack.empty() ? state->activeProcessingStack : state->requestedProcessingStack);
@@ -473,6 +473,8 @@ void CubeTestWin32Hook(void* user,
 
 bool RunNativeLoop(const StandaloneOptions& options,
                    const ri::content::GameManifest& manifest,
+                   const ri::content::GameScriptBundle& projectScripts,
+                   CubeTestWorld preparedWorld,
                    const fs::path& textureRoot,
                    const std::shared_ptr<const ri::content::CookedTexturePack>& cookedTexturePack,
                    ri::runtime::RuntimeCore& runtime,
@@ -489,17 +491,12 @@ bool RunNativeLoop(const StandaloneOptions& options,
     state.requestedProcessingStack = options.processingStackName;
     const bool verifyStackCycle = commandLine.HasFlag("--verify-processing-stack-cycle");
     std::vector<std::string> stackTransitions;
-    state.world = options.materialCalibration ? BuildCubeTestCalibrationWorld(workspaceRoot, options.normalComparison)
-        : BuildCubeTestWorld("Cube Test", workspaceRoot);
+    state.world = std::move(preparedWorld);
+    state.world.featureFrameOverride=options.featureFrame;
+    AnimateCubeTestMeshFeatures(state.world,0);
     state.netcode = netcode;
     if (authorityBridge != nullptr) {
         authorityBridge->SetWorld(&state.world);
-    }
-    // Interactive play exercises range-read cooked animation. Batch glTF export instead
-    // keeps the project-owned reference maps so the exporter can copy portable files;
-    // package logical IDs are not filesystem URIs.
-    if (cookedTexturePack && options.exportGltfPath.empty()) {
-        ConfigureCookedTextureCube(state.world, CubeTestCookedTextureSequence());
     }
     if (!options.exportGltfPath.empty()) {
         ri::scene::GltfExportReport exportReport{};
@@ -524,18 +521,12 @@ bool RunNativeLoop(const StandaloneOptions& options,
         // complete batch operation and must never fall through into an interactive game loop.
         return true;
     }
-    const ri::content::ScriptScalarMap gameplay = ri::content::LoadScriptScalars(
-        ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/gameplay.riscript"));
-    const ri::content::ScriptScalarMap rendering = ri::content::LoadScriptScalars(
-        ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/rendering.riscript"));
-    const ri::content::ScriptScalarMap postprocess = ri::content::LoadScriptScalars(
-        ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/postprocess.riscript"));
-    const ri::content::ScriptScalarMap physics = ri::content::LoadScriptScalars(
-        ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/physics.riscript"));
-    const ri::content::ScriptScalarMap plugins = ri::content::LoadScriptScalars(
-        ri::content::ResolveGameAssetPath(manifest.rootPath, "scripts/plugins.riscript"));
-    const ri::content::ScriptScalarMap pluginsPolicy = ri::content::LoadScriptScalars(
-        ri::content::ResolveGameAssetPath(manifest.rootPath, "config/plugins.policy"));
+    const auto& gameplay = projectScripts.gameplay;
+    const auto& rendering = projectScripts.rendering;
+    const auto& postprocess = projectScripts.postprocess;
+    const auto& physics = projectScripts.physics;
+    const auto& plugins = projectScripts.plugins;
+    const auto& pluginsPolicy = projectScripts.pluginsPolicy;
     state.movementOptions.simulateStamina = false;
     state.movementOptions.maxGroundSpeed = ri::content::ScriptScalarOrClamped(gameplay, "walk_speed", 4.2f, 0.5f, 24.0f);
     state.movementOptions.maxSprintGroundSpeed = ri::content::ScriptScalarOrClamped(
@@ -564,6 +555,7 @@ bool RunNativeLoop(const StandaloneOptions& options,
         physics, "movement_gravity", state.movementOptions.gravity, 1.0f, 64.0f);
     state.movementOptions.fallGravityMultiplier = ri::content::ScriptScalarOrClamped(
         physics, "movement_fall_gravity_multiplier", state.movementOptions.fallGravityMultiplier, 0.5f, 4.0f);
+    state.movementOptions = ri::games::ResolveGamePhysicsTuning(state.movementOptions, physics);
     state.mouseSensitivity = ri::content::ScriptScalarOrClamped(
         gameplay, "mouse_sensitivity", state.mouseSensitivity, 0.01f, 2.0f);
     state.cameraHeight = ri::content::ScriptScalarOrClamped(gameplay, "camera_height", 1.62f, 0.8f, 2.2f);
@@ -592,6 +584,7 @@ bool RunNativeLoop(const StandaloneOptions& options,
     state.renderExposure = ri::content::ScriptScalarOrClamped(postprocess, "native_exposure", 1.02f, 0.5f, 2.5f);
     state.renderContrast = ri::content::ScriptScalarOrClamped(postprocess, "native_contrast", 1.08f, 0.7f, 1.6f);
     state.renderSaturation = ri::content::ScriptScalarOrClamped(postprocess, "native_saturation", 1.0f, 0.0f, 1.8f);
+    state.shadowCoverageRadius = ri::content::ScriptScalarOrClamped(postprocess, "native_shadow_radius", 16.0f, 8.0f, 256.0f);
     state.renderFogDensity = ri::content::ScriptScalarOrClamped(postprocess, "native_fog_density", 0.002f, 0.0f, 0.05f);
     state.fogStart = ri::content::ScriptScalarOrClamped(rendering, "fog_start", state.fogStart, 0.0f, 5000.0f);
     state.fogEnd = ri::content::ScriptScalarOrClamped(rendering, "fog_end", state.fogEnd, state.fogStart + 0.1f, 10000.0f);
@@ -733,6 +726,7 @@ bool RunNativeLoop(const StandaloneOptions& options,
             frame.renderContrast = state.renderContrast;
             frame.renderSaturation = state.renderSaturation;
             frame.renderFogDensity = state.renderFogDensity;
+            frame.shadowCoverageRadius = state.shadowCoverageRadius;
             frame.renderFogStart = state.fogStart;
             frame.renderFogEnd = state.fogEnd;
             frame.renderFogStrength = state.fogStrength;
@@ -842,6 +836,16 @@ bool RunStandalone(const StandaloneOptions& options,
         }
     }
     workspaceRoot = fs::absolute(workspaceRoot).lexically_normal();
+    const auto project = ri::gamehost::PrepareGameProject({
+        .workspaceRoot=workspaceRoot,
+        .gameRoot=options.gameRoot,
+        .gameId=options.gameId,
+        .expectedRuntimeModule="RawIron.Game.CubeTest",
+        .configContract={.mode=ri::games::GameConfigContractMode::Balanced, .networkTuningMounted=true},
+    }, error);
+    if (!project) return false;
+    const auto& manifest = project->services.manifest;
+
     const fs::path textureRoot = ri::content::PickEngineTexturesDirectory(workspaceRoot, executablePath);
     const std::shared_ptr<const ri::content::CookedTexturePack> cookedTexturePack =
         options.cookedTextureDemo ? TryMountRawIronX32(workspaceRoot, textureRoot) : nullptr;
@@ -884,43 +888,9 @@ bool RunStandalone(const StandaloneOptions& options,
             + "; software --save-preview is not GPU evidence.");
     }
 
-    const std::optional<ri::content::GameManifest> manifest =
-        ResolveStandaloneGameManifest(options, workspaceRoot);
-    if (!manifest.has_value()) {
-        if (error != nullptr) {
-            *error = "Unable to resolve Cube Test manifest for game id '" + options.gameId + "'.";
-        }
-        return false;
-    }
-    const std::vector<std::string> formatIssues = ri::content::ValidateGameProjectFormat(*manifest);
-    if (!formatIssues.empty()) {
-        if (error != nullptr) {
-            *error = "Cube Test project format validation failed:";
-            for (const std::string& issue : formatIssues) {
-                *error += " " + issue;
-            }
-        }
-        return false;
-    }
-    std::string contractError;
-    if (!ri::games::EnforceGameConfigContracts(
-            manifest->rootPath,
-            ri::games::GameConfigContractOptions{.mode = ri::games::GameConfigContractMode::Balanced},
-            &contractError)) {
-        if (error != nullptr) {
-            *error = contractError;
-        }
-        return false;
-    }
-
-    auto manifestService = std::make_shared<ri::content::GameManifest>(*manifest);
-    auto supportService = std::make_shared<ri::content::GameRuntimeSupportData>(
-        ri::content::LoadGameRuntimeSupportData(manifest->rootPath));
-    ri::games::LogGameRuntimeSupportSummary(*supportService);
-
     CubeTestWorld previewWorld = options.materialCalibration ? BuildCubeTestCalibrationWorld(workspaceRoot, options.normalComparison)
         : BuildCubeTestWorld("Cube Test", workspaceRoot);
-    if (cookedTexturePack) {
+    if (cookedTexturePack && options.exportGltfPath.empty()) {
         ConfigureCookedTextureCube(previewWorld, CubeTestCookedTextureSequence());
     }
     for (const auto& entry : ri::render::software::AuditSceneTextures(previewWorld.scene, textureRoot, cookedTexturePack)) {
@@ -956,24 +926,17 @@ bool RunStandalone(const StandaloneOptions& options,
     }
 
 #if defined(_WIN32)
-    ri::runtime::RuntimeCore runtime = ri::games::CreateGameRuntimeCore(
-        *manifest,
-        "RawIron.Game.CubeTest",
-        ri::games::BuildGameRuntimePaths(*manifest, workspaceRoot),
-        ri::games::GameRuntimeBootServices{
-            .manifest = std::move(manifestService),
-            .support = std::move(supportService),
-        });
+    ri::runtime::RuntimeCore runtime = project->CreateRuntime();
     auto authorityBridge = std::make_shared<CubeTestAuthorityBridge>();
     ri::runtime::AuthoritativeNetConfig authorityConfig =
-        BuildCubeTestAuthorityConfig(commandLine, authorityBridge);
+        BuildCubeTestAuthorityConfig(commandLine, authorityBridge, manifest->rootPath);
     auto authorityModule = std::make_unique<ri::runtime::AuthoritativeNetModule>(authorityConfig);
     ri::runtime::AuthoritativeNetModule* const authorityNetcode = authorityModule.get();
     runtime.AddModule(std::move(authorityModule));
     ri::core::LogInfo(
         "Cube Test controls: mouse look, WASD move, Shift sprint, Space jump, E carry, LMB primary, T teleport test, Home reset, Esc quit.");
     const bool ok = RunNativeLoop(
-        options, *manifest, textureRoot, cookedTexturePack, runtime, authorityNetcode,
+        options, *manifest, project->Scripts(), std::move(previewWorld), textureRoot, cookedTexturePack, runtime, authorityNetcode,
         authorityBridge, commandLine, error);
     runtime.Shutdown();
     return ok;

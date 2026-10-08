@@ -4,6 +4,7 @@
 #include "RawIron/Games/CubeTest/CubeTestGallery.h"
 
 #include "RawIron/Content/RipakArchive.h"
+#include "RawIron/Content/GameManifest.h"
 #include "RawIron/Render/ScenePreview.h"
 #include "RawIron/Render/PreviewTexture.h"
 #include "RawIron/Render/SceneTextureAudit.h"
@@ -61,6 +62,7 @@ bool TestSharedAuthority(ri::games::cubetest::CubeTestWorld& desktop) {
     std::string error;
     bool ok = true;
     auto command = CubeTestAuthorityBridge::BuildProjectileCommand({125.2f,1.4f,0},{1,0,0});
+    host.OnCommandTick(1);
     const auto initial = host.CaptureSnapshot(1);
     if (!Require(initial.has_value(), "authority initial capture")) return false;
     for (int i=0;i<4;++i) ok &= Require(host.HandleCommand(7,0,command,&error), "four authority commands per tick");
@@ -68,6 +70,8 @@ bool TestSharedAuthority(ri::games::cubetest::CubeTestWorld& desktop) {
     (void)host.CaptureSnapshot(1);
     ok &= Require(!host.HandleCommand(7,0,command,&error), "same-tick capture cannot reset rate limit");
     (void)host.CaptureSnapshot(2);
+    ok &= Require(!host.HandleCommand(7,0,command,&error), "different snapshot tick cannot reset command budget");
+    host.OnCommandTick(2);
     ok &= Require(host.HandleCommand(7,0,command,&error), "new authority tick replenishes budget");
     const auto accepted = host.CaptureSnapshot(3);
     if (!Require(accepted.has_value() && client.ApplySnapshot(*accepted,&error), "desktop to XR snapshot")) return false;
@@ -90,6 +94,7 @@ bool TestSharedAuthority(ri::games::cubetest::CubeTestWorld& desktop) {
     ok &= Require(!client.ApplySnapshot(corrupt,&error), "trailing snapshot bytes rejected");
     corrupt = *accepted; corrupt.bytes.resize(10);
     ok &= Require(!client.ApplySnapshot(corrupt,&error), "truncated snapshot rejected");
+    host.OnCommandTick(4);
     const auto beforeInvalid = host.CaptureSnapshot(4);
     for (const auto invalid : {
         CubeTestAuthorityBridge::BuildProjectileCommand({999,0,0},{1,0,0}),
@@ -105,7 +110,7 @@ bool TestSharedAuthority(ri::games::cubetest::CubeTestWorld& desktop) {
     command.pop_back();
     for (std::size_t peer=0;peer<32;++peer) ok &= Require(host.HandleCommand(peer,0,command,&error), "bounded peer accepts command");
     ok &= Require(!host.HandleCommand(32,0,command,&error), "peer memory budget bounded");
-    (void)host.CaptureSnapshot(5);
+    host.OnCommandTick(5);
     ok &= Require(host.HandleCommand(32,0,command,&error), "old peer entries retire at next tick");
     CubeTestAuthorityBridge detached;
     ok &= Require(!detached.CaptureSnapshot(0) && !detached.HandleCommand(1,0,command,&error), "detached bridge fails safely");
@@ -127,7 +132,27 @@ bool TestGalleryContracts(const ri::games::cubetest::CubeTestWorld& world) {
             && mesh.texCoords.size()==mesh.positions.size(),"structural exhibits retain normals and UV streams");
     }
     ok &= Require(structuralExhibits==25,"eleven structural platforms must contain all 25 exhibits");
-    ok &= Require(CubeTestRoomGuides().size()==18,"all eighteen showcase rooms are registered");
+    ok &= Require(CubeTestRoomGuides().size()==22,"all twenty-two showcase rooms are registered");
+    for(const char* room:{"vertex-colors","uv-transform","morph-targets","clipping"}) {
+        const auto platform=ri::scene::FindNodeByName(world.scene,"CubeTest_"+std::string(room)+"Platform");
+        ok &= Require(platform && world.scene.GetMesh(world.scene.GetNode(*platform).mesh).primitive==ri::scene::PrimitiveType::Cube,
+            "new gallery platform must have renderable cube geometry as well as a floor collider");
+    }
+    ok &= Require(world.meshFeatureAnimations.size()==3,"UV, morph and clip fixtures have bounded animation streams");
+    for (const auto& animation:world.meshFeatureAnimations) {
+        ok &= Require(animation.frames.size()==32,"each mesh-feature animation has exactly 32 cached poses");
+        if(animation.frames.size()!=32)continue;
+        const auto& first=world.scene.GetMesh(animation.frames[0]);
+        const auto& opposite=world.scene.GetMesh(animation.frames[16]);
+        bool changed=first.positions.size()!=opposite.positions.size();
+        for(std::size_t i=0;!changed && i<first.positions.size();++i) {
+            changed=ri::math::LengthSquared(first.positions[i]-opposite.positions[i])>1e-8f;
+            if(!changed && first.texCoords.size()==first.positions.size() && opposite.texCoords.size()==opposite.positions.size())
+                changed=std::abs(first.texCoords[i].x-opposite.texCoords[i].x)>1e-5f
+                    ||std::abs(first.texCoords[i].y-opposite.texCoords[i].y)>1e-5f;
+        }
+        ok &= Require(changed,"feature animation changes geometry or UVs between opposite poses");
+    }
     for (const auto id : {"knots","helices","lathe-poles","extrusion","rounded","superellipsoids","hulls","heightfields"}) {
         const auto* room=FindCubeTestRoom(id);
         ok &= Require(room!=nullptr,"new structural room must be registered");
@@ -237,6 +262,7 @@ bool TestGalleryContracts(const ri::games::cubetest::CubeTestWorld& world) {
 
     StandaloneOptions options{};
     options.workspaceRoot = scratch;
+    options.gameRoot = ri::content::DetectWorkspaceRoot(std::filesystem::current_path()) / "Games" / "CubeTest";
     char executable[] = "gallery-test";
     char* arguments[] = {executable};
     const ri::core::CommandLine commandLine(1, arguments);
@@ -296,6 +322,7 @@ int main(int argc, char** argv) {
         std::filesystem::create_directories(assetRoot);
         ri::games::cubetest::StandaloneOptions options{};
         options.workspaceRoot = scratch;
+        options.gameRoot = ri::content::DetectWorkspaceRoot(std::filesystem::current_path()) / "Games" / "CubeTest";
         options.materialCalibration = true;
         char executable[] = "calibration-test";
         char savePreview[] = "--save-preview";

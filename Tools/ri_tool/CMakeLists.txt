@@ -34,6 +34,11 @@ rawiron_stage_runtime_dlls(ri_tool)
 rawiron_bundle_engine_textures(ri_tool)
 
 if (RAWIRON_BUILD_TESTS)
+  add_test(NAME RawIron.Tool.BlockCharacterAuthoringSmoke
+    COMMAND ${CMAKE_COMMAND}
+      "-DEXECUTABLE=$<TARGET_FILE:ri_tool>"
+      "-DOUTPUT_ROOT=${CMAKE_CURRENT_BINARY_DIR}/block-character-authoring-test"
+      -P "${PROJECT_SOURCE_DIR}/Tests/cmake/VerifyBlockCharacterAuthoring.cmake")
   set(rawiron_verify_command_output "${PROJECT_SOURCE_DIR}/Tests/cmake/VerifyCommandOutput.cmake")
   rawiron_runtime_dll_test_arg(rawiron_tool_runtime_dll_arg ri_tool)
   set(rawiron_tool_sample_expected
@@ -54,13 +59,21 @@ if (RAWIRON_BUILD_TESTS)
     "Authoring source: .ri_rig.json"
     "Baseline: --rig-create-humanoid"
     "Mesh inputs: OBJ, glTF/GLB, and FBX"
-    "Editor workflow: save rigs under Assets/Source/rigs"
+    "Editor workflow: save under Assets/Source/{rigs,sculpts,anims}"
   )
   set(rawiron_tool_help_expected
     "Usage: ri_tool <command> [options]"
     "Plugins, mods, and extensions:"
     "--plugins-doctor"
     "--extension-validate"
+    "Forge clay, block modeling, and motion (headless — no UI):"
+    "--blockchar-add-part"
+    "--forge-character-create"
+    "--sculpt-create"
+    "--sculpt-paint"
+    "--anim-create"
+    "--anim-hold"
+    "--forge-assets-list"
   )
   set(rawiron_tool_plugin_list_expected
     "Plugin project: liminal-hall"
